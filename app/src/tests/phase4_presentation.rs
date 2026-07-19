@@ -12,10 +12,12 @@ use render::{
     ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
     RenderBoneTransform, STANDARD_SKIN_BYTES,
 };
+use semantic_input::PerspectiveMode;
 
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, local_diagnostic_presentation,
-    select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
+    ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
+    local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
+    update_actor_rig_scene,
 };
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
@@ -227,6 +229,53 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
             .count(),
         1
     );
+}
+
+#[test]
+fn local_visibility_identity_gates_all_perspective_routes() {
+    let canonical = render_owned(7, 31);
+    let mismatched_visibility =
+        local_diagnostic_presentation(7, 0, 8, 5, [100.0, 64.0, 0.0], 0.0, 0.0)
+            .expect("finite mismatched visibility converts");
+    let local = local_actor_presentation_for_visibility(
+        7,
+        8,
+        Some(canonical.clone()),
+        Some(mismatched_visibility),
+    );
+    let batch = select_actor_presentations(7, true, local, [render_owned(7, 31)]);
+    assert!(batch.submissions.is_empty());
+
+    let matching_visibility =
+        local_diagnostic_presentation(7, 0, 7, 5, [100.0, 64.0, 0.0], 0.0, 0.0)
+            .expect("finite matching visibility converts");
+    for (perspective, expected_local_draws) in [
+        (PerspectiveMode::FirstPerson, 0),
+        (PerspectiveMode::ThirdPersonBack, 1),
+        (PerspectiveMode::ThirdPersonFront, 1),
+    ] {
+        let local = local_actor_presentation_for_visibility(
+            7,
+            7,
+            Some(canonical.clone()),
+            Some(matching_visibility.clone()),
+        );
+        let batch = select_actor_presentations(
+            7,
+            perspective != PerspectiveMode::FirstPerson,
+            local,
+            [render_owned(7, 31)],
+        );
+        assert_eq!(
+            batch
+                .submissions
+                .iter()
+                .filter(|entry| entry.input.identity.runtime_id == 7)
+                .count(),
+            expected_local_draws,
+            "unexpected local draw count for {perspective:?}",
+        );
+    }
 }
 
 #[test]

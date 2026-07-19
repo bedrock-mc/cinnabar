@@ -164,6 +164,30 @@ pub(crate) fn local_diagnostic_presentation(
     })
 }
 
+pub(crate) fn local_actor_presentation_for_visibility(
+    local_runtime_id: u64,
+    visibility_runtime_id: u64,
+    canonical: Option<ActorRigPresentation>,
+    diagnostic: Option<ActorRigPresentation>,
+) -> Option<ActorRigPresentation> {
+    if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id {
+        return None;
+    }
+    let diagnostic = diagnostic.filter(|presentation| {
+        presentation.submission.input.identity.runtime_id == local_runtime_id
+    })?;
+    match canonical {
+        Some(mut canonical)
+            if canonical.submission.input.identity.runtime_id == local_runtime_id =>
+        {
+            canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+            Some(canonical)
+        }
+        Some(_) => None,
+        None => Some(diagnostic),
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn select_actor_presentations(
     local_runtime_id: u64,

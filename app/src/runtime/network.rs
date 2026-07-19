@@ -38,8 +38,8 @@ use crate::{
     },
     movement::{MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
-        actor_rig_presentation, local_diagnostic_presentation, select_actor_presentations_for_view,
-        update_actor_rig_scene,
+        actor_rig_presentation, local_actor_presentation_for_visibility,
+        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
     },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
@@ -785,6 +785,9 @@ pub(crate) fn publish_actor_render_frame(
     let (local_visible, local) = local_visibility
         .snapshot()
         .map_or((false, None), |visibility| {
+            if visibility.runtime_id() != local_runtime_id {
+                return (false, None);
+            }
             let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
             let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
             let pitch_degrees = -pitch.to_degrees();
@@ -799,13 +802,12 @@ pub(crate) fn publish_actor_render_frame(
                 yaw_degrees,
                 pitch_degrees,
             );
-            let local = match canonical_local {
-                Some(mut canonical) => diagnostic.map(|diagnostic| {
-                    canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
-                    canonical
-                }),
-                None => diagnostic,
-            };
+            let local = local_actor_presentation_for_visibility(
+                local_runtime_id,
+                visibility.runtime_id(),
+                canonical_local,
+                diagnostic,
+            );
             (visibility.visible(), local)
         });
     let batch = select_actor_presentations_for_view(
