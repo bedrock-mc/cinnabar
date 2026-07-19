@@ -56,6 +56,12 @@ impl DecodedBiomeColumn {
         storage_count: usize,
         payload: &[u8],
     ) -> Result<Self, DecodeError> {
+        if storage_count > crate::MAX_LEVEL_SUBCHUNKS {
+            return Err(DecodeError::TooManyBiomeStorages {
+                count: storage_count,
+                max: crate::MAX_LEVEL_SUBCHUNKS,
+            });
+        }
         let mut reader = Reader::new(payload);
         let mut storages: Vec<Arc<BiomeStorage>> = Vec::with_capacity(storage_count);
         for index in 0..storage_count {

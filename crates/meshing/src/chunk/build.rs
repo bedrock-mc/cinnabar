@@ -239,14 +239,14 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                     0b11_0000
                                 }
                             } else {
-                                match template.quad_count {
-                                    0 => 0,
-                                    32 => u32::MAX,
-                                    count => (1_u32 << count) - 1,
-                                }
+                                quad_visibility_mask(template.quad_count)
                             };
                         for (quad_index, quad) in template_quads.iter().enumerate() {
-                            let bit = 1_u32 << quad_index;
+                            // A u32 mask addresses at most 32 quads; stop rather
+                            // than overflow the shift on a larger template.
+                            let Some(bit) = 1_u32.checked_shl(quad_index as u32) else {
+                                break;
+                            };
                             if visible_quad_mask & bit == 0 {
                                 continue;
                             }
@@ -400,3 +400,34 @@ use crate::{
     contributors::{PaletteFacts, pack_model_transform},
     types::{CubeStreams, ModelDrawRefs},
 };
+
+/// Returns the initial per-quad visibility bitmask for a model template.
+///
+/// The mask carries one bit per quad. A `u32` addresses at most 32 quads, which
+/// every real template respects; a larger count saturates to all-visible rather
+/// than overflowing the shift on a rayon mesh worker, and the meshing loop only
+/// addresses the first 32 quads.
+fn quad_visibility_mask(quad_count: u32) -> u32 {
+    match quad_count {
+        0 => 0,
+        count if count >= 32 => u32::MAX,
+        count => (1_u32 << count) - 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quad_visibility_mask;
+
+    #[test]
+    fn quad_visibility_mask_saturates_beyond_u32_width() {
+        assert_eq!(quad_visibility_mask(0), 0);
+        assert_eq!(quad_visibility_mask(1), 0b1);
+        assert_eq!(quad_visibility_mask(31), (1_u32 << 31) - 1);
+        assert_eq!(quad_visibility_mask(32), u32::MAX);
+        // Templates never legitimately exceed 32 quads, but an out-of-range
+        // count must saturate instead of overflowing the shift.
+        assert_eq!(quad_visibility_mask(40), u32::MAX);
+        assert_eq!(quad_visibility_mask(63), u32::MAX);
+    }
+}
