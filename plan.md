@@ -67,7 +67,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | Dragonfly registry sequential IDs differ from valentine protocol-1001 palette IDs | 1→2 | Resolved: validated runtime assets now derive the unique canonical air identity for both sequential (`13094`) and hashed (`0xdbf44120`) sessions; the checked-in BREG→compiler→blob regression prevents stale protocol constants from turning air into diagnostic geometry on third-party servers |
 | Client-side lighting (Bedrock sends no light data) is a full subsystem | 2 | Scoped task; flood-fill block/sky light, correctness vs vanilla screenshots |
 | Molang/entity animation scope explosion | 4 | v1 = molang subset for vanilla mobs; static fallback pose; explicit cut-line |
-| Sound binaries not fully in bedrock-samples | 8 | Audit early (Phase 2 asset task); fallback = user-supplied client assets import step |
+| Sound binaries not fully in bedrock-samples | 8 | Audited against pinned `v1.26.30.32-preview-full`: 1,815 definitions reference 1,497 unique paths, with 185 binaries absent (94 Nether ambience, 87 gameplay music, 4 menu music); effects are substantially source-unblocked, while the missing ambience/music still requires a lawful local-client import or fallback |
 | Windows transport (no tokio UDS) | 1 | Transport behind trait/enum; named pipe or TCP flavor chosen at startup |
 | axolotl-stack bus factor | 1 | Vendor valentine output (generated code) into `crates/protocol`; upstream fixes when friendly |
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
@@ -1787,6 +1787,22 @@ implemented, held item stacks are not drawn in the hotbar, and scoreboard/boss
 surfaces remain fail-closed until their full native authority is owned. The
 normal/maximized native WGC comparison and live third-party checks remain part
 of the 5.7 gate.
+
+**Official sample authority and unified build closure (2026-07-19):** the
+pinned Mojang `bedrock-samples-v1.26.30.32-preview-full.zip` contains the exact
+25 HUD PNG byte sequences used by the bounded carrier plus the five reviewed UI
+authority JSON files. `make client` now depends on the single `assets` umbrella:
+it reacquires and verifies a missing extracted sample pack once, builds the
+world, atmosphere, entity/animation, open-font, and HUD carriers and reports,
+verifies physics assets, and launches only after every prerequisite succeeds.
+The generated Mojang payloads remain ignored local data. The same audit confirms
+that inventory/container/menu references, 1,612 compiled item visual routes,
+entity rigs and animation payloads, particles, and most sound effects are
+source-unblocked; their UI screens, held/viewmodel/dropped-item rendering,
+animation evaluation, particle renderer, and audio runtime remain implementation
+work and are not closed by asset availability. Base Latin Mojangles, 185 sound
+binaries, and block-render model JSON remain absent from the official sample
+archive.
 
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
