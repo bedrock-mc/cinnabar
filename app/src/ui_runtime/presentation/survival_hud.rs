@@ -5,6 +5,9 @@ use super::{HudTexturePages, UiPresentationError, UiRuntime, rect};
 
 const VANILLA_SURVIVAL_POINTS: u16 = 20;
 const PINNED_CLASSIC_GUI_LOGICAL_SCALE: f32 = 2.0;
+// `hud_screen.json`'s pinned `start_cap_image` authority specifies alpha 0.65.
+// Converting that normalized channel to the renderer's byte channel rounds to 166.
+const VANILLA_HOTBAR_CAP_ALPHA: u8 = 166;
 const HOTBAR_ROLES: [HudTextureRole; 9] = [
     HudTextureRole::Hotbar0,
     HudTextureRole::Hotbar1,
@@ -59,6 +62,9 @@ pub(super) fn responsive_geometry(
     source_width = source_width.checked_add(end[0])?;
 
     let logical_outer_width = f32::from(source_width) * PINNED_CLASSIC_GUI_LOGICAL_SCALE;
+    if logical_width < logical_outer_width {
+        return None;
+    }
     Some(ResponsiveSurvivalHudGeometry {
         logical_texture_scale: PINNED_CLASSIC_GUI_LOGICAL_SCALE,
         hotbar_outer_left: (logical_width - logical_outer_width) * 0.5,
@@ -166,7 +172,7 @@ pub(super) fn append(
             textures,
             HudTextureRole::HotbarStartCap,
             [outer_left, hotbar_y],
-            [255, 255, 255, 166],
+            [255, 255, 255, VANILLA_HOTBAR_CAP_ALPHA],
             scale,
         )?;
         for (index, role) in roles.into_iter().enumerate() {
@@ -186,7 +192,7 @@ pub(super) fn append(
             textures,
             HudTextureRole::HotbarEndCap,
             [outer_left + 181.0 * scale, hotbar_y],
-            [255, 255, 255, 166],
+            [255, 255, 255, VANILLA_HOTBAR_CAP_ALPHA],
             scale,
         )?;
         append_sprite(

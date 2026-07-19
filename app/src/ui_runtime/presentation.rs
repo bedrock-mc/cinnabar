@@ -482,8 +482,10 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
-    presentation
-        .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    if presentation.scoreboard_opacity.is_some() {
+        presentation
+            .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    }
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {
