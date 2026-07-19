@@ -13,6 +13,8 @@ mod geometry;
 pub(crate) mod gpu;
 #[path = "actor/rig.rs"]
 mod rig;
+#[path = "actor/witness.rs"]
+mod witness;
 
 pub use gpu::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
@@ -25,6 +27,10 @@ pub use rig::{
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
 };
+pub(crate) use witness::{
+    ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
+};
+pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;

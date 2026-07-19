@@ -1,9 +1,9 @@
 use std::mem::size_of;
 
 use crate::actor::{
-    ActorDrawFrame, ActorGpuInstance, ActorPresentationGate, ActorRenderFrame,
-    ActorRigGeometrySpan, ActorRigVertex, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
-    gpu::ActorDrawTracker,
+    ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
+    ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRigVertex, ActorRuntimeWitness,
+    ActorSubmitWitness, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, gpu::ActorDrawTracker,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -62,7 +62,8 @@ struct ActorRenderInstalled;
 
 fn install_actor_render(app: &mut App) {
     app.init_resource::<ActorRenderFrame>()
-        .init_resource::<ActorPresentationGate>();
+        .init_resource::<ActorPresentationGate>()
+        .init_resource::<ActorRuntimeWitness>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -73,11 +74,13 @@ fn install_actor_render(app: &mut App) {
         return;
     }
     let presentation_gate = app.world().resource::<ActorPresentationGate>().clone();
+    let runtime_witness = app.world().resource::<ActorRuntimeWitness>().clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
     load_internal_asset!(app, ACTOR_SHADER_HANDLE, "actor.wgsl", Shader::from_wgsl);
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
+        .insert_resource(runtime_witness)
         .init_resource::<ActorPipeline>()
         .init_resource::<ActorDrawTracker>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
@@ -193,9 +196,18 @@ fn prepare_actor_resources(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ActorGpu>,
+    witness: Res<ActorRuntimeWitness>,
 ) {
     let rig = &frame.rig;
     let skin_upload_plan = actor_skin_upload_plan(&frame);
+    let structurally_valid = !rig.instances.is_empty()
+        && rig.instances.len() <= crate::actor::MAX_RENDERED_PLAYERS
+        && rig.previous_bones.len() == rig.current_bones.len()
+        && rig.previous_bones.len()
+            <= crate::actor::MAX_RENDERED_PLAYERS * crate::actor::MAX_RENDER_BONES_PER_ACTOR
+        && rig.manifest.len() == rig.instances.len()
+        && rig.maximum_vertex_count != 0
+        && skin_upload_plan.is_some();
     if gpu.geometry_revision != rig.geometry_revision {
         if rig.geometry_vertices.is_empty() || rig.geometry_spans.is_empty() {
             gpu.geometry_vertex_buffer = None;
@@ -220,15 +232,7 @@ fn prepare_actor_resources(
         gpu.bind_group = None;
     }
     if gpu.frame_generation != rig.frame_generation {
-        let valid = !rig.instances.is_empty()
-            && rig.instances.len() <= crate::actor::MAX_RENDERED_PLAYERS
-            && rig.previous_bones.len() == rig.current_bones.len()
-            && rig.previous_bones.len()
-                <= crate::actor::MAX_RENDERED_PLAYERS * crate::actor::MAX_RENDER_BONES_PER_ACTOR
-            && rig.manifest.len() == rig.instances.len()
-            && rig.maximum_vertex_count != 0
-            && skin_upload_plan.is_some();
-        if valid {
+        if structurally_valid {
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
@@ -261,6 +265,15 @@ fn prepare_actor_resources(
             gpu.instance_count = 0;
             gpu.skin_revision = frame.skin_revision;
             gpu.bind_group = None;
+            witness.observe_prepare(ActorPrepareWitness {
+                input_instances: rig.instances.len(),
+                input_manifest: rig.manifest.len(),
+                skin_bytes: frame.skins_rgba8.len(),
+                skin_plan: false,
+                valid: structurally_valid,
+                prepared_instances: gpu.instance_count,
+                maximum_vertices: gpu.maximum_vertex_count,
+            });
             return;
         };
         let texture = render_device.create_texture_with_data(
@@ -292,6 +305,15 @@ fn prepare_actor_resources(
         gpu.skin_revision = frame.skin_revision;
         gpu.bind_group = None;
     }
+    witness.observe_prepare(ActorPrepareWitness {
+        input_instances: rig.instances.len(),
+        input_manifest: rig.manifest.len(),
+        skin_bytes: frame.skins_rgba8.len(),
+        skin_plan: skin_upload_plan.is_some(),
+        valid: structurally_valid,
+        prepared_instances: gpu.instance_count,
+        maximum_vertices: gpu.maximum_vertex_count,
+    });
 }
 
 struct ActorPipelineSpecializer;
@@ -546,6 +568,7 @@ struct QueueActorParams<'w, 's> {
         ),
     >,
     draw_tracker: Res<'w, ActorDrawTracker>,
+    witness: Res<'w, ActorRuntimeWitness>,
 }
 
 fn queue_actors(
@@ -554,7 +577,14 @@ fn queue_actors(
     mut next_draw_generation: Local<u64>,
 ) {
     params.draw_tracker.clear();
+    let view_count = params.views.iter().count();
     if params.gpu.instance_count == 0 || params.gpu.bind_group.is_none() {
+        params.witness.observe_queue(ActorQueueWitness {
+            prepared_instances: params.gpu.instance_count,
+            bind_group: params.gpu.bind_group.is_some(),
+            view_count,
+            queued: false,
+        });
         return;
     }
     let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
@@ -604,6 +634,12 @@ fn queue_actors(
             manifest: std::sync::Arc::clone(&params.gpu.manifest),
         });
     }
+    params.witness.observe_queue(ActorQueueWitness {
+        prepared_instances: params.gpu.instance_count,
+        bind_group: params.gpu.bind_group.is_some(),
+        view_count,
+        queued,
+    });
 }
 
 type DrawActorCommands = (SetItemPipeline, SetActorBindGroup<0>, DrawActors);
@@ -633,7 +669,11 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetActorBindGroup<I> {
 struct DrawActors;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawActors {
-    type Param = (SRes<ActorGpu>, SRes<ActorDrawTracker>);
+    type Param = (
+        SRes<ActorGpu>,
+        SRes<ActorDrawTracker>,
+        SRes<ActorRuntimeWitness>,
+    );
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -644,10 +684,15 @@ impl<P: PhaseItem> RenderCommand<P> for DrawActors {
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (gpu, tracker) = params;
+        let (gpu, tracker, witness) = params;
         let gpu = gpu.into_inner();
         pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count);
         tracker.into_inner().record_draw();
+        witness.into_inner().observe_draw(ActorDrawWitness {
+            executed: true,
+            instances: gpu.instance_count,
+            maximum_vertices: gpu.maximum_vertex_count,
+        });
         RenderCommandResult::Success
     }
 }
@@ -657,8 +702,15 @@ fn submit_actor_presented_frame(
     render_queue: Res<RenderQueue>,
     tracker: Res<ActorDrawTracker>,
     gate: Res<ActorPresentationGate>,
+    witness: Res<ActorRuntimeWitness>,
 ) {
     let Some(draw) = tracker.take_drawn() else {
+        witness.observe_submit(ActorSubmitWitness {
+            drawn_frame: false,
+            exact: false,
+            reserved: false,
+            acknowledged: false,
+        });
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
                 ?error,
@@ -667,17 +719,38 @@ fn submit_actor_presented_frame(
         }
         return;
     };
+    let exact = draw.is_exact();
     let Some(token) = gate.try_reserve_callback(draw) else {
+        witness.observe_submit(ActorSubmitWitness {
+            drawn_frame: true,
+            exact,
+            reserved: false,
+            acknowledged: false,
+        });
         return;
     };
+    witness.observe_submit(ActorSubmitWitness {
+        drawn_frame: true,
+        exact,
+        reserved: true,
+        acknowledged: false,
+    });
     let present_returned_at = std::time::Instant::now();
     let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
         label: Some("actor presented-frame completion sentinel"),
     });
     let command_buffer = encoder.finish();
     let callback_gate = gate.clone();
+    let callback_witness = witness.clone();
     command_buffer.on_submitted_work_done(move || {
-        callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+        let acknowledged =
+            callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+        callback_witness.observe_submit(ActorSubmitWitness {
+            drawn_frame: true,
+            exact: true,
+            reserved: true,
+            acknowledged,
+        });
     });
     render_queue.submit([command_buffer]);
 }

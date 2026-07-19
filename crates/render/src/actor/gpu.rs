@@ -124,7 +124,7 @@ impl ActorPresentationGate {
         token: ActorPresentationToken,
         present_returned_at: Instant,
         gpu_completed_at: Instant,
-    ) {
+    ) -> bool {
         let mut state = self
             .state
             .lock()
@@ -138,7 +138,7 @@ impl ActorPresentationGate {
                 .iter()
                 .any(|acknowledgement| acknowledgement.frame_sequence == token.frame_sequence)
         {
-            return;
+            return false;
         }
         let acknowledgement = ActorPresentedFrameAck {
             frame_sequence: token.frame_sequence,
@@ -152,6 +152,7 @@ impl ActorPresentationGate {
             .acknowledgements
             .partition_point(|current| current.frame_sequence < acknowledgement.frame_sequence);
         state.acknowledgements.insert(insertion, acknowledgement);
+        true
     }
 
     #[must_use]
