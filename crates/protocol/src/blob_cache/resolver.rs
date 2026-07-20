@@ -446,7 +446,15 @@ impl BlobCacheResolver {
         &mut self,
         response: ClientCacheMissResponsePacket,
     ) -> Result<(), BlobCacheError> {
-        let rejected = u64::try_from(response.blobs.len().max(1)).unwrap_or(u64::MAX);
+        // A zero-blob miss response is degenerate: the server acknowledged our
+        // blob status but delivered nothing to satisfy the outstanding misses.
+        // Treat it as recoverable rather than fatal - drop the stuck cached
+        // transactions and keep the session alive instead of tearing it down.
+        if response.blobs.is_empty() {
+            self.reset_pending();
+            return Ok(());
+        }
+        let rejected = u64::try_from(response.blobs.len()).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
             Err(error) => {
@@ -461,9 +469,10 @@ impl BlobCacheResolver {
         &mut self,
         response: ClientCacheMissResponsePacket,
     ) -> Result<(), BlobCacheError> {
-        if response.blobs.is_empty() {
-            return Err(BlobCacheError::EmptyMissResponse);
-        }
+        debug_assert!(
+            !response.blobs.is_empty(),
+            "accept_miss_response tolerates and short-circuits empty responses",
+        );
         if response.blobs.len() > self.cache.limits.max_hashes_per_packet {
             return Err(BlobCacheError::TooManyHashes {
                 count: response.blobs.len(),
