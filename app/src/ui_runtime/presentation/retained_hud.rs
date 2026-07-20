@@ -299,7 +299,6 @@ struct PreparedScoreboardRow {
     score_width: f32,
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Tab player-list overlay: every known player-list username on its own
 /// row, centered under the top edge over a translucent backdrop, with the
 /// list-objective score right-aligned in yellow. Shown only while the
@@ -400,6 +399,7 @@ pub(super) fn append_player_list_nodes(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_scoreboard_nodes(
     nodes: &mut Vec<UiNode>,
     next_id: &mut u32,

@@ -36,7 +36,7 @@ fn entries() -> Vec<LangEntry> {
     ]
 }
 
-fn write_carrier(root: &PathBuf, lang_source_sha256: [u8; 32]) -> PathBuf {
+fn write_carrier(root: &std::path::Path, lang_source_sha256: [u8; 32]) -> PathBuf {
     let world_assets = root.join("vanilla-v1.mcbew");
     let manifest_sha256 = canonical_source_manifest_sha256(vanilla_source_manifest_json());
     let bytes = encode_lang_catalog(manifest_sha256, lang_source_sha256, &entries()).unwrap();
