@@ -282,9 +282,11 @@ layout implementation.
 
 The base Mojangles bitmap font is not present in this sample pack, so this does
 not change the open-licensed Inter default or the optional local bitmap-font
-override described above. When the HUD carrier is absent, authoritative
-survival stats remain retained but their presentation is hidden; the client
-does not substitute numeric or guessed art.
+override described above. The HUD carrier is required at production startup:
+if it is absent, the error names the exact path and the client exits instead of
+silently hiding authoritative survival stats or substituting guessed art.
+`make client` and `make assets` build it automatically from the pinned official
+sample pack; use `make hud-assets` to repair only that carrier.
 
 The pinned scoreboard definition supplies content-driven width, right-middle
 placement, text colors, row geometry, and title geometry. Its two background

@@ -125,9 +125,10 @@ impl LoadedHudAssets {
 }
 
 #[must_use]
-pub fn hud_assets_missing_notice() -> String {
+pub fn hud_assets_missing_notice(path: &Path) -> String {
     format!(
-        "pinned official Mojang sample HUD carrier is unavailable; the survival HUD cannot render, so the client will not start. Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
+        "required pinned official Mojang sample HUD carrier was not found at {}; the survival HUD cannot render, so the client will not start. Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`.",
+        path.display()
     )
 }
 
@@ -404,7 +405,11 @@ pub enum AssetStartupError {
     },
 
     #[error("{notice}")]
-    HudAssetsMissing { notice: String },
+    HudAssetsMissing {
+        path: PathBuf,
+        rebuild_command: &'static str,
+        notice: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -501,6 +506,11 @@ pub fn hud_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(HUD_ASSETS_FILENAME)
 }
 
+/// Probes for and validates the HUD carrier adjacent to `world_asset_path`.
+///
+/// This low-level API returns `Ok(None)` only to let tooling inspect whether a carrier exists. The
+/// production client must call [`require_hud_assets`] so absence is a fatal, actionable startup
+/// error. A present but malformed, oversized, or stale carrier always fails closed here.
 pub fn load_hud_assets(
     world_asset_path: &Path,
 ) -> Result<Option<LoadedHudAssets>, AssetStartupError> {
@@ -566,8 +576,13 @@ pub fn load_hud_assets(
 /// [`load_hud_assets`]; this wrapper additionally rejects the absent case with the shared
 /// [`hud_assets_missing_notice`] guidance.
 pub fn require_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, AssetStartupError> {
-    load_hud_assets(world_asset_path)?.ok_or_else(|| AssetStartupError::HudAssetsMissing {
-        notice: hud_assets_missing_notice(),
+    load_hud_assets(world_asset_path)?.ok_or_else(|| {
+        let path = hud_asset_path(world_asset_path);
+        AssetStartupError::HudAssetsMissing {
+            notice: hud_assets_missing_notice(&path),
+            path,
+            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+        }
     })
 }
 

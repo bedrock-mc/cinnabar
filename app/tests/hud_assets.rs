@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
 use bedrock_client::asset_startup::{
-    HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, hud_assets_missing_notice, load_hud_assets,
-    require_hud_assets,
+    AssetStartupError, HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, hud_assets_missing_notice,
+    load_hud_assets, require_hud_assets,
 };
 use sha2::{Digest, Sha256};
 
@@ -43,7 +43,7 @@ fn fixture_carrier() -> Box<[u8]> {
 }
 
 #[test]
-fn absent_hud_carrier_is_optional_and_does_not_invent_fallback_art() {
+fn optional_hud_probe_reports_absence_without_inventing_fallback_art() {
     let directory = temporary_directory("absent");
     let world_assets = directory.join("vanilla-v1001.mcbea");
 
@@ -64,10 +64,24 @@ fn absent_hud_carrier_fails_startup_closed_with_official_sample_notice() {
 
     let error = match require_hud_assets(&world_assets) {
         Ok(_) => panic!("absent HUD carrier unexpectedly satisfied the required startup contract"),
-        Err(error) => error.to_string(),
+        Err(error) => error,
     };
+    let expected_hud_path = hud_asset_path(&world_assets);
+    match &error {
+        AssetStartupError::HudAssetsMissing {
+            path,
+            rebuild_command,
+            ..
+        } => {
+            assert_eq!(path, &expected_hud_path);
+            assert_eq!(*rebuild_command, HUD_ASSETS_COMPILE_COMMAND);
+        }
+        other => panic!("unexpected missing-HUD error: {other}"),
+    }
+    let error = error.to_string();
     // The fatal error is the single shared notice, so startup guidance never drifts from it.
-    assert_eq!(error, hud_assets_missing_notice());
+    assert_eq!(error, hud_assets_missing_notice(&expected_hud_path));
+    assert!(error.contains(&expected_hud_path.display().to_string()));
     assert!(error.contains("client will not start"));
     assert!(error.contains(HUD_ASSETS_COMPILE_COMMAND));
     assert!(error.contains("make assets"));
@@ -77,8 +91,10 @@ fn absent_hud_carrier_fails_startup_closed_with_official_sample_notice() {
 
 #[test]
 fn missing_hud_notice_identifies_the_official_sample_and_automatic_repairs() {
-    let notice = hud_assets_missing_notice();
+    let path = PathBuf::from("custom/assets/compiled/vanilla-v1.mcbehud");
+    let notice = hud_assets_missing_notice(&path);
     assert!(notice.contains("pinned official Mojang sample HUD carrier"));
+    assert!(notice.contains(&path.display().to_string()));
     assert!(notice.contains("make hud-assets"));
     assert!(notice.contains("make assets"));
     for stale_claim in [

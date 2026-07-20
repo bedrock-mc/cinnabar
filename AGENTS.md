@@ -10,14 +10,21 @@ session alive. Never disconnect over data the client doesn't even use.
 
 ## Required local assets: fail closed at startup
 
-A required compiled carrier (world, atmosphere, entity, HUD, and any future
-player-facing carrier) that is missing, unreadable, malformed, or fails its
-pinned hash is a fatal startup error: abort via `bail!`/`?` → `main`, naming the
-carrier and its rebuild command (`make hud-assets`, or `make assets` for all).
-Never degrade silently — do not skip, hide, or fabricate fallback art; a blank
-HUD with only a log line is the failure this forbids. Carriers live under
-gitignored `.local/`, so `git pull` never delivers them; the fatal error is what
-tells a developer to rebuild.
+The production runtime requires the compiled atmosphere, entity, and HUD
+carriers. If one is missing, unreadable, malformed, or fails its pinned hash,
+abort via `bail!`/`?` → `main`, naming the exact carrier path and its rebuild
+command (`make hud-assets`, or `make assets` for all). Apply the same rule to a
+future carrier only after production startup explicitly makes it required.
+Never skip or hide required player-facing art; a blank HUD with only a log line
+is the failure this forbids. Carriers live under gitignored `.local/`, so `git
+pull` never delivers them; the fatal error tells a developer what to rebuild.
+
+Two existing diagnostics remain intentional: an absent world carrier selects
+the explicit programmatic diagnostic-texture mode, and an absent compiled font
+selects the bounded open/diagnostic font fallback. Do not treat those documented
+paths as violations of the required-carrier rule. A carrier that is present but
+unreadable, malformed, stale, or invalid still fails closed under its loader's
+existing contract.
 
 ## Bevy client screenshots on Windows
 
