@@ -19,6 +19,9 @@ pub(crate) fn java_gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 
 
 /// Vanilla survival hotbar width in GUI px (start cap + nine slots + end cap).
 pub(super) const HOTBAR_WIDTH: f32 = 182.0;
+/// Fixed height of the bottom-anchored HUD stack in GUI px, measured from the
+/// selected-item label zone top down to the hotbar's bottom edge.
+pub(super) const BOTTOM_STACK_HEIGHT: f32 = 59.0;
 /// The pinned hotbar cap alpha from the reviewed `hud_screen.json` authority.
 pub(super) const HOTBAR_CAP_ALPHA: u8 = 166;
 /// Experience-level green from the Java reference (0x80FF20).

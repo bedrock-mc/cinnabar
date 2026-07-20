@@ -21,9 +21,10 @@ use crate::ui_runtime::gameplay_hud::HudEffect;
 mod pinned;
 
 use pinned::{
-    BOSS_TINTS, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH, LABEL_FADE_MILLIS,
-    LABEL_WINDOW_MILLIS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR,
-    damage_flash_phase, effect_blink_alpha, heart_role, hotbar_slot_role, hsv_to_rgb,
+    BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
+    LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS,
+    MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR, damage_flash_phase, effect_blink_alpha, heart_role,
+    hotbar_slot_role, hsv_to_rgb,
 };
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
 
@@ -44,7 +45,9 @@ pub(crate) struct HudFrame {
     pub selected_item_name: Option<std::sync::Arc<str>>,
 }
 
-/// Per-frame layout geometry derived from the Java GUI-scale rule.
+/// Per-frame layout geometry derived from the Java GUI-scale rule. All
+/// emitted coordinates are relative to the safe content rect: the retained
+/// tree translates root nodes by the safe-area origin during layout.
 #[derive(Clone, Copy)]
 pub(super) struct HudGeometry {
     /// Logical pixels per GUI pixel.
@@ -52,8 +55,6 @@ pub(super) struct HudGeometry {
     /// Viewport in GUI px, inset by the safe area.
     pub gui_width: f32,
     pub gui_height: f32,
-    /// Safe-area offset of the GUI origin, in logical px.
-    pub origin: [f32; 2],
 }
 
 impl HudGeometry {
@@ -74,29 +75,30 @@ impl HudGeometry {
         let inner_height = logical_height - safe_area.top() - safe_area.bottom();
         let gui_width = inner_width / scale;
         let gui_height = inner_height / scale;
-        // Fail closed when the safe viewport cannot contain the fixed hotbar.
-        if !(gui_width.is_finite() && gui_height.is_finite()) || gui_width < HOTBAR_WIDTH {
+        // Fail closed when the safe viewport cannot contain the fixed-width
+        // hotbar or the fixed-height bottom stack: an inset or short viewport
+        // renders no gameplay HUD rather than a clipped one.
+        if !(gui_width.is_finite() && gui_height.is_finite())
+            || gui_width < HOTBAR_WIDTH
+            || gui_height < BOTTOM_STACK_HEIGHT
+        {
             return None;
         }
         Some(Self {
             scale,
             gui_width,
             gui_height,
-            origin: [safe_area.left(), safe_area.top()],
         })
     }
 
     /// Logical y of the highest bottom-anchored HUD row (the selected-item
     /// label zone), used by chat to avoid overlap.
     pub(super) fn bottom_row_top_logical(&self) -> f32 {
-        self.origin[1] + (self.gui_height - 59.0) * self.scale
+        (self.gui_height - BOTTOM_STACK_HEIGHT) * self.scale
     }
 
     fn logical(&self, gui: [f32; 2]) -> [f32; 2] {
-        [
-            self.origin[0] + gui[0] * self.scale,
-            self.origin[1] + gui[1] * self.scale,
-        ]
+        [gui[0] * self.scale, gui[1] * self.scale]
     }
 }
 

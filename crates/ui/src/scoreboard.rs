@@ -653,7 +653,6 @@ pub struct BossBarView {
     pub filtered_title: Arc<str>,
     pub health: f32,
     pub style: BossStyle,
-    pub registered_players: Arc<[i64]>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -711,14 +710,17 @@ impl BossBarStore {
                 filtered_title: Arc::clone(&bar.filtered_title),
                 health: bar.health,
                 style: bar.style,
-                registered_players: bar
-                    .registered_players
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .into(),
             })
             .collect()
+    }
+
+    /// The registered player memberships of one bar, materialized on demand;
+    /// the per-frame presentation view deliberately excludes this list.
+    pub fn registered_players(&self, target_entity_id: i64) -> Vec<i64> {
+        self.bars
+            .get(&target_entity_id)
+            .map(|bar| bar.registered_players.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     pub fn apply(

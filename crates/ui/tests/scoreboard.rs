@@ -480,17 +480,17 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
     assert_eq!(bars[0].health, 1.25);
     assert_eq!(bars[0].style.color, BossColor::Blue);
     assert_eq!(bars[0].style.overlay, BossOverlay::Notched20);
-    assert_eq!(bars[0].registered_players.as_ref(), [42]);
+    assert_eq!(store.registered_players(20), [42]);
 
     store
         .apply(6, boss(BossAction::Show, 20, "updated", 0.75))
         .unwrap();
     assert_eq!(store.stacked()[0].title.as_ref(), "updated");
-    assert_eq!(store.stacked()[0].registered_players.as_ref(), [42]);
+    assert_eq!(store.registered_players(20), [42]);
     store
         .apply(7, boss(BossAction::UnregisterPlayer, 20, "", 0.0))
         .unwrap();
-    assert!(store.stacked()[0].registered_players.is_empty());
+    assert!(store.registered_players(20).is_empty());
     store.apply(8, boss(BossAction::Hide, 20, "", 0.0)).unwrap();
     assert_eq!(
         store

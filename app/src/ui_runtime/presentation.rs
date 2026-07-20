@@ -86,6 +86,9 @@ pub struct UiPresentationRuntime {
     chat_suggestion_hits: Vec<(usize, UiRect)>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
+    /// Platform safe-area insets in logical px, applied to the HUD geometry,
+    /// the retained tree layout, and the render viewport alike.
+    safe_area: SafeArea,
     /// Item facts and camera state refreshed immediately before each build.
     hud_frame: HudFrame,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
@@ -127,6 +130,7 @@ impl UiPresentationRuntime {
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             gui_scale_preference: None,
+            safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
         })
@@ -135,6 +139,13 @@ impl UiPresentationRuntime {
     /// Selects a fixed Java GUI scale (1..=4); `None` or 0 restores auto.
     pub fn set_gui_scale_preference(&mut self, preference: Option<u8>) {
         self.gui_scale_preference = preference.filter(|value| *value > 0);
+    }
+
+    /// Binds the platform's reported safe-area insets (logical px). Every
+    /// subsequent frame lays out inside the inset viewport and clips renders
+    /// to it; viewports too inset for the fixed HUD fail closed to no HUD.
+    pub fn set_safe_area(&mut self, safe_area: SafeArea) {
+        self.safe_area = safe_area;
     }
 
     pub(crate) fn hud_frame_mut(&mut self) -> &mut HudFrame {
@@ -159,20 +170,25 @@ impl UiPresentationRuntime {
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         // The gameplay HUD lays out in Java GUI pixels; it fails closed to no
         // HUD when the safe viewport cannot contain the fixed-width hotbar.
+        let safe_area = self.safe_area;
         let hud_geometry = self.hud_textures.as_ref().and_then(|_| {
             HudGeometry::new(
                 physical_size,
                 dpi_scale.get(),
-                SafeArea::ZERO,
+                safe_area,
                 self.gui_scale_preference,
             )
         });
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
-        let wrap_width = ((logical_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
+        // Root nodes lay out relative to the safe content rect; the retained
+        // tree translates them by the safe-area origin.
+        let content_width = (logical_width - safe_area.left() - safe_area.right()).max(0.0);
+        let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
+        let wrap_width = ((content_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
-        let chat_left = 12.0_f32.min(logical_width);
+        let chat_left = 12.0_f32.min(content_width);
         let chat_right = (chat_left + chat_content_width)
-            .min(logical_width)
+            .min(content_width)
             .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
@@ -223,7 +239,7 @@ impl UiPresentationRuntime {
                     font: &self.font,
                 })
                 .map_err(UiPresentationError::Text)?;
-            let [x, y] = hud_position(node.role, nodes.len(), logical_width, logical_height);
+            let [x, y] = hud_position(node.role, nodes.len(), content_width, content_height);
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
@@ -231,8 +247,8 @@ impl UiPresentationRuntime {
                     rect(
                         x,
                         y,
-                        (x + logical_width * 0.45).min(logical_width),
-                        logical_height,
+                        (x + content_width * 0.45).min(content_width),
+                        content_height,
                     )?,
                 )
                 .with_visual(UiVisual::Text {
@@ -254,8 +270,8 @@ impl UiPresentationRuntime {
                 &mut self.layouts,
                 &self.font,
                 self.solid_texture_page,
-                logical_width,
-                logical_height,
+                content_width,
+                content_height,
                 scoreboard,
                 opacity,
             )?;
@@ -319,9 +335,9 @@ impl UiPresentationRuntime {
             .iter()
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
             .sum::<f32>();
-        let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
+        let chat_region_top = (content_height - 220.0 - suggestion_reserved_height).max(0.0);
         let bottom_hud_top = hud_geometry.map_or_else(
-            || (logical_height - 42.0).max(chat_region_top),
+            || (content_height - 42.0).max(chat_region_top),
             |geometry| geometry.bottom_row_top_logical().max(chat_region_top),
         );
         let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
@@ -529,15 +545,23 @@ impl UiPresentationRuntime {
             }
         }
 
+        // Hit rects are compared against window-logical pointer positions, so
+        // translate the content-relative rows by the safe-area origin.
         let chat_suggestion_hits = positioned_suggestions
             .iter()
             .map(|(index, _, top, bottom, _)| {
-                rect(chat_left, *top, chat_right, *bottom).map(|bounds| (*index, bounds))
+                rect(
+                    chat_left + safe_area.left(),
+                    *top + safe_area.top(),
+                    chat_right + safe_area.left(),
+                    *bottom + safe_area.top(),
+                )
+                .map(|bounds| (*index, bounds))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
-        tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
+        tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
         let mut draw_list = tree.build_draw_list().map_err(UiPresentationError::Tree)?;
         self.revision = self.revision.saturating_add(1);
@@ -548,7 +572,7 @@ impl UiPresentationRuntime {
             UiRenderViewport {
                 physical_size,
                 dpi_scale,
-                safe_area: SafeArea::ZERO,
+                safe_area,
             },
         )
         .map_err(UiPresentationError::Adapter)?;
@@ -556,6 +580,15 @@ impl UiPresentationRuntime {
         self.chat_suggestion_hits = chat_suggestion_hits;
         Ok(input)
     }
+}
+
+/// The platform's safe-area insets for the primary surface, in logical px.
+/// Win32 and macOS desktop surfaces carry no display cutouts, so their real
+/// reported inset is zero on every edge; platforms that report cutouts bind
+/// their values here and every consumer — HUD geometry, retained layout,
+/// render clipping — picks them up through `set_safe_area`.
+pub(crate) fn platform_safe_area_insets() -> SafeArea {
+    SafeArea::ZERO
 }
 
 #[allow(clippy::too_many_arguments)]

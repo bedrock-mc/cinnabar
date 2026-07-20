@@ -320,6 +320,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // server publishes a sidebar objective.
     ui_presentation.enable_scoreboard_background();
     ui_presentation.set_gui_scale_preference(args.gui_scale);
+    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
