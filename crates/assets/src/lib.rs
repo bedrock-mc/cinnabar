@@ -10,6 +10,7 @@ mod error;
 mod font;
 mod hud;
 mod item;
+mod lang;
 mod light_registry;
 mod model;
 mod physics_registry;
@@ -81,6 +82,11 @@ pub use item::{
     ItemStackIdentity, ItemStackIdentityError, ItemTextureReference, ItemVisualAlias,
     ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute,
     MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+};
+pub use lang::{
+    LANG_CARRIER_MAGIC, LANG_CARRIER_VERSION, LangCatalogError, LangEntry, MAX_LANG_CARRIER_BYTES,
+    MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, RuntimeLangCatalog,
+    encode_lang_catalog,
 };
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{

@@ -370,3 +370,157 @@ fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
     assert_eq!(runtime.gameplay_hud().air_ticks(), None);
     assert_eq!(runtime.gameplay_hud().freezing_strength(), 0.0);
 }
+
+#[test]
+fn lang_catalog_resolves_rawtext_translation_and_item_names() {
+    let entries = [
+        ("commands.op.success", "Opped: %s"),
+        ("item.emerald.name", "Emerald"),
+        ("tile.grass.name", "Grass"),
+    ]
+    .into_iter()
+    .map(|(key, value)| assets::LangEntry {
+        key: key.into(),
+        value: value.into(),
+    })
+    .collect::<Vec<_>>();
+    let bytes = assets::encode_lang_catalog([9; 32], &entries).unwrap();
+    let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(std::sync::Arc::clone(&catalog));
+
+    // Localized item names prefer item.* then tile.* keys; unknown identifiers
+    // fall back to the mechanical title case.
+    assert_eq!(runtime.localized_item_name("minecraft:emerald"), "Emerald");
+    assert_eq!(runtime.localized_item_name("minecraft:grass"), "Grass");
+    assert_eq!(
+        runtime.localized_item_name("minecraft:mystery_thing"),
+        "Mystery Thing"
+    );
+
+    // A translate rawtext document resolves through the catalog with its
+    // argument substituted, and reaches chat as human text.
+    let document = protocol::parse_raw_text(
+        r#"{"rawtext":[{"translate":"commands.op.success","with":["Steve"]}]}"#,
+    )
+    .unwrap();
+    assert!(document.has_unresolved_components());
+    let event = protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document,
+    };
+    runtime
+        .apply(crate::ui_runtime::SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: protocol::UiEvent::RawText(event),
+        })
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Opped: Steve"
+    );
+
+    // An unknown key presents verbatim, exactly like the vanilla client.
+    let unknown = protocol::parse_raw_text(r#"{"rawtext":[{"translate":"no.such.key"}]}"#).unwrap();
+    let event = protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document: unknown,
+    };
+    runtime
+        .apply(crate::ui_runtime::SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 2,
+            local_millis: 10,
+            server_tick: None,
+            event: protocol::UiEvent::RawText(event),
+        })
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "no.such.key"
+    );
+}
+
+#[test]
+fn lang_catalog_translates_rawtext_and_localizes_item_names() {
+    let entries = [
+        assets::LangEntry {
+            key: "commands.give.success".into(),
+            value: std::sync::Arc::from("Gave %s * %d to %s"),
+        },
+        assets::LangEntry {
+            key: "item.golden_apple.name".into(),
+            value: std::sync::Arc::from("Golden Apple"),
+        },
+    ];
+    let bytes = assets::encode_lang_catalog([7; 32], &entries).unwrap();
+    let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(catalog);
+
+    // Localized item names prefer the catalog and fall back mechanically.
+    assert_eq!(
+        runtime.localized_item_name("minecraft:golden_apple"),
+        "Golden Apple"
+    );
+    assert_eq!(
+        runtime.localized_item_name("minecraft:unmapped_thing"),
+        "Unmapped Thing"
+    );
+
+    // A translate component formats its arguments through the catalog; the
+    // unknown-key fallback still presents the key verbatim.
+    let json = r#"{"rawtext":[{"translate":"commands.give.success","with":[{"text":"Apple"},{"text":"2"},{"text":"Hashim"}]},{"text":" / "},{"translate":"missing.key"}]}"#;
+    let document = protocol::parse_raw_text(json).unwrap();
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: protocol::UiEvent::RawText(protocol::RawTextEvent {
+                text: protocol::TextEvent {
+                    category: protocol::TextCategory::MessageOnly,
+                    kind: protocol::TextKind::Raw,
+                    needs_translation: false,
+                    source: None,
+                    message: std::sync::Arc::from(document.literal_text()),
+                    parameters: std::sync::Arc::from([]),
+                    xuid: std::sync::Arc::from(""),
+                    platform_chat_id: std::sync::Arc::from(""),
+                    filtered_message: None,
+                },
+                document,
+            }),
+        })
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Gave Apple * 2 to Hashim / missing.key"
+    );
+}

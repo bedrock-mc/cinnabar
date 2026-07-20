@@ -485,7 +485,7 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
 }
 
 #[test]
-fn unfocused_chat_backdrop_is_a_single_contiguous_rect() {
+fn unfocused_chat_rows_fade_with_contiguous_per_line_backdrops() {
     let font = fixture_font();
     let mut presentation = UiPresentationRuntime::new(font).unwrap();
     let mut runtime = UiRuntime::new(1);
@@ -501,8 +501,8 @@ fn unfocused_chat_backdrop_is_a_single_contiguous_rect() {
             .unwrap();
     }
 
-    // Unfocused: a single translucent backdrop covers both lines with no inter-line gaps
-    // (per-line backdrops would leave transparent stripes between messages).
+    // Fresh rows: one full-strength backdrop per line, stretched across the
+    // inter-line spacing so the block reads as one contiguous panel.
     let unfocused = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
@@ -511,11 +511,7 @@ fn unfocused_chat_backdrop_is_a_single_contiguous_rect() {
         .iter()
         .filter(|vertex| vertex.color == CHAT_LINE_BACKDROP_COLOR)
         .count();
-    assert_eq!(
-        backdrop_vertices, 4,
-        "the chat backdrop is a single contiguous quad, not one per line"
-    );
-
+    assert_eq!(backdrop_vertices, 8, "one backdrop quad per visible line");
     let backdrop = bounds_for_color(&unfocused, CHAT_LINE_BACKDROP_COLOR).unwrap();
     let text_top = unfocused
         .vertices
@@ -535,17 +531,81 @@ fn unfocused_chat_backdrop_is_a_single_contiguous_rect() {
     );
     assert!(
         backdrop[1] <= text_top && backdrop[3] >= text_bottom,
-        "backdrop spans every chat line ({}, {}) vs text ({text_top}, {text_bottom})",
+        "backdrop union spans every chat line ({}, {}) vs text ({text_top}, {text_bottom})",
         backdrop[1],
         backdrop[3]
     );
+    // Contiguity: every backdrop rect's top touches the rect above (or the
+    // union top), so no transparent stripes remain between lines.
+    let mut spans: Vec<(f32, f32)> = unfocused
+        .vertices
+        .chunks(4)
+        .filter(|quad| {
+            quad.iter()
+                .all(|vertex| vertex.color == CHAT_LINE_BACKDROP_COLOR)
+        })
+        .map(|quad| {
+            let top = quad
+                .iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::INFINITY, f32::min);
+            let bottom = quad
+                .iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            (top, bottom)
+        })
+        .collect();
+    spans.sort_by(|left, right| left.0.total_cmp(&right.0));
+    for pair in spans.windows(2) {
+        assert!(
+            pair[1].0 <= pair[0].1,
+            "adjacent backdrops must touch: {pair:?}"
+        );
+    }
 
-    // Focused: the unified chat panel provides the background instead, so the separate backdrop
-    // layer is not added (avoids double-darkening).
+    // Ten and a half seconds in, the rows are mid-fade: the text and backdrop
+    // alphas scale together (255 -> 127 and 128 -> 63 at half fade).
+    let fading = presentation
+        .build(&runtime, 10_500, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        fading
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [255, 255, 255, 127])
+    );
+    assert!(
+        fading
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [0, 0, 0, 63])
+    );
+
+    // Past the fade window the rows and their backdrops disappear entirely.
+    let expired = presentation
+        .build(&runtime, 11_100, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        !expired
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color[3] > 0 && vertex.color[0] == 255 && vertex.color[1] == 255)
+    );
+    assert!(bounds_for_color(&expired, CHAT_LINE_BACKDROP_COLOR).is_none());
+
+    // Focus reopens the full history at full strength, with the unified panel
+    // instead of the per-line backdrops.
     runtime.open_chat();
     let focused = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(&runtime, 11_100, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
+    assert!(
+        focused
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [255, 255, 255, 255])
+    );
     assert!(
         bounds_for_color(&focused, CHAT_LINE_BACKDROP_COLOR).is_none(),
         "focused chat should not add the unfocused backdrop"

@@ -170,6 +170,9 @@ pub struct UiRuntime {
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
+    /// Startup-loaded localization catalog; survives session replacement
+    /// because it is local pinned data, not server state.
+    lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
 }
 
 impl UiRuntime {
@@ -215,7 +218,29 @@ impl UiRuntime {
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
+            lang_catalog: None,
         }
+    }
+
+    /// Installs the startup-loaded localization catalog used for rawtext
+    /// translation and item display names.
+    pub fn set_lang_catalog(&mut self, catalog: Arc<assets::RuntimeLangCatalog>) {
+        self.lang_catalog = Some(catalog);
+    }
+
+    /// The localized display name for a vanilla item identifier: the pinned
+    /// `item.<path>.name` / `tile.<path>.name` translation when present,
+    /// otherwise the mechanical title-cased identifier.
+    pub(crate) fn localized_item_name(&self, identifier: &str) -> String {
+        if let Some(catalog) = self.lang_catalog.as_ref() {
+            let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+            for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
+                if let Some(value) = catalog.lookup(&key) {
+                    return value.as_ref().to_owned();
+                }
+            }
+        }
+        item_facts::mechanical_display_name(identifier)
     }
 
     pub const fn session_id(&self) -> u64 {
@@ -653,7 +678,9 @@ impl UiRuntime {
     /// presentation); selectors present as empty because the vanilla server
     /// evaluates them before sending.
     fn resolve_raw_text(&self, document: &protocol::RawTextDocument) -> protocol::ResolvedRawText {
-        let translate = |_key: &str| -> Option<Arc<str>> { None };
+        let catalog = self.lang_catalog.as_deref();
+        let translate =
+            |key: &str| -> Option<Arc<str>> { catalog.and_then(|catalog| catalog.lookup(key)) };
         let scoreboards = &self.scoreboards;
         let score =
             |owner: &str, objective: &str| scoreboards.score_for_named_owner(objective, owner);

@@ -262,6 +262,43 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
 }
 
 #[test]
+fn make_builds_the_pinned_localization_carrier_for_default_launch() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let makefile = fs::read_to_string(root.join("Makefile"))
+        .unwrap()
+        .replace("\r\n", "\n");
+
+    for contract in [
+        "LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang",
+        "LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json",
+        concat!(
+            "LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
+            "lang-assets --pack \"$(PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "--out \"$(LANG_ASSET_BLOB)\" --report \"$(LANG_ASSET_REPORT)\""
+        ),
+        "lang-assets: $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)",
+        "$(LANG_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
+        "$(LANG_ASSET_REPORT): $(LANG_ASSET_BLOB)",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing localization Makefile contract: {contract}"
+        );
+    }
+    let assets = makefile
+        .lines()
+        .find(|line| line.starts_with("assets:"))
+        .unwrap();
+    assert!(assets.contains("$(LANG_ASSET_BLOB)"));
+    assert!(assets.contains("$(LANG_ASSET_REPORT)"));
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .unwrap();
+    assert!(phony.split_whitespace().any(|word| word == "lang-assets"));
+}
+
+#[test]
 fn make_vanilla_pack_sentinel_reacquires_only_when_missing() {
     let make_available = match Command::new("make").arg("--version").output() {
         Ok(output) if output.status.success() => true,
@@ -335,6 +372,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let font_report = temporary.join("font.json");
     let hud = temporary.join("hud.mcbehud");
     let hud_report = temporary.join("hud.json");
+    let lang = temporary.join("lang.mcbelang");
+    let lang_report = temporary.join("lang.json");
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
@@ -355,6 +394,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("FONT_ASSET_REPORT={}", make_path(&font_report)),
         format!("HUD_ASSET_BLOB={}", make_path(&hud)),
         format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
+        format!("LANG_ASSET_BLOB={}", make_path(&lang)),
+        format!("LANG_ASSET_REPORT={}", make_path(&lang_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
         producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
@@ -372,6 +413,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         ),
         producer_assignment("FONT_ASSET_COMPILE", "font", &log, &[&font, &font_report]),
         producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
+        producer_assignment("LANG_ASSET_COMPILE", "lang", &log, &[&lang, &lang_report]),
         format!(
             "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
             make_path(&physics)
@@ -394,7 +436,17 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     );
     assert_eq!(
         fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
-        ["acquire", "world", "atmosphere", "entity", "font", "hud", "physics", "launch"]
+        [
+            "acquire",
+            "world",
+            "atmosphere",
+            "entity",
+            "font",
+            "hud",
+            "lang",
+            "physics",
+            "launch"
+        ]
     );
 
     fs::remove_dir_all(temporary).unwrap();

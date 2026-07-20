@@ -305,6 +305,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
+    let lang_assets = crate::asset_startup::require_lang_assets(
+        &loaded_assets.selected_path,
+        crate::asset_startup::vanilla_source_manifest_json(),
+    )
+    .context("load pinned official Mojang sample localization carrier")?;
+    eprintln!("{}", lang_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
     let mut ui_presentation =
         UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
@@ -408,7 +414,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             Arc::clone(&runtime_assets),
             entity_runtime,
         ))
-        .insert_resource(UiRuntime::new(0))
+        .insert_resource({
+            let mut ui_runtime = UiRuntime::new(0);
+            ui_runtime.set_lang_catalog(lang_assets.into_runtime());
+            ui_runtime
+        })
         .insert_resource(ui_presentation)
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())

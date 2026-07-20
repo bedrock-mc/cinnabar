@@ -659,7 +659,7 @@ pub(crate) fn refresh_hud_frame(
     });
     let selected_item_name = runtime.selected_stack().and_then(|stack| {
         resolve_identifier(stack)
-            .map(|identifier| Arc::from(item_facts::mechanical_display_name(&identifier)))
+            .map(|identifier| Arc::from(runtime.localized_item_name(&identifier)))
     });
 
     let first_person =

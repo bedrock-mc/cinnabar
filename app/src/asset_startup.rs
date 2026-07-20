@@ -100,10 +100,21 @@ pub struct LoadedFontAssets {
 }
 
 mod hud_carrier;
+mod lang_carrier;
 
 pub use hud_carrier::{
     LoadedHudAssets, hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command,
     load_hud_assets, require_hud_assets,
+};
+/// The embedded canonical `vanilla-source.json`, exposed so callers can bind
+/// carrier provenance to the same identity startup itself validates against.
+#[must_use]
+pub fn vanilla_source_manifest_json() -> &'static str {
+    VANILLA_SOURCE_JSON
+}
+
+pub use lang_carrier::{
+    LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, require_lang_assets,
 };
 
 impl LoadedFontAssets {
@@ -382,6 +393,52 @@ pub enum AssetStartupError {
     HudAssetsMissing {
         path: PathBuf,
         rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "local localization carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "could not decode local localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: assets::LangCatalogError,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: &'static str,
+    },
+
+    #[error("{notice}")]
+    LangAssetsMissing {
+        path: PathBuf,
+        rebuild_command: &'static str,
         notice: String,
     },
 }

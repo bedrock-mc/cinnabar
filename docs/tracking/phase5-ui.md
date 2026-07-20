@@ -6,7 +6,7 @@ This estimate uses equal contract, runtime, production presentation, determinist
 
 Gate scores: contract 80%, runtime 75%, production presentation 45%, deterministic verification/review 65%, live/native/performance 0%; arithmetic mean 53%. No binding target-platform/native/live/performance witness has passed.
 
-## Landed
+## Landed on merged `main`
 
 - [x] Bounded text, title/actionbar, HUD attribute, objective/score, and boss-event normalization.
 - [x] Retained chat, HUD, scoreboard, and boss-bar stores with lifecycle/reset limits.
@@ -14,36 +14,95 @@ Gate scores: contract 80%, runtime 75%, production presentation 45%, determinist
 - [x] Provenance-pinned survival HUD carrier and partial health/hunger/air/hotbar presentation.
 - [x] Scoreboard/boss state adapters and substantial deterministic UI/runtime tests.
 
-## Remaining features
+## Current branch implementation (locally committed, not merged)
 
-- [ ] Render hotbar item icons, counts, durability, and authoritative selected-stack state.
-- [ ] Finish the approved Java Edition-style gameplay HUD presentation for hotbar, scoreboard, chat, hearts, hunger, armor, air, experience, and level while preserving Bedrock protocol/server authority.
-- [ ] Show the armor row above the hearts only while the authoritative equipped armor total is nonzero; hide the row entirely when no armor is equipped.
-- [ ] Finish GUI scale selection, nonstandard maxima, authoritative armor derivation, clipping, and safe areas across supported resolutions and DPI.
-- [ ] Pass the pinned Java-HUD state matrix: survival, creative, and spectator; normal, damaged, absorption, poisoned, withered, and frozen hearts; normal/depleted hunger; air; XP/level; armor present/absent; mount health/jump; main/offhand; attack indicator; selected-item label; effects; and scoreboard/chat overlap.
-- [ ] Render complete sidebar/list/below-name scoreboards with correct ordering and lifecycle.
-- [ ] Render boss-bar style, color, health, stacking, replacement, and coexistence with titles/actionbar.
-- [ ] Resolve rawtext translation, score, selector, and localization documents without exposing JSON.
-- [ ] Complete chat formatting, fade/focus behavior, live send/receive, and disconnect validation.
-- [ ] Run matching Windows/macOS scale, DPI, aspect-ratio, native Bedrock, and third-party server acceptance.
-- [ ] Prove bounded retained memory and stable frame time with all UI surfaces active.
+Implementation and deterministic verification for the tranche below are
+complete on this branch; the native/live/performance gates in the next
+section remain open, so no phase checkbox is closed by this delta.
 
-## Current branch implementation
+- Protocol: MobEffect, MobArmorEquipment, SetPlayerGameType, and SetActorLink
+  are dispatched into bounded vendor-neutral events (previously decoded but
+  dropped); StartGame's unique local-player id rides `WorldBootstrap`; local
+  SetEntityData metadata (air supply, max air, freezing strength) splits into
+  committed UI events beside attributes; item user-data NBT exposes the
+  vanilla `Damage` tag through a bounded fixed-LE walk.
+- App state: a gameplay-HUD store retains hotbar/offhand mirrors (with a
+  per-frame drain that also fixes the previously consumer-less inventory
+  queue), authoritative armor stacks, bounded effects with soonest-expiry
+  eviction, air/freezing, the local mount, damage-blink and selected-item
+  identity clocks; armor points derive from resolved equipment identities via
+  a pinned vanilla table; runtime game-mode changes apply mid-session.
+- Carrier v4: 82 pinned official-sample textures (crosshair and the classic
+  182x5 experience/mount-jump strips are cropped from `textures/gui/icons.png`
+  under a pinned crop schema; damage/poison/wither/freeze/absorption hearts,
+  hunger-effect recolors, mount hearts, bubble pop, effect backgrounds, and
+  26 effect icons whose Bedrock ids are verifiable from cross-checked
+  secondary sources). Newer effect ids without a verifiable pin are skipped
+  and counted, never guessed.
+- Presentation: the gameplay HUD lays out in Java GUI pixels under the Java
+  auto-scale rule (fixed 1..4 preferences clamped, safe-area inset, fail
+  closed below the 182px hotbar); centered 15x15 invert-blend crosshair
+  (first-person only, hidden in spectator, still shown while chat is
+  focused) through a second per-batch blend pipeline; stacked heart rows for
+  nonstandard maxima with damage blink, poison/wither/frozen variants, and
+  absorption overflow; conditional armor row; hunger with effect recolor;
+  popping air bubbles; mount hearts replacing hunger while riding; the
+  classic 182x5 XP bar with outlined level; top-right effect chips with
+  ambient backgrounds and expiry blink; stacked tinted boss bars with titles
+  and title/actionbar coexistence; hotbar counts, durability bars, offhand
+  cell, and the fading selected-item label; Java chat fade (10 s + 1 s) with
+  per-line contiguous backdrops.
+- Rawtext and localization: typed documents now resolve instead of dropping —
+  score components read the retained scoreboard (reader sentinel included),
+  selectors degrade to empty counted text (the vanilla server evaluates them
+  before sending), and translation keys resolve through a new provenance-
+  pinned localization carrier compiled from the pack's `texts/en_US.lang`
+  (13,072 entries; `make lang-assets`, required fail-closed at startup like
+  the HUD carrier). Formatting handles the %s/%n families; a key outside the
+  catalog presents verbatim like the vanilla client. Item labels prefer the
+  localized `item./tile.<path>.name` entries with a mechanical title-case
+  fallback. No JSON is ever presented.
+- Scoreboard: per-owner below-name and list lookups with lifecycle coverage
+  beside the existing sidebar projection/presentation.
+- Evidence harnesses: a saturated-surface witness pins retained-memory
+  budgets (chat, scoreboard, boss, effects at their caps) and draw-list
+  structural bounds with a settled steady-state text-layout cache.
+- CI: the Windows acceptance failure (an un-stubbed pack sentinel firing the
+  real vanilla fetch inside the atmosphere Makefile test, which then died on
+  `Get-FileHash` resolution) is fixed hermetically with leak traps, both
+  fetch scripts hash via .NET, and the three oversized modules were split
+  under the architecture limits. A replacement green CI run has not yet
+  executed; these fixes are unverified on the actual runners.
 
-This draft PR also contains unmerged HUD/chat/scoreboard/hotbar/XP changes:
+## Remaining gates and deferred work
 
-- Java-style chat backdrop changes within the approved chat-layout exception.
-- Hotbar number-key, wheel, and controller selection plus outbound `MobEquipment` routing.
-- Experience attribute retention and XP bar/level presentation.
-- Scoreboard/background presentation changes using the approved Java Edition-style gameplay HUD direction.
-
-The approved presentation deviation now covers the complete in-game gameplay HUD: hotbar, scoreboard, chat, hearts, hunger, armor, air, experience, level, and the applicable mount/offhand/effect/attack-indicator surfaces. Bedrock remains authoritative for packets, attributes, equipment, inventory, game mode, combat timing, and reconciliation. A Java visual has no authority to invent a state that Bedrock does not expose. Menus, inventories, containers, forms, and JSON UI behavior remain Bedrock/resource-pack-driven unless separately approved.
-
-The clean-room presentation reference is **Minecraft Java Edition 26.2**, default resources, running on Windows 11. Capture GUI scales 2, 3, 4, and Auto at 1280x720, 1920x1080, and 2560x1440, including 100% and 150% desktop scaling where applicable; validate equivalent logical layout and safe areas on supported macOS Retina output. Each acceptance capture must identify version, game mode, HUD state, resolution, desktop scale, GUI scale, and relevant server-authoritative values. If a later Java version becomes the target, update this pin and recapture the affected matrix rather than silently mixing references.
-
-Java Edition is a clean-room visual/behavior reference only. Decompiled proprietary Java source must not be copied, translated, vendored, or used as implementation code. Record observable geometry, visibility, ordering, timing, and state tables from a legally obtained running client or other approved references, then implement independently in Cinnabar.
-
-No completed real rendered-frame visual acceptance pass or independent review is recorded. At implementation head `228ae70`, CI run `29713142467` failed Linux architecture enforcement because `app/src/asset_startup.rs` was 1,030 lines versus the 1,000-line production limit (unchanged from `main`), `app/src/ui_runtime.rs` was 1,006 versus 1,000, and `app/src/ui_runtime/tests.rs` was 1,204 versus the 1,200-line test limit. Windows acceptance failed `make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs` because `fetch-vanilla-assets.ps1` could not resolve `Get-FileHash`. These failures must be resolved or proven unrelated on a replacement green run before any branch delta counts as landed.
+- [ ] Real rendered-frame visual acceptance on the target platform for every
+  surface above, including the crosshair against the pinned Java 26.2
+  reference matrix (GUI scales 2/3/4/Auto at 1280x720, 1920x1080, 2560x1440,
+  100%/150% desktop scaling, macOS Retina). No such pass has been performed
+  on this branch; unit geometry/draw-list tests are not a substitute.
+- [ ] Hotbar/offhand item icon pixels: no runtime artifact carries item
+  sprite pixels yet (the entity carrier stores routes and hashes only), so
+  icons are not drawn. Requires an item-sprite payload in the entity carrier
+  or a dedicated reviewed carrier before the icons can render.
+- [ ] Non-English locales (only the pinned `en_US` table is compiled; locale
+  selection is future work).
+- [ ] Mount jump bar activation (riding input does not exist yet; the
+  presentation path and carried strips are gated on a real jump-charge
+  authority) and the attack indicator (Bedrock exposes no attack-cooldown
+  state and the official sample pack carries no indicator art; deliberately
+  not invented).
+- [ ] Below-name and list scoreboard world/tab anchoring (nameplate and
+  player-list surfaces do not exist yet; the store projections and per-owner
+  lookups are ready).
+- [ ] Native Bedrock and third-party live server acceptance, including live
+  chat send/receive and disconnect validation from the stable executable
+  paths.
+- [ ] Release-profile frame-time and memory measurement against the plan.md
+  budgets (the deterministic harness bounds structure, not wall clock).
+- [ ] A green replacement CI run covering the architecture and Windows
+  acceptance fixes.
+- [ ] Independent review of this branch's complete base..head range.
 
 ## Historical references
 
