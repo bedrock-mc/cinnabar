@@ -50,6 +50,25 @@ function Test-OutputContains {
     return $whitespace.Replace($Output, "").Contains($whitespace.Replace($Needle, ""))
 }
 
+function Get-TestSha256Hex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $stream = [System.IO.File]::OpenRead([System.IO.Path]::GetFullPath($Path))
+    try {
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return [System.BitConverter]::ToString($hasher.ComputeHash($stream)).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $hasher.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Write-TestManifest {
     param(
         [Parameter(Mandatory = $true)]
@@ -204,6 +223,31 @@ try {
 
     $sandboxBashFetcher = Join-Path $sandboxScripts "fetch-vanilla-assets.sh"
     $sandboxPowerShellFetcher = Join-Path $sandboxScripts "fetch-vanilla-assets.ps1"
+    $sandboxNoFileHashWrapper = Join-Path $sandboxScripts "invoke-without-get-file-hash.ps1"
+    @'
+param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Fetcher,
+    [switch]$AcceptEula,
+    [switch]$DryRun
+)
+$ErrorActionPreference = "Stop"
+Import-Module Microsoft.PowerShell.Utility
+Remove-Item -LiteralPath Function:\Get-FileHash -Force
+$PSModuleAutoLoadingPreference = "None"
+if ($null -ne (Get-Command Get-FileHash -ErrorAction SilentlyContinue)) {
+    throw "test precondition failed: Get-FileHash is still available"
+}
+try {
+    & $Fetcher -AcceptEula:$AcceptEula -DryRun:$DryRun
+} catch {
+    [Console]::Error.WriteLine($_)
+    exit 1
+}
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+'@ | Set-Content -LiteralPath $sandboxNoFileHashWrapper -Encoding UTF8
     Write-TestManifest -Template $source -Path $sandboxManifest `
         -Archive ([string]$source.archive) -CacheDirectory ([string]$source.cache_dir)
 
@@ -292,7 +336,7 @@ try {
         [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
         [pscustomobject]@{ Name = $longMetadataPath; Content = "{}" }
     )
-    $syntheticSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant()
+    $syntheticSha256 = Get-TestSha256Hex -Path $syntheticArchivePath
     Write-TestManifest -Template $source -Path $sandboxManifest `
         -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative -Sha256 $syntheticSha256
     $syntheticResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
@@ -325,7 +369,7 @@ try {
         [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
         [pscustomobject]@{ Name = "../escaped.txt"; Content = "must not escape" }
     )
-    $traversalSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant()
+    $traversalSha256 = Get-TestSha256Hex -Path $syntheticArchivePath
     Write-TestManifest -Template $source -Path $sandboxManifest `
         -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative -Sha256 $traversalSha256
     $traversalResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
@@ -365,7 +409,7 @@ try {
         [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
     )
     $originUrl = ([System.Uri]$originArchive).AbsoluteUri
-    $originSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $originArchive).Hash.ToLowerInvariant()
+    $originSha256 = Get-TestSha256Hex -Path $originArchive
     $wrongSha256 = "0" * 64
 
     Write-TestManifest -Template $source -Path $sandboxManifest `
@@ -376,6 +420,7 @@ try {
         "-ExecutionPolicy",
         "Bypass",
         "-File",
+        $sandboxNoFileHashWrapper,
         $sandboxPowerShellFetcher,
         "-AcceptEula"
     )
@@ -405,6 +450,7 @@ try {
         "-ExecutionPolicy",
         "Bypass",
         "-File",
+        $sandboxNoFileHashWrapper,
         $sandboxPowerShellFetcher,
         "-AcceptEula"
     )
@@ -418,7 +464,7 @@ try {
         $sandboxFailures += "PowerShell published content from the stale cached archive"
     }
     if ((Test-Path -LiteralPath $syntheticArchivePath -PathType Leaf) -and
-        (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant() -cne $originSha256) {
+        (Get-TestSha256Hex -Path $syntheticArchivePath) -cne $originSha256) {
         $sandboxFailures += "PowerShell retained an archive that misses the pinned digest"
     }
 

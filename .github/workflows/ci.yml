@@ -15,6 +15,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test hermetic vanilla asset acquisition on Windows PowerShell 5.1
+        shell: powershell
+        run: .\scripts\tests\vanilla-assets.ps1
       - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
         shell: powershell
         run: .\scripts\tests\acceptance.Tests.ps1

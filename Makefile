@@ -59,8 +59,10 @@ CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --r
 
 ifeq ($(OS),Windows_NT)
 VANILLA_ASSET_FETCH = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
+RUN_IF_ASSET_REPORT_STALE = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/run-if-asset-report-stale.ps1 "$@" "$<"
 else
 VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
+RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
 .PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
@@ -132,25 +134,25 @@ $(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANI
 	$(ATMOSPHERE_COMPILE)
 
 $(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)
-	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(ATMOSPHERE_COMPILE); fi
+	$(RUN_IF_ASSET_REPORT_STALE) $(ATMOSPHERE_COMPILE)
 
 $(ENTITY_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
 	$(ENTITY_ASSET_COMPILE)
 
 $(ENTITY_ASSET_REPORT): $(ENTITY_ASSET_BLOB)
-	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(ENTITY_ASSET_COMPILE); fi
+	$(RUN_IF_ASSET_REPORT_STALE) $(ENTITY_ASSET_COMPILE)
 
 $(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE)
 	$(FONT_ASSET_COMPILE)
 
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
-	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(FONT_ASSET_COMPILE); fi
+	$(RUN_IF_ASSET_REPORT_STALE) $(FONT_ASSET_COMPILE)
 
 $(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)
 	$(HUD_ASSET_COMPILE)
 
 $(HUD_ASSET_REPORT): $(HUD_ASSET_BLOB)
-	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(HUD_ASSET_COMPILE); fi
+	$(RUN_IF_ASSET_REPORT_STALE) $(HUD_ASSET_COMPILE)
 
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))

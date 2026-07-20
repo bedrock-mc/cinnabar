@@ -80,10 +80,7 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
             "$(VANILLA_SOURCE_MANIFEST)"
         ),
         "$(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)",
-        concat!(
-            "\t@if [ ! -f \"$@\" ] || [ \"$@\" -ot \"$<\" ]; then ",
-            "$(ATMOSPHERE_COMPILE); fi"
-        ),
+        "\t$(RUN_IF_ASSET_REPORT_STALE) $(ATMOSPHERE_COMPILE)",
         "\t$(ATMOSPHERE_COMPILE)",
         "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
@@ -445,13 +442,13 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     }
     fs::write(&world, b"world").unwrap();
     fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
-    let now = SystemTime::now();
+    let baseline = SystemTime::now();
     for prerequisite in [&block, &light, &biome, &manifest] {
         fs::File::options()
             .write(true)
             .open(prerequisite)
             .unwrap()
-            .set_modified(now - Duration::from_secs(120))
+            .set_modified(baseline - Duration::from_secs(120))
             .unwrap();
     }
     // The stale-manifest scenario below dates the manifest into the future, so
@@ -463,21 +460,44 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         .write(true)
         .open(&sentinel)
         .unwrap()
-        .set_modified(now + Duration::from_secs(120))
+        .set_modified(baseline + Duration::from_secs(120))
         .unwrap();
     fs::File::options()
         .write(true)
         .open(&world)
         .unwrap()
-        .set_modified(now + Duration::from_secs(180))
+        .set_modified(baseline + Duration::from_secs(180))
         .unwrap();
 
-    let producer = format!(
-        "echo invocation >> \"{}\" && echo blob > \"{}\" && echo report > \"{}\"",
-        make_path(&invocations),
-        make_path(&atmosphere),
-        make_path(&report)
-    );
+    let producer_script = temporary.join(if cfg!(windows) {
+        "produce-atmosphere.ps1"
+    } else {
+        "produce-atmosphere.sh"
+    });
+    let producer = if cfg!(windows) {
+        fs::write(
+            &producer_script,
+            format!(
+                "Add-Content -LiteralPath '{}' -Value invocation\nSet-Content -LiteralPath '{}' -Value blob\nSet-Content -LiteralPath '{}' -Value report\n",
+                invocations.display(), atmosphere.display(), report.display()
+            ),
+        )
+        .unwrap();
+        format!(
+            "powershell -NoProfile -ExecutionPolicy Bypass -File \"{}\"",
+            make_path(&producer_script)
+        )
+    } else {
+        fs::write(
+            &producer_script,
+            format!(
+                "#!/usr/bin/env bash\nset -euo pipefail\necho invocation >> '{}'\necho blob > '{}'\necho report > '{}'\n",
+                invocations.display(), atmosphere.display(), report.display()
+            ),
+        )
+        .unwrap();
+        format!("bash \"{}\"", make_path(&producer_script))
+    };
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
         "VANILLA_FETCH_INPUTS=".to_owned(),
@@ -514,7 +534,7 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         .write(true)
         .open(&manifest)
         .unwrap()
-        .set_modified(SystemTime::now() + Duration::from_secs(60))
+        .set_modified(baseline + Duration::from_secs(60))
         .unwrap();
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
