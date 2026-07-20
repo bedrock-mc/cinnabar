@@ -27,7 +27,7 @@ pub use rig::{
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform,
 };
 use texture::normalize_skin;
 pub use texture::{
@@ -204,6 +204,15 @@ impl ActorRenderScene {
         self.frame.texture_atlas_width = 0;
         self.frame.texture_atlas_height = 0;
         self.frame.rig = self.rig_builder.build(0.0, None, []);
+    }
+
+    #[must_use]
+    pub fn rig_submission_is_visible(
+        &self,
+        submission: &ActorRigSubmission,
+        view: Option<ActorCullView>,
+    ) -> bool {
+        self.rig_builder.submission_is_visible(submission, view)
     }
 
     pub fn update(
@@ -922,7 +931,7 @@ mod tests {
         let frame = scene.update(1.0, None, [first, second]);
 
         assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
-        assert_eq!(frame.skins_rgba8.len(), 2 * 64 * 64 * 4);
+        assert_eq!(frame.skins_rgba8.len(), 2 * 66 * 66 * 4);
         assert_eq!(
             DEFAULT_SKIN_PROVENANCE,
             "locally generated Cinnabar Default skin"

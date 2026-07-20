@@ -22,6 +22,7 @@ fn synthetic_pack() -> TempDir {
           "format_version":"1.10.0",
           "minecraft:client_entity":{"description":{
             "identifier":"minecraft:allay",
+            "materials":{"default":"entity_alphatest"},
             "textures":{"default":"textures/entity/allay/allay"},
             "geometry":{"default":"geometry.allay"},
             "animations":{"idle":"animation.allay.idle","general":"controller.animation.allay.general"},
@@ -59,7 +60,7 @@ fn synthetic_pack() -> TempDir {
     write(
         root,
         "render_controllers/allay.render_controllers.json",
-        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","textures":["Texture.default"]},"controller.render.allay.compat":{"geometry":"Geometry.default","textures":["Texture.default"]}}}"#,
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]},"controller.render.allay.compat":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#,
     );
     let texture_path = root.join("textures/entity/allay/allay.png");
     std::fs::create_dir_all(texture_path.parent().unwrap()).unwrap();

@@ -881,7 +881,7 @@ pub(crate) fn publish_actor_render_frame(
         local_visible,
         local,
         remotes,
-        cull_view,
+        |submission| scene.rig_submission_is_visible(submission, cull_view),
     );
     let selected_count = batch.submissions.len();
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();

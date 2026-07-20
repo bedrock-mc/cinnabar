@@ -707,6 +707,23 @@ fn compile_rigs(
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
     {
+        if symbols
+            .iter()
+            .filter(|candidate| {
+                candidate.kind == EntityAssetKind::Entity
+                    && candidate.identifier == entity.identifier
+            })
+            .take(2)
+            .count()
+            != 1
+        {
+            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
+                source: entity.source_index,
+                symbol: entity_symbol as u32,
+                reason: RejectReason::AmbiguousRequiredReference,
+            });
+            continue;
+        }
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
         let description = value

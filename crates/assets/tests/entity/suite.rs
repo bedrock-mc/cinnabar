@@ -247,12 +247,12 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
 #[test]
 fn entity_carrier_round_trips_canonical_catalog_and_provenance() {
     let compiled = fixture();
-    let first = encode_entity_blob(&compiled).expect("encode MCBEENT4");
-    let second = encode_entity_blob(&compiled).expect("encode MCBEENT4 twice");
+    let first = encode_entity_blob(&compiled).expect("encode MCBEENT5");
+    let second = encode_entity_blob(&compiled).expect("encode MCBEENT5 twice");
     assert_eq!(first, second);
     assert_eq!(&first[..8], b"MCBEENT3");
 
-    let runtime = RuntimeEntityAssets::decode(&first).expect("decode MCBEENT4");
+    let runtime = RuntimeEntityAssets::decode(&first).expect("decode MCBEENT5");
     assert_eq!(runtime.source_manifest_sha256(), [0x11; 32]);
     assert_eq!(runtime.sources(), compiled.sources.as_ref());
     assert_eq!(runtime.symbols(), compiled.symbols.as_ref());
@@ -731,6 +731,13 @@ fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match(
     mismatch[payload_end..].copy_from_slice(&digest);
     let error = RuntimeEntityAssetsV4::decode(&mismatch).unwrap_err();
     assert!(error.to_string().contains("counts do not match header"));
+}
+
+#[test]
+fn current_entity_carrier_diagnostics_name_schema_five() {
+    let error = RuntimeEntityAssets::decode(&[]).unwrap_err();
+    assert!(error.to_string().contains("MCBEENT5"));
+    assert!(!error.to_string().contains("MCBEENT4"));
 }
 
 #[test]

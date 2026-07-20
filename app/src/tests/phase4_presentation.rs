@@ -259,11 +259,11 @@ fn compiled_non_player_texture_reaches_the_production_atlas_without_player_fallb
     );
 
     let batch = select_actor_presentations(999, false, None, [presentation]);
-    assert_eq!((batch.atlas.width, batch.atlas.height), (32, 64));
-    assert_eq!(batch.atlas.rgba8.as_ref(), pixels.as_ref());
+    assert_eq!((batch.atlas.width, batch.atlas.height), (34, 66));
+    assert!(batch.atlas.rgba8.iter().all(|channel| *channel == 73));
     assert_eq!(
         batch.submissions[0].texture_region,
-        [0.5 / 32.0, 0.5 / 64.0, 31.0 / 32.0, 63.0 / 64.0]
+        [1.0 / 34.0, 1.0 / 66.0, 32.0 / 34.0, 64.0 / 66.0]
     );
 
     let missing = actor_rig_presentation(&rig(44, &bones, &bones), &allay, None, 0.5)
@@ -430,7 +430,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
 fn identical_skin_families_share_one_bounded_texture_layer() {
     let batch =
         select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 31)]);
-    assert_eq!(batch.atlas.rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(batch.atlas.rgba8.len(), 66 * 66 * 4);
     assert!(
         batch
             .submissions
@@ -450,7 +450,10 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
         max_distance: 192.0,
     };
 
-    let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
+    let batch = select_actor_presentations_for_view(7, true, Some(local), [], |_| {
+        let _ = view;
+        false
+    });
     let mut scene = ActorRenderScene::default();
     let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
@@ -518,7 +521,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         if expected_draws != 0 {
             assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
             assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::Diagnostic);
-            assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+            assert_eq!(frame.skins_rgba8.len(), 66 * 66 * 4);
         }
     }
 

@@ -387,17 +387,22 @@ fn resolve_rig(
         ActorKind::Player { .. } => "minecraft:player",
         ActorKind::Entity { identifier } => identifier,
     };
-    let entity_symbol = assets
-        .symbol_candidates(EntityAssetKind::Entity, identifier)
-        .first()?;
+    let entity_symbols = assets.symbol_candidates(EntityAssetKind::Entity, identifier);
+    let [entity_symbol] = entity_symbols else {
+        return None;
+    };
     let entity_symbol_index = assets
         .symbols()
         .iter()
         .position(|symbol| std::ptr::eq(symbol, entity_symbol))?;
-    let rig = assets
+    let mut rigs = assets
         .rig_bindings()
         .iter()
-        .find(|rig| rig.entity_symbol as usize == entity_symbol_index)?;
+        .filter(|rig| rig.entity_symbol as usize == entity_symbol_index);
+    let rig = rigs.next()?;
+    if rigs.next().is_some() {
+        return None;
+    }
     let texture = rig.default_texture.map(|index| index as usize);
     let first = rig.first_geometry as usize;
     let end = first.checked_add(rig.geometry_count as usize)?;

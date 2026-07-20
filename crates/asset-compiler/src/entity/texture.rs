@@ -33,9 +33,16 @@ pub(super) fn compile_default_rig_textures(
             .and_then(|controllers| controllers.get(controller_symbol.identifier.as_ref()))
             .and_then(|controller| controller.get("textures"))
             .and_then(serde_json::Value::as_array);
+        let controller_materials = controller
+            .get("render_controllers")
+            .and_then(|controllers| controllers.get(controller_symbol.identifier.as_ref()))
+            .and_then(|controller| controller.get("materials"))
+            .and_then(serde_json::Value::as_array);
         if !controller_textures.is_some_and(|textures| {
             textures.len() == 1 && textures[0].as_str() == Some("Texture.default")
-        }) {
+        }) || !controller_materials
+            .is_some_and(|materials| single_default_material_route(materials))
+        {
             continue;
         }
 
@@ -89,6 +96,18 @@ pub(super) fn compile_default_rig_textures(
         binding.default_texture = Some(texture);
     }
     Ok(textures.into_boxed_slice())
+}
+
+fn single_default_material_route(materials: &[serde_json::Value]) -> bool {
+    let Some(route) = materials.first().and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    materials.len() == 1
+        && route.len() == 1
+        && route
+            .get("*")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|material| material == "Material.default")
 }
 
 fn decode_texture(

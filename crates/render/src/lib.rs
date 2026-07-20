@@ -28,8 +28,8 @@ pub use actor::{
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_ATLAS_BYTES, MAX_ACTOR_TEXTURE_ATLAS_SIDE, MAX_RENDER_BONES_PER_ACTOR,
     MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin, pack_actor_textures, standard_biped_vertices,
+    STANDARD_SKIN_SIDE, default_actor_skin_rgba8, normalize_actor_skin, pack_actor_textures,
+    standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

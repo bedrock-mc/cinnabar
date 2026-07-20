@@ -4,10 +4,10 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
-    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, ActorTextureAtlas, ActorTexturePixels,
-    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
-    default_actor_skin_rgba8, normalize_actor_skin, pack_actor_textures,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorSkinPixels, ActorTextureAtlas, ActorTexturePixels, EntityRigId,
+    MAX_RENDERED_PLAYERS, RenderBoneTransform, default_actor_skin_rgba8, normalize_actor_skin,
+    pack_actor_textures,
 };
 
 #[derive(Clone, Debug)]
@@ -203,7 +203,7 @@ pub(crate) fn select_actor_presentations(
     local: Option<ActorRigPresentation>,
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
 ) -> ActorPresentationBatch {
-    select_actor_presentations_for_view(local_runtime_id, local_visible, local, remotes, None)
+    select_actor_presentations_for_view(local_runtime_id, local_visible, local, remotes, |_| true)
 }
 
 pub(crate) fn select_actor_presentations_for_view(
@@ -211,7 +211,7 @@ pub(crate) fn select_actor_presentations_for_view(
     local_visible: bool,
     local: Option<ActorRigPresentation>,
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
-    view: Option<ActorCullView>,
+    is_visible: impl Fn(&ActorRigSubmission) -> bool,
 ) -> ActorPresentationBatch {
     let mut latest = BTreeMap::<u64, ActorRigPresentation>::new();
     for remote in remotes {
@@ -245,9 +245,7 @@ pub(crate) fn select_actor_presentations_for_view(
         if remote.submission.route == ActorRigRoute::NoDraw {
             continue;
         }
-        if drawable_count == MAX_RENDERED_PLAYERS
-            || !actor_rig_submission_is_visible(&remote.submission, view)
-        {
+        if drawable_count == MAX_RENDERED_PLAYERS || !is_visible(&remote.submission) {
             continue;
         }
         drawable_count += 1;

@@ -101,7 +101,7 @@ fn animation_pack(reverse: bool) -> TempDir {
     let files: [(&str, &[u8]); 6] = [
         (
             "entity/test.entity.json",
-            br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+            br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
         ),
         (
             "models/entity/test.geo.json",
@@ -117,7 +117,7 @@ fn animation_pack(reverse: bool) -> TempDir {
         ),
         (
             "render_controllers/test.render_controllers.json",
-            br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"arrays":{"geometries":{"Array.test":["Geometry.default","Geometry.default"]}},"geometry":"Array.test[math.floor(query.modified_move_speed)]","textures":["Texture.default"]}}}"#,
+            br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"arrays":{"geometries":{"Array.test":["Geometry.default","Geometry.default"]}},"geometry":"Array.test[math.floor(query.modified_move_speed)]","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#,
         ),
         (
             "textures/entity/test.texture_set.json",
@@ -240,6 +240,101 @@ fn ambiguous_default_texture_candidates_are_not_guessed() {
     assert_eq!(compiled.rig_bindings.len(), 1);
     assert_eq!(compiled.rig_bindings[0].default_texture, None);
     assert!(compiled.rig_textures.is_empty());
+}
+
+#[test]
+fn duplicate_entity_generations_do_not_select_the_first_source() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "entity/test.v1.entity.json",
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+    );
+
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert!(
+        compiled.assets.rig_bindings.is_empty(),
+        "duplicate entity generations must fail closed instead of selecting source order"
+    );
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::RequiredRigRejected {
+            reason: asset_compiler::RejectReason::AmbiguousRequiredReference,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn per_bone_and_dynamic_material_routes_are_explicit_no_draw_inputs() {
+    for materials in [
+        serde_json::json!([{"*":"Material.body"}, {"head":"Material.head"}]),
+        serde_json::json!([{"*":"Array.materials[query.is_invisible]"}]),
+    ] {
+        let pack = animation_pack(false);
+        let controller = serde_json::json!({
+            "format_version": "1.8.0",
+            "render_controllers": {
+                "controller.render.test": {
+                    "geometry": "Geometry.default",
+                    "materials": materials,
+                    "textures": ["Texture.default"]
+                }
+            }
+        });
+        write(
+            pack.path(),
+            "render_controllers/test.render_controllers.json",
+            &serde_json::to_vec(&controller).unwrap(),
+        );
+
+        let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.rig_bindings.len(), 1);
+        assert_eq!(compiled.rig_bindings[0].default_texture, None);
+        assert!(compiled.rig_textures.is_empty());
+    }
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
+fn pinned_pack_duplicate_entity_generations_have_no_runtime_rig() {
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let first = compile_entity_assets(Path::new(&pack), MANIFEST).unwrap();
+    let second = compile_entity_assets(Path::new(&pack), MANIFEST).unwrap();
+    assert_eq!(
+        encode_entity_blob(&first).unwrap(),
+        encode_entity_blob(&second).unwrap(),
+        "pinned-pack rejection must remain deterministic"
+    );
+    for identifier in [
+        "minecraft:armor_stand",
+        "minecraft:blaze",
+        "minecraft:skeleton",
+        "minecraft:spider",
+    ] {
+        let candidates = first
+            .symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, symbol)| {
+                symbol.kind == assets::EntityAssetKind::Entity
+                    && symbol.identifier.as_ref() == identifier
+            })
+            .map(|(index, _)| index as u32)
+            .collect::<Vec<_>>();
+        assert!(
+            candidates.len() > 1,
+            "expected pinned duplicate for {identifier}"
+        );
+        assert!(
+            first
+                .rig_bindings
+                .iter()
+                .all(|rig| !candidates.contains(&rig.entity_symbol)),
+            "{identifier} guessed one duplicate source generation"
+        );
+    }
 }
 
 #[test]

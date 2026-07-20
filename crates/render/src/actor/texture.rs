@@ -88,8 +88,8 @@ pub fn pack_actor_textures(textures: &[ActorTexturePixels]) -> Option<ActorTextu
         let expected = width.checked_mul(height)?.checked_mul(4)?;
         if width == 0
             || height == 0
-            || width > MAX_ACTOR_TEXTURE_ATLAS_SIDE
-            || height > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+            || width.checked_add(2)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+            || height.checked_add(2)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE
             || texture.rgba8.len() != expected
         {
             return None;
@@ -127,17 +127,19 @@ pub fn pack_actor_textures(textures: &[ActorTexturePixels]) -> Option<ActorTextu
     for index in order {
         let width = unique[index].width as usize;
         let height = unique[index].height as usize;
-        if x.checked_add(width)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE {
+        let padded_width = width.checked_add(2)?;
+        let padded_height = height.checked_add(2)?;
+        if x.checked_add(padded_width)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE {
             y = y.checked_add(row_height)?;
             x = 0;
             row_height = 0;
         }
-        if y.checked_add(height)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE {
+        if y.checked_add(padded_height)? > MAX_ACTOR_TEXTURE_ATLAS_SIDE {
             return None;
         }
         placements[index] = [x, y, width, height];
-        x = x.checked_add(width)?;
-        row_height = row_height.max(height);
+        x = x.checked_add(padded_width)?;
+        row_height = row_height.max(padded_height);
         used_width = used_width.max(x);
     }
     let used_height = y.checked_add(row_height)?;
@@ -147,11 +149,14 @@ pub fn pack_actor_textures(textures: &[ActorTexturePixels]) -> Option<ActorTextu
     }
     let mut rgba8 = vec![0; byte_len];
     for (texture, [left, top, width, height]) in unique.iter().zip(placements.iter().copied()) {
-        for source_y in 0..height {
-            let source = source_y * width * 4;
-            let target = ((top + source_y) * used_width + left) * 4;
-            rgba8[target..target + width * 4]
-                .copy_from_slice(&texture.rgba8[source..source + width * 4]);
+        for padded_y in 0..height + 2 {
+            let source_y = padded_y.saturating_sub(1).min(height - 1);
+            for padded_x in 0..width + 2 {
+                let source_x = padded_x.saturating_sub(1).min(width - 1);
+                let source = (source_y * width + source_x) * 4;
+                let target = ((top + padded_y) * used_width + left + padded_x) * 4;
+                rgba8[target..target + 4].copy_from_slice(&texture.rgba8[source..source + 4]);
+            }
         }
     }
     let regions = input_to_unique
@@ -159,10 +164,10 @@ pub fn pack_actor_textures(textures: &[ActorTexturePixels]) -> Option<ActorTextu
         .map(|index| {
             let [left, top, width, height] = placements[index];
             [
-                (left as f32 + 0.5) / used_width as f32,
-                (top as f32 + 0.5) / used_height as f32,
-                width.saturating_sub(1) as f32 / used_width as f32,
-                height.saturating_sub(1) as f32 / used_height as f32,
+                (left + 1) as f32 / used_width as f32,
+                (top + 1) as f32 / used_height as f32,
+                width as f32 / used_width as f32,
+                height as f32 / used_height as f32,
             ]
         })
         .collect::<Vec<_>>();
@@ -193,14 +198,27 @@ mod tests {
         let atlas = pack_actor_textures(&[wide.clone(), tall, wide])
             .expect("bounded varying textures pack");
 
-        assert_eq!((atlas.width, atlas.height), (3, 2));
+        assert_eq!((atlas.width, atlas.height), (7, 4));
         assert_eq!(atlas.regions[0], atlas.regions[2]);
-        assert_eq!(atlas.regions[0], [0.5, 0.25, 1.0 / 3.0, 0.0]);
-        assert_eq!(atlas.regions[1], [1.0 / 6.0, 0.25, 0.0, 0.5]);
-        assert_eq!(&atlas.rgba8[0..4], &[0, 0, 255, 255]);
-        assert_eq!(&atlas.rgba8[4..8], &[255, 0, 0, 255]);
-        assert_eq!(&atlas.rgba8[8..12], &[0, 255, 0, 255]);
-        assert_eq!(&atlas.rgba8[12..16], &[255, 255, 0, 255]);
+        assert_eq!(atlas.regions[0], [4.0 / 7.0, 0.25, 2.0 / 7.0, 0.25]);
+        assert_eq!(atlas.regions[1], [1.0 / 7.0, 0.25, 1.0 / 7.0, 0.5]);
+        assert_eq!(pixel(&atlas, 0, 0), [0, 0, 255, 255]);
+        assert_eq!(pixel(&atlas, 1, 1), [0, 0, 255, 255]);
+        assert_eq!(pixel(&atlas, 1, 2), [255, 255, 0, 255]);
+        assert_eq!(pixel(&atlas, 4, 1), [255, 0, 0, 255]);
+        assert_eq!(pixel(&atlas, 5, 1), [0, 255, 0, 255]);
+        assert_eq!(pixel(&atlas, 6, 2), [0, 255, 0, 255]);
+
+        // UV 0 and 1 map to the exact inner image boundaries. The adjacent
+        // one-pixel gutters duplicate edge texels, so linear filtering cannot
+        // blend a neighboring actor texture at either boundary.
+        for region in atlas.regions.iter() {
+            let epsilon = f32::EPSILON * 4.0;
+            assert!(region[0] + epsilon >= 1.0 / atlas.width as f32);
+            assert!(region[1] + epsilon >= 1.0 / atlas.height as f32);
+            assert!(region[0] + region[2] <= 1.0 - 1.0 / atlas.width as f32 + epsilon);
+            assert!(region[1] + region[3] <= 1.0 - 1.0 / atlas.height as f32 + epsilon);
+        }
     }
 
     #[test]
@@ -225,5 +243,10 @@ mod tests {
             .is_none()
         );
         assert!(pack_actor_textures(&vec![valid; MAX_RENDERED_PLAYERS + 1]).is_none());
+    }
+
+    fn pixel(atlas: &ActorTextureAtlas, x: usize, y: usize) -> [u8; 4] {
+        let offset = (y * atlas.width as usize + x) * 4;
+        atlas.rgba8[offset..offset + 4].try_into().unwrap()
     }
 }

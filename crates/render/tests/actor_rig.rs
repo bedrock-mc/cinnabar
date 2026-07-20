@@ -163,6 +163,28 @@ fn culling_precedes_actor_and_bone_arena_reservation() {
 }
 
 #[test]
+fn wide_compiled_rig_intersecting_the_frustum_is_not_player_box_culled() {
+    let wide =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [-4.0, -0.5, -0.5], [4.0, 0.5, 0.5], 1)
+            .unwrap();
+    let mut builder = ActorRigFrameBuilder::new([wide]).unwrap();
+    let mut actor = submission(9, 1);
+    actor.input.previous_bones = Arc::from([bone([0.0; 3])]);
+    actor.input.current_bones = Arc::from([bone([0.0; 3])]);
+    actor.world_from_actor[0][3] = 3.0;
+    actor.world_from_actor[1][3] = 0.0;
+    let view = ActorCullView {
+        clip_from_world: Mat4::IDENTITY,
+        camera_position: Vec3::ZERO,
+        max_distance: 192.0,
+    };
+
+    let frame = builder.build(0.5, Some(view), [actor]);
+
+    assert_eq!(frame.instances.len(), 1);
+}
+
+#[test]
 fn shared_geometry_is_not_duplicated_per_actor_and_overflow_is_deterministic() {
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let geometry_vertex_count = builder.geometry_vertices().len();
@@ -264,7 +286,7 @@ fn multiple_drawable_actors_can_share_one_validated_skin_layer() {
     );
 
     assert_eq!(frame.rig.instances.len(), 2);
-    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(frame.skins_rgba8.len(), 66 * 66 * 4);
     assert!(
         frame
             .rig
