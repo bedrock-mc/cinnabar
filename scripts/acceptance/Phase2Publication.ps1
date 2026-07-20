@@ -54,8 +54,11 @@ function Get-Phase2CacheBoundaryEvidence {
     if ((-not $seen -and $enabled) -or (-not $enabled -and $cachedPackets -ne 0)) {
         throw 'PHASE2_CACHE_BOUNDARY status and packet routes are incoherent'
     }
-    $classification = if (-not $seen -or -not $enabled) {
+    $classification = if (-not $seen) {
         'negotiation_failure'
+    }
+    elseif (-not $enabled -and $ordinaryPackets -ne 0) {
+        'ordinary_payload_cache_disabled'
     }
     elseif ($cachedPackets -ne 0) {
         'cache_backed'
@@ -84,22 +87,45 @@ function Assert-Phase2CacheBoundaryConsistency {
         [Parameter(Mandatory = $true)][AllowNull()]$BoundaryEvidence
     )
 
+    if ($ClientBlobCacheRoute -cnotin @('cache_backed', 'ordinary_payload')) {
+        throw "$Server acceptance contains an unknown client blob cache route"
+    }
+    if ($null -eq $BoundaryEvidence) {
+        if ($Server -ceq 'Lunar') {
+            throw 'Lunar acceptance requires independent cache boundary evidence'
+        }
+        return
+    }
+    $classification = [string]$BoundaryEvidence.classification
+    if ($classification -cnotin @(
+        'cache_backed', 'ordinary_payload_cache_disabled',
+        'server_ordinary_despite_cache_capability', 'negotiation_failure')) {
+        throw "$Server acceptance contains an unknown cache boundary classification"
+    }
     $cachedRoutes = [uint64]$BoundaryEvidence.cached_level_chunks +
         [uint64]$BoundaryEvidence.cached_sub_chunks
+    $ordinaryRoutes = [uint64]$BoundaryEvidence.ordinary_level_chunks +
+        [uint64]$BoundaryEvidence.ordinary_sub_chunks
     $boundaryCacheBacked = [string]$BoundaryEvidence.classification -ceq 'cache_backed' -and
         $BoundaryEvidence.upstream_status_seen -is [bool] -and
         [bool]$BoundaryEvidence.upstream_status_seen -and
         $BoundaryEvidence.upstream_status_enabled -is [bool] -and
         [bool]$BoundaryEvidence.upstream_status_enabled -and
         $cachedRoutes -gt 0
-    if ($Server -ceq 'Lunar' -and
-        ($ClientBlobCacheRoute -cne 'cache_backed' -or -not $boundaryCacheBacked)) {
-        throw 'Lunar acceptance requires coherent cache-backed publication and independent boundary evidence'
+    $boundaryDisabledOrdinary = $classification -ceq 'ordinary_payload_cache_disabled' -and
+        $BoundaryEvidence.upstream_status_seen -is [bool] -and
+        [bool]$BoundaryEvidence.upstream_status_seen -and
+        $BoundaryEvidence.upstream_status_enabled -is [bool] -and
+        -not [bool]$BoundaryEvidence.upstream_status_enabled -and
+        $cachedRoutes -eq 0 -and $ordinaryRoutes -gt 0
+    if ($Server -ceq 'Lunar') {
+        $coherent = ($ClientBlobCacheRoute -ceq 'cache_backed' -and $boundaryCacheBacked) -or
+            ($ClientBlobCacheRoute -ceq 'ordinary_payload' -and $boundaryDisabledOrdinary)
+        if (-not $coherent) {
+            throw 'Lunar acceptance requires coherent cache-backed or explicitly disabled ordinary publication and independent boundary evidence'
+        }
     }
     if ($Server -ceq 'Zeqa') {
-        if ($ClientBlobCacheRoute -cnotin @('cache_backed', 'ordinary_payload')) {
-            throw 'Zeqa acceptance contains an unknown client blob cache route'
-        }
         if (($ClientBlobCacheRoute -ceq 'cache_backed') -ne $boundaryCacheBacked) {
             throw 'Zeqa acceptance client and independent cache boundary routes disagree'
         }

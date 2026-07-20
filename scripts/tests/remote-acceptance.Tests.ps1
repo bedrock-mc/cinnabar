@@ -236,20 +236,20 @@ function New-SyntheticPhase2LunarManifest {
     param([ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode)
     $publication = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 197 `
         -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
-    $publication.client_blob_cache.hashes_classified = 1
-    $publication.client_blob_cache.hits = 1
+    $publication.client_blob_cache_enabled = $false
     $findings = [Collections.Generic.List[string]]::new()
     if ($Mode -eq 'Diagnostic') { $findings.Add('world_ready_not_observed') }
+    $findings.Add('client_blob_cache_performance_gate_deferred')
     return [ordered]@{
         schema = 'rust-mcbe-phase2-remote-v1'; server = 'Lunar'; upstream = 'pvp.lunarbedrock.com:19134'; mode = $Mode; status = 'passed'
         join_milliseconds = if ($Mode -eq 'Diagnostic') { $null } else { 1500.0 }
         initial_radius = 16; requested_present_mode = 'Fifo'; full_view_teleport_gate = ($Mode -ne 'Diagnostic')
         diagnostic_complete = ($Mode -eq 'Diagnostic'); behavior_gate_passed = ($Mode -ne 'Diagnostic')
         world_ready_observed = ($Mode -ne 'Diagnostic'); publication_snapshot_count = 2
-        client_blob_cache_route = 'cache_backed'
+        client_blob_cache_route = 'ordinary_payload'
         cache_boundary_evidence = [ordered]@{
-            classification = 'cache_backed'; upstream_status_seen = $true; upstream_status_enabled = $true
-            cached_level_chunks = 1; ordinary_level_chunks = 0; cached_sub_chunks = 1; ordinary_sub_chunks = 0
+            classification = 'ordinary_payload_cache_disabled'; upstream_status_seen = $true; upstream_status_enabled = $false
+            cached_level_chunks = 0; ordinary_level_chunks = 1; cached_sub_chunks = 0; ordinary_sub_chunks = 1
         }
         first_stalled_stage = if ($Mode -eq 'Diagnostic') { 'presentation' } else { 'none' }; final_publication = $publication
         findings = $findings
@@ -717,15 +717,9 @@ Describe 'Phase 2 remote acceptance runner' {
                 -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
             $lunar.ClientBlobCacheRoute | Should Be 'cache_backed'
 
-            foreach ($mutation in @('disabled', 'idle', 'rejected', 'pending_transactions', 'pending_bytes')) {
+            foreach ($mutation in @('idle', 'rejected', 'pending_transactions', 'pending_bytes')) {
                 $invalid = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
                 switch ($mutation) {
-                    'disabled' {
-                        $invalid.client_blob_cache_enabled = $false
-                        foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs')) {
-                            $invalid.client_blob_cache.$field = 0
-                        }
-                    }
                     'idle' {
                         foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs')) {
                             $invalid.client_blob_cache.$field = 0
@@ -739,6 +733,16 @@ Describe 'Phase 2 remote acceptance runner' {
                 { Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
                     -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar } | Should Throw
             }
+
+            $disabled = $record | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $disabled.client_blob_cache_enabled = $false
+            foreach ($field in @('hashes_classified', 'hits', 'misses', 'admitted_blobs')) {
+                $disabled.client_blob_cache.$field = 0
+            }
+            & $write $disabled
+            $lunarOrdinary = Get-Phase2PublicationSequenceEvidence -ClientLogPath $path `
+                -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
+            $lunarOrdinary.ClientBlobCacheRoute | Should Be 'ordinary_payload'
 
             $ordinary = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
                 -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
