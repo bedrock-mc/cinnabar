@@ -35,6 +35,15 @@ impl ResponsiveSurvivalHudGeometry {
     pub(super) fn bottom_row_top(self, logical_height: f32) -> f32 {
         logical_height - 40.0 * self.logical_texture_scale
     }
+
+    /// The experience bar rect `[left, top, right, bottom]`: 182 logical-source pixels wide (the
+    /// hotbar outer width), 5 tall, seated just above the hotbar.
+    pub(super) fn xp_bar_rect(self, logical_height: f32) -> [f32; 4] {
+        let scale = self.logical_texture_scale;
+        let left = self.hotbar_outer_left;
+        let top = (logical_height - 30.0 * scale).max(0.0);
+        [left, top, left + 182.0 * scale, top + 5.0 * scale]
+    }
 }
 
 pub(super) fn responsive_geometry(
@@ -216,6 +225,38 @@ pub(super) fn append(
             scale,
         )?;
     }
+
+    // Experience bar: the two 13x5 tiles are stretched across the hotbar width — the empty tile
+    // for the full track, the filled tile clipped to progress. Gated with the other survival
+    // surfaces (creative/spectator show no XP bar).
+    if runtime.survival_stats_visible()
+        && let Some(xp) = runtime.hud().experience()
+    {
+        let [bar_left, bar_top, bar_right, bar_bottom] = geometry.xp_bar_rect(height);
+        let bar_width = bar_right - bar_left;
+        let bar_height = bar_bottom - bar_top;
+        append_stretched_sprite(
+            nodes,
+            next_id,
+            textures,
+            HudTextureRole::ExperienceBarEmpty,
+            [bar_left, bar_top],
+            [bar_width, bar_height],
+            [255; 4],
+        )?;
+        let filled = bar_width * xp.progress.clamp(0.0, 1.0);
+        if filled > 0.0 {
+            append_stretched_sprite(
+                nodes,
+                next_id,
+                textures,
+                HudTextureRole::ExperienceBarFull,
+                [bar_left, bar_top],
+                [filled, bar_height],
+                [255; 4],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -279,6 +320,40 @@ fn append_sprite(
                 position[1],
                 position[0] + size[0],
                 position[1] + size[1],
+            )?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: textures.page,
+            uv: sprite.uv,
+            color,
+        }),
+    );
+    *next_id = (*next_id).saturating_add(1);
+    Ok(())
+}
+
+/// Draws a HUD sprite stretched to an explicit `size` rather than its native pixel size — used for
+/// the experience bar, whose small source tiles fill the full bar width.
+#[allow(clippy::too_many_arguments)]
+fn append_stretched_sprite(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    textures: &HudTexturePages,
+    role: HudTextureRole,
+    top_left: [f32; 2],
+    size: [f32; 2],
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
+    let sprite = textures.sprite(role);
+    nodes.push(
+        UiNode::new(
+            UiNodeId::new(*next_id),
+            None,
+            rect(
+                top_left[0],
+                top_left[1],
+                top_left[0] + size[0],
+                top_left[1] + size[1],
             )?,
         )
         .with_visual(UiVisual::Sprite {

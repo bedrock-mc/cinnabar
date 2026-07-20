@@ -4,8 +4,8 @@ use thiserror::Error;
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
 pub const HUD_CARRIER_VERSION: u32 = 3;
 pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
-    0x39, 0x4c, 0xbf, 0x28, 0xfe, 0x3a, 0x35, 0xe7, 0xf5, 0x43, 0x4a, 0x1c, 0x78, 0x30, 0x81, 0x6e,
-    0x7b, 0xc3, 0x80, 0xb8, 0x60, 0x9c, 0x03, 0xeb, 0xf3, 0xd7, 0x61, 0xfa, 0xfe, 0xf7, 0x58, 0x85,
+    0x29, 0x08, 0x1c, 0x62, 0x48, 0x55, 0x6f, 0x2c, 0x1f, 0xa0, 0xdd, 0xc3, 0xf6, 0xc4, 0xbc, 0xd0,
+    0xf9, 0xb2, 0xfe, 0x4d, 0xe8, 0xec, 0xd6, 0x78, 0x5a, 0x43, 0x36, 0x9e, 0xac, 0xf2, 0xbe, 0x85,
 ];
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
@@ -42,10 +42,12 @@ pub enum HudTextureRole {
     HotbarEndCap = 22,
     BossProgressEmpty = 23,
     BossProgressFilled = 24,
+    ExperienceBarEmpty = 25,
+    ExperienceBarFull = 26,
 }
 
 impl HudTextureRole {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 27] = [
         Self::HeartBackground,
         Self::HeartFull,
         Self::HeartHalf,
@@ -71,6 +73,8 @@ impl HudTextureRole {
         Self::HotbarEndCap,
         Self::BossProgressEmpty,
         Self::BossProgressFilled,
+        Self::ExperienceBarEmpty,
+        Self::ExperienceBarFull,
     ];
 
     #[must_use]
@@ -101,6 +105,8 @@ impl HudTextureRole {
             Self::HotbarEndCap => "textures/ui/hotbar_end_cap.png",
             Self::BossProgressEmpty => "textures/ui/empty_progress_bar.png",
             Self::BossProgressFilled => "textures/ui/filled_progress_bar.png",
+            Self::ExperienceBarEmpty => "textures/ui/experiencebarempty.png",
+            Self::ExperienceBarFull => "textures/ui/experiencebarfull.png",
         }
     }
 
@@ -129,7 +135,10 @@ impl HudTextureRole {
             | Self::Hotbar8 => [20, 22],
             Self::SelectedHotbarSlot => [24, 24],
             Self::HotbarStartCap | Self::HotbarEndCap => [1, 22],
-            Self::BossProgressEmpty | Self::BossProgressFilled => [13, 5],
+            Self::BossProgressEmpty
+            | Self::BossProgressFilled
+            | Self::ExperienceBarEmpty
+            | Self::ExperienceBarFull => [13, 5],
         }
     }
 

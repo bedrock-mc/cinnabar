@@ -625,6 +625,42 @@ fn local_actor_health_and_hunger_attributes_fan_into_hud_state() {
 }
 
 #[test]
+fn local_experience_attributes_populate_the_hud_xp_bar() {
+    let mut runtime = UiRuntime::new(1);
+    let attributes = Arc::from(
+        [
+            ("minecraft:player.experience", 0.42, 1.0),
+            ("minecraft:player.level", 7.0, 24791.0),
+        ]
+        .map(|(name, current, max)| protocol::ActorAttribute {
+            name: Arc::from(name),
+            min: 0.0,
+            max,
+            current,
+            default: Some(0.0),
+            modifiers: Arc::from([]),
+        }),
+    );
+
+    runtime
+        .apply_local_attributes(SequencedLocalAttributes {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 100,
+            server_tick: 2,
+            attributes,
+        })
+        .unwrap();
+
+    let xp = runtime
+        .hud()
+        .experience()
+        .expect("experience attributes populate the HUD XP state");
+    assert_eq!(xp.level, 7);
+    assert!((xp.progress - 0.42).abs() < 1e-6);
+}
+
+#[test]
 fn partial_local_attributes_patch_without_clearing_authoritative_health() {
     let mut runtime = UiRuntime::new(1);
     runtime

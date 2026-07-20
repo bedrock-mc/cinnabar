@@ -170,6 +170,32 @@ fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
 }
 
 #[test]
+fn survival_experience_bar_and_level_render_above_the_hotbar() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let baseline = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap()
+        .vertices
+        .len();
+
+    // Level 7, 40% progress: two stretched bar tiles (empty + filled) plus the level glyphs.
+    runtime.hud.set_experience(7, 0.4);
+    let with_xp = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert!(
+        with_xp.vertices.len() > baseline,
+        "the XP bar and level add HUD geometry"
+    );
+    assert!(
+        bounds_for_color(&with_xp, [128, 255, 32, 255]).is_some(),
+        "the green XP level number renders"
+    );
+}
+
+#[test]
 fn nonstandard_health_maximum_fails_closed_until_vanilla_row_authority_is_owned() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);

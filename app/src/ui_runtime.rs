@@ -798,6 +798,8 @@ impl UiRuntime {
         )?;
         let mut health = self.hud.health();
         let mut hunger = self.hud.hunger();
+        let mut xp_level = self.hud.experience().map(|xp| xp.level);
+        let mut xp_progress = self.hud.experience().map(|xp| xp.progress);
         for attribute in envelope.attributes.iter() {
             match attribute.name.as_ref() {
                 "minecraft:health" => {
@@ -812,11 +814,23 @@ impl UiRuntime {
                             .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
                     );
                 }
+                // Bedrock sends experience as attributes, not a dedicated packet: progress in
+                // 0.0..=1.0 and an integer level. `f32 as u32` saturates, so a stray value is bounded.
+                "minecraft:player.experience" if attribute.current.is_finite() => {
+                    xp_progress = Some(attribute.current);
+                }
+                "minecraft:player.level" if attribute.current.is_finite() => {
+                    xp_level = Some(attribute.current.max(0.0) as u32);
+                }
                 _ => {}
             }
         }
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());
+        if xp_level.is_some() || xp_progress.is_some() {
+            self.hud
+                .set_experience(xp_level.unwrap_or(0), xp_progress.unwrap_or(0.0));
+        }
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
         self.last_server_tick = Some(envelope.server_tick);

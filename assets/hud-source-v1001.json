@@ -38,6 +38,8 @@
     { "path": "textures/ui/hotbar_start_cap.png", "bytes": 77, "sha256": "eabedfb5da1e9546a2634be0e07600187ebf8ebd40d61fcf0d38b95493f988b7", "width": 1, "height": 22 },
     { "path": "textures/ui/hotbar_end_cap.png", "bytes": 77, "sha256": "eabedfb5da1e9546a2634be0e07600187ebf8ebd40d61fcf0d38b95493f988b7", "width": 1, "height": 22 },
     { "path": "textures/ui/empty_progress_bar.png", "bytes": 162, "sha256": "747ece8f4372304e3a8e90101db00b1e6a65289dc2bed7e48cc2bf549b803894", "width": 13, "height": 5 },
-    { "path": "textures/ui/filled_progress_bar.png", "bytes": 184, "sha256": "c2c57b072ae406d89986240cc2e36ee5bc971724e0c56d836373b34f3c7e237a", "width": 13, "height": 5 }
+    { "path": "textures/ui/filled_progress_bar.png", "bytes": 184, "sha256": "c2c57b072ae406d89986240cc2e36ee5bc971724e0c56d836373b34f3c7e237a", "width": 13, "height": 5 },
+    { "path": "textures/ui/experiencebarempty.png", "bytes": 180, "sha256": "531bb4ca58b8bae327756840c19074ff6bbee08f0b479b17af2c960c041569c0", "width": 13, "height": 5 },
+    { "path": "textures/ui/experiencebarfull.png", "bytes": 103, "sha256": "91978c74425ac8fad80e0f531610b28f621e14a618892c59e869c19f3c6149d1", "width": 13, "height": 5 }
   ]
 }

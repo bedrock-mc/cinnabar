@@ -20,8 +20,8 @@ pub use chat::{
 };
 pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale};
 pub use hud::{
-    BoundedStat, HudPlayerStatus, HudStore, HudViewNode, HudViewRole, MAX_TOAST_RETAINED_BYTES,
-    MAX_TOASTS, TimedText, TitleDurations, Toast,
+    BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
+    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TimedText, TitleDurations, Toast,
 };
 pub use model::{
     FocusState, FocusTransition, UiDrawBatch, UiDrawList, UiError, UiFrame, UiNode, UiNodeId,

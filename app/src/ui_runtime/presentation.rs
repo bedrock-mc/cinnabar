@@ -43,6 +43,8 @@ const CHAT_TEXT_SCALE: f32 = 0.5;
 // default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
 const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
+// Vanilla experience-level green, drawn above the XP bar.
+const XP_LEVEL_COLOR: [u8; 4] = [128, 255, 32, 255];
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -150,6 +152,43 @@ impl UiPresentationRuntime {
                 hud_textures,
                 geometry,
             )?;
+        }
+
+        // Experience level: green number centered just above the XP bar. The bar sprites are drawn
+        // by `survival_hud`; the level text needs the layout cache, so it is rendered here.
+        if let Some(geometry) = responsive_survival_geometry
+            && runtime.survival_stats_visible()
+            && let Some(xp) = runtime.hud().experience()
+            && xp.level > 0
+        {
+            let level_text = xp.level.to_string();
+            let layout = self
+                .layouts
+                .layout(TextLayoutRequest {
+                    text: &level_text,
+                    style: TextStyle::default(),
+                    width_64: (logical_width.max(1.0) * 64.0) as u32,
+                    scale: UiScale::default(),
+                    font: &self.font,
+                })
+                .map_err(UiPresentationError::Text)?;
+            let [bar_left, bar_top, bar_right, _] = geometry.xp_bar_rect(logical_height);
+            let text_width = layout.size_64()[0] as f32 / 64.0;
+            let text_height = layout.size_64()[1] as f32 / 64.0;
+            let x = ((bar_left + bar_right) * 0.5 - text_width * 0.5).max(0.0);
+            let y = (bar_top - text_height - 1.0).max(0.0);
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(x, y, x + text_width, y + text_height)?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: XP_LEVEL_COLOR,
+                }),
+            );
+            next_id = next_id.saturating_add(1);
         }
 
         let hud_nodes = runtime.hud().view_nodes(now_millis);
