@@ -91,7 +91,6 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     witness: Res<'w, ActorRuntimeWitness>,
     acceptance: Res<'w, AcceptanceRun>,
     presented_frames: Res<'w, ActorPresentationGate>,
-    ui_runtime: Res<'w, UiRuntime>,
     pose_witness: Local<'s, ActorPoseWitnessTracker>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
@@ -284,8 +283,7 @@ pub(crate) fn receive_network_events(
                 world: bootstrap,
                 environment,
                 inventory,
-                player_game_mode,
-                default_actor_game_mode,
+                local_player_game_mode,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -328,7 +326,7 @@ pub(crate) fn receive_network_events(
                     continue;
                 };
                 ui_runtime.publish_inventory_authority(authority);
-                ui_runtime.publish_player_game_mode(player_game_mode);
+                ui_runtime.publish_player_game_mode(local_player_game_mode.player_game_mode());
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
@@ -357,7 +355,7 @@ pub(crate) fn receive_network_events(
                         client_world.pending_surface_spawn,
                     )
                 };
-                stream.set_default_actor_game_mode(default_actor_game_mode);
+                stream.set_local_player_game_mode_authority(local_player_game_mode);
                 stream.set_actor_move_witness_enabled(acceptance.enabled());
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
@@ -772,7 +770,6 @@ pub(crate) fn publish_actor_render_frame(
         witness,
         acceptance,
         presented_frames,
-        ui_runtime,
         mut pose_witness,
         camera,
     } = presentation;
@@ -811,7 +808,14 @@ pub(crate) fn publish_actor_render_frame(
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
+    let (
+        local_runtime_id,
+        actor_session_id,
+        dimension,
+        local_render_eligible,
+        remotes,
+        canonical_local,
+    ) = client_world
         .stream
         .as_ref()
         .map(|stream| {
@@ -838,11 +842,12 @@ pub(crate) fn publish_actor_render_frame(
                 local_runtime_id,
                 stream.actor_session_id(),
                 stream.current_dimension(),
+                stream.local_player_render_eligible(),
                 remotes,
                 canonical_local,
             )
         })
-        .unwrap_or((0, 0, 0, Vec::new(), None));
+        .unwrap_or((0, 0, 0, false, Vec::new(), None));
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -865,10 +870,7 @@ pub(crate) fn publish_actor_render_frame(
         let local = local_actor_presentation_for_visibility(
             local_runtime_id,
             visibility.runtime_id(),
-            !matches!(
-                ui_runtime.player_game_mode(),
-                Some(protocol::PlayerGameMode::Spectator)
-            ),
+            local_render_eligible,
             canonical_local,
             diagnostic,
         );

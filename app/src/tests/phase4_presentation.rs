@@ -4,9 +4,11 @@ use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
 use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorRigTextureSnapshot, ActorSnapshot,
-    BoneTransform, EntityRigId, PlayerProfile,
+    BoneTransform, CommittedUiEvent, EntityRigId, PlayerProfile,
 };
-use protocol::{ActorGameMode, ActorKind, ActorMetadataValue, PlayerSkin, StandardSkin};
+use protocol::{
+    ActorGameMode, ActorKind, ActorMetadataValue, PlayerGameMode, PlayerSkin, StandardSkin,
+};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
@@ -25,6 +27,8 @@ use crate::presentation::actors::{
     update_actor_rig_scene,
 };
 use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
+use crate::runtime::world::apply_committed_ui_event;
+use crate::ui_runtime::UiRuntime;
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
@@ -293,6 +297,29 @@ fn start_game_only_local_spectator_cannot_use_the_synthetic_f5_fallback() {
     let batch = select_actor_presentations(7, true, selected, []);
 
     assert!(batch.submissions.is_empty());
+}
+
+#[test]
+fn committed_local_mode_authority_updates_the_live_ui_runtime() {
+    let mut ui_runtime = UiRuntime::new(7);
+    ui_runtime.publish_player_game_mode(PlayerGameMode::Survival);
+
+    apply_committed_ui_event(
+        &mut ui_runtime,
+        7,
+        100,
+        CommittedUiEvent::LocalGameMode {
+            sequence: 3,
+            game_mode: PlayerGameMode::Spectator,
+        },
+    )
+    .expect("ordered local mode authority reaches the UI runtime");
+
+    assert_eq!(
+        ui_runtime.player_game_mode(),
+        Some(PlayerGameMode::Spectator)
+    );
+    assert!(!ui_runtime.survival_stats_visible());
 }
 
 #[test]

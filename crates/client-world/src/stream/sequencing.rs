@@ -582,11 +582,26 @@ impl WorldStream {
                         attributes: Arc::clone(&update.attributes),
                     });
                 }
+                let local_game_mode = match (&event, self.local_player_game_mode.as_mut()) {
+                    (ActorEvent::GameMode(update), Some(authority)) => {
+                        authority.update_player(update.unique_id, update.game_mode)
+                    }
+                    (ActorEvent::DefaultGameMode(update), Some(authority)) => {
+                        authority.update_default(update.game_mode)
+                    }
+                    _ => None,
+                };
                 let movement = match &event {
                     ActorEvent::Move(movement) => Some(*movement),
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if let Some(game_mode) = local_game_mode {
+                    self.push_committed_ui(CommittedUiEvent::LocalGameMode {
+                        sequence,
+                        game_mode,
+                    });
+                }
                 if let Some(movement) = movement {
                     self.record_committed_actor_move(sequence, movement, result);
                 }

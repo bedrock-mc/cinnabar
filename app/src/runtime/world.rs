@@ -51,7 +51,10 @@ use crate::{
         telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
-    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
+    ui_runtime::{
+        SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime,
+        UiRuntimeError,
+    },
 };
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
@@ -63,6 +66,50 @@ fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct WorldStreamFramePoll(pub(crate) WorldStreamPoll);
+
+pub(crate) fn apply_committed_ui_event(
+    ui_runtime: &mut UiRuntime,
+    session_id: u64,
+    local_millis: u64,
+    committed: CommittedUiEvent,
+) -> Result<(), UiRuntimeError> {
+    match committed {
+        CommittedUiEvent::Ui { sequence, event } => ui_runtime
+            .apply(SequencedUiEvent {
+                session_id,
+                fifo_sequence: sequence,
+                local_millis,
+                server_tick: None,
+                event,
+            })
+            .map(|_| ()),
+        CommittedUiEvent::BlockCrack {
+            sequence,
+            dimension,
+            event,
+        } => ui_runtime.retain_block_crack(SequencedBlockCrackEvent {
+            session_id,
+            fifo_sequence: sequence,
+            dimension,
+            event,
+        }),
+        CommittedUiEvent::LocalAttributes {
+            sequence,
+            server_tick,
+            attributes,
+        } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
+            session_id,
+            fifo_sequence: sequence,
+            local_millis,
+            server_tick,
+            attributes,
+        }),
+        CommittedUiEvent::LocalGameMode { game_mode, .. } => {
+            ui_runtime.publish_player_game_mode(game_mode);
+            Ok(())
+        }
+    }
+}
 
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
@@ -542,38 +589,12 @@ pub(crate) fn drive_world_stream(
     let poll_report = std::mem::take(&mut frame_poll.0);
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     for committed in committed_ui {
-        let result = match committed {
-            CommittedUiEvent::Ui { sequence, event } => ui_runtime
-                .apply(SequencedUiEvent {
-                    session_id: clock.session_generation(),
-                    fifo_sequence: sequence,
-                    local_millis,
-                    server_tick: None,
-                    event,
-                })
-                .map(|_| ()),
-            CommittedUiEvent::BlockCrack {
-                sequence,
-                dimension,
-                event,
-            } => ui_runtime.retain_block_crack(SequencedBlockCrackEvent {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                dimension,
-                event,
-            }),
-            CommittedUiEvent::LocalAttributes {
-                sequence,
-                server_tick,
-                attributes,
-            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                local_millis,
-                server_tick,
-                attributes,
-            }),
-        };
+        let result = apply_committed_ui_event(
+            &mut ui_runtime,
+            clock.session_generation(),
+            local_millis,
+            committed,
+        );
         if let Err(error) = result {
             record_fatal_error(
                 &mut client_world.fatal_error,

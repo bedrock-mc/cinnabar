@@ -255,6 +255,7 @@ impl UiRuntime {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn player_game_mode(&self) -> Option<PlayerGameMode> {
         self.player_game_mode
     }

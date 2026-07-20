@@ -28,8 +28,13 @@ impl WorldStream {
             existing_anchor,
         )
     }
-    pub fn set_default_actor_game_mode(&mut self, game_mode: protocol::ActorGameMode) {
-        self.actors.set_default_game_mode(game_mode);
+    pub fn set_local_player_game_mode_authority(
+        &mut self,
+        authority: protocol::LocalPlayerGameModeAuthority,
+    ) {
+        self.actors
+            .set_default_game_mode(authority.default_game_mode());
+        self.local_player_game_mode = Some(authority);
     }
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
@@ -124,6 +129,7 @@ impl WorldStream {
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
+            local_player_game_mode: None,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),

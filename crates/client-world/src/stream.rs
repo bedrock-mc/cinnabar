@@ -142,6 +142,7 @@ pub struct WorldStream {
     biome_tint_revision: u64,
     current_dimension: i32,
     local_player_runtime_id: u64,
+    local_player_game_mode: Option<protocol::LocalPlayerGameModeAuthority>,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,

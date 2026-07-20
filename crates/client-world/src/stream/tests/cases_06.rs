@@ -76,6 +76,121 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
 }
 
 #[test]
+fn start_game_only_local_mode_update_reaches_hud_and_f5_without_an_actor_spawn() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: -9,
+                game_mode: ActorGameMode::Spectator,
+                tick: 27,
+            })),
+        )
+        .unwrap();
+
+    assert!(
+        stream.actor(42).is_none(),
+        "StartGame-only self has no AddPlayer"
+    );
+    assert!(!stream.local_player_render_eligible());
+    assert_eq!(
+        stream.local_player_game_mode(),
+        Some(PlayerGameMode::Spectator)
+    );
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalGameMode {
+            sequence: 1,
+            game_mode: PlayerGameMode::Spectator,
+        }]
+    );
+}
+
+#[test]
+fn local_fallback_re_resolves_when_default_game_mode_changes() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Fallback,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+                game_mode: ActorGameMode::Spectator,
+            })),
+        )
+        .unwrap();
+
+    assert!(!stream.local_player_render_eligible());
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalGameMode {
+            sequence: 1,
+            game_mode: PlayerGameMode::Spectator,
+        }]
+    );
+}
+
+#[test]
+fn unrelated_player_mode_update_cannot_change_local_authority() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: 77,
+                game_mode: ActorGameMode::Spectator,
+                tick: 28,
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.local_player_render_eligible());
+    assert_eq!(
+        stream.local_player_game_mode(),
+        Some(PlayerGameMode::Survival)
+    );
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

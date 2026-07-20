@@ -11,8 +11,8 @@ use std::{
 
 use protocol::{
     ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, InventoryAuthority, InventoryEvent,
-    MovePlayerEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    MovePlayerEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -892,8 +892,11 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             world: bootstrap,
             environment,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
-            player_game_mode: PlayerGameMode::Survival,
-            default_actor_game_mode: protocol::ActorGameMode::Survival,
+            local_player_game_mode: protocol::LocalPlayerGameModeAuthority::new(
+                -42,
+                protocol::ActorGameMode::Survival,
+                protocol::ActorGameMode::Survival,
+            ),
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
@@ -927,9 +930,11 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             world,
             environment: value,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
-            player_game_mode: PlayerGameMode::Survival,
-            default_actor_game_mode: protocol::ActorGameMode::Survival,
-        }) if world == bootstrap && value == environment
+            local_player_game_mode,
+        }) if world == bootstrap
+            && value == environment
+            && local_player_game_mode.unique_id() == -42
+            && local_player_game_mode.player_game_mode() == protocol::PlayerGameMode::Survival
     ));
     assert!(matches!(
         control_event_rx.try_recv(),

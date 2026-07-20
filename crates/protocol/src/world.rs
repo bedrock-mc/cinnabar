@@ -3,7 +3,7 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    CorrectPlayerMovePredictionPacketPredictionType, GameMode, GameRuleI32, GameRuleI32Type,
+    CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
     GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
     McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
     SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
@@ -34,6 +34,9 @@ use crate::{
     },
 };
 
+mod game_mode;
+pub use game_mode::{LocalPlayerGameModeAuthority, PlayerGameMode};
+
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
 
@@ -54,72 +57,6 @@ pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
 pub const MAX_BIOME_NAME_BYTES: usize = 256;
-
-/// StartGame's local-player game mode reduced to the HUD distinctions Cinnabar owns.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum PlayerGameMode {
-    Survival,
-    Creative,
-    Adventure,
-    Spectator,
-    Unknown,
-}
-
-impl PlayerGameMode {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let start_game = &game_data.start_game;
-        Self::from_game_modes(start_game.player_gamemode, start_game.world_gamemode)
-    }
-
-    fn from_game_modes(player: GameMode, world: GameMode) -> Self {
-        let effective = if player == GameMode::Fallback {
-            world
-        } else {
-            player
-        };
-        match effective {
-            GameMode::Survival => Self::Survival,
-            GameMode::Creative => Self::Creative,
-            GameMode::Adventure => Self::Adventure,
-            GameMode::SurvivalSpectator | GameMode::CreativeSpectator | GameMode::Spectator => {
-                Self::Spectator
-            }
-            GameMode::Fallback | GameMode::Unknown(_) => Self::Unknown,
-        }
-    }
-
-    #[must_use]
-    pub const fn shows_hotbar(self) -> bool {
-        matches!(self, Self::Survival | Self::Creative | Self::Adventure)
-    }
-
-    #[must_use]
-    pub const fn shows_survival_stats(self) -> bool {
-        matches!(self, Self::Survival | Self::Adventure)
-    }
-}
-
-#[cfg(test)]
-mod player_game_mode_tests {
-    use super::{GameMode, PlayerGameMode};
-
-    #[test]
-    fn start_game_fallback_uses_the_authoritative_world_mode() {
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Creative),
-            PlayerGameMode::Creative
-        );
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Survival),
-            PlayerGameMode::Survival
-        );
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Unknown(77), GameMode::Creative),
-            PlayerGameMode::Unknown
-        );
-    }
-}
 
 /// StartGame data reduced to the fields required by the renderer and world streamer.
 #[derive(Debug, Clone, Copy, PartialEq)]
