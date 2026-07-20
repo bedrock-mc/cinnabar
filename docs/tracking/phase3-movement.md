@@ -1,6 +1,6 @@
 # Phase 3 physics, movement, controls, and camera tracker
 
-Current audited progress: **67%** at `agent/pr6-phase3-completion`.
+Current audited progress: **67%** at `3a06b15` on PR #6.
 
 This estimate uses five equal gates: authoritative contract, bounded runtime/state, production integration, deterministic verification/review, and live/native/performance acceptance. It is not a phase-closure claim.
 
@@ -25,6 +25,9 @@ Gate scores: contract 95%, runtime/state 90%, production integration 55%, determ
       `0.543`, with the physics carrier regenerated and its pinned SHA-256 updated.
 - [x] CI runs `tools/bedsimtrace` regeneration and provenance tests as an isolated `GOWORK=off`
       module, enforced by a workflow-contract test.
+- [x] The complete `225b17e..3a06b15` candidate range received an independent Claude Opus
+      4.8/xhigh `APPROVE` verdict after all three Important findings were fixed; no Critical or
+      Important findings remain.
 
 ## Bedsim conformance ledger
 
@@ -48,7 +51,10 @@ the generator is incomplete:
 
 Because both sides model a scenario world as homogeneous, these fixtures witness each stratum's
 force law, not the block-sampling extent. bedsim samples climbability at the feet block while
-`crates/sim` unions flags across the swept volume; that difference is unwitnessed here.
+`crates/sim` unions flags across the swept volume; that difference is unwitnessed here. bedsim
+also re-resolves the supporting block after collision before applying `walkOnBlock`, while
+`crates/sim` retains the start-of-tick sampled surface response. Homogeneous scenario worlds
+cannot witness that ordering difference either, so it remains part of native/BDS acceptance.
 
 ### Movement constants that remain unproven
 
@@ -84,7 +90,7 @@ recomputed from an anchor. The rule is:
 - [ ] Run >=5-minute CandidatePhysics and FreeCameraSilence sessions on Lunar `19134`, Zeqa `19132`, and LBSG `19132`.
 - [ ] Compare movement, jumping, camera collision, F5 avatar, touch, and controller behavior against matching vanilla Bedrock.
 - [ ] Produce release resource/timing evidence at 30, 60, and 144 FPS caps.
-- [ ] Complete independent review of the final integrated candidate range.
+- [x] Complete independent review of the final integrated candidate range through `3a06b15`.
 - [ ] Land a separate reviewed change enabling normal-session physics.
 
 ## Open production-integration gaps established from code

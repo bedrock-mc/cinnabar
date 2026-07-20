@@ -201,9 +201,10 @@ fn sneaking_suppresses_the_bed_bounce() {
         )
         .unwrap();
     assert!(tick.collisions.y);
+    let expected = (0.0 - 0.08) * 0.98;
     assert!(
-        state.velocity.y <= 0.0,
-        "sneaking must suppress the bed bounce, got {}",
+        (state.velocity.y - expected).abs() <= 1.0e-12,
+        "sneaking must suppress the bed bounce exactly: expected {expected}, got {}",
         state.velocity.y
     );
 }

@@ -60,7 +60,7 @@ fn cobweb_scales_each_axis_and_stops_residual_motion_after_move() {
 }
 
 #[test]
-fn slime_and_bed_bounce_while_sneaking_suppresses_slime() {
+fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
     for (response, expected) in [
         (SurfaceResponse::Slime, 0.6076),
         (SurfaceResponse::Bed, 0.374_36),
