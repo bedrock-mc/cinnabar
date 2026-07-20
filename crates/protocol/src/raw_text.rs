@@ -65,6 +65,179 @@ pub enum RawTextComponent {
     Sequence(Arc<[RawTextComponent]>),
 }
 
+/// External authoritative state for one rawtext resolution pass.
+///
+/// The document itself never learns to query stores; the caller lends bounded
+/// lookups. `translate` returns the localized template for a key, or `None`
+/// for an unknown key — the vanilla client then presents the raw key.
+/// `score` resolves an owner display name and objective to a value; the
+/// reader sentinel `*` is replaced with `reader_name` before lookup.
+pub struct RawTextResolver<'a> {
+    pub reader_name: &'a str,
+    pub translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
+    pub score: &'a dyn Fn(&str, &str) -> Option<i32>,
+}
+
+/// The outcome of resolving one document: human text plus counters for every
+/// component the lent state could not answer. Nothing in `text` is JSON.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ResolvedRawText {
+    pub text: String,
+    pub unknown_translations: u32,
+    pub unresolved_scores: u32,
+    /// Selectors require live server entity queries; the vanilla server
+    /// resolves them before sending, so a live one presents as empty.
+    pub skipped_selectors: u32,
+    /// Set when the bounded output budget truncated the resolved text.
+    pub truncated: bool,
+}
+
+impl RawTextDocument {
+    /// Resolves every component into presentable text, bounded by
+    /// [`MAX_RAW_TEXT_OUTPUT_BYTES`]. Components the resolver cannot answer
+    /// degrade exactly like the vanilla client: unknown translation keys
+    /// present the key itself, unresolvable scores and selectors present as
+    /// empty text, and each degradation is counted for diagnostics.
+    #[must_use]
+    pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
+        let mut resolved = ResolvedRawText::default();
+        for component in self.components.iter() {
+            resolve_component(component, resolver, &mut resolved, 0);
+        }
+        resolved
+    }
+}
+
+fn resolve_component(
+    component: &RawTextComponent,
+    resolver: &RawTextResolver<'_>,
+    resolved: &mut ResolvedRawText,
+    depth: usize,
+) {
+    if depth > MAX_RAW_TEXT_DEPTH {
+        resolved.truncated = true;
+        return;
+    }
+    match component {
+        RawTextComponent::Text(text) => push_bounded(resolved, text),
+        RawTextComponent::Sequence(children) => {
+            for child in children.iter() {
+                resolve_component(child, resolver, resolved, depth + 1);
+            }
+        }
+        RawTextComponent::Selector(_) => {
+            resolved.skipped_selectors = resolved.skipped_selectors.saturating_add(1);
+        }
+        RawTextComponent::Score { name, objective } => {
+            let owner = if name.as_ref() == "*" {
+                resolver.reader_name
+            } else {
+                name.as_ref()
+            };
+            match (resolver.score)(owner, objective) {
+                Some(value) => push_bounded(resolved, &value.to_string()),
+                None => {
+                    resolved.unresolved_scores = resolved.unresolved_scores.saturating_add(1);
+                }
+            }
+        }
+        RawTextComponent::Translate { key, with } => {
+            match (resolver.translate)(key) {
+                Some(template) => {
+                    // Arguments resolve first so positional substitution can
+                    // splice them; each argument is itself budget-bounded.
+                    let arguments: Vec<String> = with
+                        .iter()
+                        .map(|argument| {
+                            let mut nested = ResolvedRawText::default();
+                            resolve_component(argument, resolver, &mut nested, depth + 1);
+                            resolved.unknown_translations = resolved
+                                .unknown_translations
+                                .saturating_add(nested.unknown_translations);
+                            resolved.unresolved_scores = resolved
+                                .unresolved_scores
+                                .saturating_add(nested.unresolved_scores);
+                            resolved.skipped_selectors = resolved
+                                .skipped_selectors
+                                .saturating_add(nested.skipped_selectors);
+                            resolved.truncated |= nested.truncated;
+                            nested.text
+                        })
+                        .collect();
+                    let formatted = format_translation(&template, &arguments);
+                    push_bounded(resolved, &formatted);
+                }
+                None => {
+                    // The vanilla client presents an unknown key verbatim.
+                    resolved.unknown_translations = resolved.unknown_translations.saturating_add(1);
+                    push_bounded(resolved, key);
+                }
+            }
+        }
+    }
+}
+
+/// Substitutes `%s`/`%d` sequentially and `%1` / `%1$s` positionally, the two
+/// argument families the pinned Bedrock language files use. `%%` escapes one
+/// percent sign; an out-of-range reference keeps its literal form.
+fn format_translation(template: &str, arguments: &[String]) -> String {
+    let mut output = String::with_capacity(template.len());
+    let mut sequential = 0usize;
+    let mut chars = template.char_indices().peekable();
+    while let Some((_, current)) = chars.next() {
+        if current != '%' {
+            output.push(current);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some((_, '%')) => {
+                chars.next();
+                output.push('%');
+            }
+            Some((_, 's' | 'd')) => {
+                chars.next();
+                if let Some(argument) = arguments.get(sequential) {
+                    output.push_str(argument);
+                }
+                sequential += 1;
+            }
+            Some((_, digit @ '1'..='9')) => {
+                chars.next();
+                let index = digit as usize - '1' as usize;
+                // Optional Java-style `$s` suffix after the position.
+                if let Some((_, '$')) = chars.peek().copied() {
+                    chars.next();
+                    if let Some((_, 's' | 'd')) = chars.peek().copied() {
+                        chars.next();
+                    }
+                }
+                if let Some(argument) = arguments.get(index) {
+                    output.push_str(argument);
+                } else {
+                    output.push('%');
+                    output.push(digit);
+                }
+            }
+            _ => output.push('%'),
+        }
+    }
+    output
+}
+
+fn push_bounded(resolved: &mut ResolvedRawText, text: &str) {
+    let remaining = MAX_RAW_TEXT_OUTPUT_BYTES.saturating_sub(resolved.text.len());
+    if text.len() <= remaining {
+        resolved.text.push_str(text);
+        return;
+    }
+    let mut end = remaining;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    resolved.text.push_str(&text[..end]);
+    resolved.truncated = true;
+}
+
 pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError> {
     if value.len() > MAX_RAW_TEXT_INPUT_BYTES {
         return Err(UiPacketError::RawTextInputTooLarge {

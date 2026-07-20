@@ -270,6 +270,22 @@ impl ScoreboardStore {
         Some((score.score, Arc::clone(&objective.display_name)))
     }
 
+    /// Resolves a rawtext score component: the value a named owner holds in an
+    /// objective, independent of display slots. Only fake-player rows carry a
+    /// display name inside the store; entity/player rows require the actor
+    /// authority a caller may layer on top.
+    pub fn score_for_named_owner(&self, objective: &str, owner_name: &str) -> Option<i32> {
+        let objective = self.objectives.get(objective)?;
+        objective
+            .scores
+            .values()
+            .find(|score| match &score.owner {
+                ScoreOwner::FakePlayer(name) => name.as_ref() == owner_name,
+                ScoreOwner::Player(_) | ScoreOwner::Entity(_) | ScoreOwner::None => false,
+            })
+            .map(|score| score.score)
+    }
+
     /// The list-slot score for one player entry, as the player list presents
     /// it beside each name.
     pub fn list_score_for_owner(&self, owner: &ScoreOwner) -> Option<i32> {

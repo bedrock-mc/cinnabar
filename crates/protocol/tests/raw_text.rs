@@ -465,3 +465,70 @@ fn malformed_title_object_raw_text_fails_closed() {
         Err(UiPacketError::InvalidRawText)
     ));
 }
+
+#[test]
+fn resolver_substitutes_scores_translations_and_skips_selectors() {
+    use std::sync::Arc;
+
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"text":"= "},{"translate":"greet.pair","with":[{"text":"Hashim"},{"score":{"name":"*","objective":"coins"}}]},{"selector":"@a"},{"translate":"missing.key"}]}"#,
+    )
+    .unwrap();
+    assert!(document.has_unresolved_components());
+
+    let translate = |key: &str| -> Option<Arc<str>> {
+        (key == "greet.pair").then(|| Arc::from("hello %s, you hold %2 coins (%%)"))
+    };
+    let score = |owner: &str, objective: &str| -> Option<i32> {
+        (owner == "Reader" && objective == "coins").then_some(41)
+    };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &score,
+    });
+
+    assert_eq!(
+        resolved.text,
+        "= hello Hashim, you hold 41 coins (%)missing.key"
+    );
+    assert_eq!(resolved.unknown_translations, 1);
+    assert_eq!(resolved.skipped_selectors, 1);
+    assert_eq!(resolved.unresolved_scores, 0);
+    assert!(!resolved.truncated);
+}
+
+#[test]
+fn resolver_output_is_bounded_and_missing_scores_degrade_to_empty_counted_text() {
+    use std::sync::Arc;
+
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"score":{"name":"Nobody","objective":"none"}},{"text":"tail"}]}"#,
+    )
+    .unwrap();
+    let translate = |_: &str| -> Option<Arc<str>> { None };
+    let score = |_: &str, _: &str| -> Option<i32> { None };
+    let resolver = protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &score,
+    };
+    let resolved = document.resolve(&resolver);
+    assert_eq!(resolved.text, "tail");
+    assert_eq!(resolved.unresolved_scores, 1);
+
+    // A pathological translation expansion cannot exceed the output budget.
+    let long = parse_raw_text(&format!(
+        r#"{{"rawtext":[{{"text":"{}"}},{{"translate":"big"}}]}}"#,
+        "a".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES - 16)
+    ))
+    .unwrap();
+    let expand = |_: &str| -> Option<Arc<str>> { Some(Arc::from("b".repeat(64).as_str())) };
+    let resolved = long.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &expand,
+        score: &score,
+    });
+    assert!(resolved.text.len() <= protocol::MAX_RAW_TEXT_OUTPUT_BYTES);
+    assert!(resolved.truncated);
+}

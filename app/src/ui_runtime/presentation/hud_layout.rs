@@ -16,15 +16,14 @@ use ui::{
 };
 
 use super::{HudSprite, HudTexturePages, UiPresentationError, UiRuntime, rect};
-use crate::ui_runtime::gameplay_hud::{HeartVariant, HudEffect};
+use crate::ui_runtime::gameplay_hud::HudEffect;
 
 mod pinned;
 
 use pinned::{
-    BOSS_TINTS, DAMAGE_FLASH_PHASE_MILLIS, DAMAGE_FLASH_WINDOW_MILLIS, EFFECT_BLINK_TICKS,
-    HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH, LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS,
-    MAX_HEART_ROWS, MAX_MOUNT_HEARTS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR, damage_flash_phase,
-    effect_blink_alpha, heart_role, hotbar_slot_role, hsv_to_rgb,
+    BOSS_TINTS, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH, LABEL_FADE_MILLIS,
+    LABEL_WINDOW_MILLIS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR,
+    damage_flash_phase, effect_blink_alpha, heart_role, hotbar_slot_role, hsv_to_rgb,
 };
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
 

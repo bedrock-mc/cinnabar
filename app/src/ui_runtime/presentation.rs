@@ -84,6 +84,8 @@ pub struct UiPresentationRuntime {
     gui_scale_preference: Option<u8>,
     /// Item facts and camera state refreshed immediately before each build.
     hud_frame: HudFrame,
+    /// Last logged skip/odd-data counters, so changes surface exactly once.
+    last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
 }
 
 impl UiPresentationRuntime {
@@ -122,6 +124,7 @@ impl UiPresentationRuntime {
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             gui_scale_preference: None,
             hud_frame: HudFrame::default(),
+            last_hud_diagnostics: Default::default(),
         })
     }
 
@@ -637,6 +640,20 @@ pub(crate) fn refresh_hud_frame(
     frame.hotbar_durability = hotbar_durability;
     frame.offhand_durability = offhand_durability;
     frame.selected_item_name = selected_item_name;
+
+    // Odd remote gameplay data is skipped and counted, never fatal; surface
+    // each counter change once so live sessions record what was dropped.
+    let diagnostics = runtime.gameplay_hud().diagnostics();
+    if diagnostics != presentation.last_hud_diagnostics {
+        bevy::log::debug!(
+            skipped_effect_actions = diagnostics.skipped_effect_actions,
+            evicted_effects = diagnostics.evicted_effects,
+            odd_metadata_values = diagnostics.odd_metadata_values,
+            dropped_inventory_events = diagnostics.dropped_inventory_events,
+            "gameplay HUD skipped odd remote data"
+        );
+        presentation.last_hud_diagnostics = diagnostics;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

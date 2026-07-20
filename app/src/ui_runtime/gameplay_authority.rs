@@ -1,0 +1,258 @@
+//! Local gameplay authority on [`UiRuntime`]: hotbar-slot precedence, the
+//! retained gameplay-HUD event appliers, and the per-frame inventory drain.
+//! Split from the runtime root to honor the production line budget.
+
+use protocol::{ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, InventoryEvent};
+use ui::BoundedStat;
+
+use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
+
+impl UiRuntime {
+    pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
+        // Local selection is client-authoritative in Bedrock: once the player picks a slot
+        // (number key / scroll / controller) that prediction wins over the server-echoed
+        // equipment slot. A server PlayerHotbar with select_slot clears the local
+        // prediction when it drains, so it takes effect at its FIFO position.
+        self.local_selected_slot
+            .or(self.server_selected_slot)
+            .or_else(|| {
+                self.local_selected_equipment
+                    .as_ref()
+                    .map(|equipment| equipment.event.selected_slot)
+            })
+            .or_else(|| {
+                self.player_game_mode
+                    .filter(|game_mode| game_mode.shows_hotbar())
+                    .map(|_| 0)
+            })
+    }
+
+    /// The authoritative stack in the selected hotbar slot: inventory content
+    /// when known, otherwise the last main-hand MobEquipment echo for the same
+    /// slot. `None` when the slot is empty or contents are unknown.
+    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
+        let slot = self.selected_hotbar_slot()?;
+        if self.gameplay_hud.hotbar_known() {
+            return self.gameplay_hud.hotbar_stack(slot);
+        }
+        self.local_selected_equipment
+            .as_ref()
+            .filter(|equipment| equipment.event.selected_slot == slot)
+            .map(|equipment| &equipment.event.stack)
+            .filter(|stack| !stack.is_empty())
+    }
+
+    pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
+        &self.gameplay_hud
+    }
+
+    /// The last authoritative server tick seen on any committed event, used
+    /// as the presentation clock for effect expiry and blink phases.
+    pub(crate) const fn last_server_tick_hint(&self) -> Option<u64> {
+        self.last_server_tick
+    }
+
+    /// Drops locally-expired effects against the authoritative clock.
+    pub(crate) fn expire_gameplay_effects(&mut self) {
+        let now_tick = self.last_server_tick;
+        self.gameplay_hud.expire_effects(now_tick);
+    }
+
+    /// Publishes the armor bar derived from the authoritative equipped armor
+    /// identifiers. `None` means armor equipment is unknown, which clears the
+    /// row (fail closed) rather than retaining a stale value.
+    pub(crate) fn set_derived_armor(&mut self, points: Option<u16>) {
+        let armor = points.and_then(|points| BoundedStat::new(points.min(20), 20));
+        self.hud
+            .set_stats(self.hud.health(), self.hud.hunger(), armor, self.hud.air());
+    }
+
+    /// Millis timestamp of the last authoritative health decrease, for the
+    /// Java-style damage heart blink.
+    pub(crate) const fn last_health_drop_millis(&self) -> Option<u64> {
+        self.last_health_drop_millis
+    }
+
+    /// Millis timestamp when the selected stack's item identity last changed,
+    /// for the Java-style selected-item label fade.
+    pub(crate) const fn selected_item_changed_millis(&self) -> Option<u64> {
+        self.last_selected_identity_change_millis
+    }
+
+    /// Refreshes the selected-item identity clock. Runs before presentation so
+    /// the label timer starts when the authoritative selection (slot or
+    /// contents) changes, exactly like the Java reference behavior.
+    pub(crate) fn observe_selected_item_identity(&mut self, now_millis: u64) {
+        let identity = self
+            .selected_stack()
+            .map(|stack| (stack.network_id, stack.metadata));
+        if identity != self.last_selected_identity {
+            self.last_selected_identity = identity;
+            self.last_selected_identity_change_millis = if identity.is_some() {
+                Some(now_millis)
+            } else {
+                None
+            };
+        }
+    }
+
+    /// Applies every queued authoritative inventory event to the retained
+    /// hotbar/offhand mirror. Runs once per frame before presentation; the
+    /// queue would otherwise grow without a consumer until the Phase 5.5
+    /// container store takes over this drain.
+    pub(crate) fn drain_pending_inventory(&mut self) {
+        while let Some(sequenced) = self.pending_inventory.pop_front() {
+            if let InventoryEvent::SelectedSlot(selected) = &sequenced.event
+                && selected.select_slot
+                && selected.slot < protocol::HOTBAR_SLOT_COUNT
+            {
+                // A server-forced selection overrides the local prediction at
+                // its FIFO position; later local input re-predicts as usual.
+                self.server_selected_slot = Some(selected.slot);
+                self.local_selected_slot = None;
+            }
+            self.gameplay_hud.apply_inventory(&sequenced.event);
+        }
+    }
+
+    pub fn apply_local_attributes(
+        &mut self,
+        envelope: SequencedLocalAttributes,
+    ) -> Result<(), UiRuntimeError> {
+        self.validate_identity(
+            envelope.session_id,
+            envelope.fifo_sequence,
+            envelope.local_millis,
+            Some(envelope.server_tick),
+        )?;
+        let mut health = self.hud.health();
+        let mut hunger = self.hud.hunger();
+        let mut absorption = self.hud.absorption();
+        let mut xp_level = self.hud.experience().map(|xp| xp.level);
+        let mut xp_progress = self.hud.experience().map(|xp| xp.progress);
+        for attribute in envelope.attributes.iter() {
+            match attribute.name.as_ref() {
+                "minecraft:health" => {
+                    health = Some(
+                        hud_adapter::attribute_stat(attribute)
+                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "health" })?,
+                    );
+                }
+                "minecraft:player.hunger" => {
+                    hunger = Some(
+                        hud_adapter::attribute_stat(attribute)
+                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
+                    );
+                }
+                // Absorption is an ordinary bounded attribute; zero is common
+                // and simply hides the golden hearts.
+                "minecraft:absorption" => {
+                    absorption = hud_adapter::attribute_stat(attribute);
+                }
+                // Bedrock sends experience as attributes, not a dedicated packet: progress in
+                // 0.0..=1.0 and an integer level. `f32 as u32` saturates, so a stray value is bounded.
+                "minecraft:player.experience" if attribute.current.is_finite() => {
+                    xp_progress = Some(attribute.current);
+                }
+                "minecraft:player.level" if attribute.current.is_finite() => {
+                    xp_level = Some(attribute.current.max(0.0) as u32);
+                }
+                _ => {}
+            }
+        }
+        // An authoritative health decrease drives the Java-style damage blink.
+        if let (Some(previous), Some(next)) = (self.hud.health(), health)
+            && u32::from(next.current()) * u32::from(previous.scale())
+                < u32::from(previous.current()) * u32::from(next.scale())
+        {
+            self.last_health_drop_millis = Some(envelope.local_millis);
+        }
+        self.hud
+            .set_stats(health, hunger, self.hud.armor(), self.hud.air());
+        self.hud.set_absorption(absorption);
+        if xp_level.is_some() || xp_progress.is_some() {
+            self.hud
+                .set_experience(xp_level.unwrap_or(0), xp_progress.unwrap_or(0.0));
+        }
+        self.last_fifo_sequence = Some(envelope.fifo_sequence);
+        self.last_local_millis = Some(envelope.local_millis);
+        self.last_server_tick = Some(envelope.server_tick);
+        Ok(())
+    }
+
+    /// Applies a committed local-player SetEntityData batch (air supply,
+    /// freezing strength). Odd values are counted and skipped inside the
+    /// gameplay-HUD state; they never fail the session.
+    pub fn apply_local_metadata(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        metadata: &[ActorMetadata],
+    ) -> Result<(), UiRuntimeError> {
+        self.guard_local_apply(session_id, fifo_sequence)?;
+        self.gameplay_hud.apply_metadata(metadata);
+        if let Some((current, maximum)) = self.gameplay_hud.air_ticks() {
+            self.hud.set_air(BoundedStat::new(current, maximum));
+        }
+        self.last_fifo_sequence = Some(fifo_sequence);
+        Ok(())
+    }
+
+    /// Applies a committed local-player MobEffect change.
+    pub fn apply_local_effect(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        event: ActorEffectEvent,
+    ) -> Result<(), UiRuntimeError> {
+        self.guard_local_apply(session_id, fifo_sequence)?;
+        self.gameplay_hud.apply_effect(event);
+        self.last_fifo_sequence = Some(fifo_sequence);
+        self.last_server_tick = Some(event.tick.max(self.last_server_tick.unwrap_or(0)));
+        Ok(())
+    }
+
+    /// Applies the committed local-player MobArmorEquipment stacks.
+    pub fn apply_local_armor(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        event: &ArmorEquipmentEvent,
+    ) -> Result<(), UiRuntimeError> {
+        self.guard_local_apply(session_id, fifo_sequence)?;
+        self.gameplay_hud.apply_armor(event);
+        self.last_fifo_sequence = Some(fifo_sequence);
+        Ok(())
+    }
+
+    /// Applies the committed local mount change from SetActorLink.
+    pub fn apply_local_mount(
+        &mut self,
+        session_id: u64,
+        fifo_sequence: u64,
+        ridden_unique_id: Option<i64>,
+    ) -> Result<(), UiRuntimeError> {
+        self.guard_local_apply(session_id, fifo_sequence)?;
+        self.gameplay_hud.set_mount(ridden_unique_id);
+        self.last_fifo_sequence = Some(fifo_sequence);
+        Ok(())
+    }
+
+    fn guard_local_apply(&self, session_id: u64, fifo_sequence: u64) -> Result<(), UiRuntimeError> {
+        if session_id != self.session_id {
+            return Err(UiRuntimeError::WrongSession {
+                expected: self.session_id,
+                actual: session_id,
+            });
+        }
+        if let Some(previous) = self.last_fifo_sequence
+            && fifo_sequence <= previous
+        {
+            return Err(UiRuntimeError::StaleFifoSequence {
+                previous,
+                actual: fifo_sequence,
+            });
+        }
+        Ok(())
+    }
+}

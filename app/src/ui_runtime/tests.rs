@@ -134,7 +134,7 @@ fn command_output_rows_from_one_packet_reach_chat_in_order() {
 }
 
 #[test]
-fn unresolved_raw_text_is_not_presented_as_a_complete_literal_message() {
+fn resolver_backed_raw_text_presents_human_text_instead_of_dropping_messages() {
     const FIXTURE: &[u8] =
         include_bytes!("../../../crates/protocol/fixtures/text_object_whisper_rawtext.bin");
     let mut packets = decode_batch(FIXTURE.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
@@ -144,11 +144,16 @@ fn unresolved_raw_text_is_not_presented_as_a_complete_literal_message() {
     };
     let mut runtime = UiRuntime::new(1);
 
+    // The captured whisper carries resolver-dependent components; they now
+    // degrade per the vanilla rules and present as human text, never JSON and
+    // never a silently dropped message.
     assert_eq!(
         runtime.apply(envelope(1, 1, event)).unwrap(),
-        UiApplyOutcome::IgnoredUnresolvedRawText
+        UiApplyOutcome::Applied
     );
-    assert!(runtime.chat().messages().is_empty());
+    let message = runtime.chat().messages().back().unwrap();
+    assert!(!message.message.contains('{'));
+    assert!(!message.message.contains("rawtext"));
 }
 
 fn literal_raw_text(kind: TextKind, json: &str) -> UiEvent {
@@ -262,24 +267,101 @@ fn literal_title_object_actions_apply_human_text_without_json_leakage() {
 }
 
 #[test]
-fn unresolved_title_object_actions_never_partially_mutate_hud() {
-    let json = r#"{"rawtext":[{"text":"partial"},{"translate":"key"}]}"#;
-    for action in [
-        TitleAction::SetTitleJson,
-        TitleAction::SetSubtitleJson,
-        TitleAction::ActionBarJson,
-    ] {
+fn resolver_title_object_actions_present_degraded_components_without_json() {
+    // An unknown translation key presents its raw key (the vanilla unknown-key
+    // behavior) beside the literal text, never JSON and never a dropped title.
+    let json = r#"{"rawtext":[{"text":"partial "},{"translate":"key"}]}"#;
+    type ReadTitle = fn(&UiRuntime) -> Option<Arc<str>>;
+    let cases: [(TitleAction, ReadTitle); 3] = [
+        (TitleAction::SetTitleJson, |runtime| {
+            runtime.hud().title().map(|title| Arc::clone(&title.text))
+        }),
+        (TitleAction::SetSubtitleJson, |runtime| {
+            runtime
+                .hud()
+                .subtitle()
+                .map(|subtitle| Arc::clone(&subtitle.text))
+        }),
+        (TitleAction::ActionBarJson, |runtime| {
+            runtime
+                .hud()
+                .actionbar()
+                .map(|actionbar| Arc::clone(&actionbar.text))
+        }),
+    ];
+    for (action, read) in cases {
         let mut runtime = UiRuntime::new(1);
         assert_eq!(
             runtime
                 .apply(envelope(1, 1, title_object(action, json)))
                 .unwrap(),
-            UiApplyOutcome::IgnoredUnresolvedRawText
+            UiApplyOutcome::Applied
         );
-        assert!(runtime.hud().title().is_none());
-        assert!(runtime.hud().subtitle().is_none());
-        assert!(runtime.hud().actionbar().is_none());
+        let presented = read(&runtime).expect("resolved title text is presented");
+        assert_eq!(presented.as_ref(), "partial key");
+        assert!(!presented.contains('{'));
     }
+}
+
+#[test]
+fn rawtext_scores_resolve_from_the_retained_scoreboard_and_reader_identity() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_chat_identity(Arc::from("Hashim"), Arc::from("1"));
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::Objective(ObjectiveEvent::Display {
+                display_slot: Arc::from("sidebar"),
+                objective_name: Arc::from("coins"),
+                display_name: Arc::from("Coins"),
+                criteria_name: Arc::from("dummy"),
+                sort_order: 1,
+            }),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            2,
+            UiEvent::Score(ScoreEvent {
+                action: ProtocolScoreAction::Change,
+                entries: Arc::from([
+                    ProtocolScoreEntry {
+                        scoreboard_id: 1,
+                        objective_name: Arc::from("coins"),
+                        score: 250,
+                        identity: ProtocolScoreIdentity::FakePlayer(Arc::from("Hashim")),
+                    },
+                    ProtocolScoreEntry {
+                        scoreboard_id: 2,
+                        objective_name: Arc::from("coins"),
+                        score: 9,
+                        identity: ProtocolScoreIdentity::FakePlayer(Arc::from("Steve")),
+                    },
+                ]),
+            }),
+        ))
+        .unwrap();
+
+    // `*` resolves to the reader; a named owner resolves to its row; a
+    // selector degrades to empty rather than exposing the component.
+    let json = r#"{"rawtext":[{"text":"You: "},{"score":{"name":"*","objective":"coins"}},{"text":" Steve: "},{"score":{"name":"Steve","objective":"coins"}},{"selector":"@a"}]}"#;
+    runtime
+        .apply(envelope(1, 3, literal_raw_text(TextKind::Raw, json)))
+        .unwrap();
+    let message = runtime.chat().messages().back().unwrap();
+    assert_eq!(message.message.as_ref(), "You: 250 Steve: 9");
+
+    // An unknown owner or objective degrades to empty text, keeping the rest.
+    let missing = r#"{"rawtext":[{"text":"Alex: "},{"score":{"name":"Alex","objective":"coins"}},{"text":"!"}]}"#;
+    runtime
+        .apply(envelope(1, 4, literal_raw_text(TextKind::Raw, missing)))
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Alex: !"
+    );
 }
 
 fn title(message: &str) -> UiEvent {
