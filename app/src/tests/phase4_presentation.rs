@@ -462,6 +462,28 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
 }
 
 #[test]
+fn missing_geometry_cannot_starve_a_valid_actor_before_the_app_capacity_gate() {
+    let scene = ActorRenderScene::default();
+    let missing = (0..MAX_RENDERED_PLAYERS as u64).map(|runtime_id| render_owned(runtime_id, 31));
+    let mut valid = render_owned(MAX_RENDERED_PLAYERS as u64 + 1, 47);
+    valid.submission.route = ActorRigRoute::Diagnostic;
+
+    let batch = select_actor_presentations_for_view(
+        999,
+        false,
+        None,
+        missing.chain([valid]),
+        |submission| scene.rig_submission_is_visible(submission, None),
+    );
+
+    assert_eq!(batch.submissions.len(), 1);
+    assert_eq!(
+        batch.submissions[0].input.identity.runtime_id,
+        MAX_RENDERED_PLAYERS as u64 + 1
+    );
+}
+
+#[test]
 fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_frame() {
     assert_eq!(
         PhysicsAuthorityGate::ProductionDisabled.authorize(false, true),

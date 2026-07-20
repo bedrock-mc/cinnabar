@@ -54,10 +54,22 @@ pub(super) fn compile_default_rig_textures(
                 .get(entity_source.path.as_ref())
                 .ok_or_else(|| invalid("client entity payload is absent"))?,
         )?;
-        let Some(identifier) = entity
+        let Some(description) = entity
             .get("minecraft:client_entity")
             .and_then(|entity| entity.get("description"))
-            .and_then(|description| description.get("textures"))
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        if !description
+            .get("materials")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(supports_exact_default_material)
+        {
+            continue;
+        }
+        let Some(identifier) = description
+            .get("textures")
             .and_then(|textures| textures.get("default"))
             .and_then(serde_json::Value::as_str)
         else {
@@ -96,6 +108,10 @@ pub(super) fn compile_default_rig_textures(
         binding.default_texture = Some(texture);
     }
     Ok(textures.into_boxed_slice())
+}
+
+fn supports_exact_default_material(materials: &serde_json::Map<String, serde_json::Value>) -> bool {
+    materials.get("default").and_then(serde_json::Value::as_str) == Some("entity_alphatest")
 }
 
 fn single_default_material_route(materials: &[serde_json::Value]) -> bool {

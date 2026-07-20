@@ -371,7 +371,7 @@ impl ActorRigFrameBuilder {
         };
         self.geometries
             .get(&geometry_id)
-            .is_none_or(|geometry| actor_rig_submission_is_visible(submission, geometry, view))
+            .is_some_and(|geometry| actor_rig_submission_is_visible(submission, geometry, view))
     }
 
     #[must_use]

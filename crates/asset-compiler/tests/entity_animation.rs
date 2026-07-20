@@ -296,6 +296,36 @@ fn per_bone_and_dynamic_material_routes_are_explicit_no_draw_inputs() {
 }
 
 #[test]
+fn unsupported_default_material_identities_are_explicit_no_draw_inputs() {
+    for material in ["cow", "entity_emissive_alpha", "entity_blend"] {
+        let pack = animation_pack(false);
+        let entity = serde_json::json!({
+            "format_version": "1.10.0",
+            "minecraft:client_entity": {
+                "description": {
+                    "identifier": "minecraft:test",
+                    "materials": {"default": material},
+                    "textures": {"default": "textures/entity/test"},
+                    "geometry": {"default": "geometry.test"},
+                    "animations": {"walk": "animation.test.walk"},
+                    "render_controllers": ["controller.render.test"]
+                }
+            }
+        });
+        write(
+            pack.path(),
+            "entity/test.entity.json",
+            &serde_json::to_vec(&entity).unwrap(),
+        );
+
+        let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.rig_bindings.len(), 1);
+        assert_eq!(compiled.rig_bindings[0].default_texture, None, "{material}");
+        assert!(compiled.rig_textures.is_empty(), "{material}");
+    }
+}
+
+#[test]
 #[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn pinned_pack_duplicate_entity_generations_have_no_runtime_rig() {
     let pack = std::env::var_os("PINNED_VANILLA_PACK")
@@ -335,6 +365,27 @@ fn pinned_pack_duplicate_entity_generations_have_no_runtime_rig() {
             "{identifier} guessed one duplicate source generation"
         );
     }
+
+    let allay_symbols = first
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| {
+            symbol.kind == assets::EntityAssetKind::Entity
+                && symbol.identifier.as_ref() == "minecraft:allay"
+        })
+        .map(|(index, _)| index as u32)
+        .collect::<Vec<_>>();
+    assert_eq!(allay_symbols.len(), 1, "pinned allay authority changed");
+    let allay = first
+        .rig_bindings
+        .iter()
+        .find(|rig| rig.entity_symbol == allay_symbols[0])
+        .expect("pinned allay retains attributable geometry");
+    assert_eq!(
+        allay.default_texture, None,
+        "the unsupported pinned allay material must not enter the alpha-test pipeline"
+    );
 }
 
 #[test]
