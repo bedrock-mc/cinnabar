@@ -17,9 +17,10 @@ use protocol::{
     BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
     DefaultActorGameModeEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
     LocalPlayerGameModeAuthority, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
-    PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, UiEvent,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    PlayerGameMode, PlayerListEntry, PlayerListUpdateEvent, PlayerMovementCorrectionEvent,
+    PlayerSkin, PublisherUpdateEvent, SetTimeEvent, StandardSkin, SubChunkBatchEvent,
+    SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, UiEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,

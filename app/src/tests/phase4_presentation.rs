@@ -4,7 +4,7 @@ use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
 use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorRigTextureSnapshot, ActorSnapshot,
-    BoneTransform, CommittedUiEvent, EntityRigId, PlayerProfile,
+    BoneTransform, CommittedUiEvent, EntityRigId, LocalPlayerRigSnapshot, PlayerProfile,
 };
 use protocol::{
     ActorGameMode, ActorKind, ActorMetadataValue, PlayerGameMode, PlayerSkin, StandardSkin,
@@ -22,8 +22,9 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
-    local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
+    ActorRigPresentation, LocalPlayerPresentationAuthority, actor_rig_presentation,
+    local_actor_presentation_for_visibility, local_diagnostic_presentation,
+    local_player_rig_presentation, select_actor_presentations, select_actor_presentations_for_view,
     update_actor_rig_scene,
 };
 use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
@@ -122,6 +123,67 @@ fn rig<'a>(
     }
 }
 
+fn local_rig<'a>(bones: &'a [BoneTransform]) -> LocalPlayerRigSnapshot<'a> {
+    LocalPlayerRigSnapshot {
+        rig: EntityRigId(17),
+        previous: bones,
+        current: bones,
+        completed_tick: 11,
+        reset_generation: 5,
+        fallback: EntityRigFallback::GeometryOnly,
+    }
+}
+
+#[test]
+fn local_player_uses_compiled_geometry_and_authoritative_skin_without_defaulting() {
+    let bones = [model_bone([0.0, 24.0, 0.0]), model_bone([0.0, 12.0, 0.0])];
+    let mut profile = profile(9, 37);
+    profile.unique_id = -9;
+    let presentation = local_player_rig_presentation(
+        &local_rig(&bones),
+        &profile,
+        LocalPlayerPresentationAuthority {
+            actor_session_id: 7,
+            dimension: 0,
+            runtime_id: 42,
+            pose_generation: 12,
+            position: [1.0, 64.0, 2.0],
+            yaw_degrees: 90.0,
+        },
+    )
+    .expect("exact local geometry and skin authority");
+
+    assert_eq!(presentation.submission.route, ActorRigRoute::StaticFallback);
+    assert_eq!(presentation.submission.input.rig, RenderEntityRigId(17));
+    assert!(
+        presentation
+            .texture
+            .unwrap()
+            .rgba8
+            .iter()
+            .all(|byte| *byte == 37)
+    );
+
+    let mut unavailable = profile;
+    unavailable.skin = PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions);
+    assert!(
+        local_player_rig_presentation(
+            &local_rig(&bones),
+            &unavailable,
+            LocalPlayerPresentationAuthority {
+                actor_session_id: 7,
+                dimension: 0,
+                runtime_id: 42,
+                pose_generation: 12,
+                position: [1.0, 64.0, 2.0],
+                yaw_degrees: 90.0,
+            },
+        )
+        .is_none(),
+        "malformed skin authority must not synthesize Steve"
+    );
+}
+
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
@@ -193,6 +255,11 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
             .is_some_and(|texture| texture.rgba8.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
+
+    let absent = actor_rig_presentation(&rig(42, &previous, &current), &actor, None, 0.5)
+        .expect("exact lifetime remains attributable without skin authority");
+    assert_eq!(absent.submission.route, ActorRigRoute::NoDraw);
+    assert!(absent.texture.is_none());
 }
 
 #[test]

@@ -307,6 +307,9 @@ pub(crate) struct ActorStore {
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
+    /// Exact PlayerList identity index. `None` marks a non-unique entity ID so
+    /// callers fail closed instead of choosing an arbitrary roster entry.
+    player_unique_ids: HashMap<i64, Option<[u8; 16]>>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,

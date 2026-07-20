@@ -1,13 +1,14 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::EntityRigFallback;
-use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
+use client_world::{ActorRigSnapshot, ActorSnapshot, LocalPlayerRigSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
+#[cfg(test)]
+use render::default_actor_skin_rgba8;
 use render::{
     ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, ActorSkinPixels, ActorTextureAtlas, ActorTexturePixels, EntityRigId,
-    MAX_RENDERED_PLAYERS, RenderBoneTransform, default_actor_skin_rgba8, normalize_actor_skin,
-    pack_actor_textures,
+    MAX_RENDERED_PLAYERS, RenderBoneTransform, normalize_actor_skin, pack_actor_textures,
 };
 
 #[derive(Clone, Debug)]
@@ -20,6 +21,16 @@ pub(crate) struct ActorRigPresentation {
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
     pub(crate) atlas: ActorTextureAtlas,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LocalPlayerPresentationAuthority {
+    pub(crate) actor_session_id: u64,
+    pub(crate) dimension: i32,
+    pub(crate) runtime_id: u64,
+    pub(crate) pose_generation: u64,
+    pub(crate) position: [f32; 3],
+    pub(crate) yaw_degrees: f32,
 }
 
 pub(crate) fn update_actor_rig_scene(
@@ -101,6 +112,86 @@ pub(crate) fn actor_rig_presentation(
     })
 }
 
+pub(crate) fn local_player_rig_presentation(
+    rig: &LocalPlayerRigSnapshot<'_>,
+    profile: &PlayerProfile,
+    authority: LocalPlayerPresentationAuthority,
+) -> Option<ActorRigPresentation> {
+    let LocalPlayerPresentationAuthority {
+        actor_session_id,
+        dimension,
+        runtime_id,
+        pose_generation,
+        position,
+        yaw_degrees,
+    } = authority;
+    if actor_session_id == 0
+        || runtime_id == 0
+        || pose_generation == 0
+        || position.iter().any(|value| !value.is_finite())
+        || !yaw_degrees.is_finite()
+        || rig.completed_tick == 0
+        || rig.reset_generation == 0
+        || rig.previous.is_empty()
+        || rig.previous.len() != rig.current.len()
+    {
+        return None;
+    }
+    let route = match rig.fallback {
+        EntityRigFallback::Skip => ActorRigRoute::Compiled,
+        EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
+        EntityRigFallback::Diagnostic => return None,
+    };
+    let PlayerSkin::Standard(skin) = &profile.skin else {
+        return None;
+    };
+    let rgba8 = normalize_actor_skin(&ActorSkinPixels {
+        width: skin.width,
+        height: skin.height,
+        rgba8: Arc::clone(&skin.rgba8),
+    })?;
+    let previous_bones = convert_bones(rig.previous)?;
+    let current_bones = convert_bones(rig.current)?;
+    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
+    Some(ActorRigPresentation {
+        submission: ActorRigSubmission {
+            input: ActorRigRenderInput {
+                identity: ActorRenderIdentity {
+                    session_id: actor_session_id,
+                    dimension,
+                    runtime_id,
+                    spawn_revision: actor_session_id,
+                    ingress_sequence: pose_generation,
+                    source_tick: None,
+                    movement_revision: pose_generation,
+                    pose_generation,
+                },
+                rig: EntityRigId(rig.rig.0),
+                previous_bones,
+                current_bones,
+                completed_tick: rig.completed_tick,
+                reset_generation: rig.reset_generation,
+            },
+            world_from_actor: [
+                [cosine, 0.0, sine, position[0]],
+                [0.0, 1.0, 0.0, position[1]],
+                [-sine, 0.0, cosine, position[2]],
+            ],
+            texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
+            route,
+        },
+        texture: Some(ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8,
+        }),
+    })
+}
+
+/// Explicit test-only synthetic actor. Production F5 rendering must resolve
+/// both geometry and skin from session authority instead.
+#[cfg(test)]
 pub(crate) fn local_diagnostic_presentation(
     actor_session_id: u64,
     dimension: i32,
@@ -175,24 +266,24 @@ pub(crate) fn local_actor_presentation_for_visibility(
     visibility_runtime_id: u64,
     local_render_eligible: bool,
     canonical: Option<ActorRigPresentation>,
-    diagnostic: Option<ActorRigPresentation>,
+    local_authority: Option<ActorRigPresentation>,
 ) -> Option<ActorRigPresentation> {
     if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id || !local_render_eligible
     {
         return None;
     }
-    let diagnostic = diagnostic.filter(|presentation| {
+    let local_authority = local_authority.filter(|presentation| {
         presentation.submission.input.identity.runtime_id == local_runtime_id
     })?;
     match canonical {
         Some(mut canonical)
             if canonical.submission.input.identity.runtime_id == local_runtime_id =>
         {
-            canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+            canonical.submission.world_from_actor = local_authority.submission.world_from_actor;
             Some(canonical)
         }
         Some(_) => None,
-        None => Some(diagnostic),
+        None => Some(local_authority),
     }
 }
 
@@ -307,6 +398,7 @@ fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
+#[cfg(test)]
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = rotation.map(|value| value.to_radians() * 0.5);
     let (sx, cx) = x.sin_cos();
@@ -335,7 +427,7 @@ fn actor_route_and_texture(
     };
     match &actor.kind {
         ActorKind::Player { .. } => {
-            let rgba8 = profile
+            let Some(rgba8) = profile
                 .filter(|profile| profile.unique_id == actor.unique_id)
                 .and_then(|profile| match &profile.skin {
                     PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
@@ -345,7 +437,9 @@ fn actor_route_and_texture(
                     }),
                     PlayerSkin::Unavailable(_) => None,
                 })
-                .unwrap_or_else(default_actor_skin_rgba8);
+            else {
+                return (ActorRigRoute::NoDraw, None);
+            };
             (
                 route,
                 Some(ActorTexturePixels {

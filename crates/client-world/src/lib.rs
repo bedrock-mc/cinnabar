@@ -13,9 +13,9 @@ pub use action::{
 };
 pub use actor_animation::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, ActorRigTextureSnapshot, BoneTransform,
-    EntityRigId, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-    MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
-    MAX_RUNTIME_BONES_PER_RIG,
+    EntityRigId, LocalPlayerRigSnapshot, MAX_ACTOR_ACTION_HISTORY,
+    MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
+    MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
 };
 pub use actor_store::{ActorPose, ActorSnapshot, PlayerProfile};
 pub use block_entity_visuals::{

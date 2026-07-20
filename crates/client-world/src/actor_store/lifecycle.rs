@@ -79,6 +79,7 @@ impl ActorStore {
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
+            player_unique_ids: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
@@ -110,6 +111,7 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.players.clear();
+        self.player_unique_ids.clear();
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
         self.items.clear();
@@ -349,12 +351,23 @@ impl ActorStore {
                         }
                     }
                 }
+                self.rebuild_player_unique_ids();
                 if capacity_rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
                     ActorApplyResult::Updated
                 }
             }
+        }
+    }
+
+    fn rebuild_player_unique_ids(&mut self) {
+        self.player_unique_ids.clear();
+        for (uuid, profile) in &self.players {
+            self.player_unique_ids
+                .entry(profile.unique_id)
+                .and_modify(|entry| *entry = None)
+                .or_insert(Some(*uuid));
         }
     }
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {

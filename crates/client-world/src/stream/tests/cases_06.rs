@@ -121,6 +121,60 @@ fn start_game_only_local_mode_update_reaches_hud_and_f5_without_an_actor_spawn()
 }
 
 #[test]
+fn start_game_self_resolves_only_its_exact_player_list_skin_without_add_player() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+    let skin = |value| {
+        PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![value; 64 * 64 * 4].into(),
+        })
+    };
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([
+                    PlayerListEntry::Add {
+                        uuid: [7; 16],
+                        unique_id: 77,
+                        username: "unrelated".into(),
+                        verified: true,
+                        skin: skin(7),
+                    },
+                    PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(9),
+                    },
+                ]),
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.actor(42).is_none(), "self has no AddPlayer");
+    assert_eq!(
+        stream.local_player_profile().map(|profile| &profile.skin),
+        Some(&skin(9))
+    );
+}
+
+#[test]
 fn local_fallback_re_resolves_when_default_game_mode_changes() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

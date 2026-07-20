@@ -39,8 +39,9 @@ use crate::{
     },
     movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
-        actor_rig_presentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
+        LocalPlayerPresentationAuthority, actor_rig_presentation,
+        local_actor_presentation_for_visibility, local_player_rig_presentation,
+        select_actor_presentations_for_view, update_actor_rig_scene,
     },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
@@ -813,6 +814,8 @@ pub(crate) fn publish_actor_render_frame(
         actor_session_id,
         dimension,
         local_render_eligible,
+        local_profile,
+        local_rig,
         remotes,
         canonical_local,
     ) = client_world
@@ -843,36 +846,42 @@ pub(crate) fn publish_actor_render_frame(
                 stream.actor_session_id(),
                 stream.current_dimension(),
                 stream.local_player_render_eligible(),
+                stream.local_player_profile(),
+                stream.local_player_rig(),
                 remotes,
                 canonical_local,
             )
         })
-        .unwrap_or((0, 0, 0, false, Vec::new(), None));
+        .unwrap_or((0, 0, 0, false, None, None, Vec::new(), None));
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
             return (false, None);
         }
-        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        let (yaw, _, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
         let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
         let mut position = visibility.eye();
         position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let diagnostic = local_diagnostic_presentation(
-            actor_session_id,
-            dimension,
-            visibility.runtime_id(),
-            visibility.pose_generation(),
-            position.to_array(),
-            yaw_degrees,
-            pitch_degrees,
-        );
+        let local_authority = local_rig.zip(local_profile).and_then(|(rig, profile)| {
+            local_player_rig_presentation(
+                &rig,
+                profile,
+                LocalPlayerPresentationAuthority {
+                    actor_session_id,
+                    dimension,
+                    runtime_id: visibility.runtime_id(),
+                    pose_generation: visibility.pose_generation(),
+                    position: position.to_array(),
+                    yaw_degrees,
+                },
+            )
+        });
         let local = local_actor_presentation_for_visibility(
             local_runtime_id,
             visibility.runtime_id(),
             local_render_eligible,
             canonical_local,
-            diagnostic,
+            local_authority,
         );
         (visibility.visible(), local)
     });

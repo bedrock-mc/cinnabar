@@ -10,6 +10,8 @@ use protocol::{
 
 use super::{ActorApplyResult, ActorStore};
 
+mod identity;
+
 fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     ActorEvent::Spawn(ActorSpawnEvent {
         dimension: 0,

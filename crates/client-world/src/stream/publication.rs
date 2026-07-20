@@ -107,11 +107,21 @@ impl WorldStream {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
+    /// Returns the one PlayerList profile whose unique entity ID exactly
+    /// matches the local StartGame authority. Missing or ambiguous authority
+    /// deliberately produces no profile.
+    pub fn local_player_profile(&self) -> Option<&PlayerProfile> {
+        let unique_id = self.local_player_game_mode?.unique_id();
+        self.actors.player_profile_by_unique_id(unique_id)
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
     pub fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
+    }
+    pub fn local_player_rig(&self) -> Option<crate::LocalPlayerRigSnapshot<'_>> {
+        self.actors.local_player_rig()
     }
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
         self.actors.animation_stats()

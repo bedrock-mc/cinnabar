@@ -1,5 +1,5 @@
 use super::*;
-use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
+use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot, LocalPlayerRigSnapshot};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
@@ -11,6 +11,13 @@ impl ActorStore {
         self.players
             .get(uuid)
             .filter(|profile| profile.unique_id == actor.unique_id)
+    }
+
+    pub(crate) fn player_profile_by_unique_id(&self, unique_id: i64) -> Option<&PlayerProfile> {
+        let uuid = self.player_unique_ids.get(&unique_id)?.as_ref()?;
+        self.players
+            .get(uuid)
+            .filter(|profile| profile.unique_id == unique_id)
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -59,6 +66,9 @@ impl ActorStore {
     }
     pub(crate) fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
         self.animation.snapshots()
+    }
+    pub(crate) fn local_player_rig(&self) -> Option<LocalPlayerRigSnapshot<'_>> {
+        self.animation.local_player()
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()

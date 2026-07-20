@@ -58,6 +58,19 @@ pub struct ActorRigTextureSnapshot<'a> {
     pub rgba8: &'a Arc<[u8]>,
 }
 
+/// The compiled vanilla player rig used for the StartGame-owned local avatar.
+/// Identity and world transform intentionally remain outside this value: they
+/// come from the session and local movement authorities at presentation time.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalPlayerRigSnapshot<'a> {
+    pub rig: EntityRigId,
+    pub previous: &'a [BoneTransform],
+    pub current: &'a [BoneTransform],
+    pub completed_tick: u64,
+    pub reset_generation: u64,
+    pub fallback: EntityRigFallback,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ActorAnimationStats {
     pub evaluated_molang_ops: u64,
@@ -72,6 +85,7 @@ pub(crate) struct ActorAnimationStore {
     textures: Arc<[ActorRigTexture]>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
+    local_player: Option<ActorRigState>,
     completed_tick: u64,
     next_reset_generation: u64,
     stats: ActorAnimationStats,
@@ -200,11 +214,17 @@ impl ActorAnimationStore {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let local_player = assets.as_ref().and_then(|assets| {
+            let mut state = resolve_rig(assets, &local_player_resolution_actor(), 1)?;
+            state.reset_generation = 1;
+            Some(state)
+        });
         Self {
             assets,
             textures: textures.into(),
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
+            local_player,
             completed_tick: 0,
             next_reset_generation: 1,
             stats: ActorAnimationStats::default(),
@@ -342,6 +362,20 @@ impl ActorAnimationStore {
             .collect()
     }
 
+    pub(crate) fn local_player(&self) -> Option<LocalPlayerRigSnapshot<'_>> {
+        let state = self.local_player.as_ref()?;
+        (state.previous.len() == state.current.len() && !state.previous.is_empty()).then_some(
+            LocalPlayerRigSnapshot {
+                rig: state.rig,
+                previous: &state.previous,
+                current: &state.current,
+                completed_tick: state.completed_tick,
+                reset_generation: state.reset_generation,
+                fallback: state.fallback,
+            },
+        )
+    }
+
     pub(crate) const fn stats(&self) -> ActorAnimationStats {
         self.stats
     }
@@ -375,6 +409,45 @@ impl ActorAnimationStore {
 
     fn bump_generation(&mut self) {
         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+    }
+}
+
+fn local_player_resolution_actor() -> ActorSnapshot {
+    let pose = crate::actor_store::ActorPose {
+        position: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    ActorSnapshot {
+        unique_id: 0,
+        runtime_id: 0,
+        spawn_revision: 0,
+        movement_revision: 0,
+        kind: ActorKind::Player {
+            uuid: [0; 16],
+            username: Arc::from(""),
+        },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
+        position: pose.position,
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        previous_pose: pose,
+        received_pose: pose,
+        interpolation_ticks_remaining: 0,
+        body_yaw: 0.0,
+        on_ground: Some(true),
+        teleported: false,
+        player_mode: None,
+        source_tick: None,
+        metadata: HashMap::new(),
+        attributes: HashMap::new(),
+        int_properties: HashMap::new(),
+        float_properties: HashMap::new(),
     }
 }
 
