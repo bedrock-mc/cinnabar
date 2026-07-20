@@ -316,6 +316,25 @@ func TestPhysicsFactsCoverSpecialMovementFamilies(t *testing.T) {
 	if physics[0].FrictionQ1E8 != 90_000_000 || physics[5].FrictionQ1E8 != 80_000_000 || physics[8].FrictionQ1E8 != 80_000_000 {
 		t.Fatal("PMMP friction facts were not normalized into Q1e8")
 	}
+
+	// Soul sand's horizontal factor is a Bedrock movement constant, and the
+	// repository's selected Bedrock authority is the pinned bedsim module. Its
+	// simulation.go multiplies the grounded movement speed by 0.543 keyed on
+	// "minecraft:soul_sand", at the same point in the force law that crates/sim
+	// applies this factor. 0.4 is the Java Edition value and must not be
+	// substituted for it.
+	if physics[7].HorizontalSpeedQ1E8 != soulSandSpeedQ1E8 {
+		t.Fatalf("soul sand horizontal speed = %d, want the pinned bedsim %d", physics[7].HorizontalSpeedQ1E8, soulSandSpeedQ1E8)
+	}
+	// Honey deliberately keeps a different, explicitly unproven value: bedsim
+	// v0.1.3 implements no honey stratum, so there is no Bedrock oracle to
+	// correct it against and it must not be silently aliased onto soul sand's.
+	if physics[8].HorizontalSpeedQ1E8 != unprovenHoneySpeedQ1E8 {
+		t.Fatalf("honey horizontal speed = %d, want the documented unproven %d", physics[8].HorizontalSpeedQ1E8, unprovenHoneySpeedQ1E8)
+	}
+	if soulSandSpeedQ1E8 == unprovenHoneySpeedQ1E8 {
+		t.Fatal("soul sand and honey factors must stay independently sourced")
+	}
 }
 
 func TestPhysicsJoinRejectsMissingAndInvalidPMMPFriction(t *testing.T) {

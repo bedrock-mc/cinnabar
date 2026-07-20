@@ -79,6 +79,13 @@ jobs:
         run: |
           go test ./... -count=1
           go vet ./...
+      - name: Test and vet pinned bedsim movement trace generator
+        working-directory: tools/bedsimtrace
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
 
   macos-physics-bootstrap:
     runs-on: macos-latest

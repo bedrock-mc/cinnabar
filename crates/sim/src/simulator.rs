@@ -42,6 +42,15 @@ const SLIME_WALK_DAMPING: f64 = 0.4;
 /// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
 const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
 
+// Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
+// latched sneak state, which start/stop edges can drive independently) from
+// `state.PressingSneak` (the raw held button), and `walkOnBlock` and
+// `landOnBlock` each consult both. `MovementInput` carries only one `sneaking`
+// field, so both map to it. Every conformance fixture drives sneak purely from
+// the held button, where the two are always equal, so no pinned observation
+// distinguishes them. A future input model that latches sneak across start/stop
+// edges must split this field before it can claim parity on those ticks.
+
 #[derive(Debug, Clone, Copy)]
 pub struct Simulator {
     movement_speed: f64,

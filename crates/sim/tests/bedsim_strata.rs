@@ -146,24 +146,40 @@ fn walking_on_slime_damps_horizontal_velocity() {
 
 /// The same reference function refuses to damp while sneaking
 /// (`!state.Sneaking` at entry and `!state.PressingSneak` inside).
+///
+/// Comparing against an otherwise identical ordinary surface isolates the slime
+/// stratum exactly: sneak edge clipping applies to both, so any difference at
+/// all would be the walk damping leaking through.
 #[test]
 fn sneaking_on_slime_does_not_damp_horizontal_velocity() {
-    let slime = world(BlockPhysicsFlags::default(), SurfaceResponse::Slime, true);
-    let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-    state.on_ground = true;
-    state.velocity = Vec3::new(0.3, 0.0, 0.3);
-    let tick = Simulator::default()
+    let sneak = MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    let mut slime_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    slime_state.on_ground = true;
+    slime_state.velocity = Vec3::new(0.3, 0.0, 0.3);
+    let slime = Simulator::default()
         .tick(
-            &mut state,
-            MovementInput {
-                sneaking: true,
-                ..MovementInput::default()
-            },
-            &slime,
+            &mut slime_state,
+            sneak,
+            &world(BlockPhysicsFlags::default(), SurfaceResponse::Slime, true),
         )
         .unwrap();
-    // Sneaking clips the edge but must not apply the 0.4 slime walk factor.
-    assert!(tick.movement.x.abs() > 0.3 * 0.4 + 1.0e-9);
+
+    let mut plain_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    plain_state.on_ground = true;
+    plain_state.velocity = Vec3::new(0.3, 0.0, 0.3);
+    let plain = Simulator::default()
+        .tick(
+            &mut plain_state,
+            sneak,
+            &world(BlockPhysicsFlags::default(), SurfaceResponse::None, true),
+        )
+        .unwrap();
+
+    assert_eq!(slime.movement, plain.movement);
+    assert_eq!(slime_state.velocity, plain_state.velocity);
 }
 
 /// `bedsim v0.1.3` `landOnBlock` returns a zeroed vertical velocity whenever

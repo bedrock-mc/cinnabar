@@ -207,33 +207,39 @@ fn mouse_button_code(button: MouseButton) -> Option<u8> {
     })
 }
 
+/// The exact gamepad buttons this layer translates, and the binding codes they
+/// produce. This is the single source of truth: `gamepad_button_codes` reads it
+/// to build a frame, and the binding-reachability test reads it to prove no
+/// default binding names a code the app cannot emit.
+const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
+    (0, GamepadButton::South),
+    (1, GamepadButton::East),
+    (2, GamepadButton::North),
+    (3, GamepadButton::West),
+    (4, GamepadButton::LeftTrigger),
+    (5, GamepadButton::RightTrigger),
+    (6, GamepadButton::Select),
+    (7, GamepadButton::Start),
+    (8, GamepadButton::LeftThumb),
+    (9, GamepadButton::RightThumb),
+    (11, GamepadButton::DPadUp),
+    (12, GamepadButton::DPadDown),
+    (13, GamepadButton::DPadLeft),
+    (14, GamepadButton::DPadRight),
+];
+
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
-    let mut buttons = [
-        (0, GamepadButton::South),
-        (1, GamepadButton::East),
-        (2, GamepadButton::North),
-        (3, GamepadButton::West),
-        (4, GamepadButton::LeftTrigger),
-        (5, GamepadButton::RightTrigger),
-        (6, GamepadButton::Select),
-        (7, GamepadButton::Start),
-        (8, GamepadButton::LeftThumb),
-        (9, GamepadButton::RightThumb),
-        (11, GamepadButton::DPadUp),
-        (12, GamepadButton::DPadDown),
-        (13, GamepadButton::DPadLeft),
-        (14, GamepadButton::DPadRight),
-    ]
-    .into_iter()
-    .filter_map(|(code, button)| gamepad.pressed(button).then_some(code))
-    .collect::<Vec<_>>();
+    let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
+        .iter()
+        .filter_map(|(code, button)| gamepad.pressed(*button).then_some(*code))
+        .collect::<Vec<_>>();
     buttons.sort_unstable();
     buttons
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{keyboard_usage, mouse_button_code};
+    use super::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
     use bevy::prelude::{KeyCode, MouseButton};
     use semantic_input::{ControlSettings, PhysicalControl};
 
@@ -281,12 +287,13 @@ mod tests {
         MouseButton::Forward,
     ];
 
-    /// Codes `gamepad_button_codes` can return, in its own order.
-    const TRANSLATED_GAMEPAD_CODES: &[u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14];
-
     /// Family-level guard: every default binding must name a physical control
     /// the app can actually emit, so a future binding cannot silently reintroduce
     /// an unreachable control.
+    ///
+    /// Touch hit IDs are deliberately out of scope: a binding can name a valid
+    /// hit ID that no on-screen region ever assigns, which this cannot see.
+    /// Touch reachability is tracked as an open gap, not proven here.
     #[test]
     fn every_default_binding_names_a_control_the_app_can_emit() {
         let usages = TRANSLATED_KEYS
@@ -296,6 +303,10 @@ mod tests {
         let buttons = TRANSLATED_MOUSE_BUTTONS
             .iter()
             .filter_map(|button| mouse_button_code(*button))
+            .collect::<Vec<_>>();
+        let gamepad = TRANSLATED_GAMEPAD_BUTTONS
+            .iter()
+            .map(|(code, _)| *code)
             .collect::<Vec<_>>();
 
         for binding in ControlSettings::default().bindings() {
@@ -310,7 +321,7 @@ mod tests {
                     "{action:?} is bound to mouse button {button}, which mouse_button_code never emits"
                 ),
                 PhysicalControl::GamepadButton(button) => assert!(
-                    TRANSLATED_GAMEPAD_CODES.contains(&button),
+                    gamepad.contains(&button),
                     "{action:?} is bound to gamepad button {button}, which gamepad_button_codes never emits"
                 ),
                 // Axes and touch hit IDs are supplied wholesale by the frame

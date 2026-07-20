@@ -321,6 +321,12 @@ impl LocalPhysicsController {
     /// Bedrock player movement positions carry the protocol network offset;
     /// collision simulation uses the feet origin. Non-finite anchors disable
     /// local prediction instead of allowing invalid state to reach collision.
+    ///
+    /// This is a hard reset used by StartGame, session/dimension replacement,
+    /// teleports, and un-replayable corrections. It deliberately clears the
+    /// retained axis collisions along with the rest of the history: no prior
+    /// motion survives the reset, so nothing can justify the discrete
+    /// ladder-climb branch until a fresh tick re-derives them.
     pub fn reanchor_network_position(
         &mut self,
         network_position: [f32; 3],
@@ -537,6 +543,28 @@ impl LocalPhysicsController {
         let mut corrected = PlayerState::new(feet);
         corrected.tick = tick;
         corrected.on_ground = on_ground;
+        // Axis collisions describe the motion that produced a position, so they
+        // cannot be recomputed from a corrected anchor. They are retained only
+        // when the server echoes back the exact network position this client
+        // sent for that tick: the motion behind it is then confirmed too, and a
+        // legitimate wall climb must not stutter on every confirming correction.
+        // Any other correction repudiates that motion, so the flags are cleared
+        // and the discrete climb branch stays closed. The comparison is exact
+        // and happens in the sent `f32` network space rather than against the
+        // `f64` feet state, because only the former is what the server actually
+        // acknowledged. The resulting loss is bounded to the first replayed
+        // tick: `Simulator::tick` re-derives collisions for every tick after it.
+        let server_confirmed_prediction = self
+            .sample_history
+            .iter()
+            .any(|sample| sample.tick == tick && sample.position == network_position);
+        corrected.collisions = if server_confirmed_prediction {
+            self.history
+                .state_at(tick)
+                .map_or_else(sim::AxisCollisions::default, |retained| retained.collisions)
+        } else {
+            sim::AxisCollisions::default()
+        };
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_traced(
@@ -637,6 +665,14 @@ impl LocalPhysicsController {
     #[must_use]
     pub fn history_len(&self) -> usize {
         self.history.len()
+    }
+
+    /// Retained axis collisions at a specific predicted tick, for asserting the
+    /// correction/replay contract without exposing history to production code.
+    #[cfg(test)]
+    #[must_use]
+    pub(super) fn retained_collisions_at(&self, tick: u64) -> Option<sim::AxisCollisions> {
+        self.history.state_at(tick).map(|state| state.collisions)
     }
 
     #[must_use]
