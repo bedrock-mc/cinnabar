@@ -80,7 +80,7 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
             "$(VANILLA_SOURCE_MANIFEST)"
         ),
         "$(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)",
-        "\t$(RUN_IF_ASSET_REPORT_STALE) $(ATMOSPHERE_COMPILE)",
+        "\t$(RUN_IF_ASSET_REPORT_STALE) || $(ATMOSPHERE_COMPILE)",
         "\t$(ATMOSPHERE_COMPILE)",
         "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
