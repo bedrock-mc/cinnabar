@@ -359,6 +359,19 @@ fn level_chunk_residency_survives_sparse_all_air_storage_until_eviction() {
 }
 
 #[test]
+fn request_mode_can_mark_a_sparse_column_loaded_until_normal_eviction() {
+    let mut store = ChunkStore::new();
+    let chunk_key = ChunkKey::new(0, 7, -9);
+
+    store.mark_chunk_loaded(chunk_key);
+    assert!(store.is_chunk_loaded(chunk_key));
+    assert!(store.chunk(chunk_key).is_none());
+
+    assert!(store.evict_chunk(chunk_key).is_empty());
+    assert!(!store.is_chunk_loaded(chunk_key));
+}
+
+#[test]
 fn mesh_dependents_cover_faces_and_handle_coordinate_edges() {
     let key = SubChunkKey::new(2, 10, -4, -3);
     let dependents = key.mesh_dependents().collect::<Vec<_>>();

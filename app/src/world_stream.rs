@@ -9293,6 +9293,7 @@ mod tests {
             super::OUTBOUND_REQUEST_CAPACITY
         );
         assert!(stream.loaded_columns.contains(&empty));
+        assert!(stream.store.is_chunk_loaded(empty));
     }
 
     fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
@@ -9335,6 +9336,39 @@ mod tests {
             }],
             duration: std::time::Duration::ZERO,
         });
+    }
+
+    #[test]
+    fn request_mode_non_air_completion_marks_collision_residency() {
+        let (mut stream, key) = stream_with_one_expected_sub_chunk();
+        let decoded = world::DecodedSubChunk::decode(
+            key,
+            include_bytes!("../../crates/world/fixtures/uniform_non_air.bin"),
+        )
+        .unwrap();
+
+        apply_sub_chunk_result(
+            &mut stream,
+            key,
+            super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+        );
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(stream.store.is_chunk_loaded(key.chunk()));
+        assert!(stream.store.sub_chunk(key).is_some());
+    }
+
+    #[test]
+    fn request_mode_all_air_completion_marks_sparse_collision_residency() {
+        let (mut stream, key) = stream_with_one_expected_sub_chunk();
+
+        apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
+
+        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(stream.store.is_chunk_loaded(key.chunk()));
+        assert!(stream.store.chunk(key.chunk()).is_none());
+        stream.evict_column(key.chunk());
+        assert!(!stream.store.is_chunk_loaded(key.chunk()));
     }
 
     fn stream_with_unsent_sub_chunks(
