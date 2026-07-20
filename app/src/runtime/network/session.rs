@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence,
-    Packet, PacketIdTraceSnapshot, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    BlobCacheStats, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence, Packet,
+    PacketIdTraceSnapshot, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
     normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
