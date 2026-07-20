@@ -23,8 +23,8 @@ use ui::{
     MAX_SCOREBOARD_RETAINED_TEXT_BYTES,
 };
 
+use super::gameplay_hud_tests::RENDERABLE_EFFECT_IDS;
 use super::*;
-use crate::ui_runtime::gameplay_hud::MAX_HUD_EFFECTS;
 use crate::ui_runtime::presentation::UiPresentationRuntime;
 
 fn saturated_runtime() -> UiRuntime {
@@ -105,8 +105,9 @@ fn saturated_runtime() -> UiRuntime {
             .unwrap();
     }
 
-    // Saturated effects, full stats, a mirrored hotbar, and titles.
-    for index in 0..MAX_HUD_EFFECTS as i32 {
+    // Every renderable effect at once, full stats, a mirrored hotbar, and
+    // titles.
+    for (index, effect_id) in RENDERABLE_EFFECT_IDS.into_iter().enumerate() {
         runtime
             .apply_local_effect(
                 1,
@@ -115,13 +116,14 @@ fn saturated_runtime() -> UiRuntime {
                     dimension: 0,
                     actor_runtime_id: 1,
                     action: ActorEffectAction::Add,
-                    effect_id: 1 + index,
+                    effect_id,
                     amplifier: 1,
                     particles: true,
                     ambient: index % 2 == 0,
                     duration_ticks: -1,
                     tick: 0,
                 },
+                0,
             )
             .unwrap();
     }
@@ -174,19 +176,46 @@ fn retained_memory_stays_inside_documented_budgets_with_every_surface_active() {
     assert!(runtime.chat().retained_bytes() <= MAX_CHAT_RETAINED_BYTES);
     assert!(runtime.scoreboards().retained_text_bytes() <= MAX_SCOREBOARD_RETAINED_TEXT_BYTES);
     assert!(runtime.boss_bars().retained_text_bytes() <= ui::MAX_BOSS_RETAINED_TEXT_BYTES);
-    assert_eq!(runtime.gameplay_hud().effects().len(), MAX_HUD_EFFECTS);
+    assert_eq!(
+        runtime.gameplay_hud().effects().len(),
+        RENDERABLE_EFFECT_IDS.len()
+    );
     assert_eq!(runtime.boss_bars().stacked().len(), 8);
 }
 
 #[test]
 fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
-    let runtime = saturated_runtime();
+    let mut runtime = saturated_runtime();
+    // First person with a fresh selected stack: the invert-blend crosshair
+    // batch and the selected-item label are part of the saturated frame.
+    runtime.retain_local_selected_equipment(
+        99,
+        protocol::EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: NetworkItemStack {
+                network_id: 1,
+                metadata: 0,
+                stack_network_id: -1,
+                count: 1,
+                nbt_digest: sha2::Sha256::digest([]).into(),
+                block_runtime_id: 0,
+                extra_data: Arc::from([]),
+            },
+            inventory_slot: 0,
+            selected_slot: 0,
+            window_id: 0,
+            handedness: None,
+        },
+    );
+    runtime.observe_selected_item_identity(10_000);
     let mut presentation = UiPresentationRuntime::with_hud(
         crate::ui_runtime::presentation::tests::fixture_font(),
         crate::ui_runtime::presentation::tests::fixture_hud(),
     )
     .unwrap();
     presentation.enable_scoreboard_background();
+    presentation.hud_frame_mut().first_person = true;
+    presentation.hud_frame_mut().selected_item_name = Some(Arc::from("Saturated Blade"));
 
     let first = presentation
         .build(
@@ -200,6 +229,31 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
     assert!(first.vertices.len() <= render::MAX_UI_VERTICES / 4);
     assert!(first.indices.len() <= render::MAX_UI_INDICES / 4);
     assert!(first.batches.len() <= render::MAX_UI_BATCHES / 4);
+    assert_eq!(
+        first
+            .batches
+            .iter()
+            .filter(|batch| batch.blend_mode == render::UI_BLEND_INVERT)
+            .count(),
+        1,
+        "the saturated frame draws the first-person crosshair invert batch"
+    );
+    // Dropping only the resolved name from the frame removes glyph quads:
+    // the selected-item label was live in the saturated frame.
+    presentation.hud_frame_mut().selected_item_name = None;
+    let unlabeled = presentation
+        .build(
+            &runtime,
+            10_000,
+            [1920, 1080],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(
+        unlabeled.vertices.len() < first.vertices.len(),
+        "the selected-item label contributes glyphs to the saturated frame"
+    );
+    presentation.hud_frame_mut().selected_item_name = Some(Arc::from("Saturated Blade"));
 
     // Steady-state rebuilds settle the text-layout cache: no unbounded growth
     // frame over frame with identical retained content.

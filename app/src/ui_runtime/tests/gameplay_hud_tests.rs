@@ -55,10 +55,10 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
     let mut runtime = UiRuntime::new(4);
 
     runtime
-        .apply_local_effect(4, 1, effect(ActorEffectAction::Add, 19, 600, 100))
+        .apply_local_effect(4, 1, effect(ActorEffectAction::Add, 19, 600, 100), 0)
         .unwrap();
     runtime
-        .apply_local_effect(4, 2, effect(ActorEffectAction::Add, 1, -1, 100))
+        .apply_local_effect(4, 2, effect(ActorEffectAction::Add, 1, -1, 100), 0)
         .unwrap();
     assert_eq!(runtime.gameplay_hud().effects().len(), 2);
     assert_eq!(
@@ -141,10 +141,10 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
 fn stale_local_gameplay_events_fail_without_mutation() {
     let mut runtime = UiRuntime::new(4);
     runtime
-        .apply_local_effect(4, 10, effect(ActorEffectAction::Add, 19, 600, 100))
+        .apply_local_effect(4, 10, effect(ActorEffectAction::Add, 19, 600, 100), 0)
         .unwrap();
     assert!(matches!(
-        runtime.apply_local_effect(4, 10, effect(ActorEffectAction::Add, 20, 600, 100)),
+        runtime.apply_local_effect(4, 10, effect(ActorEffectAction::Add, 20, 600, 100), 0),
         Err(UiRuntimeError::StaleFifoSequence { .. })
     ));
     assert!(matches!(
@@ -158,17 +158,17 @@ fn stale_local_gameplay_events_fail_without_mutation() {
 fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
     let mut runtime = UiRuntime::new(1);
     runtime
-        .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 19, -1, 0))
+        .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 19, -1, 0), 0)
         .unwrap();
     runtime
-        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 20, -1, 0))
+        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 20, -1, 0), 0)
         .unwrap();
     assert_eq!(
         runtime.gameplay_hud().heart_variant(None),
         HeartVariant::Withered
     );
     runtime
-        .apply_local_effect(1, 3, effect(ActorEffectAction::Unknown(9), 21, -1, 0))
+        .apply_local_effect(1, 3, effect(ActorEffectAction::Unknown(9), 21, -1, 0), 0)
         .unwrap();
     assert_eq!(
         runtime.gameplay_hud().diagnostics().skipped_effect_actions,
@@ -178,7 +178,7 @@ fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
 
     // Removal restores the poison recolor, then normal.
     runtime
-        .apply_local_effect(1, 4, effect(ActorEffectAction::Remove, 20, 0, 0))
+        .apply_local_effect(1, 4, effect(ActorEffectAction::Remove, 20, 0, 0), 0)
         .unwrap();
     assert_eq!(
         runtime.gameplay_hud().heart_variant(None),
@@ -186,43 +186,78 @@ fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
     );
 }
 
+/// Every vanilla protocol-1001 effect id the HUD can present. Instant
+/// effects (6, 7, 23) have no HUD surface.
+pub(crate) const RENDERABLE_EFFECT_IDS: [i32; 27] = [
+    1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28,
+    29, 30,
+];
+
 #[test]
-fn effect_retention_is_bounded_with_soonest_expiry_eviction() {
+fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
     let mut runtime = UiRuntime::new(1);
-    for index in 0..MAX_HUD_EFFECTS as i32 {
+    let mut sequence = 0;
+    let mut next = || {
+        sequence += 1;
+        sequence
+    };
+    // The full renderable catalog stays under the retention cap by design.
+    for id in RENDERABLE_EFFECT_IDS {
+        runtime
+            .apply_local_effect(1, next(), effect(ActorEffectAction::Add, id, -1, 0), 0)
+            .unwrap();
+    }
+    assert_eq!(
+        runtime.gameplay_hud().effects().len(),
+        RENDERABLE_EFFECT_IDS.len()
+    );
+    assert!(RENDERABLE_EFFECT_IDS.len() <= MAX_HUD_EFFECTS);
+
+    // Unknown ids are odd remote data: counted, skipped, never stored, and
+    // therefore never able to push a renderable effect out of the list.
+    for (offset, unknown_id) in [0, 6, 7, 23, 31, 999, -3].into_iter().enumerate() {
         runtime
             .apply_local_effect(
                 1,
-                1 + index as u64,
-                effect(ActorEffectAction::Add, 100 + index, 100 + index, 0),
+                next(),
+                effect(ActorEffectAction::Add, unknown_id, 100, 0),
+                0,
             )
             .unwrap();
+        assert_eq!(
+            runtime.gameplay_hud().diagnostics().unknown_effect_ids,
+            offset as u64 + 1
+        );
     }
-    assert_eq!(runtime.gameplay_hud().effects().len(), MAX_HUD_EFFECTS);
+    assert_eq!(
+        runtime.gameplay_hud().effects().len(),
+        RENDERABLE_EFFECT_IDS.len()
+    );
+    assert_eq!(runtime.gameplay_hud().diagnostics().evicted_effects, 0);
+}
+
+#[test]
+fn finite_effects_expire_on_the_session_clock_without_new_packets() {
+    let mut runtime = UiRuntime::new(1);
+    // Speed for 100 ticks observed at tick 40, local millis 1_000.
     runtime
-        .apply_local_effect(
-            1,
-            1 + MAX_HUD_EFFECTS as u64,
-            effect(ActorEffectAction::Add, 999, -1, 0),
-        )
+        .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 1, 100, 40), 1_000)
         .unwrap();
-    assert_eq!(runtime.gameplay_hud().effects().len(), MAX_HUD_EFFECTS);
-    assert_eq!(runtime.gameplay_hud().diagnostics().evicted_effects, 1);
-    // The soonest-expiring effect (id 100) was evicted; the new one is present.
-    assert!(
-        runtime
-            .gameplay_hud()
-            .effects()
-            .iter()
-            .any(|effect| effect.effect_id == 999)
-    );
-    assert!(
-        !runtime
-            .gameplay_hud()
-            .effects()
-            .iter()
-            .any(|effect| effect.effect_id == 100)
-    );
+    // Regeneration without a wire duration never locally expires.
+    runtime
+        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 10, -1, 40), 1_000)
+        .unwrap();
+
+    // 60 ticks later (3 seconds of local time), speed is still running.
+    runtime.expire_gameplay_effects(4_000);
+    assert_eq!(runtime.gameplay_hud().effects().len(), 2);
+    assert_eq!(runtime.estimated_server_tick(4_000), Some(100));
+
+    // 101 ticks after observation the finite effect is gone, with no packet
+    // having arrived since the Add.
+    runtime.expire_gameplay_effects(1_000 + 101 * 50);
+    assert_eq!(runtime.gameplay_hud().effects().len(), 1);
+    assert_eq!(runtime.gameplay_hud().effects()[0].effect_id, 10);
 }
 
 #[test]

@@ -138,6 +138,9 @@ pub struct UiRuntime {
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
     last_server_tick: Option<u64>,
+    /// Local millis at which `last_server_tick` was observed, anchoring the
+    /// estimated session clock between packets.
+    last_tick_observed_millis: Option<u64>,
     chat_focused: bool,
     hud: HudStore,
     chat: ChatStore,
@@ -182,6 +185,7 @@ impl UiRuntime {
             last_block_crack_sequence: None,
             last_local_millis: None,
             last_server_tick: None,
+            last_tick_observed_millis: None,
             chat_focused: false,
             hud: HudStore::default(),
             chat: ChatStore::default(),
@@ -659,6 +663,7 @@ impl UiRuntime {
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;
         self.last_server_tick = None;
+        self.last_tick_observed_millis = None;
         self.chat_focused = false;
         self.hud.clear();
         self.chat.clear();
@@ -807,6 +812,7 @@ impl UiRuntime {
         self.last_local_millis = Some(envelope.local_millis);
         if let Some(server_tick) = envelope.server_tick {
             self.last_server_tick = Some(server_tick);
+            self.last_tick_observed_millis = Some(envelope.local_millis);
         }
         Ok(outcome)
     }

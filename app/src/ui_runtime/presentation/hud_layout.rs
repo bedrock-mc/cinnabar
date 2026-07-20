@@ -167,18 +167,21 @@ impl<'a> HudLayout<'a> {
         if shows_hotbar {
             self.hotbar(runtime, frame)?;
         }
+        // The estimated session clock drives expiry-sensitive surfaces, so
+        // finite effects keep counting down between packets.
+        let now_tick = runtime.estimated_server_tick(frame.now_millis);
         if survival_stats {
-            self.health_rows(runtime, frame)?;
+            self.health_rows(runtime, frame, now_tick)?;
             self.armor_row(runtime)?;
             if frame.mount_health.is_some() {
                 self.mount_health_rows(frame)?;
             } else {
-                self.hunger_row(runtime)?;
+                self.hunger_row(runtime, now_tick)?;
             }
             self.air_row(runtime)?;
             self.experience_bar(runtime)?;
         }
-        self.effects(runtime)?;
+        self.effects(runtime, now_tick)?;
         self.boss_bars(runtime)?;
         Ok(())
     }
@@ -363,6 +366,7 @@ impl<'a> HudLayout<'a> {
         &mut self,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        now_tick: Option<u64>,
     ) -> Result<(), UiPresentationError> {
         let Some(health) = runtime.hud().health() else {
             return Ok(());
@@ -382,9 +386,7 @@ impl<'a> HudLayout<'a> {
         let rows = total_hearts.div_ceil(10).max(1) as u16;
         let row_height = (10 - (rows.saturating_sub(2))).max(3) as f32;
 
-        let variant = runtime
-            .gameplay_hud()
-            .heart_variant(runtime.last_server_tick_hint());
+        let variant = runtime.gameplay_hud().heart_variant(now_tick);
         let flash = damage_flash_phase(runtime.last_health_drop_millis(), frame.now_millis);
         let g = self.geometry;
         let base = [(g.gui_width - HOTBAR_WIDTH) / 2.0, g.gui_height - 39.0];
@@ -455,15 +457,17 @@ impl<'a> HudLayout<'a> {
         Ok(())
     }
 
-    fn hunger_row(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
+    fn hunger_row(
+        &mut self,
+        runtime: &UiRuntime,
+        now_tick: Option<u64>,
+    ) -> Result<(), UiPresentationError> {
         let Some(hunger) = runtime.hud().hunger() else {
             return Ok(());
         };
         let scale = u32::from(hunger.scale()).max(1);
         let current = u32::from(hunger.current()).div_ceil(scale);
-        let effect = runtime
-            .gameplay_hud()
-            .hunger_effect_active(runtime.last_server_tick_hint());
+        let effect = runtime.gameplay_hud().hunger_effect_active(now_tick);
         let (background, full, half) = if effect {
             (
                 HudTextureRole::HungerEffectBackground,
@@ -637,8 +641,11 @@ impl<'a> HudLayout<'a> {
     /// Status effects in the top-right corner: beneficial row first, harmful
     /// row below, each entry a 24x24 background with an 18x18 icon, blinking
     /// through the final seconds before expiry.
-    fn effects(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let now_tick = runtime.last_server_tick_hint();
+    fn effects(
+        &mut self,
+        runtime: &UiRuntime,
+        now_tick: Option<u64>,
+    ) -> Result<(), UiPresentationError> {
         let mut beneficial: Vec<&HudEffect> = Vec::new();
         let mut harmful: Vec<&HudEffect> = Vec::new();
         for effect in runtime.gameplay_hud().effects() {

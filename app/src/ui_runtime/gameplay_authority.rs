@@ -9,6 +9,9 @@ use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
+/// Bedrock's fixed wire cadence: 20 server ticks per second.
+const MILLIS_PER_SERVER_TICK: u64 = 50;
+
 impl UiRuntime {
     pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
         // Local selection is client-authoritative in Bedrock: once the player picks a slot
@@ -48,15 +51,21 @@ impl UiRuntime {
         &self.gameplay_hud
     }
 
-    /// The last authoritative server tick seen on any committed event, used
-    /// as the presentation clock for effect expiry and blink phases.
-    pub(crate) const fn last_server_tick_hint(&self) -> Option<u64> {
-        self.last_server_tick
+    /// The estimated authoritative tick at `now_millis`: the last observed
+    /// server tick advanced by the local millis elapsed since it was
+    /// observed, at the fixed 20 tps wire cadence. This is the presentation
+    /// clock for effect expiry and blink phases, so finite durations keep
+    /// counting down during quiet sessions with no new packets; a server
+    /// Remove stays the final authority for early clears.
+    pub(crate) fn estimated_server_tick(&self, now_millis: u64) -> Option<u64> {
+        let tick = self.last_server_tick?;
+        let observed = self.last_tick_observed_millis?;
+        Some(tick.saturating_add(now_millis.saturating_sub(observed) / MILLIS_PER_SERVER_TICK))
     }
 
-    /// Drops locally-expired effects against the authoritative clock.
-    pub(crate) fn expire_gameplay_effects(&mut self) {
-        let now_tick = self.last_server_tick;
+    /// Drops effects that expired on the estimated session clock.
+    pub(crate) fn expire_gameplay_effects(&mut self, now_millis: u64) {
+        let now_tick = self.estimated_server_tick(now_millis);
         self.gameplay_hud.expire_effects(now_tick);
     }
 
@@ -178,6 +187,7 @@ impl UiRuntime {
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
         self.last_server_tick = Some(envelope.server_tick);
+        self.last_tick_observed_millis = Some(envelope.local_millis);
         Ok(())
     }
 
@@ -199,17 +209,24 @@ impl UiRuntime {
         Ok(())
     }
 
-    /// Applies a committed local-player MobEffect change.
+    /// Applies a committed local-player MobEffect change. `local_millis`
+    /// anchors the event's server tick to the session clock so finite
+    /// durations expire without further packets.
     pub fn apply_local_effect(
         &mut self,
         session_id: u64,
         fifo_sequence: u64,
         event: ActorEffectEvent,
+        local_millis: u64,
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
+        let event_tick = event.tick;
         self.gameplay_hud.apply_effect(event);
         self.last_fifo_sequence = Some(fifo_sequence);
-        self.last_server_tick = Some(event.tick.max(self.last_server_tick.unwrap_or(0)));
+        if event_tick >= self.last_server_tick.unwrap_or(0) {
+            self.last_server_tick = Some(event_tick);
+            self.last_tick_observed_millis = Some(local_millis);
+        }
         Ok(())
     }
 

@@ -619,7 +619,7 @@ pub(crate) fn publish_ui_runtime(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
     runtime.drain_pending_inventory();
-    runtime.expire_gameplay_effects();
+    runtime.expire_gameplay_effects(now_millis);
     runtime.observe_selected_item_identity(now_millis);
     refresh_hud_frame(
         &mut runtime,

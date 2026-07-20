@@ -580,9 +580,12 @@ pub(crate) fn drive_world_stream(
                 sequence,
                 metadata.as_ref(),
             ),
-            CommittedUiEvent::LocalEffect { sequence, event } => {
-                ui_runtime.apply_local_effect(clock.session_generation(), sequence, event)
-            }
+            CommittedUiEvent::LocalEffect { sequence, event } => ui_runtime.apply_local_effect(
+                clock.session_generation(),
+                sequence,
+                event,
+                local_millis,
+            ),
             CommittedUiEvent::LocalArmor { sequence, event } => {
                 ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
             }

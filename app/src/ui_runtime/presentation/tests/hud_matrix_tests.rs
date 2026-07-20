@@ -233,7 +233,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
         runtime.publish_player_game_mode(mode);
         apply_full_stats(&mut runtime, 1);
         runtime
-            .apply_local_effect(1, 2, effect(1, -1))
+            .apply_local_effect(1, 2, effect(1, -1), 0)
             .expect("effects apply in every mode");
         *presentation.hud_frame_mut() = first_person_frame();
 
@@ -270,7 +270,7 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
     let baseline = build(&mut presentation, &runtime, 0).vertices.len() / 4;
 
     // Poison recolors hearts without changing the sprite budget.
-    runtime.apply_local_effect(1, 2, effect(19, -1)).unwrap();
+    runtime.apply_local_effect(1, 2, effect(19, -1), 0).unwrap();
     let poisoned = build(&mut presentation, &runtime, 0).vertices.len() / 4;
     assert_eq!(poisoned, baseline + 2, "one effect entry adds two sprites");
 
@@ -414,4 +414,17 @@ fn spectator_still_presents_boss_bars_and_chat_surfaces() {
         !input.vertices.is_empty(),
         "boss bars stay visible in spectator"
     );
+}
+
+#[test]
+fn the_renderable_effect_id_gate_matches_the_pinned_icon_table_exactly() {
+    use crate::ui_runtime::gameplay_hud::is_renderable_effect_id;
+    use crate::ui_runtime::presentation::hud_layout::effect_icon_role;
+    for effect_id in -8..=64 {
+        assert_eq!(
+            is_renderable_effect_id(effect_id),
+            effect_icon_role(effect_id).is_some(),
+            "state gate and pinned icon table agree on effect id {effect_id}"
+        );
+    }
 }

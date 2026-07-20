@@ -22,6 +22,13 @@ const EFFECT_ID_POISON: i32 = 19;
 const EFFECT_ID_WITHER: i32 = 20;
 const EFFECT_ID_FATAL_POISON: i32 = 25;
 
+/// Pinned vanilla protocol-1001 effect ids the HUD can present. Instant
+/// effects (6, 7, 23) have no HUD surface; the presentation icon table pins
+/// exactly this set, witnessed for equivalence in the layout tests.
+pub(crate) const fn is_renderable_effect_id(effect_id: i32) -> bool {
+    matches!(effect_id, 1..=5 | 8..=22 | 24..=30)
+}
+
 /// One retained authoritative status effect.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HudEffect {
@@ -91,6 +98,9 @@ pub struct GameplayHudDiagnostics {
     pub odd_hud_packets: u64,
     /// Server chat rows beyond the retention byte bound, skipped whole.
     pub oversized_chat_rows: u64,
+    /// Effect ids outside the pinned renderable table, skipped so they can
+    /// never evict a renderable effect from the bounded list.
+    pub unknown_effect_ids: u64,
 }
 
 /// App-owned retained gameplay HUD state fed exclusively by committed
@@ -212,6 +222,14 @@ impl GameplayHudState {
         };
         match event.action {
             ActorEffectAction::Add | ActorEffectAction::Update => {
+                // An id outside the pinned renderable table is odd remote
+                // data: counted and skipped, never stored, so it cannot evict
+                // a renderable effect from the bounded list.
+                if !is_renderable_effect_id(event.effect_id) {
+                    self.diagnostics.unknown_effect_ids =
+                        self.diagnostics.unknown_effect_ids.saturating_add(1);
+                    return;
+                }
                 if let Some(existing) = self
                     .effects
                     .iter_mut()
