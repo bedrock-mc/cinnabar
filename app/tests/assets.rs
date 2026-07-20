@@ -12,19 +12,21 @@ use std::{
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
     CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
-    EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, Material, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
-    encode_font_catalog,
+    EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, HudTexture,
+    HudTextureRole, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    encode_atmosphere_blob, encode_blob, encode_entity_blob, encode_font_catalog,
+    encode_hud_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
     ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
     DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
-    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-    LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
-    atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
-    font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
+    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, HUD_ASSETS_COMPILE_COMMAND,
+    HUD_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND, LOCAL_FONT_ASSETS_FILENAME,
+    LoadedAssetKind, atmosphere_asset_path, atmosphere_shader_source_sha256,
+    cloud_shader_source_sha256, entity_asset_path, font_asset_path, hud_asset_path,
+    load_hud_assets, load_runtime_assets, local_font_asset_path, select_asset_path,
     select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
@@ -205,6 +207,28 @@ fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box
         advance_64: 64,
     }];
     encode_font_catalog(manifest_sha256, &glyphs, &[page]).unwrap()
+}
+
+fn synthetic_hud_blob() -> Vec<u8> {
+    let textures = HudTextureRole::ALL
+        .into_iter()
+        .map(|role| {
+            let [width, height] = role.expected_size();
+            let rgba8 = [role as u8, 2, 3, 255]
+                .repeat(width as usize * height as usize)
+                .into_boxed_slice();
+            HudTexture {
+                role,
+                source_bytes: rgba8.len() as u32,
+                source_sha256: Sha256::digest(&rgba8).into(),
+                pixels_sha256: Sha256::digest(&rgba8).into(),
+                width,
+                height,
+                rgba8,
+            }
+        })
+        .collect::<Vec<_>>();
+    encode_hud_catalog([0x91; 32], &textures).unwrap()
 }
 
 fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
@@ -960,6 +984,11 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         LOCAL_FONT_ASSETS_COMPILE_COMMAND,
         "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>"
     );
+    assert_eq!(HUD_ASSETS_FILENAME, "vanilla-v1.mcbehud");
+    assert_eq!(
+        HUD_ASSETS_COMPILE_COMMAND,
+        "make hud-assets-local HUD_PACK_DIR=<vanilla-client-resource-pack>"
+    );
     assert_eq!(
         atmosphere_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbeatm")
@@ -976,6 +1005,47 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         local_font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
         PathBuf::from(".local/assets/compiled/vanilla-v1.mcbefont")
     );
+    assert_eq!(
+        hud_asset_path(Path::new(DEFAULT_ASSET_PATH)),
+        PathBuf::from(".local/assets/compiled/vanilla-v1.mcbehud")
+    );
+}
+
+#[test]
+fn local_hud_carrier_is_optional_but_decodes_when_present() {
+    let directory = temporary_directory("local-hud-assets");
+    let world_path = directory.join("custom-world.mcbea");
+    assert!(load_hud_assets(&world_path).unwrap().is_none());
+
+    fs::write(hud_asset_path(&world_path), synthetic_hud_blob()).unwrap();
+    let loaded = load_hud_assets(&world_path).unwrap().unwrap();
+    assert_eq!(loaded.runtime().textures().len(), HudTextureRole::ALL.len());
+    assert!(
+        loaded
+            .startup_summary()
+            .contains("loaded local vanilla HUD assets")
+    );
+
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn malformed_local_hud_carrier_fails_closed_with_rebuild_command() {
+    let directory = temporary_directory("malformed-local-hud-assets");
+    let world_path = directory.join("custom-world.mcbea");
+    let hud_path = hud_asset_path(&world_path);
+    fs::write(&hud_path, b"not MCBEHUD1").unwrap();
+
+    let error = load_hud_assets(&world_path).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.contains(&hud_path.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("decode local HUD"), "{message}");
+    assert!(message.contains(HUD_ASSETS_COMPILE_COMMAND), "{message}");
+
+    fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
@@ -1420,6 +1490,47 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
             .unwrap();
         assert!(line.contains("FONT_ASSET"));
     }
+}
+
+#[test]
+fn make_exposes_local_only_hud_carrier_compilation() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let makefile = fs::read_to_string(root.join("Makefile"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    for contract in [
+        "HUD_PACK_DIR ?=",
+        "HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud",
+        "HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json",
+        concat!(
+            "HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
+            "hud-assets --pack \"$(HUD_PACK_DIR)\" --out \"$(HUD_ASSET_BLOB)\" ",
+            "--report \"$(HUD_ASSET_REPORT)\""
+        ),
+        "hud-assets-local:",
+        "HUD_PACK_DIR is required; point it at an owned vanilla client resource pack",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing HUD Makefile contract: {contract}"
+        );
+    }
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .unwrap();
+    assert!(
+        phony
+            .split_whitespace()
+            .any(|word| word == "hud-assets-local")
+    );
+    assert!(
+        !makefile
+            .lines()
+            .find(|line| line.starts_with("assets:"))
+            .unwrap()
+            .contains("HUD_ASSET_BLOB")
+    );
 }
 
 #[test]

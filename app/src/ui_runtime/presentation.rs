@@ -1,6 +1,6 @@
 use std::{fmt, ops::Range, sync::Arc};
 
-use assets::RuntimeFontCatalog;
+use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog};
 use bevy::{
     prelude::{Query, Res, ResMut, Resource, Time, With},
     time::Real,
@@ -10,9 +10,10 @@ use render::{
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
     UiRenderTextureArray,
 };
+use sha2::{Digest, Sha256};
 use ui::{
-    DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode,
-    UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    BoundedStat, DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle,
+    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -28,6 +29,13 @@ const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 const CHAT_TEXT_SCALE: f32 = 0.5;
+const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
+const HUD_ATLAS_GUTTER: u32 = 1;
+const VANILLA_SURVIVAL_POINTS: u16 = 20;
+// Bedrock 1.26.33.1 resource_packs/vanilla/ui/hud_screen.json defines the
+// 9px heart background at alpha 0.65. The exact rendered placement remains
+// subject to the required native/live visual gate.
+const VANILLA_HUD_BACKGROUND_ALPHA: u8 = 166;
 
 #[derive(Debug)]
 pub enum UiPresentationError {
@@ -52,6 +60,7 @@ pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
+    hud_textures: Option<HudTexturePages>,
     layouts: TextLayoutCache,
     revision: u64,
     chat_hit_logical_size: Option<[f32; 2]>,
@@ -60,11 +69,27 @@ pub struct UiPresentationRuntime {
 
 impl UiPresentationRuntime {
     pub fn new(font: Arc<RuntimeFontCatalog>) -> Result<Self, UiPresentationError> {
-        let (textures, solid_texture_page) = font_texture_array(&font)?;
+        Self::with_optional_hud(font, None)
+    }
+
+    pub fn with_hud(
+        font: Arc<RuntimeFontCatalog>,
+        hud: Arc<RuntimeHudCatalog>,
+    ) -> Result<Self, UiPresentationError> {
+        Self::with_optional_hud(font, Some(hud))
+    }
+
+    fn with_optional_hud(
+        font: Arc<RuntimeFontCatalog>,
+        hud: Option<Arc<RuntimeHudCatalog>>,
+    ) -> Result<Self, UiPresentationError> {
+        let (textures, solid_texture_page, hud_textures) =
+            font_texture_array(&font, hud.as_deref())?;
         Ok(Self {
             font,
             textures: Arc::new(textures),
             solid_texture_page,
+            hud_textures,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             chat_hit_logical_size: None,
@@ -105,9 +130,26 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
 
+        if let Some(hud_textures) = self.hud_textures.as_ref() {
+            append_survival_hud(
+                &mut nodes,
+                &mut next_id,
+                runtime,
+                logical_width,
+                logical_height,
+                hud_textures,
+            )?;
+        }
+
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
         for node in hud_nodes.iter() {
+            if matches!(
+                node.role,
+                HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
+            ) {
+                continue;
+            }
             if matches!(
                 node.role,
                 HudViewRole::ToastTitle | HudViewRole::ToastMessage
@@ -207,7 +249,7 @@ impl UiPresentationRuntime {
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
             .sum::<f32>();
         let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
-        let bottom_hud_top = (logical_height - 42.0).max(chat_region_top);
+        let bottom_hud_top = (logical_height - 54.0).max(chat_region_top);
         let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
         let editor_y = editor_layout.as_ref().map_or(editor_bottom, |layout| {
             (editor_bottom - layout.size_64()[1] as f32 / 64.0).max(chat_region_top)
@@ -438,21 +480,248 @@ pub(crate) fn publish_ui_runtime(
     }
 }
 
+fn append_survival_hud(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    runtime: &UiRuntime,
+    width: f32,
+    height: f32,
+    textures: &HudTexturePages,
+) -> Result<(), UiPresentationError> {
+    let left = ((width - 180.0) * 0.5).max(0.0);
+    if let Some(health) = runtime.hud().health()
+        && let Some(half_units) = standard_survival_half_units(health)
+    {
+        append_icon_row(
+            nodes,
+            next_id,
+            textures,
+            [left - 1.0, (height - 40.0).max(0.0)],
+            false,
+            half_units,
+            HudTextureRole::HeartBackground,
+            HudTextureRole::HeartFull,
+            HudTextureRole::HeartHalf,
+        )?;
+    }
+    if let Some(hunger) = runtime.hud().hunger()
+        && let Some(half_units) = standard_survival_half_units(hunger)
+    {
+        append_icon_row(
+            nodes,
+            next_id,
+            textures,
+            [left + 180.0 - 9.0, (height - 40.0).max(0.0)],
+            true,
+            half_units,
+            HudTextureRole::HungerBackground,
+            HudTextureRole::HungerFull,
+            HudTextureRole::HungerHalf,
+        )?;
+    }
+    if let Some(armor) = runtime.hud().armor()
+        && armor.current() > 0
+        && let Some(half_units) = standard_survival_half_units(armor)
+    {
+        append_icon_row(
+            nodes,
+            next_id,
+            textures,
+            [left - 1.0, (height - 50.0).max(0.0)],
+            false,
+            half_units,
+            HudTextureRole::ArmorEmpty,
+            HudTextureRole::ArmorFull,
+            HudTextureRole::ArmorHalf,
+        )?;
+    }
+    if let Some(air) = runtime.hud().air()
+        && air.current() < air.maximum()
+    {
+        let filled = u32::from(air.current())
+            .saturating_mul(10)
+            .div_ceil(u32::from(air.maximum()))
+            .min(10) as usize;
+        for index in 0..10 {
+            let role = if index < filled {
+                HudTextureRole::BubbleFull
+            } else {
+                HudTextureRole::BubbleEmpty
+            };
+            append_sprite(
+                nodes,
+                next_id,
+                textures,
+                role,
+                [
+                    left + 180.0 - 9.0 - index as f32 * 9.0,
+                    (height - 50.0).max(0.0),
+                ],
+                [255; 4],
+            )?;
+        }
+    }
+
+    if let Some(equipment) = runtime.local_selected_equipment() {
+        let hotbar_y = (height - 22.0).max(0.0);
+        let roles = [
+            HudTextureRole::Hotbar0,
+            HudTextureRole::Hotbar1,
+            HudTextureRole::Hotbar2,
+            HudTextureRole::Hotbar3,
+            HudTextureRole::Hotbar4,
+            HudTextureRole::Hotbar5,
+            HudTextureRole::Hotbar6,
+            HudTextureRole::Hotbar7,
+            HudTextureRole::Hotbar8,
+        ];
+        let selected = usize::from(equipment.event.selected_slot);
+        if selected >= roles.len() {
+            return Ok(());
+        }
+        for (index, role) in roles.into_iter().enumerate() {
+            append_sprite(
+                nodes,
+                next_id,
+                textures,
+                role,
+                [left + index as f32 * 20.0, hotbar_y],
+                [255; 4],
+            )?;
+        }
+        append_sprite(
+            nodes,
+            next_id,
+            textures,
+            HudTextureRole::SelectedHotbarSlot,
+            [
+                left + selected as f32 * 20.0 - 2.0,
+                (height - 23.0).max(0.0),
+            ],
+            [255; 4],
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_icon_row(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    textures: &HudTexturePages,
+    origin: [f32; 2],
+    reverse: bool,
+    half_units: u16,
+    background: HudTextureRole,
+    full: HudTextureRole,
+    half: HudTextureRole,
+) -> Result<(), UiPresentationError> {
+    for index in 0..10 {
+        let direction = if reverse { -1.0 } else { 1.0 };
+        let position = [origin[0] + direction * index as f32 * 9.0, origin[1]];
+        append_sprite(
+            nodes,
+            next_id,
+            textures,
+            background,
+            position,
+            [255, 255, 255, VANILLA_HUD_BACKGROUND_ALPHA],
+        )?;
+        let remaining = half_units.saturating_sub(index as u16 * 2);
+        let foreground = if remaining >= 2 {
+            Some(full)
+        } else if remaining == 1 {
+            Some(half)
+        } else {
+            None
+        };
+        if let Some(role) = foreground {
+            append_sprite(nodes, next_id, textures, role, position, [255; 4])?;
+        }
+    }
+    Ok(())
+}
+
+fn append_sprite(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    textures: &HudTexturePages,
+    role: HudTextureRole,
+    position: [f32; 2],
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
+    let sprite = textures.sprite(role);
+    let size = [f32::from(sprite.size[0]), f32::from(sprite.size[1])];
+    nodes.push(
+        UiNode::new(
+            UiNodeId::new(*next_id),
+            None,
+            rect(
+                position[0],
+                position[1],
+                position[0] + size[0],
+                position[1] + size[1],
+            )?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: textures.page,
+            uv: sprite.uv,
+            color,
+        }),
+    );
+    *next_id = (*next_id).saturating_add(1);
+    Ok(())
+}
+
+fn standard_survival_half_units(stat: BoundedStat) -> Option<u16> {
+    let maximum = u32::from(stat.maximum());
+    let scale = u32::from(stat.scale());
+    if maximum != u32::from(VANILLA_SURVIVAL_POINTS) * scale {
+        return None;
+    }
+    u16::try_from(u32::from(stat.current()).div_ceil(scale))
+        .ok()
+        .map(|value| value.min(VANILLA_SURVIVAL_POINTS))
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct HudSprite {
+    uv: [u16; 4],
+    size: [u16; 2],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HudTexturePages {
+    page: u16,
+    sprites: [HudSprite; HudTextureRole::ALL.len()],
+}
+
+impl HudTexturePages {
+    fn sprite(&self, role: HudTextureRole) -> HudSprite {
+        self.sprites[role as usize]
+    }
+}
+
 fn font_texture_array(
     font: &RuntimeFontCatalog,
-) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
-    let width = font
+    hud: Option<&RuntimeHudCatalog>,
+) -> Result<(UiRenderTextureArray, u16, Option<HudTexturePages>), UiPresentationError> {
+    let mut width = font
         .pages()
         .iter()
         .map(|page| page.width)
         .max()
         .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let height = font
+    let mut height = font
         .pages()
         .iter()
         .map(|page| page.height)
         .max()
         .ok_or(UiPresentationError::InvalidFontTexture)?;
+    if hud.is_some() {
+        width = width.max(VANILLA_HUD_ATLAS_SIDE);
+        height = height.max(VANILLA_HUD_ATLAS_SIDE);
+    }
     let font_layers =
         u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     if font_layers >= MAX_UI_TEXTURE_LAYERS {
@@ -460,8 +729,11 @@ fn font_texture_array(
     }
     let solid_texture_page =
         u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let hud_layers = u32::from(hud.is_some());
     let layers = font_layers
         .checked_add(1)
+        .and_then(|layers| layers.checked_add(hud_layers))
+        .filter(|layers| *layers <= MAX_UI_TEXTURE_LAYERS)
         .ok_or(UiPresentationError::InvalidFontTexture)?;
     let layer_bytes = usize::try_from(width)
         .ok()
@@ -486,15 +758,117 @@ fn font_texture_array(
     }
     let solid_start = usize::from(solid_texture_page) * layer_bytes;
     rgba8[solid_start..solid_start + layer_bytes].fill(255);
+    let hud_textures = if let Some(hud) = hud {
+        let page = solid_texture_page
+            .checked_add(1)
+            .ok_or(UiPresentationError::InvalidFontTexture)?;
+        let layer_start = usize::from(page) * layer_bytes;
+        let mut cursor = [0u32, 0u32];
+        let mut row_height = 0u32;
+        let mut sprites = [HudSprite::default(); HudTextureRole::ALL.len()];
+        for texture in hud.textures() {
+            let gutter_span = HUD_ATLAS_GUTTER
+                .checked_mul(2)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let padded_width = texture
+                .width
+                .checked_add(gutter_span)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let padded_height = texture
+                .height
+                .checked_add(gutter_span)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let row_right = cursor[0]
+                .checked_add(padded_width)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            if row_right > width {
+                cursor[0] = 0;
+                cursor[1] = cursor[1]
+                    .checked_add(row_height)
+                    .ok_or(UiPresentationError::InvalidFontTexture)?;
+                row_height = 0;
+            }
+            let padded_right = cursor[0]
+                .checked_add(padded_width)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let padded_bottom = cursor[1]
+                .checked_add(padded_height)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            if padded_right > width || padded_bottom > height {
+                return Err(UiPresentationError::InvalidFontTexture);
+            }
+            let left = cursor[0]
+                .checked_add(HUD_ATLAS_GUTTER)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let top = cursor[1]
+                .checked_add(HUD_ATLAS_GUTTER)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let right = left
+                .checked_add(texture.width)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let bottom = top
+                .checked_add(texture.height)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            for padded_y in 0..padded_height {
+                let source_y = padded_y
+                    .saturating_sub(HUD_ATLAS_GUTTER)
+                    .min(texture.height - 1);
+                for padded_x in 0..padded_width {
+                    let source_x = padded_x
+                        .saturating_sub(HUD_ATLAS_GUTTER)
+                        .min(texture.width - 1);
+                    let source_start =
+                        (source_y as usize * texture.width as usize + source_x as usize) * 4;
+                    let target_start = layer_start
+                        + ((cursor[1] + padded_y) as usize * width as usize
+                            + (cursor[0] + padded_x) as usize)
+                            * 4;
+                    rgba8[target_start..target_start + 4]
+                        .copy_from_slice(&texture.rgba8[source_start..source_start + 4]);
+                }
+            }
+            sprites[texture.role as usize] = HudSprite {
+                uv: [
+                    u16::try_from(left).map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                    u16::try_from(top).map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                    u16::try_from(right).map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                    u16::try_from(bottom).map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                ],
+                size: [
+                    u16::try_from(texture.width)
+                        .map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                    u16::try_from(texture.height)
+                        .map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                ],
+            };
+            cursor[0] = padded_right;
+            row_height = row_height.max(padded_height);
+        }
+        Some(HudTexturePages { page, sprites })
+    } else {
+        None
+    };
+    let texture_identity = if let Some(hud) = hud {
+        let mut identity = Sha256::new();
+        identity.update(font.identity().carrier_sha256);
+        identity.update(hud.source_manifest_sha256());
+        for texture in hud.textures() {
+            identity.update(texture.pixels_sha256);
+        }
+        identity.finalize().into()
+    } else {
+        font.identity().carrier_sha256
+    };
     Ok((
         UiRenderTextureArray {
-            identity: font.identity().carrier_sha256,
+            identity: texture_identity,
             width,
             height,
             layers,
             rgba8: rgba8.into(),
         },
         solid_texture_page,
+        hud_textures,
     ))
 }
 
@@ -538,17 +912,22 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, UiPresen
 
 #[cfg(test)]
 mod tests {
-    use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
-    use protocol::{HudEvent, TextCategory, TextEvent, TextKind, UiEvent};
+    use assets::{
+        FontTexturePage, GlyphMetrics, HudTexture, RuntimeFontCatalog, RuntimeHudCatalog,
+        encode_font_catalog, encode_hud_catalog,
+    };
+    use protocol::{
+        EquipmentEvent, HudEvent, NetworkItemStack, TextCategory, TextEvent, TextKind, UiEvent,
+    };
     use sha2::{Digest, Sha256};
 
     use super::*;
-    use crate::ui_runtime::SequencedUiEvent;
+    use crate::ui_runtime::{SequencedLocalEquipment, SequencedUiEvent};
 
     #[test]
-    fn retained_hud_publishes_through_tree_adapter_and_render_scene() {
+    fn vanilla_health_sprites_replace_corner_stat_text() {
         let font = fixture_font();
-        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
         let mut runtime = UiRuntime::new(1);
         runtime
             .apply(SequencedUiEvent {
@@ -563,12 +942,92 @@ mod tests {
         let input = presentation
             .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
             .unwrap();
-        assert!(!input.vertices.is_empty());
-        assert!(!input.indices.is_empty());
-        assert!(!input.batches.is_empty());
+        assert_eq!(input.textures.layers, 3);
+        assert_eq!(input.vertices.len(), 20 * 4);
+        assert_eq!(input.indices.len(), 20 * 6);
+        assert_eq!(input.batches.len(), 1);
+        assert_eq!(input.batches[0].texture_page, 2);
+        let (top, bottom) = vertical_bounds(&input.vertices);
+        assert_eq!([top, bottom], [560.0, 569.0]);
+        let left = input
+            .vertices
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::INFINITY, f32::min);
+        let right = input
+            .vertices
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert_eq!([left, right], [309.0, 399.0]);
+        assert!(input.vertices.iter().any(|vertex| vertex.color[3] == 166));
+        assert!(input.vertices.iter().any(|vertex| vertex.color[3] == 255));
         let mut scene = UiRenderScene::default();
         scene.publish(input, &UiRenderStats::default()).unwrap();
         assert!(scene.input.is_some());
+    }
+
+    #[test]
+    fn missing_local_hud_carrier_never_falls_back_to_numeric_corner_text() {
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Hud(HudEvent::Health { health: 20 }),
+            })
+            .unwrap();
+
+        let input = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert!(input.vertices.is_empty());
+        assert!(input.indices.is_empty());
+        assert!(input.batches.is_empty());
+    }
+
+    #[test]
+    fn scaled_health_rounds_only_to_the_native_half_heart_presentation_unit() {
+        assert_eq!(
+            standard_survival_half_units(BoundedStat::new_scaled(1_750, 2_000, 100).unwrap()),
+            Some(18)
+        );
+        assert_eq!(
+            standard_survival_half_units(BoundedStat::new_scaled(1_701, 2_000, 100).unwrap()),
+            Some(18)
+        );
+        assert_eq!(
+            standard_survival_half_units(BoundedStat::new_scaled(2_100, 4_000, 100).unwrap()),
+            None,
+            "nonstandard maximum health needs the still-open multi-row parity contract"
+        );
+    }
+
+    #[test]
+    fn hud_atlas_extrudes_sprite_edges_into_one_texel_guard_band() {
+        let font = fixture_font();
+        let hud = fixture_hud();
+        let (textures, _, hud_pages) = font_texture_array(&font, Some(&hud)).unwrap();
+        let hud_pages = hud_pages.unwrap();
+        let sprite = hud_pages.sprite(HudTextureRole::HeartFull);
+        let [left, top, right, bottom] = sprite.uv.map(usize::from);
+        let expected = [HudTextureRole::HeartFull as u8, 2, 3, 255];
+
+        for position in [
+            [left - 1, top],
+            [right, top],
+            [left, top - 1],
+            [left, bottom],
+        ] {
+            assert_eq!(
+                atlas_pixel(&textures, hud_pages.page, position),
+                expected,
+                "HUD sprite guard texel at {position:?} did not repeat the edge"
+            );
+        }
     }
 
     #[test]
@@ -807,9 +1266,9 @@ mod tests {
     }
 
     #[test]
-    fn focused_chat_editor_does_not_overlap_bottom_hud_text() {
+    fn focused_chat_editor_does_not_overlap_survival_hud_sprites() {
         let font = fixture_font();
-        let mut presentation = UiPresentationRuntime::new(font).unwrap();
+        let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
         let mut runtime = UiRuntime::new(1);
         runtime
             .apply(SequencedUiEvent {
@@ -825,7 +1284,7 @@ mod tests {
         let active = presentation
             .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
             .unwrap();
-        let hud_vertices = &active.vertices[.."20/20".chars().count() * 4];
+        let hud_vertices = &active.vertices[..20 * 4];
         let editor_vertex_count = "> |".chars().count() * 4;
         let editor_vertices = &active.vertices[active.vertices.len() - editor_vertex_count..];
         let hud_top = hud_vertices
@@ -839,8 +1298,73 @@ mod tests {
 
         assert!(
             editor_bottom <= hud_top,
-            "chat editor overlaps HUD: editor bottom {editor_bottom}, HUD top {hud_top}"
+            "chat editor overlaps survival HUD: editor bottom {editor_bottom}, HUD top {hud_top}"
         );
+    }
+
+    #[test]
+    fn selected_hotbar_slot_uses_native_slot_geometry_when_authority_is_known() {
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.local_selected_equipment = Some(SequencedLocalEquipment {
+            session_id: 1,
+            fifo_sequence: 7,
+            event: EquipmentEvent {
+                actor_runtime_id: 42,
+                stack: NetworkItemStack::empty(),
+                inventory_slot: 4,
+                selected_slot: 4,
+                window_id: 0,
+                handedness: None,
+            },
+        });
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert_eq!(active.vertices.len(), 10 * 4);
+        assert_eq!(active.batches.len(), 1);
+        assert_eq!(active.batches[0].texture_page, 2);
+        let selected = &active.vertices[9 * 4..10 * 4];
+        let (top, bottom) = vertical_bounds(selected);
+        assert_eq!([top, bottom], [577.0, 601.0]);
+        let left = selected
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::INFINITY, f32::min);
+        let right = selected
+            .iter()
+            .map(|vertex| vertex.position[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert_eq!([left, right], [388.0, 412.0]);
+    }
+
+    #[test]
+    fn invalid_authoritative_hotbar_slot_fails_closed_without_partial_art() {
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime.local_selected_equipment = Some(SequencedLocalEquipment {
+            session_id: 1,
+            fifo_sequence: 7,
+            event: EquipmentEvent {
+                actor_runtime_id: 42,
+                stack: NetworkItemStack::empty(),
+                inventory_slot: 9,
+                selected_slot: 9,
+                window_id: 0,
+                handedness: None,
+            },
+        });
+
+        let active = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+
+        assert!(active.vertices.is_empty());
+        assert!(active.indices.is_empty());
+        assert!(active.batches.is_empty());
     }
 
     #[test]
@@ -943,6 +1467,15 @@ mod tests {
         let font = fixture_font_with_page_count(MAX_UI_TEXTURE_LAYERS as usize);
         assert!(matches!(
             UiPresentationRuntime::new(font),
+            Err(UiPresentationError::InvalidFontTexture)
+        ));
+    }
+
+    #[test]
+    fn hud_layer_is_rejected_when_it_would_exceed_the_texture_layer_limit() {
+        let font = fixture_font_with_page_count((MAX_UI_TEXTURE_LAYERS - 1) as usize);
+        assert!(matches!(
+            UiPresentationRuntime::with_hud(font, fixture_hud()),
             Err(UiPresentationError::InvalidFontTexture)
         ));
     }
@@ -1086,6 +1619,37 @@ mod tests {
         let manifest = [9; 32];
         let bytes = encode_font_catalog(manifest, &[glyph], &pages).unwrap();
         Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
+    }
+
+    fn atlas_pixel(textures: &UiRenderTextureArray, page: u16, position: [usize; 2]) -> [u8; 4] {
+        let layer_bytes = textures.width as usize * textures.height as usize * 4;
+        let offset = usize::from(page) * layer_bytes
+            + (position[1] * textures.width as usize + position[0]) * 4;
+        textures.rgba8[offset..offset + 4].try_into().unwrap()
+    }
+
+    fn fixture_hud() -> Arc<RuntimeHudCatalog> {
+        let textures = HudTextureRole::ALL
+            .into_iter()
+            .map(|role| {
+                let [width, height] = role.expected_size();
+                let rgba8 = [role as u8, 2, 3, 255]
+                    .repeat(width as usize * height as usize)
+                    .into_boxed_slice();
+                HudTexture {
+                    role,
+                    source_bytes: rgba8.len() as u32,
+                    source_sha256: Sha256::digest(&rgba8).into(),
+                    pixels_sha256: Sha256::digest(&rgba8).into(),
+                    width,
+                    height,
+                    rgba8,
+                }
+            })
+            .collect::<Vec<_>>();
+        let manifest = [0x81; 32];
+        let bytes = encode_hud_catalog(manifest, &textures).unwrap();
+        Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
     }
 
     fn fixture_font() -> Arc<RuntimeFontCatalog> {

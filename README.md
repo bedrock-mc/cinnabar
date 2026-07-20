@@ -222,6 +222,22 @@ PNG pages expected by the compiler. This command writes the distinct ignored
 leaving `ui-inter-v1.mcbefont` intact as the fallback. Normal builds never fetch
 Mojangles or another unlicensed Minecraft font mirror.
 
+## Local vanilla HUD sprites
+
+The survival HUD uses the exact sprites from an owned vanilla Bedrock client pack.
+Those PNGs and the generated carrier remain ignored local data; no Mojang image is
+embedded in or committed to this repository. Build the carrier from the pack's
+`resource_packs/vanilla` directory:
+
+```text
+make hud-assets-local HUD_PACK_DIR=/path/to/resource_packs/vanilla
+```
+
+This writes `.local/assets/compiled/vanilla-v1.mcbehud` plus a provenance report.
+Startup loads the carrier when present. When it is absent, authoritative survival
+stats remain retained but their earlier numeric placeholder presentation is hidden;
+the client does not substitute guessed art or download unlicensed mirrors.
+
 ## Local vanilla block textures
 
 The client never downloads or embeds Mojang assets. Fetch the pinned

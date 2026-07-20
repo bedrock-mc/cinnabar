@@ -5,6 +5,7 @@ use assets::{
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding, FONT_CARRIER_MAGIC,
     FONT_CARRIER_SCHEMA, FontCatalogError, FontCatalogIdentity, FontTexturePage, GlyphMetrics,
+    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HudCatalogError, HudTexture, HudTextureRole,
     ItemDisplayScalar, ItemDisplayTransform, ItemVisualAlias, ItemVisualDefinition,
     MAX_BLOCK_VISUALS, MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS,
     MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
@@ -15,7 +16,7 @@ use assets::{
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
     MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
-    RuntimeFontCatalog, encode_font_catalog,
+    RuntimeFontCatalog, RuntimeHudCatalog, encode_font_catalog, encode_hud_catalog,
 };
 
 fn assert_public_type<T>() {}
@@ -54,10 +55,17 @@ fn completion_carriers_are_available_only_through_the_assets_public_api() {
     assert_public_type::<FontCatalogIdentity>();
     assert_public_type::<FontTexturePage>();
     assert_public_type::<GlyphMetrics>();
+    assert_public_type::<HudTexture>();
+    assert_public_type::<HudTextureRole>();
+    assert_public_type::<RuntimeHudCatalog>();
+    assert_public_type::<HudCatalogError>();
 
     let _ = encode_font_catalog;
+    let _ = encode_hud_catalog;
     assert_eq!(FONT_CARRIER_MAGIC, *b"MCBEFONT1");
     assert_eq!(FONT_CARRIER_SCHEMA, 1);
+    assert_eq!(HUD_CARRIER_MAGIC, *b"MCBEHUD1");
+    assert_eq!(HUD_CARRIER_VERSION, 1);
     let _ = (
         MAX_FONT_SOURCE_BYTES,
         MAX_FONT_PAGES,

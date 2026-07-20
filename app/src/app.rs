@@ -33,7 +33,9 @@ use crate::{
         transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request},
     },
     args,
-    asset_startup::{LoadedAssetKind, load_runtime_assets, select_asset_path_from_environment},
+    asset_startup::{
+        LoadedAssetKind, load_hud_assets, load_runtime_assets, select_asset_path_from_environment,
+    },
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
@@ -154,7 +156,23 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
+    let hud_assets = load_hud_assets(&loaded_assets.selected_path)
+        .context("load optional local vanilla HUD assets")?;
+    if let Some(hud_assets) = hud_assets.as_ref() {
+        eprintln!("{}", hud_assets.startup_summary());
+    } else {
+        eprintln!(
+            "local vanilla HUD assets are unavailable; survival HUD sprites remain hidden; build them with: {}",
+            crate::asset_startup::HUD_ASSETS_COMPILE_COMMAND
+        );
+    }
     let font_runtime = loaded_assets.fonts.into_runtime();
+    let ui_presentation = if let Some(hud_assets) = hud_assets {
+        UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
+    } else {
+        UiPresentationRuntime::new(font_runtime)
+    }
+    .context("prepare bounded font and HUD texture array for UI rendering")?;
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
@@ -223,10 +241,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(network)
         .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
         .insert_resource(UiRuntime::new(0))
-        .insert_resource(
-            UiPresentationRuntime::new(font_runtime)
-                .context("prepare bounded font texture array for UI rendering")?,
-        )
+        .insert_resource(ui_presentation)
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())
         .insert_resource(environment::CameraMediumState::default())

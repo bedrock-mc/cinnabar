@@ -257,6 +257,34 @@ fn cached_text_layout_emits_glyph_quads_by_texture_page() {
 }
 
 #[test]
+fn sprite_visual_preserves_atlas_texel_bounds() {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(10.0, 20.0, 19.0, 29.0)).with_visual(UiVisual::Sprite {
+            texture_page: 3,
+            uv: [17, 23, 26, 32],
+            color: [255; 4],
+        }),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 100.0, 100.0),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.batches[0].texture_page, 3);
+    assert_eq!(
+        draw.vertices
+            .iter()
+            .map(|vertex| vertex.uv)
+            .collect::<Vec<_>>(),
+        [[17, 23], [26, 23], [26, 32], [17, 32]]
+    );
+}
+
+#[test]
 fn draw_batch_limit_is_centralized_and_enforced() {
     let nodes = (0..=UiLimits::MAX_DRAW_BATCHES)
         .map(|index| {

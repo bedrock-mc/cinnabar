@@ -10,6 +10,7 @@ NO_VSYNC ?= 0
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 FONT_PACK_DIR ?= .local/assets/font-source
+HUD_PACK_DIR ?=
 UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
 UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65
 UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf
@@ -32,6 +33,8 @@ FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont
 FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json
 LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
+HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
+HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -46,8 +49,9 @@ ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atm
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
+HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 
-.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -57,6 +61,7 @@ help:
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make font-assets     - Fetch and compile the pinned open-licensed Inter UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
+	@echo make hud-assets-local - Compile exact HUD sprites from an owned vanilla client pack via HUD_PACK_DIR
 	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
@@ -79,6 +84,10 @@ font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
 
 font-assets-local:
 	$(LOCAL_FONT_ASSET_COMPILE)
+
+hud-assets-local:
+	$(if $(strip $(HUD_PACK_DIR)),,$(error HUD_PACK_DIR is required; point it at an owned vanilla client resource pack))
+	$(HUD_ASSET_COMPILE)
 
 $(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)
 ifeq ($(OS),Windows_NT)

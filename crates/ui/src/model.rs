@@ -29,6 +29,11 @@ pub enum UiVisual {
         texture_page: u16,
         color: [u8; 4],
     },
+    Sprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+    },
     Text {
         layout: Arc<TextLayout>,
         color: [u8; 4],
@@ -582,7 +587,7 @@ impl UiTree {
         let quads = self.nodes.values().try_fold(0usize, |total, node| {
             let count = match &node.visual {
                 UiVisual::None => 0,
-                UiVisual::Solid { .. } => 1,
+                UiVisual::Solid { .. } | UiVisual::Sprite { .. } => 1,
                 UiVisual::Text { layout, .. } => layout.glyphs().len(),
             };
             total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
@@ -715,6 +720,31 @@ fn emit_visual(
             emit_quad(
                 bounds,
                 [[0, 0], [1, 0], [1, 1], [0, 1]],
+                *texture_page,
+                *color,
+                0,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
+        UiVisual::Sprite {
+            texture_page,
+            uv,
+            color,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
                 *texture_page,
                 *color,
                 0,
