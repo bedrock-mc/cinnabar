@@ -319,6 +319,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
     // server publishes a sidebar objective.
     ui_presentation.enable_scoreboard_background();
+    ui_presentation.set_gui_scale_preference(args.gui_scale);
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;

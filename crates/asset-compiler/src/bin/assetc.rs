@@ -7,8 +7,7 @@ use std::{
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
     OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
-    compile_fonts, compile_hud_assets, compile_lang_assets, compile_outline_font,
-    compile_pack_with_biomes, inspect_animation_inventory,
+    compile_fonts, compile_outline_font, compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
@@ -21,8 +20,11 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
+#[path = "assetc/lang_command.rs"]
+mod lang_command;
 
-use hud_command::{HudAssetCounts, HudAssetsReport};
+use hud_command::compile_hud_assets_command;
+use lang_command::compile_lang_assets_command;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -418,95 +420,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-    Ok(())
-}
-
-fn compile_hud_assets_command(
-    pack: &Path,
-    source_manifest: &Path,
-    out: &Path,
-    report: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let canonical_pack = fs::canonicalize(pack).map_err(|source| AssetError::Io {
-        path: pack.to_path_buf(),
-        source,
-    })?;
-    let manifest_bytes = read_bounded_with_limit(
-        source_manifest,
-        MAX_SOURCE_MANIFEST_BYTES,
-        "HUD source manifest",
-    )?;
-    let compiled = compile_hud_assets(&canonical_pack, &manifest_bytes)?;
-    let report_data = HudAssetsReport {
-        schema: 1,
-        canonical_pack_path: canonical_pack
-            .to_string_lossy()
-            .into_owned()
-            .into_boxed_str(),
-        source_manifest_sha256: hex(&compiled.report.source_manifest_sha256).into_boxed_str(),
-        carrier_sha256: hex(&compiled.report.carrier_sha256).into_boxed_str(),
-        counts: HudAssetCounts {
-            textures: compiled.report.textures,
-            source_bytes: compiled.report.source_bytes,
-            decoded_bytes: compiled.report.decoded_bytes,
-        },
-    };
-    let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
-    report_bytes.push(b'\n');
-    validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
-    println!(
-        "compiled {} pinned official Mojang sample HUD textures to {} and {}",
-        report_data.counts.textures,
-        out.display(),
-        report.display()
-    );
-    Ok(())
-}
-
-fn compile_lang_assets_command(
-    pack: &Path,
-    source_manifest: &Path,
-    out: &Path,
-    report: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let canonical_pack = fs::canonicalize(pack).map_err(|source| AssetError::Io {
-        path: pack.to_path_buf(),
-        source,
-    })?;
-    let manifest_bytes = read_bounded_with_limit(
-        source_manifest,
-        MAX_SOURCE_MANIFEST_BYTES,
-        "language source manifest",
-    )?;
-    let compiled = compile_lang_assets(&canonical_pack, &manifest_bytes)?;
-    let report_data = hud_command::LangAssetsReport {
-        schema: 1,
-        canonical_pack_path: canonical_pack
-            .to_string_lossy()
-            .into_owned()
-            .into_boxed_str(),
-        source_manifest_sha256: hex(&compiled.report.source_manifest_sha256).into_boxed_str(),
-        carrier_sha256: hex(&compiled.report.carrier_sha256).into_boxed_str(),
-        counts: hud_command::LangAssetCounts {
-            entries: compiled.report.entries,
-            duplicate_keys: compiled.report.duplicate_keys,
-            skipped_oversized: compiled.report.skipped_oversized,
-            source_bytes: compiled.report.source_bytes,
-        },
-    };
-    let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
-    report_bytes.push(b'\n');
-    validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
-    println!(
-        "compiled {} pinned official Mojang sample language entries to {} and {}",
-        report_data.counts.entries,
-        out.display(),
-        report.display()
-    );
     Ok(())
 }
 

@@ -222,27 +222,6 @@ impl UiRuntime {
         }
     }
 
-    /// Installs the startup-loaded localization catalog used for rawtext
-    /// translation and item display names.
-    pub fn set_lang_catalog(&mut self, catalog: Arc<assets::RuntimeLangCatalog>) {
-        self.lang_catalog = Some(catalog);
-    }
-
-    /// The localized display name for a vanilla item identifier: the pinned
-    /// `item.<path>.name` / `tile.<path>.name` translation when present,
-    /// otherwise the mechanical title-cased identifier.
-    pub(crate) fn localized_item_name(&self, identifier: &str) -> String {
-        if let Some(catalog) = self.lang_catalog.as_ref() {
-            let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-            for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
-                if let Some(value) = catalog.lookup(&key) {
-                    return value.as_ref().to_owned();
-                }
-            }
-        }
-        item_facts::mechanical_display_name(identifier)
-    }
-
     pub const fn session_id(&self) -> u64 {
         self.session_id
     }

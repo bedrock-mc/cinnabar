@@ -226,12 +226,12 @@ fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], La
         .map_err(|_| LangCatalogError::Invalid("invalid language carrier field"))
 }
 
-fn read_str<'a>(
-    bytes: &'a [u8],
+fn read_str(
+    bytes: &[u8],
     offset: usize,
     length: usize,
     maximum: usize,
-) -> Result<&'a str, LangCatalogError> {
+) -> Result<&str, LangCatalogError> {
     if length == 0 && maximum == MAX_LANG_KEY_BYTES {
         return Err(LangCatalogError::Invalid("empty language key"));
     }
