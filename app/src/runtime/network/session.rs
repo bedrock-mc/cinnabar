@@ -7,7 +7,7 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence,
+    BlobCacheStats, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence,
     Packet, PacketIdTraceSnapshot, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
     normalize_authority,
 };
@@ -26,8 +26,6 @@ pub struct NetworkConfig {
     pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
-    /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
-    pub client_blob_cache: ClientBlobCache,
 }
 
 #[derive(Debug)]
@@ -292,11 +290,13 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             };
             runtime.block_on(async move {
                 let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect_with_blob_cache(
-                        &config.socket_dir,
-                        &config.display_name,
-                        config.client_blob_cache.clone(),
-                    ),
+                    // The client blob cache is disabled: Lunar (and gophertunnel
+                    // clients) advertise ClientCacheStatus.Enabled=false, and our
+                    // resolver has unresolved edge cases against a live proxy
+                    // (empty and unsolicited miss responses). Connect without a
+                    // cache so the server streams full chunks. Re-enable once the
+                    // resolver is hardened (tracked upstream).
+                    LoginSequence::connect(&config.socket_dir, &config.display_name),
                     &mut shutdown_rx,
                 )
                 .await
