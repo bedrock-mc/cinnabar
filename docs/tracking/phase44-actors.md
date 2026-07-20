@@ -1,10 +1,10 @@
 # Phase 4.4 actor authority and live interpolation tracker
 
-Current audited progress: **53%** at `main` commit `fe698f5`.
+Current audited progress: **69%** at integrated head `5316ca3` (production authority + correlation landed; live/native still open).
 
 This estimate uses equal contract, runtime, presentation, deterministic-verification, and live/native/performance gates.
 
-Gate scores: contract 80%, runtime 70%, production presentation 60%, deterministic verification/review 55%, live/native/performance 0%; arithmetic mean 53%. No binding live/native/performance witness has passed.
+Gate scores: contract 95%, runtime 90%, production presentation 75%, deterministic verification/review 85%, live/native/performance 0%; arithmetic mean 69%. No binding live/native/performance witness has passed.
 
 ## Landed
 
@@ -14,14 +14,19 @@ Gate scores: contract 80%, runtime 70%, production presentation 60%, determinist
 - [x] Separate adjacent-frame renderer interpolation.
 - [x] Teleport/replacement snaps plus finite, frustum, distance, and capacity controls.
 - [x] Deterministic ordinary-move, teleport, origin, and interpolation tests.
+- [x] Retain and resolve `AddPlayer` game mode against the authoritative default (`2c7019c`).
+- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`2c7019c`).
+- [x] Filter spectator and metadata-invisible actors before culling and the 128-instance cap (`2c7019c`).
+- [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport (`2c7019c`).
+- [x] Add bounded packet-to-store-to-presented-frame correlation (`5316ca3`).
 
 ## Remaining production authority
 
-- [ ] Retain and resolve `AddPlayer` game mode against the authoritative default.
-- [ ] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly.
-- [ ] Filter spectator and metadata-invisible actors before culling and the 128-instance cap.
-- [ ] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport.
-- [ ] Add bounded packet-to-store-to-presented-frame correlation.
+- [x] Retain and resolve `AddPlayer` game mode against the authoritative default.
+- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly.
+- [x] Filter spectator and metadata-invisible actors before culling and the 128-instance cap.
+- [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport.
+- [x] Add bounded packet-to-store-to-presented-frame correlation.
 
 ## Live/native acceptance
 
