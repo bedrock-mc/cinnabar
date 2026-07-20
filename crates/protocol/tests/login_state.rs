@@ -15,19 +15,22 @@ use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 use jolyne::valentine::{
-    ChunkRadiusUpdatePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
-    ItemRegistryPacket, ItemstatesItem, McpePacket, McpePacketData, McpePacketName,
-    NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm, PlayStatusPacket,
-    PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
-    ResourcePackIdVersionsItem, ResourcePackStackPacket, ResourcePacksInfoPacket,
-    ServerToClientHandshakePacket, ServerboundLoadingScreenPacket,
-    SetLocalPlayerAsInitializedPacket, SetTimePacket, StartGamePacket,
+    BlockCoordinates, ChunkRadiusUpdatePacket, ClientCacheStatusPacket,
+    ClientToServerHandshakePacket, ItemRegistryPacket, ItemstatesItem, McpePacket, McpePacketData,
+    McpePacketName, NetworkChunkPublisherUpdatePacket, NetworkSettingsPacket,
+    NetworkSettingsPacketCompressionAlgorithm, PlayStatusPacket, PlayStatusPacketStatus,
+    RequestChunkRadiusPacket, RequestNetworkSettingsPacket, ResourcePackClientResponsePacket,
+    ResourcePackClientResponsePacketResponseStatus, ResourcePackIdVersionsItem,
+    ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
+    ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, SetTimePacket,
+    StartGamePacket,
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use p384::{PublicKey, SecretKey};
-use protocol::{BedrockSession, LoginSequence, Packet, ProtocolError, WorldEvent};
+use protocol::{
+    BedrockSession, LoginSequence, Packet, ProtocolError, PublisherUpdateEvent, WorldEvent,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -316,11 +319,21 @@ impl ServerScript {
                     status: PlayStatusPacketStatus::PlayerSpawn,
                 });
                 match self.order {
-                    SpawnOrder::RadiusThenSpawn => {
-                        self.enqueue_encrypted(&[item_registry(), radius, spawn])
-                    }
+                    SpawnOrder::RadiusThenSpawn => self.enqueue_encrypted(&[
+                        item_registry(),
+                        radius,
+                        publisher_update(),
+                        spawn,
+                    ]),
                     SpawnOrder::SpawnThenRadius => {
-                        self.enqueue_encrypted(&[item_registry(), spawn, radius])
+                        // Keep the readiness loop open through the publisher update so this
+                        // variant exercises the same deferred FIFO as RadiusThenSpawn.
+                        self.enqueue_encrypted(&[
+                            spawn,
+                            radius,
+                            publisher_update(),
+                            item_registry(),
+                        ])
                     }
                 }
                 self.stage = 7;
@@ -560,6 +573,14 @@ fn item_registry() -> McpePacket {
     })
 }
 
+fn publisher_update() -> McpePacket {
+    McpePacket::from(NetworkChunkPublisherUpdatePacket {
+        coordinates: BlockCoordinates { x: 8, y: 64, z: -8 },
+        radius: 256,
+        saved_chunks: Vec::new(),
+    })
+}
+
 async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     let transport = ScriptTransport::new(mode, order, false);
     let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
@@ -577,14 +598,25 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
         McpePacketData::PacketSetTime(SetTimePacket { time: 12_345 })
     ));
 
-    let initial_radius = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        session.recv_world_event(0),
-    )
+    let initial_world_events = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        Ok::<_, ProtocolError>([
+            session.recv_world_event(0).await?,
+            session.recv_world_event(0).await?,
+        ])
+    })
     .await
-    .expect("initial chunk radius acknowledgement was discarded")
-    .expect("initial chunk radius acknowledgement must decode in Play");
-    assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
+    .expect("initial world-readiness events were discarded")
+    .expect("initial world-readiness events must decode in Play");
+    assert_eq!(
+        initial_world_events,
+        [
+            WorldEvent::ChunkRadiusUpdated(16),
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [8, 64, -8],
+                radius_blocks: 256,
+            }),
+        ]
+    );
 
     let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
     invalid.header.id = McpePacketName::PacketPlayStatus;
