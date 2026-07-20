@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
@@ -45,6 +46,7 @@ fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
 #[test]
 fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
@@ -78,6 +80,7 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
 #[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -138,6 +141,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
 #[test]
 fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -174,6 +178,7 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
 #[test]
 fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -199,6 +204,7 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
 #[test]
 fn removal_waits_for_source_authority_and_carries_its_zero_byte_permit() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -236,6 +242,7 @@ fn removal_waits_for_source_authority_and_carries_its_zero_byte_permit() {
 #[test]
 fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -307,6 +314,7 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
 #[test]
 fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -358,6 +366,7 @@ fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
 #[test]
 fn cave_bfs_traverses_a_known_all_air_node_between_rendered_chunks() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -417,6 +426,7 @@ fn leaf_slab_connectivity_crosses_world_cave_graph_but_opaque_slab_stops_it() {
 
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -452,6 +462,7 @@ fn leaf_slab_connectivity_crosses_world_cave_graph_but_opaque_slab_stops_it() {
 #[test]
 fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -498,6 +509,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
 #[test]
 fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 1,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -530,6 +542,7 @@ fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
 #[test]
 fn connectivity_generation_changes_only_when_the_graph_changes() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -554,6 +567,7 @@ fn connectivity_generation_changes_only_when_the_graph_changes() {
 #[test]
 fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -592,6 +606,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
 #[test]
 fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -635,6 +650,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
 #[test]
 fn player_spawn_move_player_and_absolute_move_share_feet_space() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

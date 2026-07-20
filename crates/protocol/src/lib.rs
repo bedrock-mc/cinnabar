@@ -14,8 +14,9 @@ mod ui;
 mod world;
 
 pub use actor::{
-    ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEvent, ActorKind,
-    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
+    ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
+    ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
     MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
@@ -41,10 +42,11 @@ pub use inventory::{
     normalize_response, normalize_slot, validate_item_nbt_size,
 };
 pub use item::{
-    ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, HOTBAR_SLOT_COUNT,
-    ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
-    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
-    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, select_hotbar_slot_packet,
+    ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
+    NetworkItemStack, select_hotbar_slot_packet,
 };
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
@@ -63,12 +65,12 @@ pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
-    CommandOutputMessage, FormRequestEvent, HudEvent, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
-    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
-    MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
-    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
-    TextCategory, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError,
-    chat_input_packet, chat_text_packet,
+    CommandOutputMessage, FormRequestEvent, GameModeEvent, HudEvent, MAX_BOSS_EVENTS,
+    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
+    MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ObjectiveEvent, PlayerStatus, RawTextEvent,
+    ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory, TextEvent, TextKind,
+    TitleAction, TitleEvent, UiEvent, UiPacketError, chat_input_packet, chat_text_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};

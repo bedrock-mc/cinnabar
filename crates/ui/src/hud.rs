@@ -170,6 +170,7 @@ pub struct HudStore {
     hunger: Option<BoundedStat>,
     armor: Option<BoundedStat>,
     air: Option<BoundedStat>,
+    absorption: Option<BoundedStat>,
     experience: Option<HudExperience>,
     title: Option<TimedText>,
     subtitle: Option<TimedText>,
@@ -195,6 +196,18 @@ impl HudStore {
 
     pub const fn air(&self) -> Option<BoundedStat> {
         self.air
+    }
+
+    pub const fn absorption(&self) -> Option<BoundedStat> {
+        self.absorption
+    }
+
+    pub fn set_air(&mut self, air: Option<BoundedStat>) {
+        self.air = air;
+    }
+
+    pub fn set_absorption(&mut self, absorption: Option<BoundedStat>) {
+        self.absorption = absorption;
     }
 
     pub const fn experience(&self) -> Option<HudExperience> {

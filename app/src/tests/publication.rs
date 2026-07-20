@@ -482,6 +482,7 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     let runtime_assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let stream = client_world::WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [1_048.0, 64.0, 1_048.0],

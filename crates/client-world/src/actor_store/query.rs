@@ -48,6 +48,31 @@ impl ActorStore {
         players.sort_unstable_by_key(|(actor, _)| actor.runtime_id);
         players
     }
+    /// Resolves an actor's authoritative health attribute by unique id, for
+    /// the mount-health HUD row. Non-finite or inverted values fail closed.
+    pub(crate) fn health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
+        let runtime_id = self.unique_to_runtime.get(&unique_id)?;
+        let health = self
+            .actors
+            .get(runtime_id)?
+            .attributes
+            .get("minecraft:health")?;
+        let (current, maximum) = (health.current, health.max);
+        if !current.is_finite() || !maximum.is_finite() || maximum <= 0.0 || current < 0.0 {
+            return None;
+        }
+        Some((current.min(maximum), maximum))
+    }
+
+    /// Resolves one wire item stack against the retained item registry and
+    /// compiled visual routes without mutating any actor state.
+    pub(crate) fn canonical_item_stack(
+        &self,
+        stack: &protocol::NetworkItemStack,
+    ) -> Option<crate::item::CanonicalItemStack> {
+        self.items.canonicalize(stack)
+    }
+
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }

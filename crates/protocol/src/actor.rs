@@ -7,9 +7,10 @@ use valentine::{
     bedrock::version::v1_26_30::{
         AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
         MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
-        MetadataDictionaryItemValueDefault, MoveEntityDeltaPacket, MoveEntityPacket,
-        PlayerAttributes, PlayerListPacket, PlayerRecordsRecordsItem, PlayerRecordsType,
-        RemoveEntityPacket, SetEntityDataPacket, UpdateAttributesPacket,
+        MetadataDictionaryItemValueDefault, MobEffectPacket, MobEffectPacketEventId,
+        MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributes, PlayerListPacket,
+        PlayerRecordsRecordsItem, PlayerRecordsType, RemoveEntityPacket, SetEntityDataPacket,
+        SetEntityLinkPacket, UpdateAttributesPacket,
     },
     protocol::wire,
 };
@@ -149,6 +150,53 @@ pub struct ActorAttributesUpdateEvent {
     pub runtime_id: u64,
     pub attributes: Arc<[ActorAttribute]>,
     pub tick: u64,
+}
+
+/// MobEffect lifecycle verb, retained verbatim so an unknown verb can be
+/// skipped downstream instead of guessed at.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ActorEffectAction {
+    Add,
+    Update,
+    Remove,
+    Unknown(u8),
+}
+
+/// One server-authoritative MobEffect change. Effect and amplifier values are
+/// retained raw; presentation decides which ids it can draw.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorEffectEvent {
+    pub dimension: i32,
+    pub actor_runtime_id: u64,
+    pub action: ActorEffectAction,
+    pub effect_id: i32,
+    pub amplifier: i32,
+    pub particles: bool,
+    pub ambient: bool,
+    /// Remaining duration in ticks. Bedrock uses negative values for
+    /// effectively infinite effects, so the sign is preserved.
+    pub duration_ticks: i32,
+    pub tick: u64,
+}
+
+/// SetActorLink verb, retained verbatim for the same skip-not-guess reason.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ActorLinkType {
+    Remove,
+    Rider,
+    Passenger,
+    Unknown(u8),
+}
+
+/// One server-authoritative rider/mount link change between two unique actor ids.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorLinkEvent {
+    pub dimension: i32,
+    pub ridden_unique_id: i64,
+    pub rider_unique_id: i64,
+    pub link_type: ActorLinkType,
+    pub immediate: bool,
+    pub rider_initiated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -481,6 +529,49 @@ pub(crate) fn normalize_update_attributes(
         attributes: normalize_player_attributes(packet.attributes)?,
         tick,
     }))
+}
+
+pub(crate) fn normalize_mob_effect(
+    packet: MobEffectPacket,
+    dimension: i32,
+) -> Result<ActorEffectEvent, ActorPacketError> {
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    Ok(ActorEffectEvent {
+        dimension,
+        actor_runtime_id: packet.runtime_entity_id as u64,
+        action: match packet.event_id {
+            MobEffectPacketEventId::Add => ActorEffectAction::Add,
+            MobEffectPacketEventId::Update => ActorEffectAction::Update,
+            MobEffectPacketEventId::Remove => ActorEffectAction::Remove,
+            MobEffectPacketEventId::Unknown(value) => ActorEffectAction::Unknown(value),
+        },
+        effect_id: packet.effect_id,
+        amplifier: packet.amplifier,
+        particles: packet.particles,
+        ambient: packet.ambient,
+        duration_ticks: packet.duration,
+        tick,
+    })
+}
+
+pub(crate) fn normalize_set_entity_link(
+    packet: SetEntityLinkPacket,
+    dimension: i32,
+) -> ActorLinkEvent {
+    ActorLinkEvent {
+        dimension,
+        ridden_unique_id: packet.link.ridden_entity_id,
+        rider_unique_id: packet.link.rider_entity_id,
+        link_type: match packet.link.type_ {
+            0 => ActorLinkType::Remove,
+            1 => ActorLinkType::Rider,
+            2 => ActorLinkType::Passenger,
+            value => ActorLinkType::Unknown(value),
+        },
+        immediate: packet.link.immediate,
+        rider_initiated: packet.link.rider_initiated,
+    }
 }
 
 pub(crate) fn normalize_player_list(

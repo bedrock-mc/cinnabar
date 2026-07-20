@@ -19,6 +19,7 @@ use super::*;
 
 fn stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -32,6 +33,7 @@ fn lit_stream(dimension: i32) -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
             dimension,
+            local_player_unique_id: 1,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],

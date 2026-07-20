@@ -871,6 +871,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
     let (world_events, mut world_event_rx) = mpsc::channel(4);
     let (_shutdown, mut shutdown_rx) = watch::channel(false);
     let bootstrap = WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
         player_position: [1.0, 72.0, -2.0],

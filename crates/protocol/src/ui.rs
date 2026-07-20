@@ -130,6 +130,17 @@ pub enum UiEvent {
     Boss(BossEvent),
     Form(FormRequestEvent),
     ChatAutocomplete(ChatAutocompleteEvent),
+    GameMode(GameModeEvent),
+}
+
+/// A runtime SetPlayerGameType change.
+///
+/// `mode` is `None` when the wire carried the level-default sentinel or an
+/// unknown value: the client retains its current authoritative mode instead of
+/// guessing, and counts the skip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameModeEvent {
+    pub mode: Option<crate::PlayerGameMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

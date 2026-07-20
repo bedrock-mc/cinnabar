@@ -573,6 +573,25 @@ pub(crate) fn drive_world_stream(
                 server_tick,
                 attributes,
             }),
+            CommittedUiEvent::LocalMetadata {
+                sequence, metadata, ..
+            } => ui_runtime.apply_local_metadata(
+                clock.session_generation(),
+                sequence,
+                metadata.as_ref(),
+            ),
+            CommittedUiEvent::LocalEffect { sequence, event } => {
+                ui_runtime.apply_local_effect(clock.session_generation(), sequence, event)
+            }
+            CommittedUiEvent::LocalArmor { sequence, event } => {
+                ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
+            }
+            CommittedUiEvent::LocalMount {
+                sequence,
+                ridden_unique_id,
+            } => {
+                ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
+            }
         };
         if let Err(error) = result {
             record_fatal_error(

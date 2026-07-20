@@ -118,6 +118,17 @@ pub struct EquipmentEvent {
     pub handedness: Option<ActorHandedness>,
 }
 
+/// One MobArmorEquipment update: the actor's five authoritative armor stacks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArmorEquipmentEvent {
+    pub actor_runtime_id: u64,
+    pub helmet: NetworkItemStack,
+    pub chestplate: NetworkItemStack,
+    pub leggings: NetworkItemStack,
+    pub boots: NetworkItemStack,
+    pub body: NetworkItemStack,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorActionKind {
     SwingArm,

@@ -45,6 +45,7 @@ fn publisher_block_position_and_radius_use_euclidean_chunk_conversion() {
 #[test]
 fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -75,6 +76,7 @@ fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
 #[test]
 fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -106,6 +108,7 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
 #[test]
 fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -132,6 +135,7 @@ fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
 #[test]
 fn publisher_cohort_is_exposed_only_after_fifo_commit() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -170,6 +174,7 @@ fn publisher_cohort_is_exposed_only_after_fifo_commit() {
 #[test]
 fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -211,6 +216,7 @@ fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
 #[test]
 fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -278,6 +284,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
 #[test]
 fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -430,6 +437,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
 fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() {
     fn stream_at_origin() -> WorldStream {
         let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.5, 70.0, 0.5],
@@ -490,6 +498,7 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
 #[test]
 fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -532,6 +541,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
 #[test]
 fn equal_resident_and_known_air_counts_with_key_replacement_change_identity_hashes() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -573,6 +583,7 @@ fn equal_resident_and_known_air_counts_with_key_replacement_change_identity_hash
 #[test]
 fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -628,6 +639,7 @@ fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
 #[test]
 fn deferred_request_events_reserve_outbound_capacity_at_admission() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -700,6 +712,7 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
 #[test]
 fn heavy_admission_is_bounded_before_rayon_and_retained_work_never_exceeds_constants() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -740,6 +753,7 @@ fn heavy_admission_is_bounded_before_rayon_and_retained_work_never_exceeds_const
 #[test]
 fn one_dispatch_drains_the_entire_bounded_heavy_admission_window() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -766,6 +780,7 @@ fn one_dispatch_drains_the_entire_bounded_heavy_admission_window() {
 #[test]
 fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_column() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -813,6 +828,7 @@ fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_colum
 #[test]
 fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -881,6 +897,7 @@ fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects()
 #[test]
 fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -952,6 +969,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
 #[test]
 fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -1003,6 +1021,7 @@ fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
 #[test]
 fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_order() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -1081,6 +1100,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
 #[test]
 fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -1143,6 +1163,7 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
 #[test]
 fn ui_and_block_crack_events_publish_fifo_with_committed_dimension() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 2,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

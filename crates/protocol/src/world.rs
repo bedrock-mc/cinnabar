@@ -11,25 +11,26 @@ use valentine::bedrock::version::v1_26_30::{
 };
 
 use crate::{
-    ActorEvent, ActorPacketError, EquipmentEvent, InventoryEvent, InventoryPacketError,
-    ItemActorEvent, ItemPacketError, Packet,
+    ActorEffectEvent, ActorEvent, ActorLinkEvent, ActorPacketError, ArmorEquipmentEvent,
+    EquipmentEvent, InventoryEvent, InventoryPacketError, ItemActorEvent, ItemPacketError, Packet,
     actor::{
-        normalize_add_entity, normalize_add_player, normalize_move_entity,
+        normalize_add_entity, normalize_add_player, normalize_mob_effect, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
-        normalize_set_entity_data, normalize_update_attributes,
+        normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
     },
     inventory::{
-        normalize_container_close, normalize_container_data, normalize_container_open,
-        normalize_content, normalize_hotbar, normalize_response, normalize_slot,
+        normalize_armor_equipment, normalize_container_close, normalize_container_data,
+        normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+        normalize_slot,
     },
     item::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
     },
     ui::{
-        BlockCrackEvent, UiEvent, UiPacketError, normalize_block_crack, normalize_boss,
-        normalize_display_objective, normalize_form, normalize_health, normalize_player_status,
-        normalize_remove_objective, normalize_score, normalize_soft_enum, normalize_text,
-        normalize_title, normalize_toast,
+        BlockCrackEvent, GameModeEvent, UiEvent, UiPacketError, normalize_block_crack,
+        normalize_boss, normalize_display_objective, normalize_form, normalize_health,
+        normalize_player_status, normalize_remove_objective, normalize_score, normalize_soft_enum,
+        normalize_text, normalize_title, normalize_toast,
     },
 };
 
@@ -88,6 +89,24 @@ impl PlayerGameMode {
         }
     }
 
+    /// Maps a runtime SetPlayerGameType value without a world-mode fallback.
+    ///
+    /// The level-default sentinel and unknown values return `None`: a runtime
+    /// change cannot be resolved against StartGame's world mode here, so the
+    /// caller keeps its current authoritative mode rather than guessing.
+    #[must_use]
+    pub fn from_explicit_game_mode(mode: GameMode) -> Option<Self> {
+        match mode {
+            GameMode::Survival => Some(Self::Survival),
+            GameMode::Creative => Some(Self::Creative),
+            GameMode::Adventure => Some(Self::Adventure),
+            GameMode::SurvivalSpectator | GameMode::CreativeSpectator | GameMode::Spectator => {
+                Some(Self::Spectator)
+            }
+            GameMode::Fallback | GameMode::Unknown(_) => None,
+        }
+    }
+
     #[must_use]
     pub const fn shows_hotbar(self) -> bool {
         matches!(self, Self::Survival | Self::Creative | Self::Adventure)
@@ -125,6 +144,9 @@ mod player_game_mode_tests {
 pub struct WorldBootstrap {
     pub dimension: i32,
     pub local_player_runtime_id: u64,
+    /// StartGame's unique (persistent) local-player entity id, required to
+    /// recognize the local rider in SetActorLink events.
+    pub local_player_unique_id: i64,
     pub player_position: [f32; 3],
     pub world_spawn_position: [i32; 3],
     pub air_network_id: u32,
@@ -143,6 +165,7 @@ impl WorldBootstrap {
                 StartGamePacketDimension::Unknown(value) => value,
             },
             local_player_runtime_id: start_game.runtime_entity_id as u64,
+            local_player_unique_id: start_game.entity_id,
             player_position: [
                 start_game.player_position.x,
                 start_game.player_position.y,
@@ -469,9 +492,12 @@ pub enum WorldEvent {
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
     Actor(ActorEvent),
+    ActorEffect(ActorEffectEvent),
+    ActorLink(ActorLinkEvent),
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),
+    ArmorEquipment(ArmorEquipmentEvent),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
 }
@@ -598,6 +624,20 @@ pub fn into_world_event(
         }
         McpePacketData::PacketMobEquipment(packet) => {
             WorldEvent::Equipment(normalize_equipment(*packet)?)
+        }
+        McpePacketData::PacketMobArmorEquipment(packet) => {
+            WorldEvent::ArmorEquipment(normalize_armor_equipment(*packet)?)
+        }
+        McpePacketData::PacketMobEffect(packet) => {
+            WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketSetEntityLink(packet) => {
+            WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))
+        }
+        McpePacketData::PacketSetPlayerGameType(packet) => {
+            WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
+                mode: PlayerGameMode::from_explicit_game_mode(packet.gamemode),
+            }))
         }
         McpePacketData::PacketInventoryContent(packet) => {
             WorldEvent::Inventory(normalize_content(*packet)?)

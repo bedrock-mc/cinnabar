@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn undrained_ui_commits_apply_bounded_backpressure_without_panicking() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
