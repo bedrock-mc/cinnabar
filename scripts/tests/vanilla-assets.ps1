@@ -35,6 +35,21 @@ function Invoke-NativeCapture {
     }
 }
 
+function Test-OutputContains {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Output,
+        [Parameter(Mandatory = $true)]
+        [string]$Needle
+    )
+
+    # Console rendering wraps long diagnostics mid-token, so compare the
+    # whitespace-free forms instead of the literal rendered text.
+    $whitespace = [regex]"\s+"
+    return $whitespace.Replace($Output, "").Contains($whitespace.Replace($Needle, ""))
+}
+
 function Write-TestManifest {
     param(
         [Parameter(Mandatory = $true)]
@@ -45,7 +60,8 @@ function Write-TestManifest {
         [string]$Archive,
         [Parameter(Mandatory = $true)]
         [string]$CacheDirectory,
-        [string]$Sha256 = ""
+        [string]$Sha256 = "",
+        [string]$Url = ""
     )
 
     $manifest = [ordered]@{}
@@ -56,6 +72,9 @@ function Write-TestManifest {
     $manifest["cache_dir"] = $CacheDirectory
     if (-not [string]::IsNullOrWhiteSpace($Sha256)) {
         $manifest["sha256"] = $Sha256
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Url)) {
+        $manifest["url"] = $Url
     }
     $manifest | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding UTF8
 }
@@ -329,6 +348,78 @@ try {
     $escapedFiles = @(Get-ChildItem -Force -Recurse -LiteralPath $sandboxRoot -Filter "escaped.txt" -ErrorAction SilentlyContinue)
     if ($escapedFiles.Count -ne 0) {
         $sandboxFailures += "PowerShell wrote outside the extraction root: $($escapedFiles.FullName -join ', ')"
+    }
+
+    # Pinned SHA-256 verification must fail closed without depending on the
+    # Microsoft.PowerShell.Utility script module auto-loading Get-FileHash. A
+    # file:// source keeps the download path hermetic and small.
+    if (Test-Path -LiteralPath $syntheticCache) {
+        Remove-Item -Recurse -Force -LiteralPath $syntheticCache
+    }
+    if (Test-Path -LiteralPath $syntheticArchivePath) {
+        Remove-Item -Force -LiteralPath $syntheticArchivePath
+    }
+    $originArchive = Join-Path $sandboxRoot "origin\pinned-source.zip"
+    New-TestZipArchive -Path $originArchive -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
+    )
+    $originUrl = ([System.Uri]$originArchive).AbsoluteUri
+    $originSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $originArchive).Hash.ToLowerInvariant()
+    $wrongSha256 = "0" * 64
+
+    Write-TestManifest -Template $source -Path $sandboxManifest `
+        -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative `
+        -Sha256 $wrongSha256 -Url $originUrl
+    $mismatchResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($mismatchResult.ExitCode -eq 0) {
+        $sandboxFailures += "PowerShell accepted an archive whose SHA-256 misses the pinned digest"
+    }
+    $mismatchDiagnostic = "SHA-256 mismatch: expected $wrongSha256, got $originSha256"
+    if (-not (Test-OutputContains -Output $mismatchResult.Output -Needle $mismatchDiagnostic)) {
+        $sandboxFailures += "PowerShell mismatch failure omitted the exact digests '$mismatchDiagnostic': $($mismatchResult.Output.Trim())"
+    }
+    foreach ($residue in @($syntheticCache, $syntheticArchivePath, "$syntheticArchivePath.partial")) {
+        if (Test-Path -LiteralPath $residue) {
+            $sandboxFailures += "PowerShell kept '$residue' after rejecting a mismatched download"
+        }
+    }
+
+    # A cached archive that no longer matches the pinned digest is discarded and
+    # re-fetched rather than trusted.
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{ `"stale`": true }" }
+    )
+    Write-TestManifest -Template $source -Path $sandboxManifest `
+        -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative `
+        -Sha256 $originSha256 -Url $originUrl
+    $staleResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($staleResult.ExitCode -ne 0) {
+        $sandboxFailures += "PowerShell failed to replace a stale cached archive: $($staleResult.Output.Trim())"
+    }
+    $publishedSentinel = Join-Path $syntheticCache "resource_pack\blocks.json"
+    if (-not (Test-Path -LiteralPath $publishedSentinel -PathType Leaf)) {
+        $sandboxFailures += "PowerShell did not publish the re-fetched pinned archive"
+    } elseif ((Get-Content -Raw -LiteralPath $publishedSentinel).Contains("stale")) {
+        $sandboxFailures += "PowerShell published content from the stale cached archive"
+    }
+    if ((Test-Path -LiteralPath $syntheticArchivePath -PathType Leaf) -and
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $syntheticArchivePath).Hash.ToLowerInvariant() -cne $originSha256) {
+        $sandboxFailures += "PowerShell retained an archive that misses the pinned digest"
     }
 
     if ($sandboxFailures.Count -ne 0) {

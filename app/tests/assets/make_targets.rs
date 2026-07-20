@@ -431,6 +431,15 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     let atmosphere = temporary.join("atmosphere.mcbeatm");
     let report = temporary.join("atmosphere.json");
     let invocations = temporary.join("invocations.log");
+    // `$(ASSET_BLOB)` still depends on `$(PACK_SENTINEL)`, so leaving the pack
+    // at its default keeps this dependency-ordering test reaching the real
+    // Mojang fetch on any checkout without a populated `.local` cache. Pin the
+    // pack and stub every upstream producer so the test stays hermetic.
+    let pack = temporary.join("resource_pack");
+    let sentinel = pack.join("blocks.json");
+    let upstream = temporary.join("upstream.log");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(&sentinel, b"{}").unwrap();
     for prerequisite in [&block, &light, &biome] {
         fs::write(prerequisite, b"registry").unwrap();
     }
@@ -445,11 +454,22 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
             .set_modified(now - Duration::from_secs(120))
             .unwrap();
     }
+    // The stale-manifest scenario below dates the manifest into the future, so
+    // the pack sentinel has to stay newer than every manifest timestamp or make
+    // would reacquire the pack, and the world blob newer than the sentinel or
+    // make would recompile it. Either would leave the atmosphere ordering under
+    // test dependent on an upstream producer.
+    fs::File::options()
+        .write(true)
+        .open(&sentinel)
+        .unwrap()
+        .set_modified(now + Duration::from_secs(120))
+        .unwrap();
     fs::File::options()
         .write(true)
         .open(&world)
         .unwrap()
-        .set_modified(now - Duration::from_secs(60))
+        .set_modified(now + Duration::from_secs(180))
         .unwrap();
 
     let producer = format!(
@@ -460,6 +480,9 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     );
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
+        "VANILLA_FETCH_INPUTS=".to_owned(),
+        format!("PACK_DIR={}", make_path(&pack)),
+        format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("ASSET_BLOB={}", make_path(&world)),
         format!("BLOCK_REGISTRY={}", make_path(&block)),
         format!("LIGHT_REGISTRY={}", make_path(&light)),
@@ -468,6 +491,14 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
         format!("ATMOSPHERE_REPORT={}", make_path(&report)),
         format!("ATMOSPHERE_COMPILE={producer}"),
+        format!(
+            "VANILLA_ASSET_FETCH=echo fetch >> \"{}\"",
+            make_path(&upstream)
+        ),
+        format!(
+            "WORLD_ASSET_COMPILE=echo world >> \"{}\"",
+            make_path(&upstream)
+        ),
     ];
 
     run_make_atmosphere(root, &assignments);
@@ -503,6 +534,12 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     default_assignments.push("CINNABAR_CLOUDS_PNG=".to_owned());
     run_make_atmosphere(root, &default_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
+
+    assert!(
+        !upstream.exists(),
+        "atmosphere ordering must never reach the vanilla fetch or world compile: {}",
+        fs::read_to_string(&upstream).unwrap_or_default()
+    );
 
     fs::remove_dir_all(temporary).unwrap();
 }
