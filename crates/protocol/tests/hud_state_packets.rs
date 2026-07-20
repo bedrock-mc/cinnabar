@@ -198,6 +198,58 @@ fn set_entity_link_normalizes_typed_rider_links() {
 }
 
 #[test]
+fn item_stack_damage_reads_the_root_damage_tag_and_fails_closed_on_junk() {
+    use valentine::bedrock::codec::{BedrockCodec, Nbt};
+    use valentine::bedrock::version::v1_26_30::{
+        ItemExtraDataWithoutBlockingTick, ItemExtraDataWithoutBlockingTickNbt,
+    };
+
+    // Root compound { "other": byte 1, "Damage": int 37, "deep": {..} }.
+    let mut nbt = vec![0x0a, 0x00, 0x00];
+    nbt.extend_from_slice(&[0x01, 0x05, 0x00]);
+    nbt.extend_from_slice(b"other");
+    nbt.push(0x01);
+    nbt.extend_from_slice(&[0x03, 0x06, 0x00]);
+    nbt.extend_from_slice(b"Damage");
+    nbt.extend_from_slice(&37i32.to_le_bytes());
+    nbt.extend_from_slice(&[0x0a, 0x04, 0x00]);
+    nbt.extend_from_slice(b"deep");
+    nbt.push(0x00);
+    nbt.push(0x00);
+    let extra = ItemExtraDataWithoutBlockingTick {
+        nbt: Some(ItemExtraDataWithoutBlockingTickNbt {
+            version: 1,
+            nbt: Nbt(nbt.into()),
+        }),
+        can_place_on: Vec::new(),
+        can_destroy: Vec::new(),
+    };
+    let mut encoded = bytes::BytesMut::new();
+    extra.encode(&mut encoded).unwrap();
+    let encoded: Vec<u8> = encoded.to_vec();
+
+    let stack = protocol::NetworkItemStack {
+        network_id: 5,
+        metadata: 0,
+        stack_network_id: -1,
+        count: 1,
+        nbt_digest: [0; 32],
+        block_runtime_id: 0,
+        extra_data: encoded.into(),
+    };
+    assert_eq!(protocol::item_stack_damage(&stack), Some(37));
+
+    let empty = protocol::NetworkItemStack::empty();
+    assert_eq!(protocol::item_stack_damage(&empty), None);
+
+    let junk = protocol::NetworkItemStack {
+        extra_data: vec![0xff, 0x13, 0x37].into(),
+        ..stack
+    };
+    assert_eq!(protocol::item_stack_damage(&junk), None);
+}
+
+#[test]
 fn world_bootstrap_carries_the_local_player_unique_id() {
     let mut game_data = protocol::GameData {
         start_game: Default::default(),

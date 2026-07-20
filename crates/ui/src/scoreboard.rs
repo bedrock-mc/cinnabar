@@ -256,6 +256,32 @@ impl ScoreboardStore {
         self.projection(DisplaySlot::BelowName)
     }
 
+    /// The single below-name score for one entity, the way a nameplate
+    /// presents it: the owner's value under the below-name objective, with the
+    /// objective display name as the suffix label. `None` when no below-name
+    /// objective is displayed or the owner has no score in it.
+    pub fn below_name_for_owner(&self, owner: &ScoreOwner) -> Option<(i32, Arc<str>)> {
+        let objective_name = self.slots.get(&DisplaySlot::BelowName)?;
+        let objective = self.objectives.get(objective_name)?;
+        let score = objective
+            .scores
+            .values()
+            .find(|score| &score.owner == owner)?;
+        Some((score.score, Arc::clone(&objective.display_name)))
+    }
+
+    /// The list-slot score for one player entry, as the player list presents
+    /// it beside each name.
+    pub fn list_score_for_owner(&self, owner: &ScoreOwner) -> Option<i32> {
+        let objective_name = self.slots.get(&DisplaySlot::List)?;
+        let objective = self.objectives.get(objective_name)?;
+        objective
+            .scores
+            .values()
+            .find(|score| &score.owner == owner)
+            .map(|score| score.score)
+    }
+
     pub fn projection(&self, slot: DisplaySlot) -> Option<ScoreboardProjection> {
         self.projection_bounded(slot, MAX_SCORES, |_| true)
     }

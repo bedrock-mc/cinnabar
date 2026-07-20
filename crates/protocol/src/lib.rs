@@ -46,7 +46,7 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, select_hotbar_slot_packet,
+    NetworkItemStack, item_stack_damage, select_hotbar_slot_packet,
 };
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};

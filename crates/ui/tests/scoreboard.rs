@@ -536,3 +536,67 @@ fn boss_bounds_nonfinite_health_and_missing_updates_do_not_mutate() {
     assert_eq!(store.stacked()[0].health, 0.5);
     assert_eq!(store.diagnostics().invalid_health_rejections, 1);
 }
+
+#[test]
+fn below_name_and_list_owner_lookups_track_display_and_score_lifecycle() {
+    let mut store = ScoreboardStore::default();
+    let player = ScoreOwner::Player(31);
+    let other = ScoreOwner::Entity(44);
+
+    // Nothing resolves before the slots display an objective.
+    assert_eq!(store.below_name_for_owner(&player), None);
+    assert_eq!(store.list_score_for_owner(&player), None);
+
+    store.apply(1, display("belowname", "health", 0)).unwrap();
+    store.apply(2, display("list", "kills", 1)).unwrap();
+    store
+        .apply(
+            3,
+            ScoreboardEvent::Scores {
+                action: ScoreAction::Change,
+                entries: Arc::from(vec![
+                    score("health", 1, 18, player.clone()),
+                    score("health", 2, 7, other.clone()),
+                    score("kills", 3, 5, player.clone()),
+                ]),
+            },
+        )
+        .unwrap();
+
+    let (value, label) = store.below_name_for_owner(&player).unwrap();
+    assert_eq!(value, 18);
+    assert_eq!(label.as_ref(), "health title");
+    assert_eq!(store.below_name_for_owner(&other).unwrap().0, 7);
+    assert_eq!(store.list_score_for_owner(&player), Some(5));
+    assert_eq!(store.list_score_for_owner(&other), None);
+
+    // Score removal clears only the removed owner's lookup.
+    store
+        .apply(
+            4,
+            ScoreboardEvent::Scores {
+                action: ScoreAction::Remove,
+                entries: Arc::from(vec![score("health", 1, 0, ScoreOwner::None)]),
+            },
+        )
+        .unwrap();
+    assert_eq!(store.below_name_for_owner(&player), None);
+    assert_eq!(store.below_name_for_owner(&other).unwrap().0, 7);
+
+    // Moving the slot to a different objective replaces the lookup source.
+    store.apply(5, display("belowname", "kills", 1)).unwrap();
+    assert_eq!(store.below_name_for_owner(&other), None);
+    assert_eq!(store.below_name_for_owner(&player).unwrap().0, 5);
+
+    // Removing the displayed objective empties the slot lookups entirely.
+    store
+        .apply(
+            6,
+            ScoreboardEvent::RemoveObjective {
+                objective_name: Arc::from("kills"),
+            },
+        )
+        .unwrap();
+    assert_eq!(store.below_name_for_owner(&player), None);
+    assert_eq!(store.list_score_for_owner(&player), None);
+}

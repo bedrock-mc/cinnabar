@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
@@ -84,6 +84,136 @@ impl NetworkItemStack {
     pub const fn is_empty(&self) -> bool {
         self.network_id == 0 || self.count == 0
     }
+}
+
+/// Reads the vanilla `Damage` integer from a stack's retained extra data.
+///
+/// The extra blob is the validated wire encoding of the item user data; it is
+/// decoded through the same generated types that produced it and the fixed
+/// little-endian NBT is walked only at the root level, where the vanilla
+/// client stores durability damage. Anything malformed or absent reads as
+/// `None` — presentation simply skips the durability bar.
+#[must_use]
+pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
+    if stack.extra_data.is_empty() {
+        return None;
+    }
+    let nbt = decode_extra_nbt(&stack.extra_data)?;
+    root_damage_tag(&nbt)
+}
+
+fn decode_extra_nbt(extra: &[u8]) -> Option<Bytes> {
+    let mut buffer = Bytes::copy_from_slice(extra);
+    if let Ok(decoded) = ItemExtraDataWithoutBlockingTick::decode(&mut buffer, ())
+        && buffer.is_empty()
+    {
+        return decoded
+            .nbt
+            .filter(|nbt| nbt.version == 1)
+            .map(|nbt| nbt.nbt.0);
+    }
+    let mut buffer = Bytes::copy_from_slice(extra);
+    if let Ok(decoded) = ItemExtraDataWithBlockingTick::decode(&mut buffer, ())
+        && buffer.is_empty()
+    {
+        return decoded
+            .nbt
+            .filter(|nbt| nbt.version == 1)
+            .map(|nbt| nbt.nbt.0);
+    }
+    None
+}
+
+/// Walks one fixed little-endian NBT compound root for an integer `Damage`.
+fn root_damage_tag(nbt: &[u8]) -> Option<u32> {
+    let mut cursor = nbt;
+    if read_u8(&mut cursor)? != 10 {
+        return None;
+    }
+    skip_le_string(&mut cursor)?;
+    loop {
+        let tag = read_u8(&mut cursor)?;
+        if tag == 0 {
+            return None;
+        }
+        let name_len = usize::from(read_u16_le(&mut cursor)?);
+        let name = cursor.get(..name_len)?;
+        let is_damage = tag == 3 && name == b"Damage";
+        cursor = cursor.get(name_len..)?;
+        if is_damage {
+            let value = i32::from_le_bytes(cursor.get(..4)?.try_into().ok()?);
+            return u32::try_from(value).ok();
+        }
+        skip_le_payload(&mut cursor, tag, 0)?;
+    }
+}
+
+fn read_u8(cursor: &mut &[u8]) -> Option<u8> {
+    let value = *cursor.first()?;
+    *cursor = cursor.get(1..)?;
+    Some(value)
+}
+
+fn read_u16_le(cursor: &mut &[u8]) -> Option<u16> {
+    let value = u16::from_le_bytes(cursor.get(..2)?.try_into().ok()?);
+    *cursor = cursor.get(2..)?;
+    Some(value)
+}
+
+fn read_i32_le(cursor: &mut &[u8]) -> Option<i32> {
+    let value = i32::from_le_bytes(cursor.get(..4)?.try_into().ok()?);
+    *cursor = cursor.get(4..)?;
+    Some(value)
+}
+
+fn skip_le_string(cursor: &mut &[u8]) -> Option<()> {
+    let length = usize::from(read_u16_le(cursor)?);
+    *cursor = cursor.get(length..)?;
+    Some(())
+}
+
+const MAX_ITEM_NBT_WALK_DEPTH: u8 = 16;
+
+fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u8) -> Option<()> {
+    if depth > MAX_ITEM_NBT_WALK_DEPTH {
+        return None;
+    }
+    match tag {
+        1 => *cursor = cursor.get(1..)?,
+        2 => *cursor = cursor.get(2..)?,
+        3 | 5 => *cursor = cursor.get(4..)?,
+        4 | 6 => *cursor = cursor.get(8..)?,
+        7 => {
+            let length = usize::try_from(read_i32_le(cursor)?).ok()?;
+            *cursor = cursor.get(length..)?;
+        }
+        8 => skip_le_string(cursor)?,
+        9 => {
+            let element = read_u8(cursor)?;
+            let count = usize::try_from(read_i32_le(cursor)?).ok()?;
+            for _ in 0..count {
+                skip_le_payload(cursor, element, depth.checked_add(1)?)?;
+            }
+        }
+        10 => loop {
+            let entry = read_u8(cursor)?;
+            if entry == 0 {
+                break;
+            }
+            skip_le_string(cursor)?;
+            skip_le_payload(cursor, entry, depth.checked_add(1)?)?;
+        },
+        11 => {
+            let count = usize::try_from(read_i32_le(cursor)?).ok()?;
+            *cursor = cursor.get(count.checked_mul(4)?..)?;
+        }
+        12 => {
+            let count = usize::try_from(read_i32_le(cursor)?).ok()?;
+            *cursor = cursor.get(count.checked_mul(8)?..)?;
+        }
+        _ => return None,
+    }
+    Some(())
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

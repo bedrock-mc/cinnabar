@@ -18,15 +18,18 @@ use ui::{
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
+    camera::CameraSettingsAuthority,
     runtime::{shutdown::record_fatal_error, world::ClientWorld},
-    ui_runtime::render_adapter::adapt_ui_draw_list,
+    ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list},
 };
 
 mod chat;
+mod hud_layout;
 mod retained_hud;
-mod survival_hud;
 
 use chat::visible_suggestion_range;
+pub(crate) use hud_layout::HudFrame;
+use hud_layout::{HudGeometry, HudLayout};
 use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
 };
@@ -43,8 +46,6 @@ const CHAT_TEXT_SCALE: f32 = 0.5;
 // default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
 const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
-// Vanilla experience-level green, drawn above the XP bar.
-const XP_LEVEL_COLOR: [u8; 4] = [128, 255, 32, 255];
 const VANILLA_HUD_ATLAS_SIDE: u32 = 256;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -79,6 +80,10 @@ pub struct UiPresentationRuntime {
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
+    /// Java GUI-scale preference: `None`/0 selects the auto rule.
+    gui_scale_preference: Option<u8>,
+    /// Item facts and camera state refreshed immediately before each build.
+    hud_frame: HudFrame,
 }
 
 impl UiPresentationRuntime {
@@ -115,7 +120,25 @@ impl UiPresentationRuntime {
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
+            gui_scale_preference: None,
+            hud_frame: HudFrame::default(),
         })
+    }
+
+    /// Selects a fixed Java GUI scale (1..=4); `None` or 0 restores auto.
+    pub fn set_gui_scale_preference(&mut self, preference: Option<u8>) {
+        self.gui_scale_preference = preference.filter(|value| *value > 0);
+    }
+
+    pub(crate) fn hud_frame_mut(&mut self) -> &mut HudFrame {
+        &mut self.hud_frame
+    }
+
+    /// Retained text-layout cache entries, exposed for the bounded-memory
+    /// steady-state witnesses.
+    #[cfg(test)]
+    pub(crate) fn layout_cache_len(&self) -> usize {
+        self.layouts.len()
     }
 
     pub fn build(
@@ -127,10 +150,16 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
-        let responsive_survival_geometry = self
-            .hud_textures
-            .as_ref()
-            .and_then(|textures| survival_hud::responsive_geometry(logical_width, textures));
+        // The gameplay HUD lays out in Java GUI pixels; it fails closed to no
+        // HUD when the safe viewport cannot contain the fixed-width hotbar.
+        let hud_geometry = self.hud_textures.as_ref().and_then(|_| {
+            HudGeometry::new(
+                physical_size,
+                dpi_scale.get(),
+                SafeArea::ZERO,
+                self.gui_scale_preference,
+            )
+        });
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
         let wrap_width = ((logical_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
@@ -142,53 +171,20 @@ impl UiPresentationRuntime {
         let mut next_id = 1u32;
 
         if let Some(hud_textures) = self.hud_textures.as_ref()
-            && let Some(geometry) = responsive_survival_geometry
+            && let Some(geometry) = hud_geometry
         {
-            survival_hud::append(
+            let mut frame = self.hud_frame.clone();
+            frame.now_millis = now_millis;
+            let mut layout = HudLayout::new(
                 &mut nodes,
                 &mut next_id,
-                runtime,
-                logical_height,
                 hud_textures,
+                &mut self.layouts,
+                &self.font,
+                self.solid_texture_page,
                 geometry,
             )?;
-        }
-
-        // Experience level: green number centered just above the XP bar. The bar sprites are drawn
-        // by `survival_hud`; the level text needs the layout cache, so it is rendered here.
-        if let Some(geometry) = responsive_survival_geometry
-            && runtime.survival_stats_visible()
-            && let Some(xp) = runtime.hud().experience()
-            && xp.level > 0
-        {
-            let level_text = xp.level.to_string();
-            let layout = self
-                .layouts
-                .layout(TextLayoutRequest {
-                    text: &level_text,
-                    style: TextStyle::default(),
-                    width_64: (logical_width.max(1.0) * 64.0) as u32,
-                    scale: UiScale::default(),
-                    font: &self.font,
-                })
-                .map_err(UiPresentationError::Text)?;
-            let [bar_left, bar_top, bar_right, _] = geometry.xp_bar_rect(logical_height);
-            let text_width = layout.size_64()[0] as f32 / 64.0;
-            let text_height = layout.size_64()[1] as f32 / 64.0;
-            let x = ((bar_left + bar_right) * 0.5 - text_width * 0.5).max(0.0);
-            let y = (bar_top - text_height - 1.0).max(0.0);
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(x, y, x + text_width, y + text_height)?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: XP_LEVEL_COLOR,
-                }),
-            );
-            next_id = next_id.saturating_add(1);
+            layout.append(runtime, &frame)?;
         }
 
         let hud_nodes = runtime.hud().view_nodes(now_millis);
@@ -317,9 +313,9 @@ impl UiPresentationRuntime {
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
             .sum::<f32>();
         let chat_region_top = (logical_height - 220.0 - suggestion_reserved_height).max(0.0);
-        let bottom_hud_top = responsive_survival_geometry.map_or_else(
+        let bottom_hud_top = hud_geometry.map_or_else(
             || (logical_height - 42.0).max(chat_region_top),
-            |geometry| geometry.bottom_row_top(logical_height).max(chat_region_top),
+            |geometry| geometry.bottom_row_top_logical().max(chat_region_top),
         );
         let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
         let editor_y = editor_layout.as_ref().map_or(editor_bottom, |layout| {
@@ -536,6 +532,7 @@ pub(crate) fn publish_ui_runtime(
     stats: Res<UiRenderStats>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
+    camera_settings: Res<CameraSettingsAuthority>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -554,6 +551,15 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
+    runtime.drain_pending_inventory();
+    runtime.expire_gameplay_effects();
+    runtime.observe_selected_item_identity(now_millis);
+    refresh_hud_frame(
+        &mut runtime,
+        &mut presentation,
+        client_world.stream.as_ref(),
+        &camera_settings,
+    );
     if presentation.scoreboard_opacity.is_some() {
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
@@ -571,6 +577,66 @@ pub(crate) fn publish_ui_runtime(
             UiPresentationError::Render(error).to_string(),
         );
     }
+}
+
+/// Refreshes the per-frame HUD inputs that need the world stream: derived
+/// armor points, per-slot durability, the selected-item name, and the mount's
+/// authoritative health. Without a stream every derived value fails closed.
+pub(crate) fn refresh_hud_frame(
+    runtime: &mut UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    stream: Option<&client_world::WorldStream>,
+    camera_settings: &CameraSettingsAuthority,
+) {
+    let resolve_identifier = |stack: &protocol::NetworkItemStack| {
+        stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
+    };
+
+    let derived_armor = runtime.gameplay_hud().armor().map(|slots| {
+        let identifiers = [
+            &slots.helmet,
+            &slots.chestplate,
+            &slots.leggings,
+            &slots.boots,
+        ]
+        .map(|stack| {
+            (!stack.is_empty())
+                .then(|| resolve_identifier(stack))
+                .flatten()
+        });
+        item_facts::total_armor_points(identifiers.iter().map(|identifier| identifier.as_deref()))
+    });
+    runtime.set_derived_armor(derived_armor);
+
+    let mount_health = runtime
+        .gameplay_hud()
+        .mount_unique_id()
+        .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
+
+    let mut hotbar_durability = [None; 9];
+    for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
+        if let Some(stack) = runtime.gameplay_hud().hotbar_stack(slot as u8) {
+            let identifier = resolve_identifier(stack);
+            *durability = item_facts::durability_fraction(stack, identifier.as_deref());
+        }
+    }
+    let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
+        let identifier = resolve_identifier(stack);
+        item_facts::durability_fraction(stack, identifier.as_deref())
+    });
+    let selected_item_name = runtime.selected_stack().and_then(|stack| {
+        resolve_identifier(stack)
+            .map(|identifier| Arc::from(item_facts::mechanical_display_name(&identifier)))
+    });
+
+    let first_person =
+        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let frame = presentation.hud_frame_mut();
+    frame.first_person = first_person;
+    frame.mount_health = mount_health;
+    frame.hotbar_durability = hotbar_durability;
+    frame.offhand_durability = offhand_durability;
+    frame.selected_item_name = selected_item_name;
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -860,4 +926,4 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, UiPresen
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -131,9 +131,12 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
     );
     let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
-    // The 24x24 selection is centered on slot 0's 20x22 cell: its center (400, 684) matches the
-    // slot center, overhanging 2px horizontally and 1px vertically (physical px at scale 2, DPI 1.5).
-    assert_eq!([top, bottom], [648.0, 720.0]);
+    // Java geometry at GUI scale 3 (auto for 1280x720): the hotbar sits flush
+    // at the bottom edge and the 24-tall selection frame overhangs it by one
+    // GUI px on both sides, so the frame's bottom extends one GUI px (3
+    // physical px) past the viewport and is clipped by the scissor exactly as
+    // in the reference.
+    assert_eq!([top, bottom], [651.0, 723.0]);
     let left = selected
         .iter()
         .map(|vertex| vertex.position[0])
@@ -146,7 +149,7 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
 }
 
 #[test]
-fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
+fn hotbar_renders_at_the_java_minimum_and_fails_closed_below_it() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.retain_local_selected_equipment(
@@ -161,12 +164,21 @@ fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
         },
     );
 
-    let input = presentation
+    // 320 physical px is the smallest width the reference lays out at GUI
+    // scale 1; the 182-wide hotbar fits and renders.
+    let narrow = presentation
         .build(&runtime, 0, [320, 720], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    assert_eq!(narrow.vertices.len(), 12 * 4);
+
+    // Below the fixed hotbar width the layout fails closed to no HUD rather
+    // than overflowing the viewport.
+    let tiny = presentation
+        .build(&runtime, 0, [180, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(tiny.vertices.is_empty());
+    assert!(tiny.indices.is_empty());
+    assert!(tiny.batches.is_empty());
 }
 
 #[test]
@@ -196,22 +208,37 @@ fn survival_experience_bar_and_level_render_above_the_hotbar() {
 }
 
 #[test]
-fn nonstandard_health_maximum_fails_closed_until_vanilla_row_authority_is_owned() {
+fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
+    // 30/30 half-hearts: fifteen hearts across two rows (ten plus five).
     runtime.hud.set_health(BoundedStat::new(30, 30));
 
     let input = presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    // Fifteen containers plus fifteen full hearts across two rows; no hotbar
+    // renders because no slot authority exists in this fixture.
+    assert_eq!(input.vertices.len(), 30 * 4);
+
+    // The second row sits one row height above the first.
+    let edges: std::collections::BTreeSet<i64> = input
+        .vertices
+        .iter()
+        .map(|vertex| vertex.position[1] as i64)
+        .collect();
+    assert_eq!(
+        edges.len(),
+        4,
+        "two heart rows, each with top and bottom edges"
+    );
 }
 
 #[test]
-fn hotbar_remains_bottom_centered_across_inner_viewport_sizes() {
-    for physical_size in [[1280, 720], [2560, 1344]] {
+fn hotbar_stays_bottom_centered_and_tracks_the_java_auto_scale() {
+    // Auto GUI scale: 1280x720 -> 3, 2560x1344 -> 5; the hotbar's physical
+    // width is 182 GUI px times the scale regardless of DPI.
+    for (physical_size, expected_scale) in [([1280u32, 720u32], 3.0f32), ([2560, 1344], 5.0)] {
         let mut presentation =
             UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
         let mut runtime = UiRuntime::new(1);
@@ -239,8 +266,8 @@ fn hotbar_remains_bottom_centered_across_inner_viewport_sizes() {
             .iter()
             .map(|vertex| vertex.position[0])
             .fold(f32::NEG_INFINITY, f32::max);
-        assert!(((right - left) - 546.0).abs() <= 0.001);
-        assert!((((left + right) * 0.5) - physical_size[0] as f32 * 0.5).abs() <= 0.001);
+        assert!(((right - left) - 182.0 * expected_scale).abs() <= 0.01);
+        assert!((((left + right) * 0.5) - physical_size[0] as f32 * 0.5).abs() <= 0.01);
     }
 }
 
@@ -882,7 +909,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
-fn fixture_font() -> Arc<RuntimeFontCatalog> {
+pub(crate) fn fixture_font() -> Arc<RuntimeFontCatalog> {
     let pixels = vec![255; 16 * 24 * 4].into_boxed_slice();
     let page = FontTexturePage {
         source_path: "font/page.png".into(),
@@ -905,7 +932,7 @@ fn fixture_font() -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
-fn fixture_hud() -> Arc<RuntimeHudCatalog> {
+pub(crate) fn fixture_hud() -> Arc<RuntimeHudCatalog> {
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| {

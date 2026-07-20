@@ -108,13 +108,21 @@ pub(crate) fn effect_icon_role(effect_id: i32) -> Option<HudTextureRole> {
     })
 }
 
-/// Frame inputs the layout cannot read from `UiRuntime` alone.
-pub(super) struct HudFrame {
+/// Frame inputs the layout cannot read from `UiRuntime` alone: camera state
+/// plus item facts resolved against the world stream's authoritative item
+/// registry immediately before presentation.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct HudFrame {
     pub now_millis: u64,
     /// The crosshair is a first-person-only surface in the reference.
     pub first_person: bool,
     /// Authoritative `(current, maximum)` health of the ridden actor.
     pub mount_health: Option<(f32, f32)>,
+    /// Remaining-durability fraction per hotbar slot, resolved this frame.
+    pub hotbar_durability: [Option<f32>; 9],
+    pub offhand_durability: Option<f32>,
+    /// Presented name of the selected stack, resolved this frame.
+    pub selected_item_name: Option<std::sync::Arc<str>>,
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule.
@@ -260,12 +268,7 @@ impl<'a> HudLayout<'a> {
         let node = UiNode::new(
             UiNodeId::new(*self.next_id),
             None,
-            rect(
-                left,
-                top,
-                left + 15.0 * g.scale,
-                top + 15.0 * g.scale,
-            )?,
+            rect(left, top, left + 15.0 * g.scale, top + 15.0 * g.scale)?,
         )
         .with_visual(UiVisual::InvertedSprite {
             texture_page: self.textures.page,
@@ -318,10 +321,14 @@ impl<'a> HudLayout<'a> {
                 continue;
             };
             let cell = [left + 3.0 + f32::from(slot) * 20.0, g.gui_height - 19.0];
-            self.stack_decorations(&stack, cell)?;
+            self.stack_decorations(&stack, cell, frame.hotbar_durability[usize::from(slot)])?;
         }
         if let Some(stack) = offhand {
-            self.stack_decorations(&stack, [left - 29.0 + 3.0, g.gui_height - 19.0])?;
+            self.stack_decorations(
+                &stack,
+                [left - 29.0 + 3.0, g.gui_height - 19.0],
+                frame.offhand_durability,
+            )?;
         }
         self.selected_item_label(runtime, frame)?;
         Ok(())
@@ -332,8 +339,9 @@ impl<'a> HudLayout<'a> {
         &mut self,
         stack: &protocol::NetworkItemStack,
         cell: [f32; 2],
+        durability: Option<f32>,
     ) -> Result<(), UiPresentationError> {
-        if let Some(fraction) = crate::ui_runtime::item_facts::durability_fraction(stack) {
+        if let Some(fraction) = durability {
             // 13x2 GUI-px bar: dark track, hue sweeping green->red with wear.
             let bar_left = cell[0] + 2.0;
             let bar_top = cell[1] + 13.0;
@@ -380,10 +388,10 @@ impl<'a> HudLayout<'a> {
         if elapsed >= LABEL_WINDOW_MILLIS {
             return Ok(());
         }
-        let Some(stack) = runtime.selected_stack() else {
+        if runtime.selected_stack().is_none() {
             return Ok(());
-        };
-        let Some(name) = runtime.presented_item_name(stack) else {
+        }
+        let Some(name) = frame.selected_item_name.clone() else {
             return Ok(());
         };
         let remaining = LABEL_WINDOW_MILLIS - elapsed;
@@ -415,7 +423,11 @@ impl<'a> HudLayout<'a> {
         } else {
             g.gui_height - 45.0
         };
-        self.text_gui_shadowed(layout, [(g.gui_width - width) / 2.0, y], [255, 255, 255, alpha])?;
+        self.text_gui_shadowed(
+            layout,
+            [(g.gui_width - width) / 2.0, y],
+            [255, 255, 255, alpha],
+        )?;
         Ok(())
     }
 
@@ -447,10 +459,7 @@ impl<'a> HudLayout<'a> {
             .heart_variant(runtime.last_server_tick_hint());
         let flash = damage_flash_phase(runtime.last_health_drop_millis(), frame.now_millis);
         let g = self.geometry;
-        let base = [
-            (g.gui_width - HOTBAR_WIDTH) / 2.0,
-            g.gui_height - 39.0,
-        ];
+        let base = [(g.gui_width - HOTBAR_WIDTH) / 2.0, g.gui_height - 39.0];
         for index in 0..total_hearts {
             let row = index / 10;
             let column = index % 10;
@@ -629,11 +638,17 @@ impl<'a> HudLayout<'a> {
         let g = self.geometry;
         let left = (g.gui_width - HOTBAR_WIDTH) / 2.0;
         let top = g.gui_height - 29.0;
-        self.sprite_gui(HudTextureRole::ExperienceBarBackground182, [left, top], [255; 4])?;
+        self.sprite_gui(
+            HudTextureRole::ExperienceBarBackground182,
+            [left, top],
+            [255; 4],
+        )?;
         let progress = xp.progress.clamp(0.0, 1.0);
         let filled = (progress * 183.0).floor().clamp(0.0, 182.0);
         if filled >= 1.0 {
-            let sprite = self.textures.sprite(HudTextureRole::ExperienceBarProgress182);
+            let sprite = self
+                .textures
+                .sprite(HudTextureRole::ExperienceBarProgress182);
             let uv_width = u32::from(sprite.uv[2] - sprite.uv[0]);
             let clipped = ((filled / 182.0) * uv_width as f32).round() as u32;
             let uv = [
@@ -990,7 +1005,11 @@ fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
         return 255;
     }
     let phase = (remaining % 20) as f32 / 20.0;
-    let wave = if phase < 0.5 { phase * 2.0 } else { (1.0 - phase) * 2.0 };
+    let wave = if phase < 0.5 {
+        phase * 2.0
+    } else {
+        (1.0 - phase) * 2.0
+    };
     (64.0 + 191.0 * wave) as u8
 }
 

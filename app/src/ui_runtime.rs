@@ -5,6 +5,7 @@ pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
 pub mod inventory_router;
+pub(crate) mod item_facts;
 mod platform_clipboard;
 pub mod presentation;
 pub mod render_adapter;
@@ -290,6 +291,27 @@ impl UiRuntime {
 
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
         &self.gameplay_hud
+    }
+
+    /// The last authoritative server tick seen on any committed event, used
+    /// as the presentation clock for effect expiry and blink phases.
+    pub(crate) const fn last_server_tick_hint(&self) -> Option<u64> {
+        self.last_server_tick
+    }
+
+    /// Drops locally-expired effects against the authoritative clock.
+    pub(crate) fn expire_gameplay_effects(&mut self) {
+        let now_tick = self.last_server_tick;
+        self.gameplay_hud.expire_effects(now_tick);
+    }
+
+    /// Publishes the armor bar derived from the authoritative equipped armor
+    /// identifiers. `None` means armor equipment is unknown, which clears the
+    /// row (fail closed) rather than retaining a stale value.
+    pub(crate) fn set_derived_armor(&mut self, points: Option<u16>) {
+        let armor = points.and_then(|points| BoundedStat::new(points.min(20), 20));
+        self.hud
+            .set_stats(self.hud.health(), self.hud.hunger(), armor, self.hud.air());
     }
 
     /// Millis timestamp of the last authoritative health decrease, for the
