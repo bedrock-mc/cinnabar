@@ -29,7 +29,10 @@ pub(super) fn normalize_player_skin(
     let Ok(height) = u32::try_from(skin.skin_data.height) else {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     };
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
+    if !matches!(
+        (width, height),
+        (64, 32) | (64, 64) | (128, 128) | (MAX_STANDARD_SKIN_SIDE, MAX_STANDARD_SKIN_SIDE)
+    ) {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     }
     let Some(expected_bytes) = usize::try_from(width)

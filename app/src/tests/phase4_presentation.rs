@@ -181,6 +181,14 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
             geometry,
         })
     };
+    let legacy_skin = |geometry, byte| {
+        PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 32,
+            rgba8: [byte, byte, byte, 255].repeat(64 * 32).into(),
+            geometry,
+        })
+    };
     stream
         .submit(
             1,
@@ -191,7 +199,7 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
                         unique_id: -9,
                         username: "self".into(),
                         verified: true,
-                        skin: skin(protocol::PlayerSkinGeometry::Wide, 0x5a),
+                        skin: legacy_skin(protocol::PlayerSkinGeometry::Wide, 0x5a),
                     }]),
                 },
             )),
@@ -240,7 +248,21 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
     assert_eq!(frame.rig.manifest.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
     assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::StaticFallback);
-    assert!(frame.skins_rgba8.iter().all(|byte| *byte == 0x5a));
+    assert_eq!(
+        (frame.texture_atlas_width, frame.texture_atlas_height),
+        (66, 66)
+    );
+    let atlas_pixel = |x: usize, y: usize| {
+        let offset = ((y + 1) * frame.texture_atlas_width as usize + x + 1) * 4;
+        &frame.skins_rgba8[offset..offset + 4]
+    };
+    assert_eq!(atlas_pixel(0, 0), &[0x5a, 0x5a, 0x5a, 255]);
+    assert_eq!(
+        atlas_pixel(20, 48),
+        &[0x5a, 0x5a, 0x5a, 255],
+        "WorldStream legacy authority reaches the canonical local presentation"
+    );
+    assert_eq!(atlas_pixel(0, 32), &[0; 4]);
 
     stream
         .submit(

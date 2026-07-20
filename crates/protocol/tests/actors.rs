@@ -442,6 +442,68 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
 }
 
 #[test]
+fn player_list_retains_exact_legacy_skin_but_rejects_bad_length() {
+    let legacy = vec![0x4a; 64 * 32 * 4];
+    let entry = |data| PlayerRecordsRecordsItemAdd {
+        username: "Legacy".to_owned(),
+        skin_data: Skin {
+            arm_size: "wide".to_owned(),
+            skin_data: SkinImage {
+                width: 64,
+                height: 32,
+                data,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let packet = PlayerListPacket {
+        records: PlayerRecords {
+            type_: PlayerRecordsType::Add,
+            records_count: 2,
+            records: vec![
+                Some(PlayerRecordsRecordsItem::Add(Box::new(entry(
+                    legacy.clone(),
+                )))),
+                Some(PlayerRecordsRecordsItem::Add(Box::new(entry(vec![
+                    0x4a;
+                    64 * 32
+                        * 4
+                        - 1
+                ])))),
+            ],
+            verified: Some(vec![true, true]),
+        },
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
+        into_world_event(packet, 0).expect("normalize legacy player-list skins")
+    else {
+        panic!("expected player-list update")
+    };
+    let PlayerListEntry::Add { skin, .. } = &update.entries[0] else {
+        panic!("expected legacy add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 32,
+            rgba8: legacy.into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
+        })
+    );
+    let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
+        panic!("expected malformed add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength)
+    );
+}
+
+#[test]
 fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
     let too_long = AddEntityPacket {
         entity_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1),

@@ -30,6 +30,9 @@ pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
 
 #[must_use]
 pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
+    if skin.width == 64 && skin.height == 32 {
+        return normalize_legacy_skin(skin);
+    }
     if skin.width != skin.height || !matches!(skin.width, 64 | 128 | 256) {
         return None;
     }
@@ -51,6 +54,60 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
         }
     }
     Some(normalized.into())
+}
+
+fn normalize_legacy_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
+    const LEGACY_SKIN_BYTES: usize = 64 * 32 * 4;
+    if skin.rgba8.len() != LEGACY_SKIN_BYTES {
+        return None;
+    }
+    let mut normalized = vec![0; STANDARD_SKIN_BYTES];
+    normalized[..LEGACY_SKIN_BYTES].copy_from_slice(&skin.rgba8);
+
+    // Legacy skins contain only right limbs. Vanilla's 64x64 conversion
+    // mirrors each face into the modern left-leg and left-arm UV islands.
+    for (source_x, source_y, target_x, target_y, width, height) in [
+        (4, 16, 20, 48, 4, 4),
+        (8, 16, 24, 48, 4, 4),
+        (0, 20, 24, 52, 4, 12),
+        (4, 20, 20, 52, 4, 12),
+        (8, 20, 16, 52, 4, 12),
+        (12, 20, 28, 52, 4, 12),
+        (44, 16, 36, 48, 4, 4),
+        (48, 16, 40, 48, 4, 4),
+        (40, 20, 40, 52, 4, 12),
+        (44, 20, 36, 52, 4, 12),
+        (48, 20, 32, 52, 4, 12),
+        (52, 20, 44, 52, 4, 12),
+    ] {
+        copy_mirrored_rect(
+            &skin.rgba8,
+            &mut normalized,
+            [source_x, source_y],
+            [target_x, target_y],
+            [width, height],
+        );
+    }
+    Some(normalized.into())
+}
+
+fn copy_mirrored_rect(
+    source: &[u8],
+    target: &mut [u8],
+    source_origin: [usize; 2],
+    target_origin: [usize; 2],
+    size: [usize; 2],
+) {
+    for y in 0..size[1] {
+        for x in 0..size[0] {
+            let source_x = source_origin[0] + size[0] - 1 - x;
+            let source_offset = ((source_origin[1] + y) * STANDARD_SKIN_SIDE + source_x) * 4;
+            let target_offset =
+                ((target_origin[1] + y) * STANDARD_SKIN_SIDE + target_origin[0] + x) * 4;
+            target[target_offset..target_offset + 4]
+                .copy_from_slice(&source[source_offset..source_offset + 4]);
+        }
+    }
 }
 
 fn generated_default_skin() -> Vec<u8> {
@@ -245,8 +302,39 @@ mod tests {
         assert!(pack_actor_textures(&vec![valid; MAX_RENDERED_PLAYERS + 1]).is_none());
     }
 
+    #[test]
+    fn legacy_skin_is_mirrored_into_vanilla_left_limb_regions() {
+        let mut legacy = vec![0; 64 * 32 * 4];
+        for y in 0..32 {
+            for x in 0..64 {
+                let offset = (y * 64 + x) * 4;
+                legacy[offset..offset + 4].copy_from_slice(&[x as u8, y as u8, 0x5a, 255]);
+            }
+        }
+        let normalized = normalize_actor_skin(&ActorSkinPixels {
+            width: 64,
+            height: 32,
+            rgba8: legacy.into(),
+        })
+        .expect("exact legacy skin is supported");
+
+        assert_eq!(rgba_pixel(&normalized, 3, 7), [3, 7, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 0, 32), [0; 4]);
+        assert_eq!(rgba_pixel(&normalized, 20, 48), [7, 16, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 23, 51), [4, 19, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 16, 52), [11, 20, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 27, 63), [0, 31, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 36, 48), [47, 16, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 32, 52), [51, 20, 0x5a, 255]);
+        assert_eq!(rgba_pixel(&normalized, 43, 63), [40, 31, 0x5a, 255]);
+    }
+
     fn pixel(atlas: &ActorTextureAtlas, x: usize, y: usize) -> [u8; 4] {
         let offset = (y * atlas.width as usize + x) * 4;
         atlas.rgba8[offset..offset + 4].try_into().unwrap()
+    }
+    fn rgba_pixel(rgba8: &[u8], x: usize, y: usize) -> [u8; 4] {
+        let offset = (y * STANDARD_SKIN_SIDE + x) * 4;
+        rgba8[offset..offset + 4].try_into().unwrap()
     }
 }
