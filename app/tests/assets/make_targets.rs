@@ -683,7 +683,12 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
         format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),
     ];
 
-    run_make_entity(root, &assignments);
+    assert!(!report.exists());
+    let missing_output = run_make_entity(root, &assignments);
+    assert!(
+        missing_output.contains("run-if-asset-report-stale"),
+        "missing-report recovery did not execute the freshness helper: {missing_output}"
+    );
     assert_eq!(
         fs::read_to_string(&invocations)
             .unwrap()
@@ -699,7 +704,11 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
         .unwrap()
         .set_modified(baseline - Duration::from_secs(300))
         .unwrap();
-    run_make_entity(root, &assignments);
+    let stale_output = run_make_entity(root, &assignments);
+    assert!(
+        stale_output.contains("run-if-asset-report-stale"),
+        "stale-report recovery did not execute the freshness helper: {stale_output}"
+    );
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
     assert!(
         !upstream.exists(),
@@ -725,7 +734,7 @@ fn run_make_atmosphere(root: &Path, assignments: &[String]) {
     );
 }
 
-fn run_make_entity(root: &Path, assignments: &[String]) {
+fn run_make_entity(root: &Path, assignments: &[String]) -> String {
     let output = Command::new("make")
         .current_dir(root)
         .args(["-f", "Makefile", "-j4", "entity-assets"])
@@ -738,6 +747,7 @@ fn run_make_entity(root: &Path, assignments: &[String]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn run_make_vanilla_assets(root: &Path, assignments: &[String]) {
