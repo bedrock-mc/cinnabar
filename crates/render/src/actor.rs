@@ -23,14 +23,15 @@ pub use gpu::{
 pub use rig::{
     ACTOR_BONE_MATRIX_BYTES, ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity,
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
+    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSpatialDiagnostics, ActorRigSubmission, ActorRigVertex, EntityRigId,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR,
+    RenderBoneTransform, actor_rig_spatial_diagnostics, actor_rig_submission_is_visible,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
 };
-pub use witness::{ActorMainWitness, ActorRuntimeWitness};
+pub use witness::{ActorMainWitness, ActorRuntimeWitness, ActorSpatialWitness};
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
@@ -103,6 +104,7 @@ pub struct ActorRenderFrame {
     pub instance_revision: u64,
     pub skin_revision: u64,
     pub rig: ActorRigRenderFrame,
+    pub local_runtime_id: u64,
 }
 
 impl Default for ActorRenderFrame {
@@ -113,6 +115,7 @@ impl Default for ActorRenderFrame {
             instance_revision: 0,
             skin_revision: 0,
             rig: ActorRigRenderFrame::default(),
+            local_runtime_id: 0,
         }
     }
 }

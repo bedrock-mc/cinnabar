@@ -309,12 +309,34 @@ fn mutation_look_target_centers_the_block_before_world_ready_visibility_sampling
 }
 
 #[test]
-fn acceptance_orients_a_normal_camera_toward_the_mutation_before_readiness() {
-    let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
-    assert!(orient_mutation_camera(&mut camera, Some([14, 71, -6])));
-    let forward = camera.rotation * Vec3::NEG_Z;
-    let expected = (Vec3::new(14.5, 71.5, -5.5) - camera.translation).normalize();
+fn acceptance_orients_view_authority_before_deriving_the_third_person_boom() {
+    let subject = Vec3::new(10.5, 73.0, -5.5);
+    let mut view = crate::local_player::LocalViewPose::new(subject, bevy::prelude::Quat::IDENTITY);
+    assert!(orient_mutation_view(&mut view, Some([14, 71, -6])));
+    let forward = view.rotation() * Vec3::NEG_Z;
+    let expected = (Vec3::new(14.5, 71.5, -5.5) - subject).normalize();
     assert!(forward.abs_diff_eq(expected, 0.0001));
+    let camera = crate::camera::perspective_pose(
+        subject,
+        view.rotation(),
+        semantic_input::PerspectiveMode::ThirdPersonBack,
+    );
+    assert!(camera.translation.abs_diff_eq(
+        subject - forward * crate::camera::THIRD_PERSON_RADIUS_BLOCKS,
+        0.0001
+    ));
+}
+
+#[test]
+fn normal_runtime_never_applies_acceptance_mutation_aiming() {
+    let mut acceptance = AcceptanceRun::new(None, None, false, false);
+    acceptance.set_mutation_coordinate([14, 71, -6]);
+    let mut view = crate::local_player::LocalViewPose::new(
+        Vec3::new(10.5, 73.0, -5.5),
+        bevy::prelude::Quat::IDENTITY,
+    );
+    assert!(!orient_enabled_acceptance_view(&acceptance, &mut view));
+    assert_eq!(view.rotation(), bevy::prelude::Quat::IDENTITY);
 }
 
 #[test]

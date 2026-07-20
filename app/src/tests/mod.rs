@@ -50,7 +50,7 @@ use crate::acceptance::{
     world_ready::{
         GalleryAnchorEmitter, SubChunkTimeoutProgress, WORLD_READY_QUIET_INTERVAL,
         WorldReadySettler, WorldReadySnapshot, WorldReadyWork, mutation_look_target,
-        orient_mutation_camera,
+        orient_enabled_acceptance_view, orient_mutation_view,
     },
 };
 use crate::metrics::{DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot};

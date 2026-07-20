@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::Resource;
 
-use super::{ActorRigRejects, ActorRigRoute};
+use super::{ActorRigRejects, ActorRigRoute, ActorRigSpatialDiagnostics};
 
 const MAX_ACTOR_WITNESS_EMISSIONS_PER_STAGE: usize = 64;
 
@@ -18,6 +18,50 @@ pub struct ActorMainWitness {
     pub frame_manifest: usize,
     pub skin_bytes: usize,
     pub rejects: ActorRigRejects,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActorSpatialWitness {
+    pub runtime_id: u64,
+    pub vertex_count: u32,
+    pub actor_feet_milliblocks: [i64; 3],
+    pub camera_milliblocks: [i64; 3],
+    pub camera_rotation_microunits: [i64; 4],
+    pub model_world_min_milliblocks: [i64; 3],
+    pub model_world_max_milliblocks: [i64; 3],
+    pub model_ndc_min_microunits: [i64; 3],
+    pub model_ndc_max_microunits: [i64; 3],
+    pub center_clip_microunits: [i64; 4],
+}
+
+impl ActorSpatialWitness {
+    #[must_use]
+    pub fn new(
+        runtime_id: u64,
+        actor_feet: [f32; 3],
+        camera_translation: [f32; 3],
+        camera_rotation: [f32; 4],
+        diagnostics: ActorRigSpatialDiagnostics,
+    ) -> Option<Self> {
+        fn quantize<const N: usize>(values: [f32; N], scale: f32) -> Option<[i64; N]> {
+            values
+                .iter()
+                .all(|value| value.is_finite())
+                .then(|| values.map(|value| (f64::from(value) * f64::from(scale)).round() as i64))
+        }
+        Some(Self {
+            runtime_id,
+            vertex_count: diagnostics.vertex_count,
+            actor_feet_milliblocks: quantize(actor_feet, 1_000.0)?,
+            camera_milliblocks: quantize(camera_translation, 1_000.0)?,
+            camera_rotation_microunits: quantize(camera_rotation, 1_000_000.0)?,
+            model_world_min_milliblocks: quantize(diagnostics.model_world_min, 1_000.0)?,
+            model_world_max_milliblocks: quantize(diagnostics.model_world_max, 1_000.0)?,
+            model_ndc_min_microunits: quantize(diagnostics.model_ndc_min, 1_000_000.0)?,
+            model_ndc_max_microunits: quantize(diagnostics.model_ndc_max, 1_000_000.0)?,
+            center_clip_microunits: quantize(diagnostics.center_clip, 1_000_000.0)?,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +81,7 @@ pub(crate) struct ActorQueueWitness {
     pub bind_group: bool,
     pub view_count: usize,
     pub queued: bool,
+    pub spatial: Option<ActorSpatialWitness>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -128,11 +173,12 @@ impl ActorRuntimeWitness {
     pub(crate) fn observe_queue(&self, observation: ActorQueueWitness) {
         if self.changed(|state| &mut state.queue, 2, observation) && !cfg!(test) {
             eprintln!(
-                "RUST_MCBE_ACTOR_WITNESS stage=queue prepared_instances={} bind_group={} view_count={} queued={}",
+                "RUST_MCBE_ACTOR_WITNESS stage=queue prepared_instances={} bind_group={} view_count={} queued={} spatial={:?}",
                 observation.prepared_instances,
                 observation.bind_group,
                 observation.view_count,
                 observation.queued,
+                observation.spatial,
             );
         }
     }
@@ -171,6 +217,7 @@ mod tests {
             bind_group: true,
             view_count: 1,
             queued: true,
+            spatial: None,
         };
         witness.observe_queue(observation);
         witness.observe_queue(observation);

@@ -860,6 +860,7 @@ pub(crate) fn publish_actor_render_frame(
     );
     let selected_count = batch.submissions.len();
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
+    frame.local_runtime_id = local_runtime_id;
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
         local_visible,

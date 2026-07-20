@@ -247,6 +247,89 @@ pub struct ActorRigRenderFrame {
     pub rejects: ActorRigRejects,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ActorRigSpatialDiagnostics {
+    pub vertex_count: u32,
+    pub model_world_min: [f32; 3],
+    pub model_world_max: [f32; 3],
+    pub model_ndc_min: [f32; 3],
+    pub model_ndc_max: [f32; 3],
+    pub center_clip: [f32; 4],
+}
+
+#[must_use]
+pub fn actor_rig_spatial_diagnostics(
+    frame: &ActorRigRenderFrame,
+    instance_index: usize,
+    clip_from_world: bevy::math::Mat4,
+) -> Option<ActorRigSpatialDiagnostics> {
+    let instance = frame.instances.get(instance_index)?;
+    let span = *frame.geometry_spans.get(instance.geometry_id as usize)?;
+    let first = span.first_vertex as usize;
+    let end = first.checked_add(span.vertex_count as usize)?;
+    let vertices = frame.geometry_vertices.get(first..end)?;
+    if vertices.is_empty() || !clip_from_world.is_finite() {
+        return None;
+    }
+    let mut world_min = Vec3::splat(f32::INFINITY);
+    let mut world_max = Vec3::splat(f32::NEG_INFINITY);
+    let mut ndc_min = Vec3::splat(f32::INFINITY);
+    let mut ndc_max = Vec3::splat(f32::NEG_INFINITY);
+    let mut projected = 0_u32;
+    for vertex in vertices {
+        let bone = vertex.bone_index as usize;
+        let previous = *frame
+            .previous_bones
+            .get(instance.previous_bone_base as usize + bone)?;
+        let current = *frame
+            .current_bones
+            .get(instance.current_bone_base as usize + bone)?;
+        let local = Vec3::from_array(vertex.position);
+        let transform = |matrix: [[f32; 4]; 3], point: Vec3| {
+            let homogeneous = point.extend(1.0);
+            Vec3::new(
+                Vec4::from_array(matrix[0]).dot(homogeneous),
+                Vec4::from_array(matrix[1]).dot(homogeneous),
+                Vec4::from_array(matrix[2]).dot(homogeneous),
+            )
+        };
+        let posed = transform(previous, local).lerp(
+            transform(current, local),
+            instance.partial_tick.clamp(0.0, 1.0),
+        );
+        let posed = posed.extend(1.0);
+        let world = Vec3::new(
+            Vec4::from_array(instance.world_from_actor[0]).dot(posed),
+            Vec4::from_array(instance.world_from_actor[1]).dot(posed),
+            Vec4::from_array(instance.world_from_actor[2]).dot(posed),
+        );
+        if !world.is_finite() {
+            return None;
+        }
+        world_min = world_min.min(world);
+        world_max = world_max.max(world);
+        let clip = clip_from_world * world.extend(1.0);
+        if clip.is_finite() && clip.w > f32::EPSILON {
+            let ndc = clip.truncate() / clip.w;
+            ndc_min = ndc_min.min(ndc);
+            ndc_max = ndc_max.max(ndc);
+            projected = projected.saturating_add(1);
+        }
+    }
+    if projected == 0 {
+        return None;
+    }
+    let center_clip = clip_from_world * ((world_min + world_max) * 0.5).extend(1.0);
+    Some(ActorRigSpatialDiagnostics {
+        vertex_count: span.vertex_count,
+        model_world_min: world_min.to_array(),
+        model_world_max: world_max.to_array(),
+        model_ndc_min: ndc_min.to_array(),
+        model_ndc_max: ndc_max.to_array(),
+        center_clip: center_clip.to_array(),
+    })
+}
+
 impl Default for ActorRigRenderFrame {
     fn default() -> Self {
         Self {

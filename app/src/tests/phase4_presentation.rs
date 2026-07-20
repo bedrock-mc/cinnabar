@@ -469,6 +469,21 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         let projected_center = clip_from_world * body_center.extend(1.0);
         assert!(projected_center.w > 0.0);
         assert!((projected_center.x / projected_center.w).abs() < 1.0e-5);
+
+        let batch = select_actor_presentations(42, true, Some(local), []);
+        let mut scene = ActorRenderScene::default();
+        let rendered = update_actor_rig_scene(&mut scene, 0.5, batch);
+        let spatial = render::actor_rig_spatial_diagnostics(&rendered.rig, 0, clip_from_world)
+            .expect("the exact diagnostic GPU payload projects through the live camera matrix");
+        assert_eq!(
+            spatial.vertex_count as usize,
+            render::STANDARD_BIPED_VERTEX_COUNT
+        );
+        assert!(spatial.model_ndc_min[0] < 0.0);
+        assert!(spatial.model_ndc_max[0] > 0.0);
+        assert!(spatial.model_world_min[0] < subject_eye.x);
+        assert!(spatial.model_world_max[0] > subject_eye.x);
+        assert!((0.49..=1.01).contains(&(spatial.model_world_max[0] - spatial.model_world_min[0])));
     }
 
     publish_local_actor_visibility(

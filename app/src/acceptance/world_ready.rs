@@ -2,7 +2,7 @@ use std::{io::Write, time::Instant};
 
 use bevy::{
     log::error,
-    prelude::{Query, Res, ResMut, Transform, Vec3, With},
+    prelude::{Res, ResMut, Vec3},
 };
 use client_world::ViewCohortStatus;
 use render::{
@@ -92,15 +92,22 @@ pub(crate) fn mutation_look_target(coordinate: Option<[i32; 3]>) -> Option<Vec3>
     })
 }
 
-pub(crate) fn orient_mutation_camera(
-    transform: &mut Transform,
+pub(crate) fn orient_mutation_view(
+    view: &mut crate::local_player::LocalViewPose,
     coordinate: Option<[i32; 3]>,
 ) -> bool {
     let Some(target) = mutation_look_target(coordinate) else {
         return false;
     };
-    transform.rotation = camera::look_at_target(transform.translation, target);
+    view.set_rotation(camera::look_at_target(view.eye_translation(), target));
     true
+}
+
+pub(crate) fn orient_enabled_acceptance_view(
+    acceptance: &AcceptanceRun,
+    view: &mut crate::local_player::LocalViewPose,
+) -> bool {
+    acceptance.enabled() && orient_mutation_view(view, acceptance.mutation_coordinate())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -289,7 +296,7 @@ pub(crate) fn emit_world_ready(
     mut acceptance: ResMut<AcceptanceRun>,
     mut auto_fly: ResMut<camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
-    mut cameras: Query<&mut Transform, With<camera::FlyCamera>>,
+    mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
     let missing_mapping_count = client_world.runtime_assets.missing_count();
     let Some(stream) = client_world.stream.as_mut() else {
@@ -560,11 +567,11 @@ pub(crate) fn emit_world_ready(
         return;
     }
     let mutation_coordinate = acceptance.mutation_coordinate();
-    if let Some(target) = mutation_look_target(mutation_coordinate) {
-        auto_fly.set_look_target(target);
-    }
-    if let Ok(mut transform) = cameras.single_mut() {
-        orient_mutation_camera(&mut transform, mutation_coordinate);
+    if acceptance.enabled() {
+        if let Some(target) = mutation_look_target(mutation_coordinate) {
+            auto_fly.set_look_target(target);
+        }
+        orient_enabled_acceptance_view(&acceptance, &mut view);
     }
     let mutation_target = mutation_coordinate.map(|coordinate| {
         SubChunkKey::new(

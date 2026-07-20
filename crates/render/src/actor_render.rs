@@ -3,7 +3,8 @@ use std::mem::size_of;
 use crate::actor::{
     ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
     ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRigVertex, ActorRuntimeWitness,
-    ActorSubmitWitness, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, gpu::ActorDrawTracker,
+    ActorSpatialWitness, ActorSubmitWitness, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
+    actor_rig_spatial_diagnostics, gpu::ActorDrawTracker,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -555,6 +556,7 @@ struct QueueActorParams<'w, 's> {
     pipeline_cache: Res<'w, PipelineCache>,
     pipeline: ResMut<'w, ActorPipeline>,
     gpu: Res<'w, ActorGpu>,
+    frame: Res<'w, ActorRenderFrame>,
     phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
     views: Query<
@@ -584,11 +586,13 @@ fn queue_actors(
             bind_group: params.gpu.bind_group.is_some(),
             view_count,
             queued: false,
+            spatial: None,
         });
         return;
     }
     let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
     let mut queued = false;
+    let mut spatial = None;
     for (view_entity, main_entity, view, msaa) in &params.views {
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
@@ -621,6 +625,42 @@ fn queue_actors(
             BinnedRenderPhaseType::NonMesh,
             *next_tick,
         );
+        if spatial.is_none()
+            && params.frame.local_runtime_id != 0
+            && let Some(manifest) = params
+                .frame
+                .rig
+                .manifest
+                .iter()
+                .find(|entry| entry.identity.runtime_id == params.frame.local_runtime_id)
+        {
+            let clip_from_world = view.clip_from_world.unwrap_or_else(|| {
+                view.clip_from_view * view.world_from_view.to_matrix().inverse()
+            });
+            if let Some(diagnostics) = actor_rig_spatial_diagnostics(
+                &params.frame.rig,
+                manifest.instance_index as usize,
+                clip_from_world,
+            ) && let Some(instance) = params
+                .frame
+                .rig
+                .instances
+                .get(manifest.instance_index as usize)
+            {
+                let camera = view.world_from_view.compute_transform();
+                spatial = ActorSpatialWitness::new(
+                    params.frame.local_runtime_id,
+                    [
+                        instance.world_from_actor[0][3],
+                        instance.world_from_actor[1][3],
+                        instance.world_from_actor[2][3],
+                    ],
+                    camera.translation.to_array(),
+                    camera.rotation.to_array(),
+                    diagnostics,
+                );
+            }
+        }
         queued = true;
     }
     if queued {
@@ -639,6 +679,7 @@ fn queue_actors(
         bind_group: params.gpu.bind_group.is_some(),
         view_count,
         queued,
+        spatial,
     });
 }
 
