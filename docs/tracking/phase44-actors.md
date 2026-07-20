@@ -1,6 +1,6 @@
 # Phase 4.4 actor authority and live interpolation tracker
 
-Current pre-review progress: **70%** at implementation head `20534df` (authority, production eligibility, acceptance-only correlation, and the bounded literal-default entity-texture route are implemented; corrected-head independent review and live/native/performance gates remain open).
+Current pre-review progress: **70%** at implementation head `b3913cf` (authority, production eligibility, acceptance-only correlation, and the strictly bounded entity-texture route are implemented; combined-head review and live/native/performance gates remain open).
 
 This estimate uses equal contract, runtime, presentation, deterministic-verification, and live/native/performance gates.
 
@@ -15,11 +15,11 @@ Gate scores: contract 95%, runtime 92%, production presentation 82%, determinist
 - [x] Teleport/replacement snaps plus finite, frustum, distance, and capacity controls.
 - [x] Deterministic ordinary-move, teleport, origin, and interpolation tests.
 - [x] Retain and resolve `AddPlayer` game mode against the authoritative default (`29b47bb`).
-- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`29b47bb`).
-- [x] Apply spectator and metadata-invisible filtering in the production rig renderer before culling and the 128-instance cap (`b5f1c09`), including suppression of synthetic local F5 fallback for a spectator.
+- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`29b47bb`, completed for StartGame-only local authority by `b68adb5`).
+- [x] Apply spectator and metadata-invisible filtering in the production rig renderer before culling and the 128-instance cap (`b5f1c09`, `20534df`, `b68adb5`), including synthetic local F5 suppression across post-StartGame mode changes.
 - [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport (`29b47bb`).
 - [x] Add bounded packet-to-store-to-presented-frame correlation (`9d938e2`, corrected by `20534df`): capture is disabled during normal gameplay; timed acceptance runs correlate an exact committed identity across two adjacent GPU draw generations, reset at session/dimension boundaries, record rejected/drop counts, and emit at most 64 parsed witnesses per session.
-- [x] Compile and render bounded schema-v5 literal-default PNG/TGA entity textures (`8cb2518`): the pinned official pack yields 42 exact rig textures / 521,504 RGBA bytes, client-world publishes shared texture authority, and the renderer packs visible submissions into a bounded variable-size active-frame atlas with texel-center UVs. Dynamic, conditional, multiple, or ambiguous texture routes remain explicit unsupported `NoDraw` cases rather than guessed presentation.
+- [x] Compile and render bounded schema-v5 literal-default PNG/TGA entity textures (`8cb2518`, corrected by `f0763b0` and `b3913cf`): the pinned official pack currently yields 1 exact `entity_alphatest` rig texture / 16,384 RGBA bytes after duplicate-generation and material-authority rejection. Client-world publishes shared texture authority; the renderer uses geometry-derived conservative bounds and a bounded variable-size active-frame atlas with replicated gutters and exact boundary UVs. Dynamic, conditional, multiple, duplicate-generation, per-bone, ambiguous, or unsupported-material routes remain explicit `NoDraw` cases rather than guessed presentation.
 
 ## Remaining production authority
 
@@ -29,7 +29,7 @@ Gate scores: contract 95%, runtime 92%, production presentation 82%, determinist
 - [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport.
 - [x] Add bounded packet-to-store-to-presented-frame correlation.
 
-## Deterministic verification at `8cb2518`
+## Deterministic verification at `b3913cf`
 
 - Actor witness, movement-authority, and Windows make-target regressions pass.
 - Strict `client-world` and `bedrock-client` Clippy with warnings denied passes.
