@@ -46,6 +46,10 @@ const CHAT_TEXT_SCALE: f32 = 0.5;
 // default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
 const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
+// Java chat fade: rows show for 200 ticks then fade over the final 20
+// (10 s + 1 s), pinned here in milliseconds.
+const CHAT_VISIBLE_MILLIS: u64 = 10_000;
+const CHAT_FADE_MILLIS: u64 = 1_000;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 256;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -335,7 +339,7 @@ impl UiPresentationRuntime {
             positioned_suggestions.push((index, layout, y, suggestion_cursor, color));
             suggestion_cursor = (y - 4.0).max(chat_region_top);
         }
-        let chat = runtime.chat().view_nodes();
+        let chat = runtime.chat().messages();
         let first = chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS);
         let chat_bottom = if chat_focused {
             suggestion_cursor
@@ -344,8 +348,27 @@ impl UiPresentationRuntime {
         };
         let mut chat_cursor = chat_bottom;
         let mut visible_chat = Vec::new();
-        for node in chat[first..].iter().rev() {
-            let text = bounded_visible_text(&node.text);
+        for node in chat.iter().skip(first).rev() {
+            // Java chat fade: an unfocused row shows for ten seconds, then
+            // fades over one second (200 + 20 ticks in the reference). Rows
+            // stamped ahead of the local clock stay fresh rather than hiding.
+            let alpha = if chat_focused {
+                255u8
+            } else {
+                let age = now_millis.saturating_sub(node.received_millis);
+                if age <= CHAT_VISIBLE_MILLIS {
+                    255
+                } else if age >= CHAT_VISIBLE_MILLIS + CHAT_FADE_MILLIS {
+                    continue;
+                } else {
+                    let remaining = (CHAT_VISIBLE_MILLIS + CHAT_FADE_MILLIS - age) as f32;
+                    (255.0 * remaining / CHAT_FADE_MILLIS as f32) as u8
+                }
+            };
+            if alpha == 0 {
+                continue;
+            }
+            let text = bounded_visible_text(&node.message);
             let layout = self
                 .layouts
                 .layout(TextLayoutRequest {
@@ -390,13 +413,13 @@ impl UiPresentationRuntime {
                         }
                     }
                     if let Some((layout, height)) = best {
-                        visible_chat.push((layout, chat_cursor - height, chat_cursor));
+                        visible_chat.push((layout, chat_cursor - height, chat_cursor, alpha));
                     }
                 }
                 break;
             }
             let y = chat_cursor - layout_height;
-            visible_chat.push((layout, y, chat_cursor));
+            visible_chat.push((layout, y, chat_cursor, alpha));
             chat_cursor = (y - 4.0).max(chat_region_top);
         }
         if chat_focused {
@@ -406,7 +429,7 @@ impl UiPresentationRuntime {
                 .max(panel_left);
             let content_top = visible_chat
                 .iter()
-                .map(|(_, top, _)| *top)
+                .map(|(_, top, _, _)| *top)
                 .chain(positioned_suggestions.iter().map(|(_, _, top, _, _)| *top))
                 .chain(std::iter::once(editor_y))
                 .fold(editor_y, f32::min);
@@ -425,35 +448,42 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
         }
-        // Java-style unfocused chat: one continuous translucent backdrop spanning all visible
-        // lines. A per-line backdrop would leave transparent stripes in the inter-line spacing;
-        // Java's line backgrounds are contiguous, so cover the whole block in a single rect. When
-        // focused, the unified chat panel above already provides the background, so this is skipped
-        // to avoid double-darkening. The backdrop precedes the text nodes so it renders underneath.
+        // Java-style unfocused chat: each line carries its own translucent
+        // backdrop so the row's fade dims the background with the text. The
+        // rects extend across the inter-line spacing to the row above, keeping
+        // the block visually contiguous like the reference. When focused, the
+        // unified chat panel above already provides the background. Backdrops
+        // precede the text nodes so they render underneath.
         if !chat_focused && !visible_chat.is_empty() {
             let backdrop_left = (chat_left - CHAT_LINE_BACKDROP_PAD).max(0.0);
-            let backdrop_top = visible_chat
-                .iter()
-                .map(|(_, top, _)| *top)
-                .fold(f32::INFINITY, f32::min);
-            let backdrop_bottom = visible_chat
-                .iter()
-                .map(|(_, _, bottom)| *bottom)
-                .fold(f32::NEG_INFINITY, f32::max);
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(backdrop_left, backdrop_top, chat_right, backdrop_bottom)?,
-                )
-                .with_visual(UiVisual::Solid {
-                    texture_page: self.solid_texture_page,
-                    color: CHAT_LINE_BACKDROP_COLOR,
-                }),
-            );
-            next_id = next_id.saturating_add(1);
+            for (index, (_, top, bottom, alpha)) in visible_chat.iter().enumerate() {
+                // The next entry (pushed after this one) sits above; stretch
+                // this row's backdrop up to it so no stripe shows through.
+                let covered_top = visible_chat
+                    .get(index + 1)
+                    .map_or(*top, |(_, _, above_bottom, _)| top.min(*above_bottom));
+                let backdrop_alpha =
+                    (u16::from(CHAT_LINE_BACKDROP_COLOR[3]) * u16::from(*alpha) / 255) as u8;
+                nodes.push(
+                    UiNode::new(
+                        UiNodeId::new(next_id),
+                        None,
+                        rect(backdrop_left, covered_top, chat_right, *bottom)?,
+                    )
+                    .with_visual(UiVisual::Solid {
+                        texture_page: self.solid_texture_page,
+                        color: [
+                            CHAT_LINE_BACKDROP_COLOR[0],
+                            CHAT_LINE_BACKDROP_COLOR[1],
+                            CHAT_LINE_BACKDROP_COLOR[2],
+                            backdrop_alpha,
+                        ],
+                    }),
+                );
+                next_id = next_id.saturating_add(1);
+            }
         }
-        for (layout, y, bottom) in visible_chat.into_iter().rev() {
+        for (layout, y, bottom, alpha) in visible_chat.into_iter().rev() {
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
@@ -462,7 +492,7 @@ impl UiPresentationRuntime {
                 )
                 .with_visual(UiVisual::Text {
                     layout,
-                    color: [255; 4],
+                    color: [255, 255, 255, alpha],
                 }),
             );
             next_id = next_id.saturating_add(1);

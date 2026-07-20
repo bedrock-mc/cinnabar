@@ -14,6 +14,7 @@ use ui::BoundedStat;
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod hud_matrix_tests;
 mod retained_hud_tests;
 
 #[test]
