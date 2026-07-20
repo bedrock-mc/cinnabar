@@ -318,7 +318,7 @@
 - Modify: `crates/assets/Cargo.toml`
 
 **Interfaces:**
-- CLI: `cargo run -p assets --bin assetc -- compile --pack <resource_pack> --registry <registry.bin> --out <ignored-dir>/vanilla-v1001.mcbea`.
+- CLI: `cargo run -p asset-compiler --bin assetc -- compile --pack <resource_pack> --registry <registry.bin> --out <ignored-dir>/vanilla-v1001.mcbea`.
 - `pub struct CompiledAssets { pub visuals: Box<[BlockVisual]>, pub hashed: Box<[(u32, u32)]>, pub materials: Box<[Material]>, pub textures: TextureArray }`.
 - Blob magic `MCBEAS01`, format version 1, tile size 16, mip count 5.
 - `Material` is two `u32` GPU words: layer and flags.
@@ -380,7 +380,7 @@
 
   ```text
   cargo test -p assets --test compiler --test blob --locked -- --nocapture
-  cargo run -p assets --bin assetc -- --help
+  cargo run -p asset-compiler --bin assetc -- --help
   cargo clippy -p assets --all-targets --locked -- -D warnings
   git status --short
   ```
@@ -671,7 +671,7 @@
 
 - [x] **Step 3: Implement startup selection and diagnostic fallback**
 
-  Load and validate the blob before constructing `WorldStream` and `DebugWorldPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
+  Load and validate the blob before constructing `WorldStream` and `ChunkRenderPlugin`. Never read Mojang JSON/PNG files from the frame loop. The fallback uses a programmatically generated 16x16 magenta/black checker and material 0 only.
 
 - [x] **Step 4: Verify the full codebase before local Mojang ingestion**
 
@@ -695,7 +695,7 @@
 
   ```powershell
   powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
-  cargo run -p assets --bin assetc -- compile `
+  cargo run -p asset-compiler --bin assetc -- compile `
     --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack `
     --registry crates/assets/data/block-registry-v1001.bin `
     --out .local/assets/compiled/vanilla-v1001.mcbea

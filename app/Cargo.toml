@@ -7,8 +7,10 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+arboard = { version = "3", default-features = false }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
+    "bevy_anti_alias",
     "bevy_camera",
     "bevy_image",
     "bevy_winit",
@@ -18,15 +20,24 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 crossbeam-channel = "0.5"
+client-world = { path = "../crates/client-world" }
+meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
 rayon.workspace = true
 render = { path = "../crates/render" }
+semantic-input = { path = "../crates/input" }
+sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+ui = { path = "../crates/ui" }
 world = { path = "../crates/world" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-bevy = { workspace = true, default-features = false, features = ["x11"] }
+bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
+
+[dev-dependencies]
+client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
+render = { path = "../crates/render", features = ["publication-test-support"] }

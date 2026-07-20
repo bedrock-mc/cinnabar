@@ -1,19 +1,25 @@
 use bytes::{Buf, BytesMut};
 use protocol::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, DimensionRange, GameData, HASHED_AIR_NETWORK_ID,
-    LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MovePlayerEvent,
-    SEQUENTIAL_AIR_NETWORK_ID, SubChunkResult, WorldBootstrap, WorldEvent, WorldPacketError,
-    air_network_id, into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
+    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
+    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent,
+    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
+    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
-    BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket, LevelChunkPacket,
-    McpePacketData, MovePlayerPacket, NetworkChunkPublisherUpdatePacket, StartGamePacketDimension,
+    BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
+    CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
+    GameRuleI32, GameRuleI32Type, GameRuleI32Value, GameRuleVarint, GameRuleVarintType,
+    GameRuleVarintValue, GameRulesChangedPacket, LevelChunkPacket, LevelEventPacket,
+    LevelEventPacketEvent, McpePacketData, MovePlayerPacket, MovePlayerPacketMode,
+    NetworkChunkPublisherUpdatePacket, SetTimePacket, StartGamePacketDimension,
     SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
     SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
-    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec3F,
-    Vec3I,
+    SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
+    Vec3F, Vec3I,
 };
 
 fn biome_definition(name_index: i16, biome_id: i16) -> BiomeDefinition {
@@ -192,6 +198,16 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         y: 114,
         z: 61,
     };
+    game_data.start_game.day_cycle_stop_time = 18_000;
+    game_data.start_game.current_tick = 123_456;
+    game_data.start_game.gamerules.push(GameRuleVarint {
+        name: "DoDaylightCycle".to_owned(),
+        editable: true,
+        type_: GameRuleVarintType::Bool,
+        value: Some(GameRuleVarintValue::Bool(false)),
+    });
+    game_data.start_game.rain_level = 0.25;
+    game_data.start_game.lightning_level = 0.75;
     game_data.start_game.block_network_ids_are_hashes = true;
 
     assert_eq!(
@@ -205,6 +221,70 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             block_network_ids_are_hashes: true,
         }
     );
+    assert_eq!(
+        WorldEnvironmentBootstrap::from_game_data(&game_data),
+        WorldEnvironmentBootstrap {
+            initial_time: 123_456,
+            day_cycle_lock_time: 18_000,
+            daylight_cycle_enabled: false,
+            rain_level: 0.25,
+            lightning_level: 0.75,
+        }
+    );
+}
+
+#[test]
+fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
+    let mut game_data = GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.start_game.current_tick = 6_000;
+    game_data.start_game.day_cycle_stop_time = 0;
+
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.initial_time, 6_000);
+    assert_eq!(bootstrap.day_cycle_lock_time, 0);
+    assert!(
+        bootstrap.daylight_cycle_enabled,
+        "an absent doDaylightCycle rule must not turn relay default zero into a clock lock"
+    );
+
+    game_data.start_game.gamerules.push(GameRuleVarint {
+        name: "DODAYLIGHTCYCLE".to_owned(),
+        editable: false,
+        type_: GameRuleVarintType::Int,
+        value: Some(GameRuleVarintValue::Int(0)),
+    });
+    assert!(
+        WorldEnvironmentBootstrap::from_game_data(&game_data).daylight_cycle_enabled,
+        "a non-boolean rule with the same name is not an authoritative cycle switch"
+    );
+}
+
+#[test]
+fn clamps_initial_weather_levels_and_fails_non_finite_values_closed() {
+    let mut game_data = GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.start_game.rain_level = -0.25;
+    game_data.start_game.lightning_level = 1.25;
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.rain_level, 0.0);
+    assert_eq!(bootstrap.lightning_level, 1.0);
+
+    game_data.start_game.rain_level = f32::NAN;
+    game_data.start_game.lightning_level = f32::INFINITY;
+    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    assert_eq!(bootstrap.rain_level, 0.0);
+    assert_eq!(bootstrap.lightning_level, 0.0);
 }
 
 #[test]
@@ -229,8 +309,112 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
             position: [-12.25, 65.5, 4096.75],
             pitch: -34.5,
             yaw: 271.25,
+            head_yaw: 99.0,
+            mode: protocol::MovePlayerMode::Normal,
+            on_ground: false,
+            teleported: false,
+            source_tick: 0,
         }))
     );
+}
+
+#[test]
+fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
+    let packet = MovePlayerPacket {
+        runtime_id: 73,
+        position: Vec3F {
+            x: -12.25,
+            y: 65.5,
+            z: 4096.75,
+        },
+        pitch: -34.5,
+        yaw: 271.25,
+        head_yaw: 99.0,
+        mode: MovePlayerPacketMode::Teleport,
+        on_ground: true,
+        tick: -12,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 2).unwrap(),
+        Some(WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 73,
+            position: [-12.25, 65.5, 4096.75],
+            pitch: -34.5,
+            yaw: 271.25,
+            head_yaw: 99.0,
+            mode: protocol::MovePlayerMode::Teleport,
+            on_ground: true,
+            teleported: true,
+            source_tick: -12,
+        }))
+    );
+}
+
+#[test]
+fn normalizes_server_authoritative_movement_correction_to_the_local_player_surface() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        position: Vec3F {
+            x: 27.5,
+            y: 111.0,
+            z: 91.5,
+        },
+        delta: Vec3F {
+            x: 0.25,
+            y: -1.5,
+            z: 2.75,
+        },
+        rotation: Vec2F {
+            x: -12.25,
+            z: 143.5,
+        },
+        on_ground: true,
+        tick: 4_096,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::PlayerMovementCorrection(
+            PlayerMovementCorrectionEvent {
+                position: [27.5, 111.0, 91.5],
+                delta: [0.25, -1.5, 2.75],
+                pitch: -12.25,
+                yaw: 143.5,
+                on_ground: true,
+                tick: 4_096,
+            }
+        ))
+    );
+}
+
+#[test]
+fn rejects_negative_server_authoritative_movement_correction_tick() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        tick: -1,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        into_world_event(packet.into(), 0),
+        Err(WorldPacketError::NegativeMovementCorrectionTick(-1))
+    );
+}
+
+#[test]
+fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
+    let packet = CorrectPlayerMovePredictionPacket {
+        prediction_type: CorrectPlayerMovePredictionPacketPredictionType::Vehicle,
+        position: Vec3F {
+            x: 300.0,
+            y: 90.0,
+            z: -200.0,
+        },
+        ..Default::default()
+    };
+
+    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
 }
 
 #[test]
@@ -267,6 +451,11 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
             position: [1.0, 2.0, 3.0],
             pitch: 0.0,
             yaw: 0.0,
+            head_yaw: 0.0,
+            mode: protocol::MovePlayerMode::Normal,
+            on_ground: false,
+            teleported: false,
+            source_tick: 0,
         }))
     );
 }
@@ -394,17 +583,34 @@ fn rejects_malformed_or_cached_level_chunks() {
         Err(WorldPacketError::CachedChunksUnsupported)
     );
 
+    // A world taller than vanilla overworld is accepted: custom servers send
+    // standard dimension ids with taller columns. Only the absolute protocol
+    // bound is enforced.
     let taller_than_overworld = LevelChunkPacket {
         dimension: 0,
         sub_chunk_count: 25,
+        payload: vec![0; 3],
+        ..Default::default()
+    };
+    let WorldEvent::LevelChunk(event) = into_world_event(taller_than_overworld.into(), 0)
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected LevelChunk event")
+    };
+    assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
+
+    let over_protocol_bound = LevelChunkPacket {
+        dimension: 0,
+        sub_chunk_count: (MAX_SUB_CHUNK_REQUESTS + 1) as i32,
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(taller_than_overworld.into(), 0),
+        into_world_event(over_protocol_bound.into(), 0),
         Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
             dimension: 0,
-            count: 25,
-            max: 24,
+            count: MAX_SUB_CHUNK_REQUESTS + 1,
+            max: MAX_SUB_CHUNK_REQUESTS,
         })
     );
 }
@@ -613,8 +819,108 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
 }
 
 #[test]
-fn ignores_packets_without_world_state() {
-    let packet = valentine::bedrock::version::v1_26_30::SetTimePacket { time: 6000 };
+fn normalizes_post_spawn_set_time() {
+    let packet = SetTimePacket { time: 6000 };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
+    );
+}
+
+#[test]
+fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
+    let packet = GameRulesChangedPacket {
+        rules: vec![
+            GameRuleI32 {
+                name: "keepinventory".to_owned(),
+                type_: GameRuleI32Type::Bool,
+                value: Some(GameRuleI32Value::Bool(true)),
+                ..Default::default()
+            },
+            GameRuleI32 {
+                name: "DoDaylightCycle".to_owned(),
+                type_: GameRuleI32Type::Int,
+                value: Some(GameRuleI32Value::Int(0)),
+                ..Default::default()
+            },
+            GameRuleI32 {
+                name: "DODAYLIGHTCYCLE".to_owned(),
+                type_: GameRuleI32Type::Bool,
+                value: Some(GameRuleI32Value::Bool(false)),
+                ..Default::default()
+            },
+        ],
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::DaylightCycle(DaylightCycleUpdateEvent {
+            enabled: false,
+        }))
+    );
+
+    let wrong_type = GameRulesChangedPacket {
+        rules: vec![GameRuleI32 {
+            name: "dodaylightcycle".to_owned(),
+            type_: GameRuleI32Type::Float,
+            value: Some(GameRuleI32Value::Float(0.0)),
+            ..Default::default()
+        }],
+    };
+    assert_eq!(into_world_event(wrong_type.into(), 0).unwrap(), None);
+}
+
+#[test]
+fn normalizes_weather_level_events_to_explicit_channel_targets() {
+    let cases = [
+        (
+            LevelEventPacketEvent::StartRain,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Rain,
+                level: 1.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StopRain,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Rain,
+                level: 0.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StartThunder,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Lightning,
+                level: 1.0,
+            },
+        ),
+        (
+            LevelEventPacketEvent::StopThunder,
+            WeatherUpdateEvent {
+                channel: WeatherChannel::Lightning,
+                level: 0.0,
+            },
+        ),
+    ];
+
+    for (event, expected) in cases {
+        let packet = LevelEventPacket {
+            event,
+            data: 48_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            into_world_event(packet.into(), 0).unwrap(),
+            Some(WorldEvent::Weather(expected))
+        );
+    }
+}
+
+#[test]
+fn ignores_level_events_without_normalized_world_state() {
+    let packet = LevelEventPacket {
+        event: LevelEventPacketEvent::SoundClick,
+        ..Default::default()
+    };
     assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
 }
 

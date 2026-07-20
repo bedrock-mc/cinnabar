@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,8 +16,9 @@ import (
 	"strconv"
 	"strings"
 
-	_ "github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/model"
+	_ "github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/world"
 	_ "github.com/df-mc/dragonfly/server/world/biome"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
@@ -24,8 +26,12 @@ import (
 
 const (
 	registryHeader      = "BREG1003"
+	lightRegistryHeader = "LREG1001"
 	biomeRegistryHeader = "BIOREG01"
 	registryProtocol    = 1001
+	dragonflyModule     = "github.com/df-mc/dragonfly"
+	dragonflyVersion    = "v0.11.1-0.20260714151819-dbbd8b787946"
+	dragonflyModuleSum  = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY="
 
 	flagAir              uint8 = 1 << 0
 	flagCubeGeometry     uint8 = 1 << 1
@@ -38,10 +44,63 @@ const (
 	maxRecordCount             = 1 << 16
 	maxCollisionBoxesPerRecord = 7
 	collisionFixedScale        = 100_000_000.0
+	collisionLocalHaloMin      = -100_000_000
+	collisionLocalHaloMax      = 200_000_000
 
 	maxBiomeRecordCount = 1_024
 	maxBiomeNameBytes   = 256
 )
+
+type BlockItemRoute struct {
+	Identifier  string          `json:"identifier"`
+	Metadata    uint32          `json:"metadata"`
+	BlockName   string          `json:"block_name"`
+	BlockState  json.RawMessage `json:"block_state"`
+	BlockVisual uint32          `json:"block_visual"`
+}
+
+type BlockItemRouteTable struct {
+	Schema               uint32           `json:"schema"`
+	Protocol             uint32           `json:"protocol"`
+	CanonicalBlockStates uint32           `json:"canonical_block_states"`
+	DragonflyModule      string           `json:"dragonfly_module"`
+	DragonflyVersion     string           `json:"dragonfly_version"`
+	DragonflyModuleSum   string           `json:"dragonfly_module_sum"`
+	BREGSHA256           string           `json:"breg_sha256"`
+	Routes               []BlockItemRoute `json:"routes"`
+}
+
+type lightRegistry interface {
+	LightBlock(runtimeID uint32) uint8
+	FilteringBlock(runtimeID uint32) uint8
+}
+
+var pmmpLightFallbackIdentifiers = []string{
+	"minecraft:lit_redstone_lamp",
+	"minecraft:redstone_lamp",
+}
+
+type PMMPLightProperties struct {
+	Brightness float64 `json:"brightness"`
+	Opacity    float64 `json:"opacity"`
+	Friction   float64 `json:"friction"`
+}
+
+type LightGenerationReport struct {
+	DragonflyRevision         string   `json:"dragonfly_revision"`
+	DragonflyAccessorStates   int      `json:"dragonfly_accessor_states"`
+	PMMPFallbackStates        int      `json:"pmmp_fallback_states"`
+	PMMPFallbackIdentifiers   []string `json:"pmmp_fallback_identifiers"`
+	PMMPFallbackSequentialIDs []uint32 `json:"pmmp_fallback_sequential_ids"`
+	BREGSHA256                string   `json:"breg_sha256"`
+}
+
+type bregLightIdentity struct {
+	SequentialID uint32
+	NetworkHash  uint32
+	Name         string
+	StateJSON    []byte
+}
 
 type ScalarKind uint8
 
@@ -106,9 +165,15 @@ const (
 	ModelFamilyCocoa
 	ModelFamilyLever
 	ModelFamilyInvisible
+	ModelFamilyFlowerBed
+	ModelFamilyVine
+	ModelFamilyGlowLichen
+	ModelFamilySculkVein
+	ModelFamilyChiseledBookshelf
+	ModelFamilyResinClump
 )
 
-const maxModelFamily = ModelFamilyInvisible
+const maxModelFamily = ModelFamilyResinClump
 
 type ContributorRole uint8
 
@@ -227,15 +292,16 @@ type ValentineAudit struct {
 }
 
 type GenerationReport struct {
-	Protocol               uint32         `json:"protocol"`
-	CanonicalNames         int            `json:"canonical_names"`
-	CanonicalStates        int            `json:"canonical_states"`
-	ValentineAudit         ValentineAudit `json:"valentine_audit"`
-	PMMPPaletteSHA256      string         `json:"pmmp_palette_sha256"`
-	PrismarineStateSHA256  string         `json:"prismarine_states_sha256"`
-	PrismarineShapeSHA256  string         `json:"prismarine_shapes_sha256"`
-	ValentinePaletteSHA256 string         `json:"valentine_palette_sha256"`
-	ValentineBlocksSHA256  string         `json:"valentine_blocks_sha256"`
+	Protocol               uint32                `json:"protocol"`
+	CanonicalNames         int                   `json:"canonical_names"`
+	CanonicalStates        int                   `json:"canonical_states"`
+	ValentineAudit         ValentineAudit        `json:"valentine_audit"`
+	PMMPPaletteSHA256      string                `json:"pmmp_palette_sha256"`
+	PrismarineStateSHA256  string                `json:"prismarine_states_sha256"`
+	PrismarineShapeSHA256  string                `json:"prismarine_shapes_sha256"`
+	ValentinePaletteSHA256 string                `json:"valentine_palette_sha256"`
+	ValentineBlocksSHA256  string                `json:"valentine_blocks_sha256"`
+	LightMetadata          LightGenerationReport `json:"light_metadata"`
 }
 
 // Record is one serialized block-registry entry.
@@ -261,14 +327,37 @@ type BiomeRecord struct {
 
 func main() {
 	out := flag.String("out", "", "path to write the block registry")
+	lightOut := flag.String("light-out", "", "path to write the BREG-bound block light registry")
+	lightBREG := flag.String("light-breg", "", "existing reviewed BREG1003 whose exact bytes the light registry binds")
+	physicsOut := flag.String("physics-out", "", "optional path to write the BREG-bound block physics registry")
+	physicsSHAOut := flag.String("physics-sha-out", "", "optional path to write the physics registry SHA-256")
+	physicsBREG := flag.String("physics-breg", "", "existing reviewed BREG1003 whose exact bytes the physics registry binds")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	valentinePalette := flag.String("valentine-palette", "", "pinned Valentine block_palette.bin")
 	valentineBlocks := flag.String("valentine-blocks", "", "pinned Valentine generated blocks.rs")
+	blockItemOut := flag.String("block-item-out", "", "optional reviewed block-item route JSON output")
+	blockItemBREG := flag.String("block-item-breg", "", "existing reviewed BREG1003 used for block-item routes")
 	flag.Parse()
-	if *out == "" {
-		fmt.Fprintln(os.Stderr, "registrygen: -out is required")
+	if *blockItemOut != "" || *blockItemBREG != "" {
+		if *blockItemOut == "" || *blockItemBREG == "" || *out != "" || *lightOut != "" {
+			fmt.Fprintln(os.Stderr, "registrygen: -block-item-out and -block-item-breg must be supplied together in standalone mode")
+			os.Exit(2)
+		}
+		if err := writeBlockItemRouteTable(*blockItemOut, *blockItemBREG); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *out == "" || *lightOut == "" || *lightBREG == "" {
+		fmt.Fprintln(os.Stderr, "registrygen: -out, -light-out, and -light-breg are required")
+		os.Exit(2)
+	}
+	physicsRequested := *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != ""
+	if physicsRequested && (*physicsOut == "" || *physicsBREG == "") {
+		fmt.Fprintln(os.Stderr, "registrygen: -physics-out and -physics-breg are required together")
 		os.Exit(2)
 	}
 
@@ -298,6 +387,56 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 		os.Exit(1)
 	}
+	bindingBREG, err := os.ReadFile(*lightBREG)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: read light-binding BREG: %v\n", err)
+		os.Exit(1)
+	}
+	if len(bindingBREG) > 128<<20 {
+		fmt.Fprintln(os.Stderr, "registrygen: light-binding BREG exceeds 128 MiB")
+		os.Exit(1)
+	}
+	if err := validateLightBindingBREG(bindingBREG, records); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+		os.Exit(1)
+	}
+	encodedLights, lightReport, err := encodeAuthoritativeLightRegistry(bindingBREG, records, world.DefaultBlockRegistry, *pmmpRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+		os.Exit(1)
+	}
+	report.LightMetadata = lightReport
+	var encodedPhysics []byte
+	if physicsRequested {
+		bindingPhysicsBREG, readErr := os.ReadFile(*physicsBREG)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read physics-binding BREG: %v\n", readErr)
+			os.Exit(1)
+		}
+		if len(bindingPhysicsBREG) > 128<<20 {
+			fmt.Fprintln(os.Stderr, "registrygen: physics-binding BREG exceeds 128 MiB")
+			os.Exit(1)
+		}
+		if err := validatePhysicsBindingBREG(encoded, bindingPhysicsBREG, records); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		physicsSources, sourcesErr := loadPinnedPhysicsSources(*pmmpRoot, *prismarineRoot, world.DefaultBlockRegistry)
+		if sourcesErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: read pinned physics sources: %v\n", sourcesErr)
+			os.Exit(1)
+		}
+		physicsRecords, buildErr := buildPhysicsRecords(records, physicsSources)
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", buildErr)
+			os.Exit(1)
+		}
+		encodedPhysics, err = encodePhysicsRegistry(bindingPhysicsBREG, physicsRecords, physicsRecordCount)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: create output directory: %v\n", err)
 		os.Exit(1)
@@ -306,10 +445,43 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: write output: %v\n", err)
 		os.Exit(1)
 	}
+	if err := os.MkdirAll(filepath.Dir(*lightOut), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: create light output directory: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(*lightOut, encodedLights, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: write light output: %v\n", err)
+		os.Exit(1)
+	}
+	if physicsRequested {
+		if err := os.MkdirAll(filepath.Dir(*physicsOut), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: create physics output directory: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(*physicsOut, encodedPhysics, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: write physics output: %v\n", err)
+			os.Exit(1)
+		}
+		physicsDigest := sha256.Sum256(encodedPhysics)
+		shaOut := *physicsSHAOut
+		if shaOut == "" {
+			shaOut = strings.TrimSuffix(*physicsOut, filepath.Ext(*physicsOut)) + ".sha256"
+		}
+		if err := os.WriteFile(shaOut, []byte(fmt.Sprintf("%x\n", physicsDigest)), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: write physics checksum: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	digest := sha256.Sum256(encoded)
 	shaPath := strings.TrimSuffix(*out, filepath.Ext(*out)) + ".sha256"
 	if err := os.WriteFile(shaPath, []byte(fmt.Sprintf("%x\n", digest)), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "registrygen: write checksum: %v\n", err)
+		os.Exit(1)
+	}
+	lightDigest := sha256.Sum256(encodedLights)
+	lightSHAPath := strings.TrimSuffix(*lightOut, filepath.Ext(*lightOut)) + ".sha256"
+	if err := os.WriteFile(lightSHAPath, []byte(fmt.Sprintf("%x\n", lightDigest)), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "registrygen: write light checksum: %v\n", err)
 		os.Exit(1)
 	}
 	if report.Protocol != 0 {
@@ -342,6 +514,94 @@ func main() {
 		fmt.Fprintf(os.Stderr, "registrygen: write biome output: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func writeBlockItemRouteTable(output, bregPath string) error {
+	breg, err := os.ReadFile(bregPath)
+	if err != nil {
+		return fmt.Errorf("read block-item BREG: %w", err)
+	}
+	if len(breg) > 128<<20 {
+		return errors.New("block-item BREG exceeds 128 MiB")
+	}
+	records, err := readBREG1003LightIdentities(breg)
+	if err != nil {
+		return err
+	}
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode block-item routes: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		return fmt.Errorf("create block-item output directory: %w", err)
+	}
+	if err := os.WriteFile(output, encoded, 0o644); err != nil {
+		return fmt.Errorf("write block-item routes: %w", err)
+	}
+	return nil
+}
+
+func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity, breg []byte) (BlockItemRouteTable, error) {
+	index := make(map[string][]bregLightIdentity, len(records))
+	for _, record := range records {
+		if record.SequentialID >= uint32(len(records)) {
+			return BlockItemRouteTable{}, fmt.Errorf("block visual %d is out of range", record.SequentialID)
+		}
+		key := canonicalRecordKey(record.Name, record.StateJSON)
+		index[key] = append(index[key], record)
+	}
+	routes := make([]BlockItemRoute, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, candidate := range items {
+		value, ok := candidate.(world.Block)
+		if !ok {
+			continue
+		}
+		identifier, metadata := candidate.EncodeItem()
+		if identifier == "" || canonicalBlockName(identifier) != identifier || !strings.HasPrefix(identifier, "minecraft:") {
+			return BlockItemRouteTable{}, fmt.Errorf("noncanonical block item identifier %q", identifier)
+		}
+		metadata32 := uint32(int32(metadata))
+		itemKey := fmt.Sprintf("%s\x00%d", identifier, metadata32)
+		if _, exists := seen[itemKey]; exists {
+			return BlockItemRouteTable{}, fmt.Errorf("duplicate block item route %s metadata %d", identifier, metadata32)
+		}
+		seen[itemKey] = struct{}{}
+		blockName, properties := value.EncodeBlock()
+		typed, err := typedProperties(properties)
+		if err != nil {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d: %w", identifier, metadata32, err)
+		}
+		state, err := canonicalTypedState(typed)
+		if err != nil {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d: %w", identifier, metadata32, err)
+		}
+		matches := index[canonicalRecordKey(blockName, state)]
+		if len(matches) != 1 {
+			return BlockItemRouteTable{}, fmt.Errorf("block item %s metadata %d resolves to %d canonical states", identifier, metadata32, len(matches))
+		}
+		routes = append(routes, BlockItemRoute{
+			Identifier: identifier, Metadata: metadata32, BlockName: blockName,
+			BlockState: append(json.RawMessage(nil), state...), BlockVisual: matches[0].SequentialID,
+		})
+	}
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Identifier != routes[j].Identifier {
+			return routes[i].Identifier < routes[j].Identifier
+		}
+		return routes[i].Metadata < routes[j].Metadata
+	})
+	digest := sha256.Sum256(breg)
+	return BlockItemRouteTable{
+		Schema: 1, Protocol: registryProtocol, CanonicalBlockStates: uint32(len(records)),
+		DragonflyModule: dragonflyModule, DragonflyVersion: dragonflyVersion,
+		DragonflyModuleSum: dragonflyModuleSum, BREGSHA256: fmt.Sprintf("%x", digest), Routes: routes,
+	}, nil
 }
 
 func collectBiomes(biomes []world.Biome) ([]BiomeRecord, error) {
@@ -447,6 +707,9 @@ func generateRegistry(pmmpRoot, prismarineRoot, valentinePalettePath, valentineB
 		return nil, RegistryMetadata{}, GenerationReport{}, fmt.Errorf("canonical name count %d does not match required 1356", nameCount)
 	}
 	if err := validateSelectorCardinality(joined); err != nil {
+		return nil, RegistryMetadata{}, GenerationReport{}, err
+	}
+	if err := promoteReviewedSelectorAliasCubes(joined); err != nil {
 		return nil, RegistryMetadata{}, GenerationReport{}, err
 	}
 
@@ -727,9 +990,24 @@ func collisionSeed(id uint16, shapes map[string][][]float64) (CollisionSeed, err
 			}
 			fixed[i] = int32(scaled)
 		}
-		boxes = append(boxes, CollisionBox{MinX: fixed[0], MinY: fixed[1], MinZ: fixed[2], MaxX: fixed[3], MaxY: fixed[4], MaxZ: fixed[5]})
+		box := CollisionBox{MinX: fixed[0], MinY: fixed[1], MinZ: fixed[2], MaxX: fixed[3], MaxY: fixed[4], MaxZ: fixed[5]}
+		if err := validateCollisionBox(box); err != nil {
+			return CollisionSeed{}, fmt.Errorf("collision shape %d box %d: %w", id, index, err)
+		}
+		boxes = append(boxes, box)
 	}
 	return CollisionSeed{ShapeID: id, Confidence: CollisionConfidenceCollisionOnly, Boxes: boxes}, nil
+}
+
+func validateCollisionBox(box CollisionBox) error {
+	if box.MinX > box.MaxX || box.MinY > box.MaxY || box.MinZ > box.MaxZ {
+		return errors.New("collision bounds are inverted")
+	}
+	if box.MinX < collisionLocalHaloMin || box.MinY < collisionLocalHaloMin || box.MinZ < collisionLocalHaloMin ||
+		box.MaxX > collisionLocalHaloMax || box.MaxY > collisionLocalHaloMax || box.MaxZ > collisionLocalHaloMax {
+		return errors.New("collision bounds exceed the one-block query halo")
+	}
+	return nil
 }
 
 func readValentineBlockCount(path string) (int, error) {
@@ -955,7 +1233,34 @@ func collisionSeedIsUnit(seed CollisionSeed) bool {
 	return box == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
 }
 
+func chiseledBookshelfCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
 func finalizeGeometryFacts(record *Record) {
+	if isBeeHousingName(record.Name) {
+		if beeHousingCollisionIsExact(record.CollisionSeed) {
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0x3f
+		} else {
+			record.Flags &^= flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0
+		}
+		return
+	}
+	if record.ModelFamily == ModelFamilyChiseledBookshelf {
+		if chiseledBookshelfCollisionIsExact(record.CollisionSeed) {
+			record.Flags = flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0x3f
+		} else {
+			record.Flags &^= flagCubeGeometry | flagOccludesFullFace
+			record.FaceCoverage = 0
+		}
+		return
+	}
 	if (record.ModelFamily == ModelFamilyStatue || record.ModelFamily == ModelFamilyCuboid) && record.CollisionSeed.Confidence != CollisionConfidenceNone && !collisionSeedIsUnit(record.CollisionSeed) {
 		record.Flags &^= flagCubeGeometry | flagOccludesFullFace
 		record.FaceCoverage = 0
@@ -1095,7 +1400,7 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyDecorative
 	case name == "soul_sand" || name == "mud":
 		record.ModelFamily = ModelFamilyCuboid
-	case isSplitCubeName(name):
+	case isReviewedSelectorAliasCubeName(name), isGlazedTerracottaName(name):
 		record.ModelFamily = ModelFamilyCube
 	case strings.Contains(name, "trapdoor"):
 		record.ModelFamily = ModelFamilyTrapdoor
@@ -1139,6 +1444,67 @@ func classifyRecord(state SourceState) (Record, error) {
 		record.ModelFamily = ModelFamilyCocoa
 	case isCropName(name):
 		record.ModelFamily = ModelFamilyCrop
+	case name == "wildflowers" || name == "pink_petals":
+		record.ModelFamily = ModelFamilyFlowerBed
+	case name == "vine":
+		record.ModelFamily = ModelFamilyVine
+	case name == "glow_lichen":
+		record.ModelFamily = ModelFamilyGlowLichen
+	case name == "sculk_vein":
+		record.ModelFamily = ModelFamilySculkVein
+	case name == "chiseled_bookshelf":
+		books, direction, err := chiseledBookshelfSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyChiseledBookshelf
+		record.ModelState.Set(ModelStateConnections, books)
+		record.ModelState.Set(ModelStateOrientation, direction)
+	case name == "bee_nest" || name == "beehive":
+		direction, honey, err := beeHousingSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCube
+		record.ModelState.Set(ModelStateOrientation, direction)
+		record.ModelState.Set(ModelStateGrowth, honey)
+	case name == "resin_clump":
+		connections, err := resinClumpSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyResinClump
+		record.ModelState.Set(ModelStateConnections, connections)
+	case name == "cactus":
+		age, err := cactusAgeSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, age)
+	case name == "cake":
+		bite, err := cakeBiteSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, bite)
+	case name == "farmland":
+		amount, err := farmlandMoistureSelector(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateGrowth, amount)
+	case isShelfName(name):
+		direction, powered, shelfType, err := shelfSelectors(state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelFamily = ModelFamilyCuboid
+		record.ModelState.Set(ModelStateOrientation, direction)
+		record.ModelState.Set(ModelStateGrowth, shelfType)
+		record.ModelState.Set(ModelStateFlags, powered*modelFlagPowered)
 	case isCrossName(name):
 		record.ModelFamily = ModelFamilyCross
 	}
@@ -1148,10 +1514,22 @@ func classifyRecord(state SourceState) (Record, error) {
 	var hasVariantFlags bool
 	for _, property := range state.Properties {
 		propertyName := strings.TrimPrefix(property.Name, "minecraft:")
+		if propertyName == "redstone_signal" && record.ModelFamily == ModelFamilyPressurePlate {
+			value, ok := scalarUint(property.Value)
+			if !ok || value > 15 {
+				return Record{}, fmt.Errorf("pressure plate redstone_signal is outside 0..15")
+			}
+			if value != 0 {
+				variantFlags |= modelFlagPressed
+			}
+			hasVariantFlags = true
+		}
 		switch propertyName {
 		case "weirdo_direction", "direction", "facing_direction", "ground_sign_direction", "cardinal_direction", "pillar_axis", "torch_facing_direction", "rail_direction", "lever_direction":
-			if value, ok := orientationUint(propertyName, property.Value); ok {
-				record.ModelState.Set(ModelStateOrientation, value)
+			if record.ModelFamily != ModelFamilySign {
+				if value, ok := orientationUint(propertyName, property.Value); ok {
+					record.ModelState.Set(ModelStateOrientation, value)
+				}
 			}
 		}
 		if value, ok := scalarUint(property.Value); ok {
@@ -1249,10 +1627,428 @@ func classifyRecord(state SourceState) (Record, error) {
 	if hasVariantFlags {
 		record.ModelState.Set(ModelStateFlags, variantFlags)
 	}
+	if record.ModelFamily == ModelFamilySign {
+		orientation, err := signOrientation(name, state.Properties)
+		if err != nil {
+			return Record{}, err
+		}
+		record.ModelState.Set(ModelStateOrientation, orientation)
+	}
 	if record.ModelFamily == ModelFamilySlab && strings.Contains(name, "double") {
 		record.ModelState.Set(ModelStateHalf, 2)
 	}
 	return record, nil
+}
+
+func chiseledBookshelfSelectors(properties []StateProperty) (books uint32, direction uint32, err error) {
+	if len(properties) != 2 {
+		return 0, 0, fmt.Errorf("chiseled_bookshelf requires exactly books_stored:int and direction:int")
+	}
+	seenBooks, seenDirection := false, false
+	for _, property := range properties {
+		name := property.Name
+		if property.Value.Kind != ScalarInt {
+			return 0, 0, fmt.Errorf("chiseled_bookshelf %s must be an int selector", name)
+		}
+		switch name {
+		case "books_stored":
+			if seenBooks || property.Value.Int < 0 || property.Value.Int > 63 {
+				return 0, 0, fmt.Errorf("chiseled_bookshelf books_stored must be unique and inside 0..63")
+			}
+			seenBooks = true
+			books = uint32(property.Value.Int)
+		case "direction":
+			if seenDirection || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, fmt.Errorf("chiseled_bookshelf direction must be unique and inside 0..3")
+			}
+			seenDirection = true
+			direction = uint32(property.Value.Int)
+		default:
+			return 0, 0, fmt.Errorf("chiseled_bookshelf has unsupported selector %q", name)
+		}
+	}
+	if !seenBooks || !seenDirection {
+		return 0, 0, fmt.Errorf("chiseled_bookshelf requires books_stored and direction selectors")
+	}
+	return books, direction, nil
+}
+
+func isBeeHousingName(name string) bool {
+	return name == "minecraft:bee_nest" || name == "minecraft:beehive"
+}
+
+func isShelfName(name string) bool {
+	name = strings.TrimPrefix(name, "minecraft:")
+	switch name {
+	case "acacia_shelf", "bamboo_shelf", "birch_shelf", "cherry_shelf",
+		"crimson_shelf", "dark_oak_shelf", "jungle_shelf", "mangrove_shelf",
+		"oak_shelf", "pale_oak_shelf", "spruce_shelf", "warped_shelf":
+		return true
+	default:
+		return false
+	}
+}
+
+func isShelfCandidateName(name string) bool {
+	return strings.HasSuffix(strings.TrimPrefix(name, "minecraft:"), "_shelf")
+}
+
+func shelfSelectors(properties []StateProperty) (direction uint32, powered uint32, shelfType uint32, err error) {
+	if len(properties) != 3 {
+		return 0, 0, 0, fmt.Errorf("shelf requires exactly minecraft:cardinal_direction:string, powered_bit:byte, and powered_shelf_type:int")
+	}
+	seenDirection, seenPowered, seenType := false, false, false
+	for _, property := range properties {
+		switch property.Name {
+		case "minecraft:cardinal_direction":
+			if seenDirection || property.Value.Kind != ScalarString {
+				return 0, 0, 0, fmt.Errorf("shelf minecraft:cardinal_direction must be one unique string")
+			}
+			seenDirection = true
+			switch property.Value.String {
+			case "south":
+				direction = 0
+			case "west":
+				direction = 1
+			case "north":
+				direction = 2
+			case "east":
+				direction = 3
+			default:
+				return 0, 0, 0, fmt.Errorf("shelf minecraft:cardinal_direction is outside south/west/north/east")
+			}
+		case "powered_bit":
+			if seenPowered || property.Value.Kind != ScalarByte || property.Value.Byte > 1 {
+				return 0, 0, 0, fmt.Errorf("shelf powered_bit must be one unique byte inside 0..1")
+			}
+			seenPowered = true
+			powered = uint32(property.Value.Byte)
+		case "powered_shelf_type":
+			if seenType || property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, 0, fmt.Errorf("shelf powered_shelf_type must be one unique int inside 0..3")
+			}
+			seenType = true
+			shelfType = uint32(property.Value.Int)
+		default:
+			return 0, 0, 0, fmt.Errorf("shelf has unsupported selector %q", property.Name)
+		}
+	}
+	if !seenDirection || !seenPowered || !seenType {
+		return 0, 0, 0, fmt.Errorf("shelf requires direction, powered, and type selectors")
+	}
+	return direction, powered, shelfType, nil
+}
+
+func beeHousingSelectors(properties []StateProperty) (direction uint32, honey uint32, err error) {
+	if len(properties) != 2 {
+		return 0, 0, fmt.Errorf("bee housing requires exactly direction:int and honey_level:int")
+	}
+	seenDirection, seenHoney := false, false
+	for _, property := range properties {
+		if property.Value.Kind != ScalarInt {
+			return 0, 0, fmt.Errorf("bee housing %s must be an int selector", property.Name)
+		}
+		switch property.Name {
+		case "direction":
+			if seenDirection || property.Value.Int < 0 || property.Value.Int > 3 {
+				return 0, 0, fmt.Errorf("bee housing direction must be unique and inside 0..3")
+			}
+			seenDirection = true
+			direction = uint32(property.Value.Int)
+		case "honey_level":
+			if seenHoney || property.Value.Int < 0 || property.Value.Int > 5 {
+				return 0, 0, fmt.Errorf("bee housing honey_level must be unique and inside 0..5")
+			}
+			seenHoney = true
+			honey = uint32(property.Value.Int)
+		default:
+			return 0, 0, fmt.Errorf("bee housing has unsupported selector %q", property.Name)
+		}
+	}
+	if !seenDirection || !seenHoney {
+		return 0, 0, fmt.Errorf("bee housing requires direction and honey_level selectors")
+	}
+	return direction, honey, nil
+}
+
+func resinClumpSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "multi_face_direction_bits" {
+		return 0, fmt.Errorf("resin_clump requires exactly multi_face_direction_bits:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 63 {
+		return 0, fmt.Errorf("resin_clump multi_face_direction_bits must be an int inside 0..63")
+	}
+	return uint32(property.Value.Int), nil
+}
+
+func cactusAgeSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "age" {
+		return 0, fmt.Errorf("cactus requires exactly age:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 15 {
+		return 0, fmt.Errorf("cactus age must be an int inside 0..15")
+	}
+	return uint32(property.Value.Int), nil
+}
+
+func cakeBiteSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "bite_counter" {
+		return 0, fmt.Errorf("cake requires exactly bite_counter:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 6 {
+		return 0, fmt.Errorf("cake bite_counter must be an int inside 0..6")
+	}
+	return uint32(property.Value.Int), nil
+}
+
+func farmlandMoistureSelector(properties []StateProperty) (uint32, error) {
+	if len(properties) != 1 || properties[0].Name != "moisturized_amount" {
+		return 0, fmt.Errorf("farmland requires exactly moisturized_amount:int")
+	}
+	property := properties[0]
+	if property.Value.Kind != ScalarInt || property.Value.Int < 0 || property.Value.Int > 7 {
+		return 0, fmt.Errorf("farmland moisturized_amount must be an int inside 0..7")
+	}
+	return uint32(property.Value.Int), nil
+}
+
+func exactCanonicalInt(raw json.RawMessage, maximum int32) (uint32, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return 0, false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "int" {
+		return 0, false
+	}
+	var value int32
+	if err := json.Unmarshal(tagged["value"], &value); err != nil || value < 0 || value > maximum {
+		return 0, false
+	}
+	return uint32(value), true
+}
+
+func chiseledBookshelfCanonicalSelectors(stateJSON []byte) (books uint32, direction uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 2 {
+		return 0, 0, false
+	}
+	books, booksOK := exactCanonicalInt(state["books_stored"], 63)
+	direction, directionOK := exactCanonicalInt(state["direction"], 3)
+	return books, direction, booksOK && directionOK
+}
+
+func beeHousingCanonicalSelectors(stateJSON []byte) (direction uint32, honey uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 2 {
+		return 0, 0, false
+	}
+	direction, directionOK := exactCanonicalInt(state["direction"], 3)
+	honey, honeyOK := exactCanonicalInt(state["honey_level"], 5)
+	return direction, honey, directionOK && honeyOK
+}
+
+func shelfCanonicalSelectors(stateJSON []byte) (direction uint32, powered uint32, shelfType uint32, ok bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 3 {
+		return 0, 0, 0, false
+	}
+	directionName, directionOK := exactCanonicalString(state["minecraft:cardinal_direction"])
+	switch directionName {
+	case "south":
+		direction = 0
+	case "west":
+		direction = 1
+	case "north":
+		direction = 2
+	case "east":
+		direction = 3
+	default:
+		directionOK = false
+	}
+	poweredByte, poweredOK := exactCanonicalByte(state["powered_bit"])
+	shelfType, typeOK := exactCanonicalInt(state["powered_shelf_type"], 3)
+	return direction, uint32(poweredByte), shelfType, directionOK && poweredOK && typeOK
+}
+
+func resinClumpCanonicalSelector(stateJSON []byte) (uint32, bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 1 {
+		return 0, false
+	}
+	return exactCanonicalInt(state["multi_face_direction_bits"], 63)
+}
+
+func cactusCanonicalAge(stateJSON []byte) (uint32, bool) {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != 1 {
+		return 0, false
+	}
+	return exactCanonicalInt(state["age"], 15)
+}
+
+func cakeCanonicalBite(stateJSON []byte) (uint32, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(stateJSON))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') || !decoder.More() {
+		return 0, false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "bite_counter" {
+		return 0, false
+	}
+	bite, ok := exactCakeTaggedInt(decoder)
+	if !ok || decoder.More() {
+		return 0, false
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return 0, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return 0, false
+	}
+	return bite, true
+}
+
+func farmlandCanonicalMoisture(stateJSON []byte) (uint32, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(stateJSON))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') || !decoder.More() {
+		return 0, false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "moisturized_amount" {
+		return 0, false
+	}
+	amount, ok := exactTaggedInt(decoder, 7)
+	if !ok || decoder.More() {
+		return 0, false
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return 0, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return 0, false
+	}
+	return amount, true
+}
+
+func exactTaggedInt(decoder *json.Decoder, maximum int32) (uint32, bool) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return 0, false
+	}
+	var kind string
+	var value int32
+	seenKind, seenValue := false, false
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return 0, false
+		}
+		switch key {
+		case "type":
+			if seenKind || decoder.Decode(&kind) != nil {
+				return 0, false
+			}
+			seenKind = true
+		case "value":
+			if seenValue || decoder.Decode(&value) != nil {
+				return 0, false
+			}
+			seenValue = true
+		default:
+			return 0, false
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') || !seenKind || !seenValue || kind != "int" || value < 0 || value > maximum {
+		return 0, false
+	}
+	return uint32(value), true
+}
+
+func exactCakeTaggedInt(decoder *json.Decoder) (uint32, bool) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return 0, false
+	}
+	var kind string
+	var value int32
+	seenKind, seenValue := false, false
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return 0, false
+		}
+		switch key {
+		case "type":
+			if seenKind || decoder.Decode(&kind) != nil {
+				return 0, false
+			}
+			seenKind = true
+		case "value":
+			if seenValue || decoder.Decode(&value) != nil {
+				return 0, false
+			}
+			seenValue = true
+		default:
+			return 0, false
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') || !seenKind || !seenValue || kind != "int" || value < 0 || value > 6 {
+		return 0, false
+	}
+	return uint32(value), true
+}
+
+func signOrientation(name string, properties []StateProperty) (uint32, error) {
+	values := make(map[string]uint32, 2)
+	for _, property := range properties {
+		propertyName := strings.TrimPrefix(property.Name, "minecraft:")
+		if propertyName != "facing_direction" && propertyName != "ground_sign_direction" {
+			continue
+		}
+		value, ok := scalarUint(property.Value)
+		if !ok {
+			return 0, fmt.Errorf("%s %s is not an unsigned selector", name, propertyName)
+		}
+		values[propertyName] = value
+	}
+	if strings.Contains(name, "hanging_sign") {
+		facing, hasFacing := values["facing_direction"]
+		rotation, hasRotation := values["ground_sign_direction"]
+		if !hasFacing || facing > 5 || !hasRotation || rotation > 15 {
+			return 0, fmt.Errorf("%s requires facing_direction 0..5 and ground_sign_direction 0..15", name)
+		}
+		// Preserve both selectors. `hanging` chooses which one controls visible
+		// geometry: wall-hanging signs use the facing nibble, while ceiling
+		// hanging signs use the 16-way ground rotation nibble.
+		return rotation | (facing << 4), nil
+	}
+	if strings.HasSuffix(name, "standing_sign") || name == "standing_sign" {
+		rotation, ok := values["ground_sign_direction"]
+		if !ok || rotation > 15 {
+			return 0, fmt.Errorf("%s requires ground_sign_direction 0..15", name)
+		}
+		return rotation, nil
+	}
+	if strings.HasSuffix(name, "wall_sign") || name == "wall_sign" {
+		facing, ok := values["facing_direction"]
+		if !ok || facing > 5 {
+			return 0, fmt.Errorf("%s requires facing_direction 0..5", name)
+		}
+		return facing, nil
+	}
+	return 0, fmt.Errorf("unsupported sign family %s", name)
 }
 
 func scalarUint(scalar TypedScalar) (uint32, bool) {
@@ -1313,7 +2109,7 @@ func isCrossName(name string) bool {
 	if name == "chorus_flower" {
 		return false
 	}
-	if name == "short_grass" || name == "tall_grass" || name == "short_dry_grass" || name == "tall_dry_grass" || name == "fern" || name == "large_fern" || name == "deadbush" || name == "bush" || name == "red_flower" || name == "yellow_flower" || name == "dandelion" || name == "poppy" || name == "blue_orchid" || name == "allium" || name == "azure_bluet" || name == "oxeye_daisy" || name == "cornflower" || name == "lily_of_the_valley" || name == "wither_rose" || name == "sunflower" || name == "lilac" || name == "rose_bush" || name == "peony" || name == "brown_mushroom" || name == "red_mushroom" || name == "crimson_fungus" || name == "warped_fungus" || name == "crimson_roots" || name == "warped_roots" || name == "nether_sprouts" || name == "mangrove_propagule" || name == "hanging_roots" || name == "pale_hanging_moss" || name == "firefly_bush" || name == "reeds" || name == "weeping_vines" || name == "twisting_vines" || strings.HasPrefix(name, "cave_vines") || name == "web" || name == "fire" || name == "soul_fire" || name == "torchflower" || name == "wildflowers" {
+	if name == "short_grass" || name == "tall_grass" || name == "short_dry_grass" || name == "tall_dry_grass" || name == "fern" || name == "large_fern" || name == "deadbush" || name == "bush" || name == "red_flower" || name == "yellow_flower" || name == "dandelion" || name == "poppy" || name == "blue_orchid" || name == "allium" || name == "azure_bluet" || name == "oxeye_daisy" || name == "cornflower" || name == "lily_of_the_valley" || name == "wither_rose" || name == "sunflower" || name == "lilac" || name == "rose_bush" || name == "peony" || name == "brown_mushroom" || name == "red_mushroom" || name == "crimson_fungus" || name == "warped_fungus" || name == "crimson_roots" || name == "warped_roots" || name == "nether_sprouts" || name == "mangrove_propagule" || name == "hanging_roots" || name == "pale_hanging_moss" || name == "firefly_bush" || name == "reeds" || name == "weeping_vines" || name == "twisting_vines" || strings.HasPrefix(name, "cave_vines") || name == "web" || name == "fire" || name == "soul_fire" || name == "torchflower" {
 		return true
 	}
 	return !strings.Contains(name, "flower_pot") && (strings.HasSuffix(name, "_flower") || strings.HasSuffix(name, "_sapling"))
@@ -1327,16 +2123,236 @@ func isTorchName(name string) bool {
 	return name == "torch" || name == "copper_torch" || name == "soul_torch" || name == "redstone_torch" || name == "unlit_redstone_torch" || name == "underwater_torch" || strings.HasPrefix(name, "colored_torch_")
 }
 
-func isSplitCubeName(name string) bool {
-	return strings.HasSuffix(name, "_glazed_terracotta") || name == "bone_block" || name == "hay_block" || name == "chiseled_quartz_block" || name == "purpur_block" || name == "quartz_block" || name == "smooth_quartz" || name == "tnt"
+func isGlazedTerracottaName(name string) bool {
+	return strings.HasSuffix(name, "_glazed_terracotta")
+}
+
+func isReviewedSelectorAliasCubeName(name string) bool {
+	switch name {
+	case "bone_block", "hay_block", "chiseled_quartz_block", "purpur_block", "quartz_block", "smooth_quartz", "tnt":
+		return true
+	default:
+		return false
+	}
+}
+
+func selectorAliasCubeCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
+func exactCanonicalString(raw json.RawMessage) (string, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return "", false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "string" {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(tagged["value"], &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func exactCanonicalByte(raw json.RawMessage) (byte, bool) {
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil || len(tagged) != 2 {
+		return 0, false
+	}
+	var kind string
+	if err := json.Unmarshal(tagged["type"], &kind); err != nil || kind != "byte" {
+		return 0, false
+	}
+	var value uint8
+	if err := json.Unmarshal(tagged["value"], &value); err != nil || value > 1 {
+		return 0, false
+	}
+	return value, true
+}
+
+func selectorAliasAxisState(stateJSON []byte, hasDeprecated bool) (axisIndex, deprecated uint32, ok bool) {
+	var state map[string]json.RawMessage
+	wantProperties := 1
+	if hasDeprecated {
+		wantProperties = 2
+	}
+	if err := json.Unmarshal(stateJSON, &state); err != nil || len(state) != wantProperties {
+		return 0, 0, false
+	}
+	axis, axisOK := exactCanonicalString(state["pillar_axis"])
+	if !axisOK {
+		return 0, 0, false
+	}
+	switch axis {
+	case "y":
+		axisIndex = 0
+	case "x":
+		axisIndex = 1
+	case "z":
+		axisIndex = 2
+	default:
+		return 0, 0, false
+	}
+	if hasDeprecated {
+		var deprecatedOK bool
+		deprecated, deprecatedOK = exactCanonicalInt(state["deprecated"], 3)
+		if !deprecatedOK {
+			return 0, 0, false
+		}
+	}
+	return axisIndex, deprecated, true
+}
+
+// promoteReviewedSelectorAliasCubes admits only the complete, native-reviewed
+// selector products below. Validation is deliberately atomic: no BREG record is
+// changed until every present reviewed product has passed exact state, ID,
+// projection, collision, and pre-promotion geometry checks.
+func promoteReviewedSelectorAliasCubes(records []Record) error {
+	type product struct {
+		base          uint32
+		cardinality   int
+		hasDeprecated bool
+		tnt           bool
+	}
+	products := map[string]product{
+		"minecraft:hay_block":             {base: 2907, cardinality: 12, hasDeprecated: true},
+		"minecraft:bone_block":            {base: 6465, cardinality: 12, hasDeprecated: true},
+		"minecraft:quartz_block":          {base: 5442, cardinality: 3},
+		"minecraft:smooth_quartz":         {base: 7081, cardinality: 3},
+		"minecraft:chiseled_quartz_block": {base: 14685, cardinality: 3},
+		"minecraft:purpur_block":          {base: 15344, cardinality: 3},
+		"minecraft:tnt":                   {base: 13112, cardinality: 2, tnt: true},
+	}
+	groups := make(map[string][]int, len(products))
+	for index := range records {
+		if _, reviewed := products[records[index].Name]; reviewed {
+			groups[records[index].Name] = append(groups[records[index].Name], index)
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	promote := make([]int, 0, 27)
+	for name, spec := range products {
+		indexes := groups[name]
+		if len(indexes) != spec.cardinality {
+			return fmt.Errorf("%s selector cardinality is %d, want %d", name, len(indexes), spec.cardinality)
+		}
+		seen := make([]bool, spec.cardinality)
+		for _, index := range indexes {
+			record := &records[index]
+			if record.ModelFamily != ModelFamilyCube || record.ContributorRole != ContributorPrimary {
+				return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+			}
+			if record.FaceCoverage != 0x3f || !selectorAliasCubeCollisionIsExact(record.CollisionSeed) {
+				return fmt.Errorf("%s state %d lacks exact unit cube evidence", name, record.SequentialID)
+			}
+			var offset uint32
+			var sourceSolid bool
+			if spec.tnt {
+				var state map[string]json.RawMessage
+				if err := json.Unmarshal(record.StateJSON, &state); err != nil || len(state) != 1 {
+					return fmt.Errorf("%s state %d has invalid typed selector", name, record.SequentialID)
+				}
+				exploded, ok := exactCanonicalByte(state["explode_bit"])
+				if !ok || record.ModelState.Mask != 0 {
+					return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+				}
+				offset = uint32(exploded)
+				sourceSolid = exploded == 0
+			} else {
+				axisIndex, deprecated, ok := selectorAliasAxisState(record.StateJSON, spec.hasDeprecated)
+				orientation, hasOrientation := record.ModelState.Get(ModelStateOrientation)
+				wantOrientation := [3]uint32{1, 0, 2}[axisIndex]
+				if !ok || !hasOrientation || orientation != wantOrientation || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)) {
+					return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+				}
+				stride := uint32(1)
+				if spec.hasDeprecated {
+					stride = 4
+				}
+				offset = axisIndex*stride + deprecated
+				if spec.hasDeprecated {
+					sourceSolid = deprecated == 0
+				} else {
+					sourceSolid = axisIndex == 0
+				}
+			}
+			if offset >= uint32(spec.cardinality) || record.SequentialID != spec.base+offset {
+				return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+			}
+			if seen[offset] {
+				return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+			}
+			seen[offset] = true
+			wantFlags := uint8(0)
+			if sourceSolid {
+				wantFlags = flagCubeGeometry | flagOccludesFullFace
+			}
+			if record.Flags != wantFlags {
+				return fmt.Errorf("%s state %d has unexpected pre-promotion flags %#x", name, record.SequentialID, record.Flags)
+			}
+			if !sourceSolid {
+				promote = append(promote, index)
+			}
+		}
+		for offset, present := range seen {
+			if !present {
+				return fmt.Errorf("%s selector product is missing offset %d", name, offset)
+			}
+		}
+	}
+	for _, index := range promote {
+		records[index].Flags = flagCubeGeometry | flagOccludesFullFace
+		records[index].FaceCoverage = 0x3f
+	}
+	return nil
 }
 
 func validateSelectorCardinality(records []Record) error {
+	if err := validateShelfInventory(records); err != nil {
+		return err
+	}
 	groups := make(map[string][]Record)
 	for _, record := range records {
 		groups[record.Name] = append(groups[record.Name], record)
 	}
 	for name, group := range groups {
+		if isBeeHousingName(name) {
+			if err := validateBeeHousingProduct(group); err != nil {
+				return err
+			}
+		}
+		if name == "minecraft:chiseled_bookshelf" {
+			if err := validateChiseledBookshelfProduct(group); err != nil {
+				return err
+			}
+		}
+		if name == "minecraft:resin_clump" {
+			if err := validateResinClumpProduct(group); err != nil {
+				return err
+			}
+		}
+		if name == "minecraft:cactus" {
+			if err := validateCactusProduct(group); err != nil {
+				return err
+			}
+		}
+		if name == "minecraft:cake" {
+			if err := validateCakeProduct(group); err != nil {
+				return err
+			}
+		}
+		if name == "minecraft:farmland" {
+			if err := validateFarmlandProduct(group); err != nil {
+				return err
+			}
+		}
 		values := make(map[string]map[string]struct{})
 		for _, record := range group {
 			var state map[string]canonicalScalar
@@ -1360,6 +2376,415 @@ func validateSelectorCardinality(records []Record) error {
 		}
 		if expected != len(group) {
 			return fmt.Errorf("selector cardinality for %s is %d states but typed product is %d", name, len(group), expected)
+		}
+	}
+	return nil
+}
+
+func beeHousingCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 1 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000})
+}
+
+func validateShelfInventory(records []Record) error {
+	candidates := make([]Record, 0, 384)
+	for _, record := range records {
+		if isShelfCandidateName(record.Name) {
+			candidates = append(candidates, record)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if len(candidates) != 384 {
+		return fmt.Errorf("shelf inventory has %d records, want exactly 384", len(candidates))
+	}
+	wantNames := []string{
+		"minecraft:acacia_shelf",
+		"minecraft:bamboo_shelf",
+		"minecraft:birch_shelf",
+		"minecraft:cherry_shelf",
+		"minecraft:crimson_shelf",
+		"minecraft:dark_oak_shelf",
+		"minecraft:jungle_shelf",
+		"minecraft:mangrove_shelf",
+		"minecraft:oak_shelf",
+		"minecraft:pale_oak_shelf",
+		"minecraft:spruce_shelf",
+		"minecraft:warped_shelf",
+	}
+	groups := make(map[string][]Record, len(wantNames))
+	for _, record := range candidates {
+		if !isShelfName(record.Name) {
+			return fmt.Errorf("shelf inventory contains unexpected family %q", record.Name)
+		}
+		groups[record.Name] = append(groups[record.Name], record)
+	}
+	if len(groups) != len(wantNames) {
+		return fmt.Errorf("shelf inventory has %d families, want exactly %d", len(groups), len(wantNames))
+	}
+	for _, name := range wantNames {
+		group := groups[name]
+		if len(group) != 32 {
+			return fmt.Errorf("shelf inventory family %s has %d records, want exactly 32", name, len(group))
+		}
+	}
+	for _, name := range wantNames {
+		if err := validateShelfProduct(groups[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBeeHousingProduct(records []Record) error {
+	if len(records) != 24 {
+		return fmt.Errorf("bee housing selector cardinality is %d, want 24", len(records))
+	}
+	name := records[0].Name
+	base := uint32(0)
+	switch name {
+	case "minecraft:bee_nest":
+		base = 10_395
+	case "minecraft:beehive":
+		base = 12_495
+	default:
+		return fmt.Errorf("unsupported bee housing name %q", name)
+	}
+	seen := [24]bool{}
+	wantMask := uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1))
+	for _, record := range records {
+		if record.Name != name || record.ModelFamily != ModelFamilyCube || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+		}
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || record.FaceCoverage != 0x3f || !beeHousingCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("%s state %d lacks exact solid unit geometry evidence", name, record.SequentialID)
+		}
+		canonicalDirection, canonicalHoney, hasCanonical := beeHousingCanonicalSelectors(record.StateJSON)
+		direction, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		honey, hasHoney := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasDirection || !hasHoney || canonicalDirection != direction || canonicalHoney != honey || direction > 3 || honey > 5 || record.ModelState.Mask != wantMask {
+			return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+		}
+		offset := honey*4 + direction
+		if record.SequentialID != base+offset {
+			return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+		}
+		if seen[offset] {
+			return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+		}
+		seen[offset] = true
+	}
+	for offset, present := range seen {
+		if !present {
+			return fmt.Errorf("%s selector product is missing offset %d", name, offset)
+		}
+	}
+	return nil
+}
+
+func shelfBaseID(name string) (uint32, bool) {
+	switch name {
+	case "minecraft:acacia_shelf":
+		return 383, true
+	case "minecraft:bamboo_shelf":
+		return 6513, true
+	case "minecraft:birch_shelf":
+		return 302, true
+	case "minecraft:cherry_shelf":
+		return 14007, true
+	case "minecraft:crimson_shelf":
+		return 13882, true
+	case "minecraft:dark_oak_shelf":
+		return 9131, true
+	case "minecraft:jungle_shelf":
+		return 6045, true
+	case "minecraft:mangrove_shelf":
+		return 5280, true
+	case "minecraft:oak_shelf":
+		return 6897, true
+	case "minecraft:pale_oak_shelf":
+		return 11080, true
+	case "minecraft:spruce_shelf":
+		return 5162, true
+	case "minecraft:warped_shelf":
+		return 5313, true
+	default:
+		return 0, false
+	}
+}
+
+func shelfCollisionIsExact(seed CollisionSeed, direction uint32) bool {
+	if seed.Confidence != CollisionConfidenceCollisionOnly || len(seed.Boxes) != 1 {
+		return false
+	}
+	var shapeID uint16
+	var box CollisionBox
+	switch direction {
+	case 0:
+		shapeID = 18
+		box = CollisionBox{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 31_250_000}
+	case 1:
+		shapeID = 19
+		box = CollisionBox{MinX: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	case 2:
+		shapeID = 20
+		box = CollisionBox{MinZ: 68_750_000, MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	case 3:
+		shapeID = 21
+		box = CollisionBox{MaxX: 31_250_000, MaxY: 100_000_000, MaxZ: 100_000_000}
+	default:
+		return false
+	}
+	return seed.ShapeID == shapeID && seed.Boxes[0] == box
+}
+
+func validateShelfProduct(records []Record) error {
+	if len(records) != 32 {
+		return fmt.Errorf("shelf selector cardinality is %d, want 32", len(records))
+	}
+	name := records[0].Name
+	base, supported := shelfBaseID(name)
+	if !supported {
+		return fmt.Errorf("unsupported shelf name %q", name)
+	}
+	seen := [32]bool{}
+	wantMask := uint8(1<<(ModelStateOrientation-1) | 1<<(ModelStateGrowth-1) | 1<<(ModelStateFlags-1))
+	for _, record := range records {
+		if record.Name != name || record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("%s state %d has invalid family or role", name, record.SequentialID)
+		}
+		direction, powered, shelfType, hasCanonical := shelfCanonicalSelectors(record.StateJSON)
+		projectedDirection, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		projectedType, hasType := record.ModelState.Get(ModelStateGrowth)
+		projectedFlags, hasFlags := record.ModelState.Get(ModelStateFlags)
+		if !hasCanonical || !hasDirection || !hasType || !hasFlags ||
+			projectedDirection != direction || projectedType != shelfType ||
+			projectedFlags != powered*modelFlagPowered || record.ModelState.Mask != wantMask {
+			return fmt.Errorf("%s state %d has invalid typed selector projection", name, record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !shelfCollisionIsExact(record.CollisionSeed, direction) {
+			return fmt.Errorf("%s state %d lacks exact directional shelf geometry evidence", name, record.SequentialID)
+		}
+		offset := direction*8 + powered*4 + shelfType
+		if record.SequentialID != base+offset {
+			return fmt.Errorf("%s state %d does not match canonical ID formula", name, record.SequentialID)
+		}
+		if seen[offset] {
+			return fmt.Errorf("%s has duplicate selector offset %d", name, offset)
+		}
+		seen[offset] = true
+	}
+	for offset, present := range seen {
+		if !present {
+			return fmt.Errorf("%s selector product is missing offset %d", name, offset)
+		}
+	}
+	return nil
+}
+
+func validateChiseledBookshelfProduct(records []Record) error {
+	if len(records) != 256 {
+		return fmt.Errorf("chiseled_bookshelf selector cardinality is %d, want 256", len(records))
+	}
+	seen := make(map[[2]uint32]struct{}, 256)
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyChiseledBookshelf || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("chiseled_bookshelf state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != flagCubeGeometry|flagOccludesFullFace || !chiseledBookshelfCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("chiseled_bookshelf state %d lacks exact solid unit geometry evidence", record.SequentialID)
+		}
+		canonicalBooks, canonicalDirection, hasCanonicalState := chiseledBookshelfCanonicalSelectors(record.StateJSON)
+		books, hasBooks := record.ModelState.Get(ModelStateConnections)
+		direction, hasDirection := record.ModelState.Get(ModelStateOrientation)
+		if !hasCanonicalState || canonicalBooks != books || canonicalDirection != direction || !hasBooks || !hasDirection || record.ModelState.Mask != uint8(1<<(ModelStateOrientation-1)|1<<(ModelStateConnections-1)) || books > 63 || direction > 3 {
+			return fmt.Errorf("chiseled_bookshelf state %d has invalid typed selector projection", record.SequentialID)
+		}
+		if record.SequentialID != 1605+books*4+direction {
+			return fmt.Errorf("chiseled_bookshelf state %d does not match canonical ID formula", record.SequentialID)
+		}
+		key := [2]uint32{books, direction}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("chiseled_bookshelf duplicate selector %v", key)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func resinClumpCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 0 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 0
+}
+
+func validateResinClumpProduct(records []Record) error {
+	if len(records) != 64 {
+		return fmt.Errorf("resin_clump selector cardinality is %d, want 64", len(records))
+	}
+	seen := [64]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyResinClump || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("resin_clump state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !resinClumpCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("resin_clump state %d has invalid empty geometry evidence", record.SequentialID)
+		}
+		canonical, hasCanonical := resinClumpCanonicalSelector(record.StateJSON)
+		connections, hasConnections := record.ModelState.Get(ModelStateConnections)
+		if !hasCanonical || !hasConnections || canonical != connections || connections > 63 || record.ModelState.Mask != uint8(1<<(ModelStateConnections-1)) {
+			return fmt.Errorf("resin_clump state %d has invalid typed selector projection", record.SequentialID)
+		}
+		if record.SequentialID != 2930+connections {
+			return fmt.Errorf("resin_clump state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[connections] {
+			return fmt.Errorf("resin_clump duplicate selector %d", connections)
+		}
+		seen[connections] = true
+	}
+	for mask, present := range seen {
+		if !present {
+			return fmt.Errorf("resin_clump selector product is missing mask %d", mask)
+		}
+	}
+	return nil
+}
+
+func cactusCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 84 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{
+			MinX: 6_250_000, MaxX: 93_750_000,
+			MinY: 0, MaxY: 100_000_000,
+			MinZ: 6_250_000, MaxZ: 93_750_000,
+		})
+}
+
+func validateCactusProduct(records []Record) error {
+	if len(records) != 16 {
+		return fmt.Errorf("cactus selector cardinality is %d, want 16", len(records))
+	}
+	seen := [16]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("cactus state %d has invalid family or role", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !cactusCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("cactus state %d has invalid inset geometry evidence", record.SequentialID)
+		}
+		canonical, hasCanonical := cactusCanonicalAge(record.StateJSON)
+		age, hasAge := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasAge || canonical != age || age > 15 || record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("cactus state %d has invalid typed age projection", record.SequentialID)
+		}
+		if record.SequentialID != 13606+age {
+			return fmt.Errorf("cactus state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[age] {
+			return fmt.Errorf("cactus duplicate age %d", age)
+		}
+		seen[age] = true
+	}
+	for age, present := range seen {
+		if !present {
+			return fmt.Errorf("cactus selector product is missing age %d", age)
+		}
+	}
+	return nil
+}
+
+func cakeCollisionIsExact(seed CollisionSeed, bite uint32) bool {
+	if bite > 6 || seed.ShapeID != uint16(89+bite) ||
+		seed.Confidence != CollisionConfidenceCollisionOnly || len(seed.Boxes) != 1 {
+		return false
+	}
+	wantMinX := [...]int32{6_250_000, 18_750_000, 31_250_000, 43_750_000, 56_250_000, 68_750_000, 81_250_000}
+	return seed.Boxes[0] == (CollisionBox{
+		MinX: wantMinX[bite], MaxX: 93_750_000,
+		MinY: 0, MaxY: 50_000_000,
+		MinZ: 6_250_000, MaxZ: 93_750_000,
+	})
+}
+
+func validateCakeProduct(records []Record) error {
+	if len(records) != 7 {
+		return fmt.Errorf("cake selector cardinality is %d, want 7", len(records))
+	}
+	seen := [7]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("cake state %d has invalid family or role", record.SequentialID)
+		}
+		canonical, hasCanonical := cakeCanonicalBite(record.StateJSON)
+		bite, hasBite := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasBite || canonical != bite || bite > 6 ||
+			record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("cake state %d has invalid typed bite projection", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !cakeCollisionIsExact(record.CollisionSeed, bite) {
+			return fmt.Errorf("cake state %d has invalid exact geometry evidence", record.SequentialID)
+		}
+		if record.SequentialID != 14055+bite {
+			return fmt.Errorf("cake state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[bite] {
+			return fmt.Errorf("cake duplicate bite %d", bite)
+		}
+		seen[bite] = true
+	}
+	for bite, present := range seen {
+		if !present {
+			return fmt.Errorf("cake selector product is missing bite %d", bite)
+		}
+	}
+	return nil
+}
+
+func farmlandCollisionIsExact(seed CollisionSeed) bool {
+	return seed.ShapeID == 43 &&
+		seed.Confidence == CollisionConfidenceCollisionOnly &&
+		len(seed.Boxes) == 1 &&
+		seed.Boxes[0] == (CollisionBox{
+			MinX: 0, MaxX: 100_000_000,
+			MinY: 0, MaxY: 93_750_000,
+			MinZ: 0, MaxZ: 100_000_000,
+		})
+}
+
+func validateFarmlandProduct(records []Record) error {
+	if len(records) != 8 {
+		return fmt.Errorf("farmland selector cardinality is %d, want 8", len(records))
+	}
+	seen := [8]bool{}
+	for _, record := range records {
+		if record.ModelFamily != ModelFamilyCuboid || record.ContributorRole != ContributorPrimary {
+			return fmt.Errorf("farmland state %d has invalid family or role", record.SequentialID)
+		}
+		canonical, hasCanonical := farmlandCanonicalMoisture(record.StateJSON)
+		amount, hasAmount := record.ModelState.Get(ModelStateGrowth)
+		if !hasCanonical || !hasAmount || canonical != amount || amount > 7 ||
+			record.ModelState.Mask != uint8(1<<(ModelStateGrowth-1)) {
+			return fmt.Errorf("farmland state %d has invalid typed moisture projection", record.SequentialID)
+		}
+		if record.Flags != 0 || record.FaceCoverage != 0 || !farmlandCollisionIsExact(record.CollisionSeed) {
+			return fmt.Errorf("farmland state %d has invalid exact geometry evidence", record.SequentialID)
+		}
+		if record.SequentialID != 6122+amount {
+			return fmt.Errorf("farmland state %d does not match canonical ID formula", record.SequentialID)
+		}
+		if seen[amount] {
+			return fmt.Errorf("farmland duplicate moisture %d", amount)
+		}
+		seen[amount] = true
+	}
+	for amount, present := range seen {
+		if !present {
+			return fmt.Errorf("farmland selector product is missing amount %d", amount)
 		}
 	}
 	return nil
@@ -1427,6 +2852,23 @@ func classifyFlags(value world.Block) uint8 {
 	if name == "minecraft:air" {
 		return flagAir
 	}
+	// These experimental protocol-1001 blocks were unknown when the reviewed
+	// BREG1003 was produced. The light-metadata dependency pin now implements
+	// them as solids, but this light-only change must preserve the committed
+	// visual registry's established no-geometry facts.
+	switch name {
+	case "minecraft:polished_sulfur", "minecraft:sulfur_bricks",
+		"minecraft:chiseled_sulfur", "minecraft:cinnabar_bricks",
+		"minecraft:cinnabar", "minecraft:chiseled_cinnabar",
+		"minecraft:polished_cinnabar", "minecraft:sulfur":
+		return 0
+	}
+	// Dragonfly's registered zero-value ShulkerBox carries an uninitialised
+	// animation counter and its Model method panics. It is a non-cube model,
+	// so preserve the existing no-full-face BREG facts without calling Model.
+	if _, ok := value.(block.ShulkerBox); ok {
+		return 0
+	}
 	switch value.Model().(type) {
 	case model.Leaves:
 		return flagCubeGeometry | flagLeafModel
@@ -1486,6 +2928,245 @@ func encode(records []Record) ([]byte, error) {
 		}
 	}
 	return encodeWithMetadata(defaultMetadata(compat), compat)
+}
+
+func encodeLightRegistry(breg []byte, records []Record, registry lightRegistry) ([]byte, error) {
+	if registry == nil {
+		return nil, errors.New("light registry is nil")
+	}
+	if len(records) > maxRecordCount {
+		return nil, fmt.Errorf("too many light records: %d exceeds %d", len(records), maxRecordCount)
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	for index, record := range sorted {
+		if index != 0 && record.SequentialID == sorted[index-1].SequentialID {
+			return nil, fmt.Errorf("duplicate sequential ID: %d", record.SequentialID)
+		}
+		if record.SequentialID != uint32(index) {
+			return nil, fmt.Errorf("light registry sequential IDs are not contiguous at index %d: got %d", index, record.SequentialID)
+		}
+	}
+
+	properties := make([]byte, len(sorted))
+	for _, record := range sorted {
+		emission := registry.LightBlock(record.SequentialID)
+		filter := registry.FilteringBlock(record.SequentialID)
+		if emission > 15 {
+			return nil, fmt.Errorf("runtime ID %d emission %d exceeds one nibble", record.SequentialID, emission)
+		}
+		if filter > 15 {
+			return nil, fmt.Errorf("runtime ID %d filter %d exceeds one nibble", record.SequentialID, filter)
+		}
+		properties[record.SequentialID] = emission | filter<<4
+	}
+	return encodeResolvedLightRegistry(breg, sorted, properties)
+}
+
+func encodeResolvedLightRegistry(breg []byte, sorted []Record, properties []byte) ([]byte, error) {
+	if len(properties) != len(sorted) {
+		return nil, fmt.Errorf("light property count %d does not match %d records", len(properties), len(sorted))
+	}
+	for index, record := range sorted {
+		if record.SequentialID != uint32(index) {
+			return nil, fmt.Errorf("resolved light records are not in sequential order at index %d: got %d", index, record.SequentialID)
+		}
+	}
+	bregDigest := sha256.Sum256(breg)
+	encoded := make([]byte, 0, len(lightRegistryHeader)+8+sha256.Size+len(sorted)+sha256.Size)
+	encoded = append(encoded, lightRegistryHeader...)
+	encoded = binary.LittleEndian.AppendUint32(encoded, registryProtocol)
+	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(sorted)))
+	encoded = append(encoded, bregDigest[:]...)
+	encoded = append(encoded, properties...)
+	digest := sha256.Sum256(encoded)
+	encoded = append(encoded, digest[:]...)
+	return encoded, nil
+}
+
+func validateLightBindingBREG(breg []byte, records []Record) error {
+	identities, err := readBREG1003LightIdentities(breg)
+	if err != nil {
+		return err
+	}
+	if len(identities) != len(records) {
+		return fmt.Errorf("light binding BREG count %d does not match %d source states", len(identities), len(records))
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	for index, identity := range identities {
+		record := sorted[index]
+		if identity.SequentialID != uint32(index) || record.SequentialID != uint32(index) ||
+			identity.NetworkHash != record.NetworkHash || identity.Name != record.Name ||
+			!bytes.Equal(identity.StateJSON, record.StateJSON) {
+			return fmt.Errorf("light binding BREG identity mismatch at sequential index %d", index)
+		}
+	}
+	return nil
+}
+
+func readBREG1003LightIdentities(data []byte) ([]bregLightIdentity, error) {
+	const headerBytes = 8 + 7*4
+	const recordPrefixBytes = 24 + 8*4
+	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != registryProtocol {
+		return nil, errors.New("light binding input is not protocol-1001 BREG1003")
+	}
+	count := int(binary.LittleEndian.Uint32(data[16:20]))
+	if count > maxRecordCount {
+		return nil, fmt.Errorf("light binding BREG count %d exceeds %d", count, maxRecordCount)
+	}
+	identities := make([]bregLightIdentity, 0, count)
+	cursor := headerBytes
+	for index := 0; index < count; index++ {
+		if len(data)-cursor < recordPrefixBytes {
+			return nil, fmt.Errorf("light binding BREG record %d is truncated", index)
+		}
+		prefix := data[cursor : cursor+recordPrefixBytes]
+		sequentialID := binary.LittleEndian.Uint32(prefix[0:4])
+		networkHash := binary.LittleEndian.Uint32(prefix[4:8])
+		boxCount := int(prefix[15])
+		if boxCount > maxCollisionBoxesPerRecord {
+			return nil, fmt.Errorf("light binding BREG record %d has too many collision boxes", index)
+		}
+		nameLength := int(binary.LittleEndian.Uint16(prefix[18:20]))
+		stateLength := int(binary.LittleEndian.Uint32(prefix[20:24]))
+		if stateLength > maxStateBytes {
+			return nil, fmt.Errorf("light binding BREG record %d state exceeds limit", index)
+		}
+		payloadStart := cursor + recordPrefixBytes + boxCount*24
+		payloadEnd := payloadStart + nameLength + stateLength
+		if payloadStart < cursor || payloadEnd < payloadStart || payloadEnd > len(data) {
+			return nil, fmt.Errorf("light binding BREG record %d payload is truncated", index)
+		}
+		identities = append(identities, bregLightIdentity{
+			SequentialID: sequentialID,
+			NetworkHash:  networkHash,
+			Name:         string(data[payloadStart : payloadStart+nameLength]),
+			StateJSON:    append([]byte(nil), data[payloadStart+nameLength:payloadEnd]...),
+		})
+		cursor = payloadEnd
+	}
+	if cursor != len(data) {
+		return nil, fmt.Errorf("light binding BREG has %d trailing bytes", len(data)-cursor)
+	}
+	return identities, nil
+}
+
+func encodeAuthoritativeLightRegistry(breg []byte, records []Record, registry world.BlockRegistry, pmmpRoot string) ([]byte, LightGenerationReport, error) {
+	if pmmpRoot == "" {
+		return nil, LightGenerationReport{}, errors.New("authoritative light generation requires the pinned PMMP source")
+	}
+	pmmpLights, err := readPMMPLightProperties(filepath.Join(pmmpRoot, "block_properties_table.json"))
+	if err != nil {
+		return nil, LightGenerationReport{}, fmt.Errorf("read PMMP light diagnostics: %w", err)
+	}
+	resolved, report, err := resolveAuthoritativeLightProperties(records, registry, pmmpLights)
+	if err != nil {
+		return nil, LightGenerationReport{}, fmt.Errorf("resolve light metadata: %w", err)
+	}
+	bindingDigest := sha256.Sum256(breg)
+	report.BREGSHA256 = fmt.Sprintf("%x", bindingDigest)
+	encoded, err := encodeResolvedLightRegistry(breg, records, resolved)
+	if err != nil {
+		return nil, LightGenerationReport{}, err
+	}
+	return encoded, report, nil
+}
+
+func resolveAuthoritativeLightProperties(records []Record, registry world.BlockRegistry, pmmp map[string]PMMPLightProperties) ([]byte, LightGenerationReport, error) {
+	if registry == nil {
+		return nil, LightGenerationReport{}, errors.New("block registry is nil")
+	}
+	sorted := append([]Record(nil), records...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
+	properties := make([]byte, len(sorted))
+	report := LightGenerationReport{DragonflyRevision: "dbbd8b787946e53b1def8d532050751dfcdc80e7"}
+	fallbackNames := make(map[string]bool, len(pmmpLightFallbackIdentifiers))
+	for _, name := range pmmpLightFallbackIdentifiers {
+		fallbackNames[name] = false
+	}
+	for index, record := range sorted {
+		if record.SequentialID != uint32(index) {
+			return nil, LightGenerationReport{}, fmt.Errorf("light registry sequential IDs are not contiguous at index %d: got %d", index, record.SequentialID)
+		}
+		emission := registry.LightBlock(record.SequentialID)
+		filter := registry.FilteringBlock(record.SequentialID)
+		if emission > 15 || filter > 15 {
+			return nil, LightGenerationReport{}, fmt.Errorf("runtime ID %d returned malformed light %d/%d", record.SequentialID, emission, filter)
+		}
+		_, eligible := fallbackNames[record.Name]
+		// The exact Dragonfly per-RID accessors are primary for every state
+		// except the two audited lamp identifiers. Block implementation coverage
+		// is intentionally not an authority test: protocol-1001 includes valid
+		// states represented internally by Dragonfly's unknownBlock type.
+		if !eligible {
+			report.DragonflyAccessorStates++
+			properties[index] = emission | filter<<4
+			continue
+		}
+		value, found := registry.BlockByRuntimeID(record.SequentialID)
+		concrete := found
+		if found {
+			_, hash := value.Hash()
+			concrete = hash != math.MaxUint64
+		}
+		exact, ok := pmmp[record.Name]
+		if !ok {
+			return nil, LightGenerationReport{}, fmt.Errorf("required exact PMMP light entry %s is missing", record.Name)
+		}
+		pmmpEmission, pmmpFilter, err := checkedPMMPLight(record.Name, exact)
+		if err != nil {
+			return nil, LightGenerationReport{}, err
+		}
+		if concrete {
+			if emission != pmmpEmission || filter != pmmpFilter {
+				return nil, LightGenerationReport{}, fmt.Errorf("concrete Dragonfly light %d/%d disagrees with exact PMMP cross-check %d/%d for %s", emission, filter, pmmpEmission, pmmpFilter, record.Name)
+			}
+			report.DragonflyAccessorStates++
+		} else {
+			emission, filter = pmmpEmission, pmmpFilter
+			report.PMMPFallbackStates++
+			report.PMMPFallbackSequentialIDs = append(report.PMMPFallbackSequentialIDs, record.SequentialID)
+			fallbackNames[record.Name] = true
+		}
+		properties[index] = emission | filter<<4
+	}
+	for _, name := range pmmpLightFallbackIdentifiers {
+		if !fallbackNames[name] {
+			continue
+		}
+		report.PMMPFallbackIdentifiers = append(report.PMMPFallbackIdentifiers, name)
+	}
+	return properties, report, nil
+}
+
+func checkedPMMPLight(name string, properties PMMPLightProperties) (uint8, uint8, error) {
+	if !isWholeNibble(properties.Brightness) {
+		return 0, 0, fmt.Errorf("PMMP brightness %v for %s is not an exact nibble", properties.Brightness, name)
+	}
+	if math.IsNaN(properties.Opacity) || math.IsInf(properties.Opacity, 0) || properties.Opacity < 0 || properties.Opacity > 1 {
+		return 0, 0, fmt.Errorf("PMMP opacity %v for %s is outside 0..1", properties.Opacity, name)
+	}
+	return uint8(properties.Brightness), uint8(math.Round(properties.Opacity * 15)), nil
+}
+
+func isWholeNibble(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 15 && value == math.Trunc(value)
+}
+
+func readPMMPLightProperties(path string) (map[string]PMMPLightProperties, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 16<<20 {
+		return nil, fmt.Errorf("PMMP block properties exceed 16 MiB")
+	}
+	var properties map[string]PMMPLightProperties
+	if err := json.Unmarshal(data, &properties); err != nil {
+		return nil, err
+	}
+	return properties, nil
 }
 
 func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, error) {
@@ -1559,6 +3240,11 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 		}
 		if record.CollisionSeed.Confidence == CollisionConfidenceNone && len(record.CollisionSeed.Boxes) != 0 {
 			return nil, fmt.Errorf("collision boxes without confidence for sequential ID %d", record.SequentialID)
+		}
+		for boxIndex, box := range record.CollisionSeed.Boxes {
+			if err := validateCollisionBox(box); err != nil {
+				return nil, fmt.Errorf("collision box %d for sequential ID %d: %w", boxIndex, record.SequentialID, err)
+			}
 		}
 		if record.Provenance&^allProvenance != 0 || record.Provenance == 0 {
 			return nil, fmt.Errorf("invalid provenance %#x for sequential ID %d", record.Provenance, record.SequentialID)

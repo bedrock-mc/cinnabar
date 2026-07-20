@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    BiomeStorage, DecodedBiomeColumn, SubChunk, mesh_neighbourhood::LIQUID_SAMPLE_OFFSETS,
+    BiomeStorage, BlockEntityKey, BlockEntityNbt, DecodedBiomeColumn, SubChunk,
+    mesh_neighbourhood::LIQUID_SAMPLE_OFFSETS,
 };
 
 /// Key for one horizontal chunk column.
@@ -104,6 +105,21 @@ impl SubChunkKey {
         })
     }
 
+    /// Every same-Y sub-chunk whose horizontal biome blend can sample this
+    /// source, including edge- and corner-adjacent columns.
+    pub fn biome_mesh_dependents(self) -> impl Iterator<Item = Self> {
+        (-1_i32..=1).flat_map(move |dx| {
+            (-1_i32..=1).filter_map(move |dz| {
+                Some(Self::new(
+                    self.dimension,
+                    self.x.checked_add(dx)?,
+                    self.y,
+                    self.z.checked_add(dz)?,
+                ))
+            })
+        })
+    }
+
     /// Every mesh whose bounded liquid sample set can reference this source.
     ///
     /// This is the checked inverse of `MeshNeighbourhood::liquid_sample_offsets`:
@@ -129,6 +145,8 @@ impl SubChunkKey {
 pub struct Chunk {
     pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
     pub(crate) biomes: Option<DecodedBiomeColumn>,
+    pub(crate) block_entities: BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>,
+    pub(crate) block_entity_bytes: usize,
 }
 
 impl Chunk {
@@ -147,5 +165,18 @@ impl Chunk {
     #[must_use]
     pub fn biome_storage(&self, y: i32) -> Option<Arc<BiomeStorage>> {
         self.biomes.as_ref()?.storage(y)
+    }
+
+    #[must_use]
+    pub fn block_entity(&self, key: BlockEntityKey) -> Option<Arc<BlockEntityNbt>> {
+        self.block_entities.get(&key).cloned()
+    }
+
+    pub fn block_entities(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (BlockEntityKey, Arc<BlockEntityNbt>)> + '_ {
+        self.block_entities
+            .iter()
+            .map(|(&key, value)| (key, Arc::clone(value)))
     }
 }

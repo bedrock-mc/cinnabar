@@ -23,11 +23,25 @@ The audit used these pinned inputs:
 - the locally acquired, ignored Mojang 1.26.30 sample resource pack described
   by `assets/vanilla-source.json`.
 
-The final audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`3669be82850824af8592276afe864d903495e743b8af81dfcf1d3aa1586231a4`.
+The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
+`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`.
 It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
 Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
-1,068 states.
+1,068 states. The 2026-07-13 selector-only regeneration preserves
+`redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
+records. The 2026-07-14 regenerations additionally assign the dedicated
+chiseled-bookshelf family and reviewed solid/full-face facts to exactly IDs
+1,605–1,860, then the dedicated empty-collision resin-clump family to exactly
+IDs 2,930–2,993. Two resin generations were byte-identical.
+
+The 2026-07-14 selector-alias regeneration then promotes exactly 27 reviewed
+compatibility states across hay, bone, quartz variants, purpur, and TNT; two
+generations were byte-identical.
+
+The subsequent cactus regeneration classifies exactly the 16 canonical
+`minecraft:cactus` ages as reviewed cuboids while preserving empty flags and
+face coverage, Growth-only state, and shape-84 collision evidence. Two
+generations were byte-identical.
 
 Reacquire and regenerate the ignored evidence with:
 
@@ -48,12 +62,77 @@ Get-FileHash -Algorithm SHA256 `
   .local/task2/block-registry-v1001.bin
 ```
 
+## Phase 3 physics-registry derivative
+
+The Phase 3 `PREG1001` carrier is a deterministic, local-only derivative of
+this same exact `BREG1003` state order. Collision boxes retain the pinned
+Prismarine fixed-point join; ordinary and special movement facts are explicit
+for every state and reviewed against the pinned PMMP/Dragonfly catalog. The
+compiler rejects gaps, extras, duplicate identities, contradictory fluids,
+unknown responses, invalid scalars, and malformed compound boxes. Only
+`crates/assets/data/block-physics-v1001.sha256` is published; both generated
+carrier copies remain ignored under `.local`.
+
+The special-movement join is an explicit strictly sorted reviewed table rather
+than a permissive name switch. Production generation verifies the exact PMMP
+friction-file hash, all three exact Prismarine behavior/state/shape hashes, and
+the pinned Dragonfly build dependency. Each reviewed family is cross-checked
+against its exact canonical state count, Prismarine bounding-box class, and
+Dragonfly registered implementation-type set. This includes all 78
+`cave_vines`, `cave_vines_body_with_berries`, and
+`cave_vines_head_with_berries` states as climbable. Bubble `drag_down` is a
+required unique typed byte fact; missing, duplicate, malformed, unknown, or
+out-of-range facts abort generation.
+
 The inventory parser decoded every bounded `BREG1003` record, grouped records
 by canonical name, and joined each name's Prismarine state-ordered collision
 shape IDs. It counted typed property domains, empty/unit/multi-box topology,
 and direct Mojang `blocks.json` name coverage. The initial comment line in
 Mojang reference JSON was excluded before JSON decoding. Counts below must be
 regenerated when any pin or registry schema changes.
+
+## FlowerBed normal-state baseline
+
+`minecraft:wildflowers` and `minecraft:pink_petals` now compile Growth 0-3 as
+one through four immutable additive ground-patch groups for every preserved
+cardinal value: South=0, West=1, North=2, East=3. Each terrain key must expose
+exactly the routed flower material at array index 0 and stem material at index
+1 in an exact two-entry array; a dedicated terrain accessor rejects static,
+missing, and overlong arrays independently of which registry states are being
+compiled. The template key contains both material IDs, growth, and orientation.
+Growth 4-7 is still an explicit attributable diagnostic and is never clamped,
+wrapped, or aliased.
+
+## Vine attachment baseline
+
+All 16 protocol-1001 `minecraft:vine` states use a dedicated static model
+family. The pinned Dragonfly `Vines.EncodeBlock` implementation is the geometry
+selector authority: `vine_direction_bits` maps bit 0 to south, bit 1 to west,
+bit 2 to north, and bit 3 to east. Dragonfly exposes attachments only for those
+four horizontal directions, while the pinned Mojang `blocks.json` entry supplies
+the single `vine` terrain key and no additional geometry or top-face selector.
+The compiler therefore emits one two-sided, alpha-cutout, foliage-tinted wall
+plane for each set bit and does not synthesize an upward/downward plane from
+unencoded neighbour state. The zero mask remains a non-diagnostic zero-quad
+model. Every plane is inset by 1/256 block to avoid support-surface z-fighting,
+has no support-face cull flag, and contributes no cube geometry, full-face
+coverage, or full-block occlusion.
+
+The compact coordinates and UVs are a geometry baseline derived from the four
+Mojang Java `flowerbed_1.json` through `flowerbed_4.json` models in the pinned
+`MrHakan/mc-mapping-tree` commit
+`be56c80939e94f4afd5e63bc40c684af9ff218fb`. Source element coordinates were
+rotated as declared by those models, quantized once to the existing 1/256-block
+position format, and retain 1/4096 texture-tile UVs. The resulting additive
+prefixes contain 7, 10, 17, and 20 two-sided quads, respectively, with all
+vertices below 64/256 block height. The pinned `wildflowers.json` blockstate
+defines the table as a North-facing baseline: North is identity, East rotates
+90 degrees, South 180 degrees, and West 270 degrees. These map to preserved
+Bedrock values North=2, East=3, South=0, and West=1. In the packed `(x,z)`
+coordinate convention, East=90 is `(256-z,x)` and West=270 is `(z,256-x)`.
+This Java-derived table is provisional geometry evidence only; Task 4's pinned
+native Bedrock gallery remains the authority for final coordinates, UV
+orientation, and command-only Growth 4-7 semantics.
 
 ## Exhaustive renderer-work partition
 
@@ -90,6 +169,25 @@ none are omitted.
 
 Walls and signs alone cover 10,056 states. Their cardinality reflects selector
 products, not 10,056 distinct hand-authored models.
+
+Fence-gate rendering is complete for all 192 states. The collision row's 96
+open/empty values describe collision only, not visible geometry: exact vanilla
+open gates still contain 40 render quads. Cinnabar therefore represents each
+gate as a bounded two-template compound (24+16 quads, or 22+16 for closed
+bamboo), preserving the existing 32-bit visibility mask and packed-reference
+format without truncating the model.
+
+Carpet rendering is complete for all 179 states. Seventeen ordinary carpets use
+one exact 1/16-block cuboid route. Pale moss contributes the other 162 states as
+the complete four-side ternary matrix plus upper bit; its opaque base and
+two-sided cutout side planes remain separate material classes, including the
+isolated-upper base-plus-four-tall form.
+
+Button rendering is complete for all 168 states. Fourteen materials share an
+exact pressed/unpressed cuboid family across six outward faces; wall instances
+use target-space UV locking with independent literal goldens, while floor and
+ceiling keep their deterministic canonical yaw. These partial models remain
+non-occluding and cave-connectivity-open.
 
 ## Selector requirements
 
@@ -166,7 +264,73 @@ confidence may remain state-specific.
 
 ## Residual topology
 
-The 412-name/2,860-state residual is bounded and attributable:
+The 2026-07-14 chiseled-bookshelf tranche removes exactly the contiguous 256
+canonical states at IDs 1,605–1,860. The dedicated family admits only the full
+`books_stored:int 0..63 × direction:int 0..3` product with canonical ID formula,
+unit collision, solid/full-face facts, exact face routing, a two-entry front
+terrain array, and static side/top terrain entries. It compiles four opaque
+source materials and 64 eleven-quad templates. Native evidence and hashes are
+recorded in `docs/evidence/phase-2-chiseled-bookshelf-native-reference.md`.
+
+The subsequent resin-clump tranche removes exactly the contiguous 64 canonical
+states at IDs 2,930–2,993. Admission requires the complete typed
+`multi_face_direction_bits:int 0..63` product, `id = 2930 + mask`, empty flags
+and face coverage, shape 0 with no collision boxes, and the exact scalar/static
+`resin_clump` terrain route. Native 1.26.33.1 evidence maps bits to
+down/up/south/west/north/east, matches the glow-lichen face-relative UV table,
+and normalizes a written zero mask to 63; the compiler therefore aliases mask 0
+to the all-face template. One static alpha-cutout material produces 63 immutable
+templates and 192 quads. Evidence and local-only screenshot hashes are recorded
+in `docs/evidence/phase-2-resin-clump-native-reference.md`.
+
+The subsequent selector-alias opaque-cube tranche removes exactly 27 states:
+IDs 2,908-2,910, 2,912-2,914, 2,916-2,918, 5,443-5,444, 6,466-6,468,
+6,470-6,472, 6,474-6,476, 7,082-7,083, 13,113, 14,686-14,687, and
+15,345-15,346. Admission binds all 38 states in the seven complete products,
+exact typed selectors and formula IDs, unit collision, exact static non-tinted
+opaque pack routes, and the native X/Y/Z cap permutation. `deprecated` and
+`explode_bit` remain static visual aliases. The runtime emits only ordinary cube
+faces, with quarter-turn UV flags on the four non-cap faces for X/Z pillars.
+Commands and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-selector-alias-cubes-native-reference.md`.
+
+The subsequent cactus tranche removes exactly IDs 13,606-13,621. Admission
+requires the complete `age:int 0..15` product, formula `id = 13606 + age`,
+Primary/Cuboid ownership, empty flags and face coverage, exact shape-84
+collision, the exact side/down/up static pack route, and native-confirmed
+`[16,0,16]..[240,256,240]` bounds. Every age shares one six-quad template and
+three static alpha-cutout materials. Sequential/hash, all-boundary, water,
+cave-open, and dense 4,096-reference/24,576-draw-light tests are green.
+Commands and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-cactus-native-reference.md`.
+
+The subsequent cake tranche removes exactly IDs 14,055-14,061. Admission
+requires the complete `bite_counter:int 0..6` product, formula
+`id = 14055 + bite_counter`, Primary/Cuboid ownership, empty flags/coverage,
+exact shapes 89-95 and bounds, four literal untinted two-entry terrain routes,
+and the native-confirmed west cut direction. Seven immutable six-quad templates
+use bounds `[16+32*b,0,16]..[240,128,240]`; only bitten west faces select
+`cake_inner`. Sequential/hash, all-boundary, water, cave-open, and dense
+4,096-reference/24,576-draw-light tests are green. Commands and local-only
+evidence hashes are recorded in
+`docs/evidence/phase-2-cake-native-reference.md`.
+
+The subsequent farmland tranche removes exactly IDs 6,122-6,129. Admission
+requires the complete `moisturized_amount:int 0..7` product, formula
+`id = 6122 + moisturized_amount`, Primary/Cuboid ownership, empty
+flags/coverage, exact shape-43 collision, and literal untinted static side plus
+two-entry top routes. Native binds amount zero to dry terrain index 1 and every
+nonzero amount to wet index 0. Two immutable templates use bounds
+`[0,0,0]..[256,240,256]`; sequential/hash, all-boundary, water, cave-open, and
+uniform/mixed dense 4,096-reference/24,576-draw-light tests are green. Commands
+and local-only evidence hashes are recorded in
+`docs/evidence/phase-2-farmland-native-reference.md`.
+
+The current exact residual is 2,448 diagnostics including air; no unrelated ID
+changed status.
+
+The original 412-name/2,860-state planning residual was bounded and
+attributable:
 
 - 229 names/812 states have full-cube collision. This is only a candidate set:
   it also contains shulker boxes, pistons, chorus flower, azalea, Education

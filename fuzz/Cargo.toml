@@ -1,0 +1,30 @@
+[package]
+name = "cinnabar-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+assets = { path = "../crates/assets" }
+libfuzzer-sys = "0.4"
+world = { path = "../crates/world" }
+
+[[bin]]
+name = "runtime_assets_decode"
+path = "fuzz_targets/runtime_assets_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sub_chunk_decode"
+path = "fuzz_targets/sub_chunk_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

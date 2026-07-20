@@ -2,20 +2,97 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  windows-acceptance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
+        shell: powershell
+        run: .\scripts\tests\acceptance.Tests.ps1
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: clippy
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Test Rust workspace on Windows
+        run: cargo test --workspace --locked
+      - name: Lint Rust workspace on Windows
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test and vet Go core on Windows
+        shell: powershell
+        run: |
+          go test ./core/...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./core/...
+      - name: Test and vet protocol registry tools on Windows
+        shell: powershell
+        run: |
+          go -C tools/registrygen test ./cmd/... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go -C tools/registrygen vet ./...
+
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+      - name: Install Wayland development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev
+      - name: Verify Linux window backends
+        shell: bash
+        run: |
+          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
+          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
+      - name: Enforce architecture boundaries
+        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       - run: cargo fmt --check
-      - run: cargo test --workspace
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: bash scripts/tests/acceptance_test.sh
       - run: go test ./core/...
       - run: go vet ./core/...
+      - name: Test and vet protocol registry tools
+        run: |
+          go -C tools/registrygen test ./cmd/... -count=1
+          go -C tools/registrygen vet ./...
+      - name: Test and vet pinned chunk fixture generator
+        working-directory: tools/chunkfix
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
+
+  macos-physics-bootstrap:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Acquire and compile protocol-1001 physics assets through Make
+        run: make physics-assets
+      - name: Verify the generated runtime carrier
+        shell: bash
+        run: |
+          expected="$(tr -d '[:space:]' < crates/assets/data/block-physics-v1001.sha256)"
+          actual="$(shasum -a 256 .local/assets/block-physics-v1001.bin | awk '{print $1}')"
+          test "$actual" = "$expected"

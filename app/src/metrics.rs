@@ -1,12 +1,14 @@
-use std::{
-    collections::BTreeMap,
-    fs, io,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use world::SubChunkKey;
+
+mod diagnostics;
+
+pub use diagnostics::{
+    DIAGNOSTIC_TOP_LIMIT, DiagnosticAttributionEntry, DiagnosticAttributionSnapshot,
+    DiagnosticQuadTracker,
+};
 
 const FRAME_HISTOGRAM_RESOLUTION_MS: f64 = 0.1;
 const FRAME_HISTOGRAM_BUCKETS: usize = 20_001;
@@ -17,6 +19,7 @@ pub struct ExactFullViewProof {
     pub committed: String,
     pub ms: f64,
     pub view_generation: u64,
+    pub transparent_sort_generation: u64,
     pub render_ready_ms: f64,
     pub first_frame_sequence: u64,
     pub stable_frame_sequence: u64,
@@ -98,6 +101,7 @@ pub struct AssetMetrics {
     pub animation_frame_count: u32,
     pub missing_mapping_count: u64,
     pub diagnostic_quad_count: u64,
+    pub diagnostic_attribution: DiagnosticAttributionSnapshot,
 }
 
 impl Default for AssetMetrics {
@@ -116,6 +120,7 @@ impl Default for AssetMetrics {
             animation_frame_count: 0,
             missing_mapping_count: 0,
             diagnostic_quad_count: 0,
+            diagnostic_attribution: DiagnosticAttributionSnapshot::default(),
         }
     }
 }
@@ -131,7 +136,7 @@ impl AssetMetrics {
             "WORLD_READY source_tag={} source_sha256={} blob_sha256={} texture_layers={} texture_pages={} \
              texture_bytes_including_mips={} material_count={} model_template_count={} model_quad_count={} \
              animation_count={} animation_frame_count={} missing_mapping_count={} \
-             diagnostic_quad_count={} resident_sub_chunks={resident_sub_chunks} \
+             diagnostic_quad_count={} {} resident_sub_chunks={resident_sub_chunks} \
              visible_sub_chunks={visible_sub_chunks}",
             self.source_tag,
             self.source_sha256,
@@ -146,35 +151,8 @@ impl AssetMetrics {
             self.animation_frame_count,
             self.missing_mapping_count,
             self.diagnostic_quad_count,
+            self.diagnostic_attribution.marker_fields(),
         )
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct DiagnosticQuadTracker {
-    by_sub_chunk: BTreeMap<SubChunkKey, u64>,
-    total: u64,
-}
-
-impl DiagnosticQuadTracker {
-    pub fn upsert(&mut self, key: SubChunkKey, count: u64) {
-        if count == 0 {
-            self.remove(key);
-            return;
-        }
-        let previous = self.by_sub_chunk.insert(key, count).unwrap_or(0);
-        self.total = self.total.saturating_sub(previous).saturating_add(count);
-    }
-
-    pub fn remove(&mut self, key: SubChunkKey) {
-        if let Some(previous) = self.by_sub_chunk.remove(&key) {
-            self.total = self.total.saturating_sub(previous);
-        }
-    }
-
-    #[must_use]
-    pub const fn total(&self) -> u64 {
-        self.total
     }
 }
 
@@ -226,11 +204,67 @@ impl FrameHistogram {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpuPassMeasurement {
+    pub time: Instant,
+    pub value_ms: f64,
+}
+
+impl GpuPassMeasurement {
+    #[must_use]
+    pub const fn new(time: Instant, value_ms: f64) -> Self {
+        Self { time, value_ms }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct GpuPassSample {
+    pub opaque_ms: f64,
+    pub transparent_ms: f64,
+    pub chunk_containing_pass_ms: f64,
+}
+
+#[must_use]
+pub fn pair_gpu_pass_sample(
+    last_recorded_time: Option<Instant>,
+    opaque: Option<GpuPassMeasurement>,
+    transparent: Option<GpuPassMeasurement>,
+) -> Option<(Instant, GpuPassSample)> {
+    let opaque = opaque
+        .filter(|measurement| measurement.value_ms.is_finite() && measurement.value_ms >= 0.0)?;
+    if last_recorded_time == Some(opaque.time) {
+        return None;
+    }
+    let transparent_ms = transparent
+        .filter(|measurement| {
+            measurement.time == opaque.time
+                && measurement.value_ms.is_finite()
+                && measurement.value_ms >= 0.0
+        })
+        .map_or(0.0, |measurement| measurement.value_ms);
+    Some((
+        opaque.time,
+        GpuPassSample {
+            opaque_ms: opaque.value_ms,
+            transparent_ms,
+            chunk_containing_pass_ms: opaque.value_ms + transparent_ms,
+        },
+    ))
+}
+
 #[derive(Debug)]
 pub struct MetricsCollector {
     started: Instant,
+    finished: Option<Instant>,
+    frame_warmup: Duration,
+    frame_warmup_remaining: Duration,
+    frame_sample_limit: Option<Duration>,
+    frame_sample_elapsed: Duration,
     assets: AssetMetrics,
     frame_histogram: FrameHistogram,
+    opaque_gpu_histogram: FrameHistogram,
+    transparent_gpu_histogram: FrameHistogram,
+    chunk_containing_gpu_histogram: FrameHistogram,
     world_ready: bool,
     requested_radius_chunks: i32,
     received_radius_chunks: Option<i32>,
@@ -259,6 +293,85 @@ pub struct MetricsCollector {
     peak_pending_mesh_jobs: usize,
     peak_in_flight_mesh_jobs: usize,
     gpu_upload_bytes: u64,
+    transparent_sort: TransparentSortMetricsSnapshot,
+    model_workload: ModelWorkloadMetricsSnapshot,
+}
+
+/// App-owned, copyable seam for render-world transparent-sort evidence.
+///
+/// The render crate may publish these counters through a Bevy resource; keeping
+/// this snapshot local prevents the stable metrics schema from depending on the
+/// renderer's internal resource layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransparentSortMetricsSnapshot {
+    pub request_generation: u64,
+    pub result_generation: u64,
+    pub committed_generation: u64,
+    pub encoded_generation: u64,
+    pub presented_generation: u64,
+    pub ref_count: usize,
+    pub cpu_duration: Duration,
+    pub request_to_commit_latency: Duration,
+    pub staged_bytes: u64,
+    pub upload_bytes: u64,
+    pub stale_reject_count: u64,
+    pub ceiling_reject_count: u64,
+    pub active_slot_age_frames: u64,
+    pub transparent_water_distinct_tint_count: usize,
+}
+
+impl From<render::TransparentSortMetricsSnapshot> for TransparentSortMetricsSnapshot {
+    fn from(snapshot: render::TransparentSortMetricsSnapshot) -> Self {
+        Self {
+            request_generation: snapshot.request_generation,
+            result_generation: snapshot.result_generation,
+            committed_generation: snapshot.committed_generation,
+            encoded_generation: snapshot.encoded_generation,
+            presented_generation: snapshot.presented_generation,
+            ref_count: snapshot.ref_count,
+            cpu_duration: snapshot.cpu_duration,
+            request_to_commit_latency: snapshot.request_to_commit_latency,
+            staged_bytes: snapshot.staged_bytes,
+            upload_bytes: snapshot.upload_bytes,
+            stale_reject_count: snapshot.stale_reject_count,
+            ceiling_reject_count: snapshot.ceiling_reject_count,
+            active_slot_age_frames: snapshot.active_slot_age_frames,
+            transparent_water_distinct_tint_count: snapshot.transparent_water_distinct_tint_count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadCountSnapshot {
+    pub model_ref_count: usize,
+    pub model_draw_ref_count: usize,
+    pub legacy_fixed_slot_quad_invocations_avoided: usize,
+}
+
+impl From<render::ModelWorkloadCount> for ModelWorkloadCountSnapshot {
+    fn from(snapshot: render::ModelWorkloadCount) -> Self {
+        Self {
+            model_ref_count: snapshot.model_ref_count,
+            model_draw_ref_count: snapshot.model_draw_ref_count,
+            legacy_fixed_slot_quad_invocations_avoided: snapshot
+                .legacy_fixed_slot_quad_invocations_avoided,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelWorkloadMetricsSnapshot {
+    pub resident: ModelWorkloadCountSnapshot,
+    pub visible: ModelWorkloadCountSnapshot,
+}
+
+impl From<render::ModelWorkloadMetricsSnapshot> for ModelWorkloadMetricsSnapshot {
+    fn from(snapshot: render::ModelWorkloadMetricsSnapshot) -> Self {
+        Self {
+            resident: snapshot.resident.into(),
+            visible: snapshot.visible.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -285,6 +398,8 @@ pub struct PipelineMetricsSnapshot {
     pub pending_mesh_jobs: usize,
     pub in_flight_mesh_jobs: usize,
     pub gpu_upload_bytes: u64,
+    pub transparent_sort: TransparentSortMetricsSnapshot,
+    pub model_workload: ModelWorkloadMetricsSnapshot,
 }
 
 impl Default for MetricsCollector {
@@ -298,8 +413,16 @@ impl MetricsCollector {
     pub fn new() -> Self {
         Self {
             started: Instant::now(),
+            finished: None,
+            frame_warmup: Duration::ZERO,
+            frame_warmup_remaining: Duration::ZERO,
+            frame_sample_limit: None,
+            frame_sample_elapsed: Duration::ZERO,
             assets: AssetMetrics::default(),
             frame_histogram: FrameHistogram::default(),
+            opaque_gpu_histogram: FrameHistogram::default(),
+            transparent_gpu_histogram: FrameHistogram::default(),
+            chunk_containing_gpu_histogram: FrameHistogram::default(),
             world_ready: false,
             requested_radius_chunks: 0,
             received_radius_chunks: None,
@@ -328,6 +451,8 @@ impl MetricsCollector {
             peak_pending_mesh_jobs: 0,
             peak_in_flight_mesh_jobs: 0,
             gpu_upload_bytes: 0,
+            transparent_sort: TransparentSortMetricsSnapshot::default(),
+            model_workload: ModelWorkloadMetricsSnapshot::default(),
         }
     }
 
@@ -335,6 +460,31 @@ impl MetricsCollector {
     pub fn with_asset_metrics(assets: AssetMetrics) -> Self {
         Self {
             assets,
+            ..Self::new()
+        }
+    }
+
+    #[must_use]
+    pub fn with_asset_metrics_and_warmup(assets: AssetMetrics, frame_warmup: Duration) -> Self {
+        Self {
+            assets,
+            frame_warmup,
+            frame_warmup_remaining: frame_warmup,
+            ..Self::new()
+        }
+    }
+
+    #[must_use]
+    pub fn with_asset_metrics_window(
+        assets: AssetMetrics,
+        frame_warmup: Duration,
+        frame_sample_limit: Duration,
+    ) -> Self {
+        Self {
+            assets,
+            frame_warmup,
+            frame_warmup_remaining: frame_warmup,
+            frame_sample_limit: Some(frame_sample_limit),
             ..Self::new()
         }
     }
@@ -348,14 +498,54 @@ impl MetricsCollector {
         self.assets.diagnostic_quad_count = diagnostic_quad_count;
     }
 
+    pub fn record_diagnostic_attribution(&mut self, snapshot: DiagnosticAttributionSnapshot) {
+        self.assets.diagnostic_attribution = snapshot;
+    }
+
     #[must_use]
     pub const fn asset_metrics(&self) -> &AssetMetrics {
         &self.assets
     }
 
     pub fn record_frame(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
+        if !self.frame_warmup_remaining.is_zero() {
+            if duration <= self.frame_warmup_remaining {
+                self.frame_warmup_remaining = self.frame_warmup_remaining.saturating_sub(duration);
+                return;
+            }
+            let steady_duration = duration.saturating_sub(self.frame_warmup_remaining);
+            self.frame_warmup_remaining = Duration::ZERO;
+            self.frame_histogram
+                .record(steady_duration.as_secs_f64() * 1_000.0);
+            return;
+        }
+        if self
+            .frame_sample_limit
+            .is_some_and(|limit| self.frame_sample_elapsed >= limit)
+        {
+            return;
+        }
+        self.frame_sample_elapsed = self.frame_sample_elapsed.saturating_add(duration);
         self.frame_histogram
             .record(duration.as_secs_f64() * 1_000.0);
+    }
+
+    pub fn record_gpu_pass_sample(&mut self, time: Instant, sample: GpuPassSample) {
+        if time < self.started + self.frame_warmup
+            || self.finished.is_some()
+            || self
+                .frame_sample_limit
+                .is_some_and(|limit| time > self.started + self.frame_warmup + limit)
+        {
+            return;
+        }
+        self.opaque_gpu_histogram.record(sample.opaque_ms);
+        self.transparent_gpu_histogram.record(sample.transparent_ms);
+        self.chunk_containing_gpu_histogram
+            .record(sample.chunk_containing_pass_ms);
     }
 
     #[must_use]
@@ -365,7 +555,13 @@ impl MetricsCollector {
 
     pub fn begin_timed_session(&mut self, started: Instant) {
         self.started = started;
+        self.finished = None;
+        self.frame_warmup_remaining = self.frame_warmup;
+        self.frame_sample_elapsed = Duration::ZERO;
         self.frame_histogram = FrameHistogram::default();
+        self.opaque_gpu_histogram = FrameHistogram::default();
+        self.transparent_gpu_histogram = FrameHistogram::default();
+        self.chunk_containing_gpu_histogram = FrameHistogram::default();
         self.max_remesh_milliseconds = 0.0;
         self.max_mutation_to_visible_milliseconds = 0.0;
         self.max_decode_milliseconds = 0.0;
@@ -376,13 +572,28 @@ impl MetricsCollector {
         self.forced_full_view_remesh_proof = None;
     }
 
+    /// Freezes duration-bound performance evidence at the requested session
+    /// deadline. Presentation/upload counters may still advance during the
+    /// bounded post-session GPU-settle grace.
+    pub fn finish_timed_session(&mut self, finished: Instant) {
+        if self.finished.is_none() {
+            self.finished = Some(finished.max(self.started));
+        }
+    }
+
     pub fn record_remesh_latency(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
         self.max_remesh_milliseconds = self
             .max_remesh_milliseconds
             .max(duration.as_secs_f64() * 1_000.0);
     }
 
     pub fn record_mutation_to_visible(&mut self, duration: Duration) {
+        if self.finished.is_some() {
+            return;
+        }
         self.max_mutation_to_visible_milliseconds = self
             .max_mutation_to_visible_milliseconds
             .max(duration.as_secs_f64() * 1_000.0);
@@ -413,6 +624,12 @@ impl MetricsCollector {
     }
 
     pub fn record_pipeline_snapshot(&mut self, snapshot: PipelineMetricsSnapshot) {
+        if self.finished.is_some() {
+            self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
+            self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+            self.model_workload = snapshot.model_workload;
+            return;
+        }
         self.world_ready |= snapshot.world_ready;
         self.requested_radius_chunks = snapshot.requested_radius_chunks;
         self.received_radius_chunks = snapshot.received_radius_chunks;
@@ -453,12 +670,21 @@ impl MetricsCollector {
             .peak_in_flight_mesh_jobs
             .max(snapshot.in_flight_mesh_jobs);
         self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
+        self.record_transparent_sort_snapshot(snapshot.transparent_sort);
+        self.model_workload = snapshot.model_workload;
+    }
+
+    pub fn record_transparent_sort_snapshot(&mut self, snapshot: TransparentSortMetricsSnapshot) {
+        self.transparent_sort = snapshot;
     }
 
     #[must_use]
     pub fn report(&self) -> MetricsReport {
+        let finished = self.finished.unwrap_or_else(Instant::now);
         MetricsReport {
-            session_seconds: self.started.elapsed().as_secs_f64(),
+            session_seconds: finished
+                .saturating_duration_since(self.started)
+                .as_secs_f64(),
             world_ready: self.world_ready,
             requested_radius_chunks: self.requested_radius_chunks,
             received_radius_chunks: self.received_radius_chunks,
@@ -470,6 +696,19 @@ impl MetricsCollector {
             p95_frame_ms: self.frame_histogram.quantile(0.95),
             p99_frame_ms: self.frame_histogram.quantile(0.99),
             max_frame_ms: self.frame_histogram.max_milliseconds,
+            gpu_pass_sample_count: self.opaque_gpu_histogram.sample_count,
+            opaque_3d_gpu_p50_ms: self.opaque_gpu_histogram.quantile(0.50),
+            opaque_3d_gpu_p95_ms: self.opaque_gpu_histogram.quantile(0.95),
+            opaque_3d_gpu_p99_ms: self.opaque_gpu_histogram.quantile(0.99),
+            opaque_3d_gpu_max_ms: self.opaque_gpu_histogram.max_milliseconds,
+            transparent_3d_gpu_p50_ms: self.transparent_gpu_histogram.quantile(0.50),
+            transparent_3d_gpu_p95_ms: self.transparent_gpu_histogram.quantile(0.95),
+            transparent_3d_gpu_p99_ms: self.transparent_gpu_histogram.quantile(0.99),
+            transparent_3d_gpu_max_ms: self.transparent_gpu_histogram.max_milliseconds,
+            chunk_containing_pass_gpu_p50_ms: self.chunk_containing_gpu_histogram.quantile(0.50),
+            chunk_containing_pass_gpu_p95_ms: self.chunk_containing_gpu_histogram.quantile(0.95),
+            chunk_containing_pass_gpu_p99_ms: self.chunk_containing_gpu_histogram.quantile(0.99),
+            chunk_containing_pass_gpu_max_ms: self.chunk_containing_gpu_histogram.max_milliseconds,
             max_decode_ms: self.max_decode_milliseconds,
             max_mesh_ms: self.max_mesh_milliseconds,
             max_remesh_ms: self.max_remesh_milliseconds,
@@ -491,7 +730,43 @@ impl MetricsCollector {
             peak_outbound_requests: self.peak_outbound_requests,
             peak_pending_mesh_jobs: self.peak_pending_mesh_jobs,
             peak_in_flight_mesh_jobs: self.peak_in_flight_mesh_jobs,
-            gpu_upload_bytes: self.gpu_upload_bytes,
+            nontransparent_gpu_upload_bytes: self.gpu_upload_bytes,
+            gpu_upload_bytes: self
+                .gpu_upload_bytes
+                .checked_add(self.transparent_sort.upload_bytes)
+                .expect("combined GPU upload byte counter overflowed"),
+            transparent_sort_request_generation: self.transparent_sort.request_generation,
+            transparent_sort_result_generation: self.transparent_sort.result_generation,
+            transparent_sort_committed_generation: self.transparent_sort.committed_generation,
+            transparent_sort_encoded_generation: self.transparent_sort.encoded_generation,
+            transparent_sort_presented_generation: self.transparent_sort.presented_generation,
+            transparent_sort_ref_count: self.transparent_sort.ref_count,
+            transparent_sort_cpu_ms: self.transparent_sort.cpu_duration.as_secs_f64() * 1_000.0,
+            transparent_sort_request_to_commit_ms: self
+                .transparent_sort
+                .request_to_commit_latency
+                .as_secs_f64()
+                * 1_000.0,
+            transparent_sort_staged_bytes: self.transparent_sort.staged_bytes,
+            transparent_sort_upload_bytes: self.transparent_sort.upload_bytes,
+            transparent_sort_stale_reject_count: self.transparent_sort.stale_reject_count,
+            transparent_sort_ceiling_reject_count: self.transparent_sort.ceiling_reject_count,
+            transparent_sort_active_slot_age_frames: self.transparent_sort.active_slot_age_frames,
+            transparent_water_distinct_tint_count: self
+                .transparent_sort
+                .transparent_water_distinct_tint_count,
+            resident_model_ref_count: self.model_workload.resident.model_ref_count,
+            resident_model_draw_ref_count: self.model_workload.resident.model_draw_ref_count,
+            resident_legacy_fixed_slot_quad_invocations_avoided: self
+                .model_workload
+                .resident
+                .legacy_fixed_slot_quad_invocations_avoided,
+            visible_model_ref_count: self.model_workload.visible.model_ref_count,
+            visible_model_draw_ref_count: self.model_workload.visible.model_draw_ref_count,
+            visible_legacy_fixed_slot_quad_invocations_avoided: self
+                .model_workload
+                .visible
+                .legacy_fixed_slot_quad_invocations_avoided,
             assets: self.assets.clone(),
         }
     }
@@ -502,58 +777,8 @@ impl MetricsCollector {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct MetricsReport {
-    pub session_seconds: f64,
-    pub world_ready: bool,
-    pub requested_radius_chunks: i32,
-    pub received_radius_chunks: Option<i32>,
-    pub publisher_radius_chunks: Option<i32>,
-    pub mutation_coordinate: Option<[i32; 3]>,
-    pub visible_mutation_count: u64,
-    pub frame_count: usize,
-    pub p50_frame_ms: f64,
-    pub p95_frame_ms: f64,
-    pub p99_frame_ms: f64,
-    pub max_frame_ms: f64,
-    pub max_decode_ms: f64,
-    pub max_mesh_ms: f64,
-    pub max_remesh_ms: f64,
-    pub teleport_settle_ms: Option<f64>,
-    pub forced_full_view_remesh_ms: Option<f64>,
-    pub teleport_proof: Option<TeleportProof>,
-    pub forced_full_view_remesh_proof: Option<ExactFullViewProof>,
-    pub max_mutation_to_visible_ms: f64,
-    pub decode_error_count: u64,
-    pub rendered_sub_chunks: usize,
-    pub resident_sub_chunks: usize,
-    pub visible_sub_chunks: usize,
-    pub peak_admitted_world_events: usize,
-    pub peak_admitted_heavy_events: usize,
-    pub peak_queued_decode_jobs: usize,
-    pub peak_in_flight_decode_jobs: usize,
-    pub peak_completed_decode_results: usize,
-    pub peak_pending_retry_requests: usize,
-    pub peak_outbound_requests: usize,
-    pub peak_pending_mesh_jobs: usize,
-    pub peak_in_flight_mesh_jobs: usize,
-    pub gpu_upload_bytes: u64,
-    pub assets: AssetMetrics,
-}
-
-impl MetricsReport {
-    pub fn write_json(&self, path: &Path) -> io::Result<()> {
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent)?;
-        }
-        let mut encoded = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        encoded.push(b'\n');
-        fs::write(path, encoded)
-    }
-}
+mod report;
+pub use report::MetricsReport;
 
 #[cfg(test)]
 fn percentile(sorted: &[f64], percentile: f64) -> f64 {
@@ -565,352 +790,4 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AssetMetrics, ExactFullViewProof, MetricsCollector, MetricsReport, PipelineMetricsSnapshot,
-        TeleportProof, deterministic_manifest_hash, percentile,
-    };
-    use std::{fs, time::Duration};
-    use world::SubChunkKey;
-
-    #[test]
-    fn empty_percentiles_are_zero() {
-        assert_eq!(percentile(&[], 0.99), 0.0);
-    }
-
-    #[test]
-    fn timed_session_discards_pre_ready_frame_samples() {
-        let mut metrics = MetricsCollector::new();
-        metrics.record_frame(Duration::from_millis(250));
-        metrics.record_remesh_latency(Duration::from_secs(12));
-        metrics.record_mutation_to_visible(Duration::from_secs(1));
-
-        metrics.begin_timed_session(std::time::Instant::now());
-
-        let report = metrics.report();
-        assert_eq!(report.frame_count, 0);
-        assert_eq!(report.max_remesh_ms, 0.0);
-        assert_eq!(report.max_mutation_to_visible_ms, 0.0);
-    }
-
-    #[test]
-    fn report_uses_sorted_nearest_rank_metrics() {
-        let mut metrics = MetricsCollector::new();
-        for milliseconds in 1..=100 {
-            metrics.record_frame(Duration::from_secs_f64(milliseconds as f64 / 1_000.0));
-        }
-        metrics.record_remesh_latency(Duration::from_millis(42));
-        metrics.record_mutation_to_visible(Duration::from_millis(75));
-        metrics.record_teleport_settle(Duration::from_millis(23_400));
-        metrics.record_forced_full_view_remesh(Duration::from_millis(1_234));
-        metrics.add_decode_errors(3);
-        metrics.record_pipeline_snapshot(PipelineMetricsSnapshot {
-            world_ready: true,
-            requested_radius_chunks: 16,
-            received_radius_chunks: Some(16),
-            publisher_radius_chunks: Some(16),
-            mutation_coordinate: Some([4, 65, -2]),
-            visible_mutation_count: 3,
-            max_decode: Duration::from_millis(11),
-            max_mesh: Duration::from_millis(22),
-            max_remesh: Duration::from_millis(42),
-            rendered_sub_chunks: 13,
-            resident_sub_chunks: 19,
-            visible_sub_chunks: 17,
-            admitted_world_events: 7,
-            admitted_heavy_events: 5,
-            queued_decode_jobs: 4,
-            in_flight_decode_jobs: 3,
-            completed_decode_results: 2,
-            pending_retry_requests: 1,
-            outbound_requests: 6,
-            pending_mesh_jobs: 9,
-            in_flight_mesh_jobs: 8,
-            gpu_upload_bytes: 12_345,
-        });
-
-        let report = metrics.report();
-        assert_eq!(report.frame_count, 100);
-        assert!(report.world_ready);
-        assert_eq!(report.requested_radius_chunks, 16);
-        assert_eq!(report.received_radius_chunks, Some(16));
-        assert_eq!(report.publisher_radius_chunks, Some(16));
-        assert_eq!(report.mutation_coordinate, Some([4, 65, -2]));
-        assert_eq!(report.visible_mutation_count, 3);
-        assert_eq!(report.p50_frame_ms, 51.0);
-        assert_eq!(report.p95_frame_ms, 96.0);
-        assert_eq!(report.p99_frame_ms, 100.0);
-        assert_eq!(report.max_frame_ms, 100.0);
-        assert_eq!(report.max_decode_ms, 11.0);
-        assert_eq!(report.max_mesh_ms, 22.0);
-        assert_eq!(report.max_remesh_ms, 42.0);
-        assert_eq!(report.max_mutation_to_visible_ms, 75.0);
-        assert_eq!(report.teleport_settle_ms, Some(23_400.0));
-        assert_eq!(report.forced_full_view_remesh_ms, Some(1_234.0));
-        assert_eq!(report.decode_error_count, 3);
-        assert_eq!(report.rendered_sub_chunks, 13);
-        assert_eq!(report.resident_sub_chunks, 19);
-        assert_eq!(report.visible_sub_chunks, 17);
-        assert_eq!(report.peak_admitted_world_events, 7);
-        assert_eq!(report.peak_admitted_heavy_events, 5);
-        assert_eq!(report.peak_queued_decode_jobs, 4);
-        assert_eq!(report.peak_in_flight_decode_jobs, 3);
-        assert_eq!(report.peak_completed_decode_results, 2);
-        assert_eq!(report.peak_pending_retry_requests, 1);
-        assert_eq!(report.peak_outbound_requests, 6);
-        assert_eq!(report.peak_pending_mesh_jobs, 9);
-        assert_eq!(report.peak_in_flight_mesh_jobs, 8);
-        assert_eq!(report.gpu_upload_bytes, 12_345);
-    }
-
-    #[test]
-    fn frame_quantiles_use_constant_memory_and_are_deterministic_at_large_sample_counts() {
-        let mut first = MetricsCollector::new();
-        let mut second = MetricsCollector::new();
-        let capacity = first.frame_sample_capacity();
-
-        for sample in 0..100_000 {
-            let duration = Duration::from_micros((sample % 2_000 + 1) as u64 * 100);
-            first.record_frame(duration);
-            second.record_frame(duration);
-        }
-
-        assert_eq!(first.frame_sample_capacity(), capacity);
-        assert_eq!(second.frame_sample_capacity(), capacity);
-        assert!(capacity < 100_000);
-        let first = first.report();
-        let second = second.report();
-        assert_eq!(first.frame_count, 100_000);
-        assert_eq!(first.p50_frame_ms, second.p50_frame_ms);
-        assert_eq!(first.p95_frame_ms, second.p95_frame_ms);
-        assert_eq!(first.p99_frame_ms, second.p99_frame_ms);
-        assert_eq!(first.max_frame_ms, second.max_frame_ms);
-    }
-
-    fn exact_full_view_proof(
-        milliseconds: f64,
-        view_generation: u64,
-        manifest_hash: &str,
-    ) -> ExactFullViewProof {
-        ExactFullViewProof {
-            target: "0:65:65:16".to_owned(),
-            committed: "0:65:65:16".to_owned(),
-            ms: milliseconds,
-            view_generation,
-            render_ready_ms: 100.0,
-            first_frame_sequence: 41,
-            stable_frame_sequence: 42,
-            first_present_ms: 110.0,
-            first_gpu_ms: 120.0,
-            stable_present_ms: 130.0,
-            stable_gpu_ms: milliseconds,
-            frame_count: 12,
-            expected_manifest_count: 4,
-            expected_manifest_hash: manifest_hash.to_owned(),
-            first_presented_manifest_count: 4,
-            first_presented_manifest_hash: manifest_hash.to_owned(),
-            stable_presented_manifest_count: 4,
-            stable_presented_manifest_hash: manifest_hash.to_owned(),
-            expected: 1_089,
-            loaded_target: 1_089,
-            missing_target: 0,
-            foreign_loaded: 0,
-            foreign_requested: 0,
-            foreign_resident: 0,
-            source_leftover: 0,
-            resident_count: 3,
-            resident_hash: "aaaabbbbccccdddd".to_owned(),
-            known_air_count: 1,
-            known_air_hash: "eeeeffff00001111".to_owned(),
-            missing_target_instances: 0,
-            unexpected_target_instances: 0,
-            source_instances: 0,
-            foreign_instances: 0,
-            stale_generation_instances: 0,
-            orphan_allocations: 0,
-        }
-    }
-
-    #[test]
-    fn binding_and_secondary_metrics_remain_distinct() {
-        let mut metrics = MetricsCollector::new();
-        let teleport = TeleportProof {
-            exact: exact_full_view_proof(2_400.0, 7, "1111222233334444"),
-            publisher_ms: Some(10.0),
-            first_level_ms: Some(20.0),
-            last_level_ms: Some(30.0),
-            level_events: 1_089,
-            first_sub_ms: Some(40.0),
-            last_sub_ms: Some(50.0),
-            sub_events: 1_089,
-        };
-        let remesh = exact_full_view_proof(150.0, 8, "5555666677778888");
-
-        metrics.record_teleport_proof(teleport.clone());
-        metrics.record_forced_full_view_remesh_proof(remesh.clone());
-
-        let report = metrics.report();
-        assert_eq!(report.teleport_settle_ms, Some(2_400.0));
-        assert_eq!(report.forced_full_view_remesh_ms, Some(150.0));
-        assert_eq!(report.teleport_proof, Some(teleport));
-        assert_eq!(report.forced_full_view_remesh_proof, Some(remesh));
-    }
-
-    #[test]
-    fn cohort_stage_and_frame_evidence_serializes_deterministically_with_missing_stages_as_null() {
-        let key_a = SubChunkKey::new(0, 1, -4, 2);
-        let key_b = SubChunkKey::new(0, 0, -4, 0);
-        assert_eq!(
-            deterministic_manifest_hash(&[(key_a, 9), (key_b, 7)]),
-            deterministic_manifest_hash(&[(key_b, 7), (key_a, 9)])
-        );
-
-        let mut metrics = MetricsCollector::new();
-        metrics.record_teleport_proof(TeleportProof {
-            exact: exact_full_view_proof(1_500.0, 7, "1111222233334444"),
-            publisher_ms: None,
-            first_level_ms: None,
-            last_level_ms: None,
-            level_events: 0,
-            first_sub_ms: None,
-            last_sub_ms: None,
-            sub_events: 0,
-        });
-        metrics.record_forced_full_view_remesh_proof(exact_full_view_proof(
-            1_500.0,
-            8,
-            "5555666677778888",
-        ));
-        let report = metrics.report();
-        let first = serde_json::to_string_pretty(&report).unwrap();
-        let second = serde_json::to_string_pretty(&report).unwrap();
-        assert_eq!(first, second);
-
-        let document = serde_json::to_value(report).unwrap();
-        let teleport = &document["teleport_proof"];
-        assert_eq!(teleport["target"], "0:65:65:16");
-        assert_eq!(teleport["expected"], 1_089);
-        assert_eq!(teleport["frame_count"], 12);
-        for stage in [
-            "publisher_ms",
-            "first_level_ms",
-            "last_level_ms",
-            "first_sub_ms",
-            "last_sub_ms",
-        ] {
-            assert!(teleport[stage].is_null(), "{stage} was not JSON null");
-        }
-        assert!(!first.contains(": -1"));
-    }
-
-    #[test]
-    fn json_output_is_pretty_deterministic_and_newline_terminated() {
-        let report = MetricsReport {
-            session_seconds: 15.0,
-            world_ready: true,
-            requested_radius_chunks: 16,
-            received_radius_chunks: Some(16),
-            publisher_radius_chunks: Some(16),
-            mutation_coordinate: Some([4, 65, -2]),
-            visible_mutation_count: 3,
-            frame_count: 2,
-            p50_frame_ms: 4.0,
-            p95_frame_ms: 5.0,
-            p99_frame_ms: 5.0,
-            max_frame_ms: 5.0,
-            max_decode_ms: 6.0,
-            max_mesh_ms: 7.0,
-            max_remesh_ms: 20.0,
-            teleport_settle_ms: Some(23_400.0),
-            forced_full_view_remesh_ms: Some(1_234.0),
-            teleport_proof: None,
-            forced_full_view_remesh_proof: None,
-            max_mutation_to_visible_ms: 75.0,
-            decode_error_count: 0,
-            rendered_sub_chunks: 13,
-            resident_sub_chunks: 14,
-            visible_sub_chunks: 12,
-            peak_admitted_world_events: 8,
-            peak_admitted_heavy_events: 7,
-            peak_queued_decode_jobs: 6,
-            peak_in_flight_decode_jobs: 4,
-            peak_completed_decode_results: 3,
-            peak_pending_retry_requests: 2,
-            peak_outbound_requests: 5,
-            peak_pending_mesh_jobs: 9,
-            peak_in_flight_mesh_jobs: 8,
-            gpu_upload_bytes: 4_096,
-            assets: AssetMetrics::default(),
-        };
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory =
-            std::env::temp_dir().join(format!("rust-mcbe-metrics-{}-{unique}", std::process::id()));
-        let path = directory.join("nested/metrics.json");
-        report.write_json(&path).unwrap();
-        let bytes = fs::read(&path).unwrap();
-        assert_eq!(
-            String::from_utf8(bytes).unwrap(),
-            concat!(
-                "{\n",
-                "  \"session_seconds\": 15.0,\n",
-                "  \"world_ready\": true,\n",
-                "  \"requested_radius_chunks\": 16,\n",
-                "  \"received_radius_chunks\": 16,\n",
-                "  \"publisher_radius_chunks\": 16,\n",
-                "  \"mutation_coordinate\": [\n",
-                "    4,\n",
-                "    65,\n",
-                "    -2\n",
-                "  ],\n",
-                "  \"visible_mutation_count\": 3,\n",
-                "  \"frame_count\": 2,\n",
-                "  \"p50_frame_ms\": 4.0,\n",
-                "  \"p95_frame_ms\": 5.0,\n",
-                "  \"p99_frame_ms\": 5.0,\n",
-                "  \"max_frame_ms\": 5.0,\n",
-                "  \"max_decode_ms\": 6.0,\n",
-                "  \"max_mesh_ms\": 7.0,\n",
-                "  \"max_remesh_ms\": 20.0,\n",
-                "  \"teleport_settle_ms\": 23400.0,\n",
-                "  \"forced_full_view_remesh_ms\": 1234.0,\n",
-                "  \"teleport_proof\": null,\n",
-                "  \"forced_full_view_remesh_proof\": null,\n",
-                "  \"max_mutation_to_visible_ms\": 75.0,\n",
-                "  \"decode_error_count\": 0,\n",
-                "  \"rendered_sub_chunks\": 13,\n",
-                "  \"resident_sub_chunks\": 14,\n",
-                "  \"visible_sub_chunks\": 12,\n",
-                "  \"peak_admitted_world_events\": 8,\n",
-                "  \"peak_admitted_heavy_events\": 7,\n",
-                "  \"peak_queued_decode_jobs\": 6,\n",
-                "  \"peak_in_flight_decode_jobs\": 4,\n",
-                "  \"peak_completed_decode_results\": 3,\n",
-                "  \"peak_pending_retry_requests\": 2,\n",
-                "  \"peak_outbound_requests\": 5,\n",
-                "  \"peak_pending_mesh_jobs\": 9,\n",
-                "  \"peak_in_flight_mesh_jobs\": 8,\n",
-                "  \"gpu_upload_bytes\": 4096,\n",
-                "  \"assets\": {\n",
-                "    \"source_tag\": \"diagnostic\",\n",
-                "    \"source_sha256\": \"diagnostic\",\n",
-                "    \"blob_sha256\": \"diagnostic\",\n",
-                "    \"texture_layers\": 1,\n",
-                "    \"texture_pages\": 1,\n",
-                "    \"texture_bytes_including_mips\": 1364,\n",
-                "    \"material_count\": 1,\n",
-                "    \"model_template_count\": 0,\n",
-                "    \"model_quad_count\": 0,\n",
-                "    \"animation_count\": 0,\n",
-                "    \"animation_frame_count\": 0,\n",
-                "    \"missing_mapping_count\": 0,\n",
-                "    \"diagnostic_quad_count\": 0\n",
-                "  }\n",
-                "}\n",
-            )
-        );
-        let _ = fs::remove_dir_all(directory);
-    }
-}
+mod tests;

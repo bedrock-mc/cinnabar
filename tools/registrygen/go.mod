@@ -3,7 +3,7 @@ module github.com/hashimthearab/rust-mcbe/tools/registrygen
 go 1.26.1
 
 require (
-	github.com/df-mc/dragonfly v0.10.15-0.20260709170650-b85c56ffea6b
+	github.com/df-mc/dragonfly v0.11.1-0.20260714151819-dbbd8b787946
 	github.com/sandertv/gophertunnel v1.57.0
 )
 

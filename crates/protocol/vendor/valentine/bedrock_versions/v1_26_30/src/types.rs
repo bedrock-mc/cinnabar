@@ -2848,11 +2848,238 @@ impl crate::bedrock::codec::BedrockCodec for BiomeReplacementData {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct BiomeChunkGeneration {
-    pub climate: Option<BiomeClimate>,
-    pub consolidated_features: Option<Vec<BiomeConsolidatedFeature>>,
-    pub mountain_parameters: Option<BiomeMountainParameters>,
-    pub surface_material_adjustments: Option<Vec<BiomeElementData>>,
+pub struct FloatRange {
+    pub min: f32,
+    pub max: f32,
+}
+impl crate::bedrock::codec::BedrockSized for FloatRange {
+    fn encoded_size(&self) -> usize {
+        8
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for FloatRange {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        crate::bedrock::codec::F32LE(self.min).encode(buf)?;
+        crate::bedrock::codec::F32LE(self.max).encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _: (),
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        Ok(Self {
+            min: crate::bedrock::codec::F32LE::decode(buf, ())?.0,
+            max: crate::bedrock::codec::F32LE::decode(buf, ())?.0,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct NoiseBlockSpecifier {
+    pub noise: String,
+    pub threshold: f32,
+    pub range: FloatRange,
+    pub block: u32,
+}
+impl crate::bedrock::codec::BedrockSized for NoiseBlockSpecifier {
+    fn encoded_size(&self) -> usize {
+        crate::bedrock::codec::VarInt(self.noise.len() as i32).encoded_size()
+            + self.noise.len()
+            + 4
+            + self.range.encoded_size()
+            + 4
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for NoiseBlockSpecifier {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        crate::bedrock::codec::VarInt(self.noise.len() as i32).encode(buf)?;
+        buf.put_slice(self.noise.as_bytes());
+        crate::bedrock::codec::F32LE(self.threshold).encode(buf)?;
+        self.range.encode(buf)?;
+        crate::bedrock::codec::U32LE(self.block).encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _: (),
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let len = crate::bedrock::codec::VarInt::decode(buf, ())?.0 as i64;
+        if len < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len });
+        }
+        let len = len as usize;
+        if len > buf.remaining() {
+            return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                declared: len,
+                available: buf.remaining(),
+            });
+        }
+        let mut bytes = vec![0; len];
+        buf.copy_to_slice(&mut bytes);
+        Ok(Self {
+            noise: crate::bedrock::codec::decode_utf8_lossy_owned(bytes),
+            threshold: crate::bedrock::codec::F32LE::decode(buf, ())?.0,
+            range: FloatRange::decode(buf, ())?,
+            block: crate::bedrock::codec::U32LE::decode(buf, ())?.0,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct NoiseDescriptor {
+    pub name: String,
+    pub first_octave: i32,
+    pub amplitudes: Vec<f32>,
+}
+impl crate::bedrock::codec::BedrockSized for NoiseDescriptor {
+    fn encoded_size(&self) -> usize {
+        crate::bedrock::codec::VarInt(self.name.len() as i32).encoded_size()
+            + self.name.len()
+            + 4
+            + crate::bedrock::codec::VarInt(self.amplitudes.len() as i32).encoded_size()
+            + self.amplitudes.len() * 4
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for NoiseDescriptor {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        crate::bedrock::codec::VarInt(self.name.len() as i32).encode(buf)?;
+        buf.put_slice(self.name.as_bytes());
+        crate::bedrock::codec::I32LE(self.first_octave).encode(buf)?;
+        crate::bedrock::codec::VarInt(self.amplitudes.len() as i32).encode(buf)?;
+        for value in &self.amplitudes {
+            crate::bedrock::codec::F32LE(*value).encode(buf)?;
+        }
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _: (),
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let name_len = crate::bedrock::codec::VarInt::decode(buf, ())?.0 as i64;
+        if name_len < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: name_len });
+        }
+        let name_len = name_len as usize;
+        if name_len > buf.remaining() {
+            return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                declared: name_len,
+                available: buf.remaining(),
+            });
+        }
+        let mut name = vec![0; name_len];
+        buf.copy_to_slice(&mut name);
+        let first_octave = crate::bedrock::codec::I32LE::decode(buf, ())?.0;
+        let len = crate::bedrock::codec::VarInt::decode(buf, ())?.0 as i64;
+        if len < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len });
+        }
+        let len = len as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
+        )?;
+        let mut amplitudes = Vec::new();
+        amplitudes.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            amplitudes.push(crate::bedrock::codec::F32LE::decode(buf, ())?.0);
+        }
+        Ok(Self {
+            name: crate::bedrock::codec::decode_utf8_lossy_owned(name),
+            first_octave,
+            amplitudes,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BiomeNoiseGradientSurface {
+    pub non_replaceable_blocks: Vec<u32>,
+    pub gradient_blocks: Vec<NoiseBlockSpecifier>,
+    pub noise: NoiseDescriptor,
+}
+impl crate::bedrock::codec::BedrockSized for BiomeNoiseGradientSurface {
+    fn encoded_size(&self) -> usize {
+        crate::bedrock::codec::VarInt(self.non_replaceable_blocks.len() as i32).encoded_size()
+            + self.non_replaceable_blocks.len() * 4
+            + crate::bedrock::codec::VarInt(self.gradient_blocks.len() as i32).encoded_size()
+            + self
+                .gradient_blocks
+                .iter()
+                .map(crate::bedrock::codec::BedrockSized::encoded_size)
+                .sum::<usize>()
+            + self.noise.encoded_size()
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for BiomeNoiseGradientSurface {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        crate::bedrock::codec::VarInt(self.non_replaceable_blocks.len() as i32).encode(buf)?;
+        for value in &self.non_replaceable_blocks {
+            crate::bedrock::codec::U32LE(*value).encode(buf)?;
+        }
+        crate::bedrock::codec::VarInt(self.gradient_blocks.len() as i32).encode(buf)?;
+        for value in &self.gradient_blocks {
+            value.encode(buf)?;
+        }
+        self.noise.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _: (),
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let raw = crate::bedrock::codec::VarInt::decode(buf, ())?.0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
+        )?;
+        let mut non_replaceable_blocks = Vec::new();
+        non_replaceable_blocks.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            non_replaceable_blocks.push(crate::bedrock::codec::U32LE::decode(buf, ())?.0);
+        }
+        let raw = crate::bedrock::codec::VarInt::decode(buf, ())?.0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
+        )?;
+        let mut gradient_blocks = Vec::new();
+        gradient_blocks.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            gradient_blocks.push(NoiseBlockSpecifier::decode(buf, ())?);
+        }
+        Ok(Self {
+            non_replaceable_blocks,
+            gradient_blocks,
+            noise: NoiseDescriptor::decode(buf, ())?,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BiomeSurfaceBuilder {
     pub surface_materials: Option<BiomeSurfaceMaterial>,
     pub has_default_overworld_surface: bool,
     pub has_swamp_surface: bool,
@@ -2860,11 +3087,118 @@ pub struct BiomeChunkGeneration {
     pub has_end_surface: bool,
     pub mesa_surface: Option<BiomeMesaSurface>,
     pub capped_surface: Option<BiomeCappedSurface>,
+    pub noise_gradient_surface: Option<BiomeNoiseGradientSurface>,
+}
+impl crate::bedrock::codec::BedrockSized for BiomeSurfaceBuilder {
+    fn encoded_size(&self) -> usize {
+        7 + self
+            .surface_materials
+            .as_ref()
+            .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size)
+            + self
+                .mesa_surface
+                .as_ref()
+                .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size)
+            + self
+                .capped_surface
+                .as_ref()
+                .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size)
+            + self
+                .noise_gradient_surface
+                .as_ref()
+                .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size)
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for BiomeSurfaceBuilder {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        match &self.surface_materials {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        self.has_default_overworld_surface.encode(buf)?;
+        self.has_swamp_surface.encode(buf)?;
+        self.has_frozen_ocean_surface.encode(buf)?;
+        self.has_end_surface.encode(buf)?;
+        match &self.mesa_surface {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        match &self.capped_surface {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        match &self.noise_gradient_surface {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _: (),
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let surface_materials = if u8::decode(buf, ())? != 0 {
+            Some(BiomeSurfaceMaterial::decode(buf, ())?)
+        } else {
+            None
+        };
+        let has_default_overworld_surface = bool::decode(buf, ())?;
+        let has_swamp_surface = bool::decode(buf, ())?;
+        let has_frozen_ocean_surface = bool::decode(buf, ())?;
+        let has_end_surface = bool::decode(buf, ())?;
+        let mesa_surface = if u8::decode(buf, ())? != 0 {
+            Some(BiomeMesaSurface::decode(buf, ())?)
+        } else {
+            None
+        };
+        let capped_surface = if u8::decode(buf, ())? != 0 {
+            Some(BiomeCappedSurface::decode(buf, ())?)
+        } else {
+            None
+        };
+        let noise_gradient_surface = if u8::decode(buf, ())? != 0 {
+            Some(BiomeNoiseGradientSurface::decode(buf, ())?)
+        } else {
+            None
+        };
+        Ok(Self {
+            surface_materials,
+            has_default_overworld_surface,
+            has_swamp_surface,
+            has_frozen_ocean_surface,
+            has_end_surface,
+            mesa_surface,
+            capped_surface,
+            noise_gradient_surface,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BiomeChunkGeneration {
+    pub climate: Option<BiomeClimate>,
+    pub consolidated_features: Option<Vec<BiomeConsolidatedFeature>>,
+    pub mountain_parameters: Option<BiomeMountainParameters>,
+    pub surface_material_adjustments: Option<Vec<BiomeElementData>>,
     pub overworld_rules: Option<BiomeOverworldRules>,
     pub multi_noise_rules: Option<BiomeMultiNoiseRules>,
     pub legacy_rules: Option<Vec<BiomeConditionalTransformation>>,
     pub replacements_data: Option<Vec<BiomeReplacementData>>,
     pub village_type: Option<u8>,
+    pub surface_builder: Option<BiomeSurfaceBuilder>,
+    pub subsurface_builder: Option<BiomeSurfaceBuilder>,
 }
 impl crate::bedrock::codec::BedrockSized for BiomeChunkGeneration {
     fn encoded_size(&self) -> usize {
@@ -2910,31 +3244,6 @@ impl crate::bedrock::codec::BedrockSized for BiomeChunkGeneration {
                             .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                             .sum::<usize>()
                     }
-                    None => 0usize,
-                }
-        };
-        size += {
-            1usize
-                + match &self.surface_materials {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                    None => 0usize,
-                }
-        };
-        size += 1usize;
-        size += 1usize;
-        size += 1usize;
-        size += 1usize;
-        size += {
-            1usize
-                + match &self.mesa_surface {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                    None => 0usize,
-                }
-        };
-        size += {
-            1usize
-                + match &self.capped_surface {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
                     None => 0usize,
                 }
         };
@@ -2987,6 +3296,16 @@ impl crate::bedrock::codec::BedrockSized for BiomeChunkGeneration {
             Some(_v) => 1usize,
             None => 0usize,
         };
+        size += 1usize
+            + self
+                .surface_builder
+                .as_ref()
+                .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size);
+        size += 1usize
+            + self
+                .subsurface_builder
+                .as_ref()
+                .map_or(0, crate::bedrock::codec::BedrockSized::encoded_size);
         size
     }
 }
@@ -3027,31 +3346,6 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                 for item in v {
                     item.encode(buf)?;
                 }
-            }
-            None => buf.put_u8(0),
-        }
-        match &self.surface_materials {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
-        self.has_default_overworld_surface.encode(buf)?;
-        self.has_swamp_surface.encode(buf)?;
-        self.has_frozen_ocean_surface.encode(buf)?;
-        self.has_end_surface.encode(buf)?;
-        match &self.mesa_surface {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
-        match &self.capped_surface {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
             }
             None => buf.put_u8(0),
         }
@@ -3096,6 +3390,20 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
         if let Some(v) = &self.village_type {
             (*v).encode(buf)?;
         }
+        match &self.surface_builder {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        match &self.subsurface_builder {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -3126,7 +3434,18 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                         });
                     }
                     let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    crate::proto::validate_collection_len(
+                        len,
+                        crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+                        buf.remaining(),
+                    )?;
+                    let mut tmp_vec = Vec::new();
+                    tmp_vec.try_reserve_exact(len).map_err(|_| {
+                        crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                            declared: len,
+                            available: 0,
+                        }
+                    })?;
                     for _ in 0..len {
                         tmp_vec
                             .push(
@@ -3170,7 +3489,18 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                         });
                     }
                     let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    crate::proto::validate_collection_len(
+                        len,
+                        crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+                        buf.remaining(),
+                    )?;
+                    let mut tmp_vec = Vec::new();
+                    tmp_vec.try_reserve_exact(len).map_err(|_| {
+                        crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                            declared: len,
+                            available: 0,
+                        }
+                    })?;
                     for _ in 0..len {
                         tmp_vec.push(
                             <BiomeElementData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -3181,38 +3511,6 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                     }
                     tmp_vec
                 })
-            } else {
-                None
-            }
-        };
-        let surface_materials = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(
-                    <BiomeSurfaceMaterial as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
-                )
-            } else {
-                None
-            }
-        };
-        let has_default_overworld_surface =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let has_swamp_surface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let has_frozen_ocean_surface =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let has_end_surface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let mesa_surface = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(<BiomeMesaSurface as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?)
-            } else {
-                None
-            }
-        };
-        let capped_surface = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(<BiomeCappedSurface as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?)
             } else {
                 None
             }
@@ -3250,7 +3548,18 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                         });
                     }
                     let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    crate::proto::validate_collection_len(
+                        len,
+                        crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+                        buf.remaining(),
+                    )?;
+                    let mut tmp_vec = Vec::new();
+                    tmp_vec.try_reserve_exact(len).map_err(|_| {
+                        crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                            declared: len,
+                            available: 0,
+                        }
+                    })?;
                     for _ in 0..len {
                         tmp_vec
                             .push(
@@ -3281,7 +3590,18 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
                         });
                     }
                     let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    crate::proto::validate_collection_len(
+                        len,
+                        crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+                        buf.remaining(),
+                    )?;
+                    let mut tmp_vec = Vec::new();
+                    tmp_vec.try_reserve_exact(len).map_err(|_| {
+                        crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                            declared: len,
+                            available: 0,
+                        }
+                    })?;
                     for _ in 0..len {
                         tmp_vec.push(
                             <BiomeReplacementData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -3305,23 +3625,28 @@ impl crate::bedrock::codec::BedrockCodec for BiomeChunkGeneration {
         } else {
             None
         };
+        let surface_builder = if u8::decode(buf, ())? != 0 {
+            Some(BiomeSurfaceBuilder::decode(buf, ())?)
+        } else {
+            None
+        };
+        let subsurface_builder = if u8::decode(buf, ())? != 0 {
+            Some(BiomeSurfaceBuilder::decode(buf, ())?)
+        } else {
+            None
+        };
         Ok(Self {
             climate,
             consolidated_features,
             mountain_parameters,
             surface_material_adjustments,
-            surface_materials,
-            has_default_overworld_surface,
-            has_swamp_surface,
-            has_frozen_ocean_surface,
-            has_end_surface,
-            mesa_surface,
-            capped_surface,
             overworld_rules,
             multi_noise_rules,
             legacy_rules,
             replacements_data,
             village_type,
+            surface_builder,
+            subsurface_builder,
         })
     }
 }
@@ -10850,18 +11175,23 @@ impl crate::bedrock::codec::BedrockSized for ItemNew {
         size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
             self.block_runtime_id,
         ));
-        size += match &self.extra {
-            ItemNewExtra::ShieldItemId(_v) => {
-                let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    _len as i32,
-                )) + _len
-            }
-            ItemNewExtra::Default(_v) => {
-                let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    _len as i32,
-                )) + _len
+        size += if self.network_id == 0 {
+            // Air/empty item: only a zero-length extra blob is written.
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(0))
+        } else {
+            match &self.extra {
+                ItemNewExtra::ShieldItemId(_v) => {
+                    let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
+                    crate::bedrock::codec::BedrockSized::encoded_size(
+                        &crate::bedrock::codec::VarInt(_len as i32),
+                    ) + _len
+                }
+                ItemNewExtra::Default(_v) => {
+                    let _len = crate::bedrock::codec::BedrockSized::encoded_size(_v);
+                    crate::bedrock::codec::BedrockSized::encoded_size(
+                        &crate::bedrock::codec::VarInt(_len as i32),
+                    ) + _len
+                }
             }
         };
         size
@@ -10880,6 +11210,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemNew {
             v.encode(buf)?;
         }
         crate::bedrock::codec::VarInt(self.block_runtime_id).encode(buf)?;
+        if self.network_id == 0 {
+            // Air/empty item: emit a zero-length extra blob and stop, matching gophertunnel.
+            crate::bedrock::codec::VarInt(0).encode(buf)?;
+            return Ok(());
+        }
         match &self.extra {
             ItemNewExtra::ShieldItemId(v) => {
                 let len = crate::bedrock::codec::BedrockSized::encoded_size(v);
@@ -10923,65 +11258,46 @@ impl crate::bedrock::codec::BedrockCodec for ItemNew {
                 (),
             )?
             .0;
-        let extra = match network_id {
-            x if i32::from(x) == args.shield_item_id => ItemNewExtra::ShieldItemId({
-                let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                if len_raw < 0 {
-                    return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                        value: len_raw,
-                    });
-                }
-                let len = len_raw as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
+        let extra = {
+            let len_raw =
+                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as i64;
+            if len_raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+            }
+            let len = len_raw as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            if len == 0 {
+                // An empty extra blob carries no NBT/can-place/can-break data. Gophertunnel's
+                // ItemInstanceNew reader returns here without decoding; mirror that rather than
+                // reading a 2-byte discriminant from an empty buffer. Air (and other empty)
+                // items always land here, since they carry a zero-length extra blob.
+                ItemNewExtra::Default(ItemExtraDataWithoutBlockingTick::default())
+            } else {
                 let mut slice = bytes::Buf::take(&mut *buf, len);
                 let value = {
                     let buf = &mut slice;
-                    <ItemExtraDataWithBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
+                    if i32::from(network_id) == args.shield_item_id {
+                        ItemNewExtra::ShieldItemId(
+                            <ItemExtraDataWithBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                        )
+                    } else {
+                        ItemNewExtra::Default(
+                            <ItemExtraDataWithoutBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                        )
+                    }
                 };
                 let _ = slice.remaining();
                 value
-            }),
-            _ => ItemNewExtra::Default({
-                let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                if len_raw < 0 {
-                    return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                        value: len_raw,
-                    });
-                }
-                let len = len_raw as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
-                let mut slice = bytes::Buf::take(&mut *buf, len);
-                let value = {
-                    let buf = &mut slice;
-                    <ItemExtraDataWithoutBlockingTick as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                };
-                let _ = slice.remaining();
-                value
-            }),
+            }
         };
         Ok(Self {
             network_id,

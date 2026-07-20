@@ -25,6 +25,7 @@ type Config struct {
 	SocketDir   string
 	Upstream    string
 	TokenSource oauth2.TokenSource
+	Logger      *slog.Logger
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -43,6 +44,10 @@ type connectionAcceptor interface {
 // setup failures are returned; ordinary peer disconnects leave the listener
 // available for another client.
 func Serve(ctx context.Context, cfg Config) (err error) {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if cfg.SocketDir == "" {
 		return errors.New("proxy: socket directory is required")
 	}
@@ -52,11 +57,13 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
+		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
 	}).ListenNetwork(streamnet.New(cfg.SocketDir), "")
 	if err != nil {
 		return fmt.Errorf("proxy: listen: %w", err)
 	}
+	reportListenerReady(logger, cfg.SocketDir)
 
 	serveCtx, cancel := context.WithCancel(ctx)
 
@@ -93,11 +100,12 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 				cleanupErr := cleanupHandoffConnection(result.conn)
 				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
 			}
+			reportLocalClientAccepted(logger, cfg.SocketDir, downstream.ClientCacheEnabled())
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
 				err := callWithoutPanic(func() error {
-					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource)
+					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource, logger)
 				})
 				if err != nil && !isOrdinaryClose(err) {
 					select {
@@ -163,13 +171,55 @@ func callConnectionLifecycle(operation string, call func() error) (err error) {
 	return call()
 }
 
-func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource) error {
-	dialer := newUpstreamDialer(downstream, tokenSource)
-	return dialAndServe(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		return dialFollowingTransfers(ctx, upstreamAddress, func(ctx context.Context, address string) (upstreamSession, error) {
+func reportLocalClientAccepted(logger *slog.Logger, socketDir string, clientCacheEnabled bool) {
+	logger.Info(
+		"local client accepted",
+		"socket_dir", socketDir,
+		"client_blob_cache", clientCacheEnabled,
+	)
+}
+
+func reportListenerReady(logger *slog.Logger, socketDir string) {
+	attributes := []any{"socket_dir", socketDir}
+	if network, endpoint, err := streamnet.Resolve(socketDir); err == nil {
+		attributes = append(attributes, "network", network, "endpoint", endpoint)
+	}
+	logger.Info("listener ready; waiting for local Rust client", attributes...)
+}
+
+func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) error {
+	cacheTelemetry := new(cacheBoundaryTelemetry)
+	defer cacheTelemetry.report(logger)
+	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)
+	return dialAndServeWithCacheTelemetry(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
+		return connectUpstream(ctx, upstreamAddress, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
 		})
-	})
+	}, cacheTelemetry)
+}
+
+func authenticationMode(tokenSource oauth2.TokenSource) string {
+	if tokenSource == nil {
+		return "offline"
+	}
+	return "microsoft"
+}
+
+func connectUpstream(
+	ctx context.Context,
+	address string,
+	authentication string,
+	logger *slog.Logger,
+	dial func(context.Context, string) (upstreamSession, error),
+) (upstreamSession, error) {
+	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
+	upstream, err := dialFollowingTransfers(ctx, address, dial)
+	if err != nil {
+		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
+		return nil, err
+	}
+	logger.Info("upstream connected", "target", address, "authentication", authentication)
+	return upstream, nil
 }
 
 func dialFollowingTransfers(
@@ -229,14 +279,28 @@ type dialerDownstream interface {
 	IdentityData() login.IdentityData
 	ClientData() login.ClientData
 	Proto() minecraft.Protocol
+	ClientCacheEnabled() bool
 }
 
 func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
+	return newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, nil)
+}
+
+func newUpstreamDialerWithCacheTelemetry(
+	downstream dialerDownstream,
+	tokenSource oauth2.TokenSource,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) minecraft.Dialer {
 	dialer := minecraft.Dialer{
-		ClientData:  downstream.ClientData(),
-		ErrorLog:    slog.Default().With("component", "upstream-dialer"),
-		Protocol:    downstream.Proto(),
-		TokenSource: tokenSource,
+		ClientData:         downstream.ClientData(),
+		EnableBatchReading: true,
+		EnableClientCache:  downstream.ClientCacheEnabled(),
+		ErrorLog:           slog.Default().With("component", "upstream-dialer"),
+		Protocol:           downstream.Proto(),
+		TokenSource:        tokenSource,
+	}
+	if cacheTelemetry != nil {
+		dialer.PacketFunc = cacheTelemetry.observeUpstreamPacket
 	}
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
@@ -249,6 +313,15 @@ func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSour
 }
 
 func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {
+	return dialAndServeWithCacheTelemetry(ctx, downstream, dial, nil)
+}
+
+func dialAndServeWithCacheTelemetry(
+	ctx context.Context,
+	downstream downstreamSession,
+	dial func(context.Context) (upstreamSession, error),
+	cacheTelemetry *cacheBoundaryTelemetry,
+) error {
 	type result struct {
 		upstream upstreamSession
 		err      error
@@ -274,7 +347,7 @@ func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(c
 		if result.err != nil {
 			return finishDialFailure(downstream, result.err)
 		}
-		return serveConnections(ctx, downstream, result.upstream)
+		return serveConnectionsWithCacheTelemetry(ctx, downstream, result.upstream, cacheTelemetry)
 	}
 }
 
@@ -283,8 +356,8 @@ func finishDialFailure(downstream packetSession, dialErr error) error {
 }
 
 type packetSession interface {
-	ReadPacket() (packet.Packet, error)
-	WritePacket(packet.Packet) error
+	ReadBatch() ([]packet.Packet, error)
+	WritePacketImmediate(...packet.Packet) error
 	Flush() error
 	Abort() error
 	Close() error
@@ -302,6 +375,15 @@ type upstreamSession interface {
 }
 
 func serveConnections(ctx context.Context, downstream downstreamSession, upstream upstreamSession) (err error) {
+	return serveConnectionsWithCacheTelemetry(ctx, downstream, upstream, nil)
+}
+
+func serveConnectionsWithCacheTelemetry(
+	ctx context.Context,
+	downstream downstreamSession,
+	upstream upstreamSession,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) (err error) {
 	defer func() {
 		err = errors.Join(err, shutdownSession(downstream), shutdownSession(upstream))
 	}()
@@ -309,7 +391,7 @@ func serveConnections(ctx context.Context, downstream downstreamSession, upstrea
 	if err := spawnBarrier(ctx, downstream, upstream); err != nil {
 		return err
 	}
-	return relayPackets(ctx, downstream, upstream)
+	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, cacheTelemetry)
 }
 
 func spawnBarrier(ctx context.Context, downstream downstreamSession, upstream upstreamSession) error {
@@ -360,16 +442,24 @@ func spawnBarrier(ctx context.Context, downstream downstreamSession, upstream up
 }
 
 func relayPackets(ctx context.Context, downstream, upstream packetSession) error {
+	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, nil)
+}
+
+func relayPacketsWithCacheTelemetry(
+	ctx context.Context,
+	downstream, upstream packetSession,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) error {
 	type result struct {
 		direction string
 		err       error
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPackets(downstream, upstream, true)}
+		results <- result{"downstream to upstream", pumpPacketsWithCacheTelemetry(downstream, upstream, true, cacheTelemetry)}
 	}()
 	go func() {
-		results <- result{"upstream to downstream", pumpPackets(upstream, downstream, false)}
+		results <- result{"upstream to downstream", pumpPacketsWithCacheTelemetry(upstream, downstream, false, cacheTelemetry)}
 	}()
 
 	var first result
@@ -423,74 +513,107 @@ func shutdownSession(session packetSession) error {
 }
 
 func pumpPackets(source, destination packetSession, fromDownstream bool) (err error) {
+	return pumpPacketsWithCacheTelemetry(source, destination, fromDownstream, nil)
+}
+
+func pumpPacketsWithCacheTelemetry(
+	source, destination packetSession,
+	fromDownstream bool,
+	cacheTelemetry *cacheBoundaryTelemetry,
+) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("panic while relaying packets: %v", recovered)
 		}
 	}()
 	dropInitialSpawnLoadingScreens := fromDownstream
-	capLocalBatches := !fromDownstream
-	localBatchStarted := false
-	localBatchPackets := 0
+	if err := destination.Flush(); err != nil {
+		return err
+	}
+	outputBatch := make([]packet.Packet, 0, localRelayBatchPacketLimit)
+	flushOutputBatch := func() error {
+		if len(outputBatch) == 0 {
+			return nil
+		}
+		err := destination.WritePacketImmediate(outputBatch...)
+		outputBatch = outputBatch[:0]
+		return err
+	}
 	writePacket := func(value packet.Packet) error {
-		if capLocalBatches && !localBatchStarted {
-			if err := destination.Flush(); err != nil {
-				return err
-			}
-			localBatchStarted = true
-		}
-		if err := destination.WritePacket(value); err != nil {
-			return err
-		}
-		if !capLocalBatches {
+		outputBatch = append(outputBatch, value)
+		if len(outputBatch) != localRelayBatchPacketLimit {
 			return nil
 		}
-		localBatchPackets++
-		if localBatchPackets != localRelayBatchPacketLimit {
-			return nil
-		}
-		if err := destination.Flush(); err != nil {
-			return err
-		}
-		localBatchPackets = 0
-		return nil
+		return flushOutputBatch()
 	}
 	var pendingInitialStart packet.Packet
 	for {
-		value, err := source.ReadPacket()
+		batch, err := source.ReadBatch()
 		if err != nil {
 			if pendingInitialStart != nil {
-				return errors.Join(err, writePacket(pendingInitialStart))
+				if writeErr := writePacket(pendingInitialStart); writeErr != nil {
+					return errors.Join(err, writeErr)
+				}
+				if flushErr := flushOutputBatch(); flushErr != nil {
+					return errors.Join(err, flushErr)
+				}
 			}
 			return err
 		}
-		// Each gophertunnel side performs its own initial spawn handshake. The
-		// downstream listener defers ServerBoundLoadingScreen packets because it
-		// does not handle them internally; forwarding those two acknowledgements
-		// after the spawn barrier repeats the upstream client's acknowledgements
-		// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
-		// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
-		// pair; any mismatch disables the filter and preserves FIFO.
-		if dropInitialSpawnLoadingScreens {
-			if pendingInitialStart == nil {
-				if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
-					pendingInitialStart = value
-					continue
-				}
-				dropInitialSpawnLoadingScreens = false
-			} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
+		if pendingInitialStart != nil {
+			if len(batch) != 0 && isLoadingScreen(batch[0], packet.LoadingScreenTypeEnd) {
 				pendingInitialStart = nil
 				dropInitialSpawnLoadingScreens = false
-				continue
+				batch = batch[1:]
 			} else {
 				if err := writePacket(pendingInitialStart); err != nil {
+					return err
+				}
+				if err := flushOutputBatch(); err != nil {
 					return err
 				}
 				pendingInitialStart = nil
 				dropInitialSpawnLoadingScreens = false
 			}
 		}
-		if err := writePacket(value); err != nil {
+		for _, value := range batch {
+			if !fromDownstream && cacheTelemetry != nil {
+				cacheTelemetry.observeRelayPacket(value)
+			}
+			// Each gophertunnel side performs its own initial spawn handshake. The
+			// downstream listener defers ServerBoundLoadingScreen packets because it
+			// does not handle them internally; forwarding those two acknowledgements
+			// after the spawn barrier repeats the upstream client's acknowledgements
+			// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
+			// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
+			// pair; any mismatch disables the filter and preserves FIFO.
+			if dropInitialSpawnLoadingScreens {
+				if pendingInitialStart == nil {
+					if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
+						pendingInitialStart = value
+						continue
+					}
+					dropInitialSpawnLoadingScreens = false
+				} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
+					pendingInitialStart = nil
+					dropInitialSpawnLoadingScreens = false
+					continue
+				} else {
+					if err := writePacket(pendingInitialStart); err != nil {
+						return err
+					}
+					pendingInitialStart = nil
+					dropInitialSpawnLoadingScreens = false
+				}
+			}
+			if err := writePacket(value); err != nil {
+				return err
+			}
+		}
+		// Keep one no-ID Start pending across exactly the next source batch. If
+		// that batch does not begin with the matching End, the pending packet is
+		// flushed as its own original batch before any current-batch packet.
+		if err := flushOutputBatch(); err != nil {
 			return err
 		}
 	}

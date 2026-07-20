@@ -9,9 +9,9 @@ use assets::{
 use sha2::{Digest, Sha256};
 
 #[test]
-fn mcbeas04_exact_bytes() {
-    assert_eq!(&BLOB_MAGIC, b"MCBEAS04");
-    assert_eq!(BLOB_VERSION, 4);
+fn mcbeas05_exact_bytes() {
+    assert_eq!(&BLOB_MAGIC, b"MCBEAS05");
+    assert_eq!(BLOB_VERSION, 5);
     let texture = assets::TextureRef::new(1, 17).expect("bounded texture ref");
     assert_eq!(texture.raw(), 0x8000_0011);
 
@@ -35,6 +35,11 @@ fn mcbeas04_exact_bytes() {
             animation: 0,
             variant: 7,
         },
+    ]
+    .into_boxed_slice();
+    fixture.light_properties = vec![
+        assets::LightProperties::new(0, 15).unwrap(),
+        assets::LightProperties::new(12, 0).unwrap(),
     ]
     .into_boxed_slice();
     fixture.hashed = vec![(1, 0), (2, 1)].into_boxed_slice();
@@ -85,12 +90,12 @@ fn mcbeas04_exact_bytes() {
     ]
     .into_boxed_slice();
 
-    let bytes = encode_blob(&fixture).expect("encode every MCBEAS04 table");
+    let bytes = encode_blob(&fixture).expect("encode every MCBEAS05 table");
     assert_eq!(bytes.len(), 1_576_168);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "4770d48d0925290720a8e53707f6a4cd2f6e8dd11ec89bbaa258feeae06944f5",
-        "the complete every-table fixture is the byte-exact MCBEAS04 golden"
+        "8625117df2dcebbd90d3be83d4336e02fb1f721cd912b02a175710360b05cf07",
+        "the complete every-table fixture is the byte-exact MCBEAS05 golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
     assert_eq!(read_u32(&bytes, 28), 2);
@@ -100,6 +105,8 @@ fn mcbeas04_exact_bytes() {
     assert_eq!(read_u32(&bytes, 44), 2);
     assert_eq!(read_u32(&bytes, 48), 2);
     let visuals = read_u64(&bytes, 96) as usize;
+    assert_eq!(bytes[visuals + 27], 0xf0);
+    assert_eq!(bytes[visuals + 40 + 27], 0x0c);
     let materials = read_u64(&bytes, 112) as usize;
     let templates = read_u64(&bytes, 120) as usize;
     let quads = read_u64(&bytes, 128) as usize;
@@ -197,8 +204,36 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     kelp_template.model_quads[4].flags = 0;
     assert!(encode_blob(&kelp_template).is_err());
     kelp_template.model_quads[4].flags = assets::MODEL_QUAD_FLAG_TWO_SIDED;
-    kelp_template.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_KELP << 1;
+    kelp_template.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_STAIR << 1;
     assert!(encode_blob(&kelp_template).is_err());
+
+    let mut stair_group = valid_assets();
+    stair_group.visuals[0].flags = BlockFlags::empty();
+    stair_group.visuals[0].kind = VisualKind::Model;
+    stair_group.visuals[0].model_template = 0;
+    stair_group.visuals[0].variant = 7;
+    let stair_quad = assets::ModelQuad {
+        positions: [[0, 0, 0], [128, 0, 0], [128, 128, 0], [0, 128, 0]],
+        uvs: [[0, 4096], [2048, 4096], [2048, 2048], [0, 2048]],
+        material: 0,
+        flags: 5,
+    };
+    stair_group.model_templates = (0..5)
+        .map(|index| assets::ModelTemplate {
+            quad_start: index,
+            quad_count: 1,
+            flags: assets::MODEL_TEMPLATE_FLAG_STAIR,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    stair_group.model_quads = vec![stair_quad; 5].into_boxed_slice();
+    assert!(
+        encode_blob(&stair_group).is_ok(),
+        "canonical five-shape stair group"
+    );
+    stair_group.model_templates = stair_group.model_templates[..4].into();
+    stair_group.model_quads = stair_group.model_quads[..4].into();
+    assert!(encode_blob(&stair_group).is_err(), "truncated stair group");
 
     let mut too_many_quads = valid_assets();
     too_many_quads.model_templates = vec![assets::ModelTemplate {
@@ -243,6 +278,184 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     assert!(encode_blob(&third_page).is_err());
 }
 
+#[test]
+fn mcbeas04_accepts_only_canonical_two_template_compounds() {
+    const COMPOUND_NEXT: u32 = 1 << 2;
+
+    let quad = assets::ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 0,
+        flags: 0,
+    };
+    let mut compound = valid_assets();
+    compound.visuals[0].flags = BlockFlags::empty();
+    compound.visuals[0].kind = VisualKind::Model;
+    compound.visuals[0].model_template = 0;
+    compound.model_templates = vec![
+        assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: COMPOUND_NEXT,
+        },
+        assets::ModelTemplate {
+            quad_start: 1,
+            quad_count: 1,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    compound.model_quads = vec![quad; 2].into_boxed_slice();
+
+    let bytes = encode_blob(&compound).expect("canonical compound pair");
+    let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode canonical compound pair");
+    assert_eq!(runtime.model_templates(), compound.model_templates.as_ref());
+
+    let mut tail_referenced = compound.clone();
+    tail_referenced.visuals[0].model_template = 1;
+    assert!(
+        encode_blob(&tail_referenced).is_err(),
+        "compound continuation cannot be directly visual-referenced"
+    );
+
+    let mut truncated = compound.clone();
+    truncated.model_templates = truncated.model_templates[..1].into();
+    truncated.model_quads = truncated.model_quads[..1].into();
+    assert!(
+        encode_blob(&truncated).is_err(),
+        "compound head cannot end the template table"
+    );
+
+    let mut zero_head = compound.clone();
+    zero_head.model_templates[0].quad_count = 0;
+    zero_head.model_templates[1].quad_start = 0;
+    zero_head.model_templates[1].quad_count = 2;
+    let Err(AssetError::InvalidCompiledAssets { detail }) = encode_blob(&zero_head) else {
+        panic!("zero-quad compound head must be rejected exactly");
+    };
+    assert_eq!(detail.as_ref(), "compound template head has no quads");
+
+    let mut zero_tail = compound.clone();
+    zero_tail.model_templates[0].quad_count = 2;
+    zero_tail.model_templates[1].quad_start = 2;
+    zero_tail.model_templates[1].quad_count = 0;
+    let Err(AssetError::InvalidCompiledAssets { detail }) = encode_blob(&zero_tail) else {
+        panic!("zero-quad compound continuation must be rejected exactly");
+    };
+    assert_eq!(detail.as_ref(), "compound continuation has no quads");
+
+    for tail_flags in [
+        COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+    ] {
+        let mut non_plain_tail = compound.clone();
+        non_plain_tail.model_templates[1].flags = tail_flags;
+        assert!(
+            encode_blob(&non_plain_tail).is_err(),
+            "compound continuation must be one plain template"
+        );
+    }
+
+    for axis in [
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut gate = compound.clone();
+        gate.model_templates[0].flags |= axis;
+        assert!(encode_blob(&gate).is_ok(), "gate axis is valid metadata");
+    }
+    let mut ambiguous_gate = compound.clone();
+    ambiguous_gate.model_templates[0].flags |=
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z;
+    assert!(
+        encode_blob(&ambiguous_gate).is_err(),
+        "compound gate cannot advertise both axes"
+    );
+
+    let mut combined_head = compound;
+    combined_head.model_templates[0].flags |= assets::MODEL_TEMPLATE_FLAG_KELP;
+    assert!(
+        encode_blob(&combined_head).is_err(),
+        "compound head cannot also be kelp or stair"
+    );
+}
+
+#[test]
+fn mcbeas04_accepts_only_canonical_referenced_connected_template_groups() {
+    let quad = assets::ModelQuad {
+        positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+        uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+        material: 0,
+        flags: 5,
+    };
+    let make = |flag: u32, counts: Vec<u32>| {
+        let mut compiled = valid_assets();
+        compiled.visuals[0].flags = BlockFlags::empty();
+        compiled.visuals[0].kind = VisualKind::Model;
+        compiled.visuals[0].model_template = 0;
+        compiled.visuals[0].variant = 0;
+        let mut start = 0;
+        compiled.model_templates = counts
+            .into_iter()
+            .map(|quad_count| {
+                let template = assets::ModelTemplate {
+                    quad_start: start,
+                    quad_count,
+                    flags: flag,
+                };
+                start += quad_count;
+                template
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        compiled.model_quads = vec![quad; start as usize].into_boxed_slice();
+        compiled
+    };
+
+    let mut unreferenced_mixed = valid_assets();
+    unreferenced_mixed.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+    }]
+    .into_boxed_slice();
+    unreferenced_mixed.model_quads = vec![quad].into_boxed_slice();
+    assert!(
+        encode_blob(&unreferenced_mixed).is_err(),
+        "unreferenced mixed connected-family flags are noncanonical"
+    );
+
+    let pane_counts = (0_u32..16)
+        .map(|mask| 6 + mask.count_ones() * 4)
+        .collect::<Vec<_>>();
+    let mut pane = make(assets::MODEL_TEMPLATE_FLAG_PANE, pane_counts);
+    assert!(encode_blob(&pane).is_ok(), "canonical pane group");
+    let mut mixed = pane.clone();
+    for template in &mut mixed.model_templates {
+        template.flags |= assets::MODEL_TEMPLATE_FLAG_WALL;
+    }
+    assert!(
+        encode_blob(&mixed).is_err(),
+        "mixed connected-family flags are noncanonical"
+    );
+    pane.model_templates[15].flags = 0;
+    assert!(encode_blob(&pane).is_err(), "truncated pane group");
+
+    let fence_counts = std::iter::once(6)
+        .chain((0_u32..16).map(|mask| mask.count_ones() * 8))
+        .collect::<Vec<_>>();
+    for flag in [
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    ] {
+        let mut fence = make(flag, fence_counts.clone());
+        assert!(encode_blob(&fence).is_ok(), "canonical fence group");
+        fence.model_templates[16].quad_count -= 1;
+        assert!(encode_blob(&fence).is_err(), "malformed fence group");
+    }
+}
+
 const HEADER_BYTES: usize = 200;
 
 fn texture_array(layers: u32) -> TextureArray {
@@ -270,6 +483,7 @@ fn valid_assets() -> CompiledAssets {
             variant: 0,
         }]
         .into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default()].into_boxed_slice(),
         hashed: vec![(0x8000_0000, 0)].into_boxed_slice(),
         materials: vec![Material {
             texture: TextureRef::DIAGNOSTIC,
@@ -284,6 +498,145 @@ fn valid_assets() -> CompiledAssets {
         texture_pages: vec![TexturePage::new(texture_array(1))].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
     }
+}
+
+fn transparent_cube_assets() -> CompiledAssets {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::empty();
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].model_template = 0;
+    compiled.visuals[0].faces = [1; 6];
+    compiled.materials = vec![
+        Material {
+            texture: TextureRef::DIAGNOSTIC,
+            flags: 0,
+            animation: NO_ANIMATION,
+        },
+        Material {
+            texture: TextureRef::new(0, 0).unwrap(),
+            flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
+            animation: NO_ANIMATION,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    }]
+    .into_boxed_slice();
+    let positions = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    compiled.model_quads = positions
+        .into_iter()
+        .enumerate()
+        .map(|(face, positions)| assets::ModelQuad {
+            positions,
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: 1,
+            flags: [3, 4, 1, 2, 5, 6][face],
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled
+}
+
+#[test]
+fn mcbeas04_checks_and_round_trips_transparent_cube_template_semantics() {
+    let compiled = transparent_cube_assets();
+    let bytes = encode_blob(&compiled).expect("encode canonical transparent cube");
+    let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode canonical transparent cube");
+    assert_eq!(runtime.model_templates(), compiled.model_templates.as_ref());
+    assert_eq!(runtime.model_quads(), compiled.model_quads.as_ref());
+
+    let mut wrong_count = transparent_cube_assets();
+    wrong_count.model_templates[0].quad_count = 5;
+    wrong_count.model_quads = wrong_count.model_quads[..5].into();
+    assert!(encode_blob(&wrong_count).is_err());
+
+    let mut opaque = transparent_cube_assets();
+    opaque.materials[1].flags = 0;
+    assert!(encode_blob(&opaque).is_err());
+
+    let mut diagnostic = transparent_cube_assets();
+    diagnostic.model_quads[5].material = 0;
+    assert!(encode_blob(&diagnostic).is_err());
+
+    let mut malformed_geometry = transparent_cube_assets();
+    malformed_geometry.model_quads[0].positions[0][0] = 1;
+    assert!(encode_blob(&malformed_geometry).is_err());
+
+    for incompatible in [
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+        assets::MODEL_TEMPLATE_FLAG_WALL,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut combined = transparent_cube_assets();
+        combined.model_templates[0].flags |= incompatible;
+        assert!(
+            encode_blob(&combined).is_err(),
+            "accepted transparent-cube flag combined with {incompatible:#x}"
+        );
+    }
+}
+
+#[test]
+fn mcbeas04_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classes() {
+    let mut cutout = transparent_cube_assets();
+    cutout.materials[1].flags = assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+    encode_blob(&cutout).expect("encode homogeneous copper-grate cutout cube");
+
+    let mut mixed = transparent_cube_assets();
+    let mut materials = mixed.materials.into_vec();
+    materials.push(Material {
+        texture: TextureRef::new(0, 0).unwrap(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        animation: NO_ANIMATION,
+    });
+    mixed.materials = materials.into_boxed_slice();
+    mixed.model_quads[5].material = 2;
+    assert!(encode_blob(&mixed).is_err());
+
+    let mut both = transparent_cube_assets();
+    both.materials[1].flags =
+        assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+    assert!(encode_blob(&both).is_err());
+}
+
+fn full_face_model_assets(quad_count: u32) -> CompiledAssets {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].model_template = 0;
+    compiled.model_templates = vec![assets::ModelTemplate {
+        quad_start: 0,
+        quad_count,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![
+        assets::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 0,
+            flags: 0,
+        };
+        quad_count as usize
+    ]
+    .into_boxed_slice();
+    compiled
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
@@ -379,8 +732,9 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     for invalid in [
         BlockFlags::from_bits_retain(0x10),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
-        BlockFlags::OCCLUDES_FULL_FACE,
+        BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,
+        BlockFlags::LEAF_MODEL | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE | BlockFlags::LEAF_MODEL,
     ] {
         let mut bad_flags = valid_assets();
@@ -426,6 +780,48 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     assert!(
         encode_blob(&blend).is_err(),
         "blend and cutout are mutually exclusive"
+    );
+}
+
+#[test]
+fn blob_accepts_model_full_face_occluder_without_cube_geometry() {
+    let compiled = full_face_model_assets(1);
+    assert!(encode_blob(&compiled).is_ok());
+}
+
+#[test]
+fn blob_rejects_full_face_occlusion_on_nondrawable_non_cube_visuals() {
+    for (kind, role, template) in [
+        (
+            VisualKind::Diagnostic,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+        (VisualKind::Cross, assets::ContributorRole::Primary, 0),
+        (
+            VisualKind::Liquid,
+            assets::ContributorRole::LiquidAdditional,
+            NO_MODEL_TEMPLATE,
+        ),
+        (
+            VisualKind::Invisible,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+    ] {
+        let mut compiled = full_face_model_assets(1);
+        compiled.visuals[0].kind = kind;
+        compiled.visuals[0].contributor_role = role;
+        compiled.visuals[0].model_template = template;
+        assert!(
+            encode_blob(&compiled).is_err(),
+            "accepted standalone occlusion on {kind:?}"
+        );
+    }
+
+    assert!(
+        encode_blob(&full_face_model_assets(0)).is_err(),
+        "accepted standalone occlusion on a zero-quad Model"
     );
 }
 

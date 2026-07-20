@@ -460,7 +460,9 @@ impl<T: BedrockSized> BedrockSized for Option<T> {
 impl BedrockCodec for uuid::Uuid {
     type Args = ();
     fn encode<B: BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        buf.put_slice(self.as_bytes());
+        let (most_significant, least_significant) = self.as_u64_pair();
+        buf.put_u64_le(most_significant);
+        buf.put_u64_le(least_significant);
         Ok(())
     }
 
@@ -471,9 +473,12 @@ impl BedrockCodec for uuid::Uuid {
                 available: buf.remaining(),
             });
         }
-        let mut bytes = [0u8; 16];
-        buf.copy_to_slice(&mut bytes);
-        Ok(uuid::Uuid::from_bytes(bytes))
+        let most_significant = buf.get_u64_le();
+        let least_significant = buf.get_u64_le();
+        Ok(uuid::Uuid::from_u64_pair(
+            most_significant,
+            least_significant,
+        ))
     }
 }
 
@@ -1109,6 +1114,22 @@ mod tests {
     fn uuid_nil() {
         let uuid = uuid::Uuid::nil();
         assert_codec_roundtrip(uuid, ());
+    }
+
+    #[test]
+    fn uuid_uses_bedrock_little_endian_halves() {
+        let uuid = uuid::Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").unwrap();
+        let mut buf = BytesMut::new();
+        uuid.encode(&mut buf).unwrap();
+
+        assert_eq!(
+            buf.as_ref(),
+            &[
+                0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa,
+                0x99, 0x88,
+            ]
+        );
+        assert_eq!(uuid::Uuid::decode(&mut buf.freeze(), ()).unwrap(), uuid);
     }
 
     // ========== Option Tests ==========

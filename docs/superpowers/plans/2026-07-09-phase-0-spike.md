@@ -391,7 +391,7 @@
 **Interfaces:**
 - Produces `mesh_sub_chunk(classifier: &BlockClassifier, neighbours: &Neighbourhood<'_>, sub_chunk: &SubChunk) -> ChunkMesh`, where `ChunkMesh` retains one 8-byte `PackedQuad` record per greedy quad plus face-to-face cave connectivity.
 - Produces `ChunkRenderQueue::{insert, update, remove}` with nearest-first priorities and a per-frame upload cap.
-- Produces `DebugWorldPlugin`, a custom non-`Mesh` chunk render path backed by global packed-quad/origin/indirect buffers, one pipeline, and one bind group.
+- Produces `ChunkRenderPlugin`, a custom non-`Mesh` chunk render path backed by global packed-quad/origin/indirect buffers, one pipeline, and one bind group.
 - Produces `WorldStream`, which applies ordered world events, dispatches bounded decode/mesh work to Rayon, and emits deduplicated mesh changes and sub-chunk requests.
 - App flags: `--socket-dir`, `--acceptance-seconds`, `--metrics-out`, and `--auto-fly`.
 

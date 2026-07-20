@@ -1,0 +1,9 @@
+{
+  "module": "github.com/oomph-ac/bedsim",
+  "version": "v0.1.3",
+  "source_commit": "5be9149df14e30c0ab14f9e01d51dd2acfee5230",
+  "module_sum": "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=",
+  "generator": "tools/bedsimtrace",
+  "command": "$env:GOWORK='off'; go run .",
+  "sha256": "55a7e1f9d4b4eac97d92bcb4a7cf457ccd4556687abe0b69de451558de668616"
+}

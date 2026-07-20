@@ -1,0 +1,122 @@
+use super::super::*;
+use super::context::{
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+};
+use super::dispatcher::CompileRuleResult;
+
+pub(in crate::compiler) fn compile_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<[u32; 7], u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_slab(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(materials) = inputs.materials(record)
+        && let Some(half @ 0..=2) = record.model_state.get(ModelStateField::Half)
+    {
+        let [west, east, down, up, north, south] = materials;
+        let key = [west, east, down, up, north, south, half];
+        let template = if let Some(&template) = templates.get(&key) {
+            template
+        } else {
+            let template = push_model_template(
+                slab_quads(materials, half).to_vec(),
+                0,
+                storage.templates,
+                storage.quads,
+            )?;
+            templates.insert(key, template);
+            template
+        };
+        set_model_visual(&mut visual, materials, template);
+        visual.flags.set(BlockFlags::OCCLUDES_FULL_FACE, half == 2);
+    }
+    Ok(CompileRuleResult::Compiled(visual))
+}
+
+pub(in crate::compiler) fn slab_quads(materials: [u32; 6], half: u32) -> [ModelQuad; 6] {
+    let (min_y, max_y) = match half {
+        0 => (0, 128),
+        1 => (128, 256),
+        2 => (0, 256),
+        _ => unreachable!("slab half is checked before template generation"),
+    };
+    let min_v = (4096 - min_y * 16) as u16;
+    let max_v = (4096 - max_y * 16) as u16;
+    let vertical_standard = [[0, min_v], [4096, min_v], [4096, max_v], [0, max_v]];
+    let vertical_transposed = [[0, min_v], [0, max_v], [4096, max_v], [4096, min_v]];
+    let horizontal_standard = [[0, 0], [4096, 0], [4096, 4096], [0, 4096]];
+    let horizontal_transposed = [[0, 0], [0, 4096], [4096, 4096], [4096, 0]];
+    let flagged = |face: u32, boundary: bool| face | (u32::from(boundary) * (face << 4));
+    [
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [0, min_y, 256],
+                [0, max_y, 256],
+                [0, max_y, 0],
+            ],
+            uvs: vertical_standard,
+            material: materials[BlockFace::West as usize],
+            flags: flagged(3, true),
+        },
+        ModelQuad {
+            positions: [
+                [256, min_y, 0],
+                [256, max_y, 0],
+                [256, max_y, 256],
+                [256, min_y, 256],
+            ],
+            uvs: vertical_transposed,
+            material: materials[BlockFace::East as usize],
+            flags: flagged(4, true),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [256, min_y, 0],
+                [256, min_y, 256],
+                [0, min_y, 256],
+            ],
+            uvs: horizontal_standard,
+            material: materials[BlockFace::Down as usize],
+            flags: flagged(1, min_y == 0),
+        },
+        ModelQuad {
+            positions: [
+                [0, max_y, 0],
+                [0, max_y, 256],
+                [256, max_y, 256],
+                [256, max_y, 0],
+            ],
+            uvs: horizontal_transposed,
+            material: materials[BlockFace::Up as usize],
+            flags: flagged(2, max_y == 256),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 0],
+                [0, max_y, 0],
+                [256, max_y, 0],
+                [256, min_y, 0],
+            ],
+            uvs: vertical_transposed,
+            material: materials[BlockFace::North as usize],
+            flags: flagged(5, true),
+        },
+        ModelQuad {
+            positions: [
+                [0, min_y, 256],
+                [256, min_y, 256],
+                [256, max_y, 256],
+                [0, max_y, 256],
+            ],
+            uvs: vertical_standard,
+            material: materials[BlockFace::South as usize],
+            flags: flagged(6, true),
+        },
+    ]
+}

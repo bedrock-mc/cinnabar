@@ -37,6 +37,21 @@ fn uniform_biome_storage_stays_palette_native() {
 }
 
 #[test]
+fn rejects_biome_storage_count_beyond_the_client_limit() {
+    // A storage count larger than the vertical sub-chunk ceiling must be
+    // rejected up front so the decoder never pre-reserves capacity proportional
+    // to a wire-supplied count. The empty payload proves the bound is enforced
+    // before any storage byte is read.
+    assert_eq!(
+        DecodedBiomeColumn::decode(0, world::MAX_LEVEL_SUBCHUNKS + 1, &[]),
+        Err(DecodeError::TooManyBiomeStorages {
+            count: world::MAX_LEVEL_SUBCHUNKS + 1,
+            max: world::MAX_LEVEL_SUBCHUNKS,
+        })
+    );
+}
+
+#[test]
 fn copy_previous_reuses_arc_and_first_copy_is_rejected() {
     let mut bytes = uniform(7);
     bytes.extend_from_slice(&[0xff, 0xff]);

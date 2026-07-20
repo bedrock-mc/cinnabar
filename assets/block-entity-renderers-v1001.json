@@ -1,0 +1,253 @@
+{
+  "schema": 1,
+  "protocol_version": 1001,
+  "game_version": "1.26.30",
+  "dragonfly_module": "github.com/df-mc/dragonfly",
+  "dragonfly_version": "v0.10.15-0.20260709170650-b85c56ffea6b",
+  "dragonfly_revision": "b85c56ffea6b306798a935f14cc941c76618be52",
+  "dragonfly_registration_sha256": "13a852419214598a6a644557d3cc3a587ce0ca3a61292571c841184fbe937bae",
+  "bds_server_version": "1.26.32.2",
+  "bds_executable_sha256": "10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f",
+  "entries": [
+    {
+      "source_key": "Banner", "nbt_id": "Banner", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "blank", "required_fields": ["id", "Base", "Type", "Patterns"], "witness_ids": []},
+        {"variant_id": "patterned", "required_fields": ["id", "Base", "Type", "Patterns"], "witness_ids": []},
+        {"variant_id": "illager", "required_fields": ["id", "Base", "Type", "Patterns"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Barrel", "nbt_id": "Barrel", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "Items"], "witness_ids": []},
+        {"variant_id": "inventory_named", "required_fields": ["id", "Items", "CustomName"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Beacon", "nbt_id": "Beacon", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "inactive", "required_fields": ["id", "Levels"], "witness_ids": []},
+        {"variant_id": "powered_effects", "required_fields": ["id", "Levels", "Primary", "Secondary"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "animated", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Bed", "nbt_id": "Bed", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "all_colours", "required_fields": ["id", "color"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "BlastFurnace", "nbt_id": "BlastFurnace", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "idle", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []},
+        {"variant_id": "active_recipe", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "BrewingStand", "nbt_id": "BrewingStand", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "Items", "CookTime", "FuelTotal", "FuelAmount"], "witness_ids": []},
+        {"variant_id": "brewing", "required_fields": ["id", "Items", "CookTime", "FuelTotal", "FuelAmount"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Campfire", "nbt_id": "Campfire", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id"], "witness_ids": []},
+        {"variant_id": "cooking_four_slots", "required_fields": ["id", "Item1", "ItemTime1", "Item2", "ItemTime2", "Item3", "ItemTime3", "Item4", "ItemTime4"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "animated", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Chest", "nbt_id": "Chest", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "single_empty", "required_fields": ["id", "Items"], "witness_ids": []},
+        {"variant_id": "single_inventory_named", "required_fields": ["id", "Items", "CustomName"], "witness_ids": []},
+        {"variant_id": "paired", "required_fields": ["id", "Items", "pairx", "pairz"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "animated", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "CopperGolemStatue", "nbt_id": "CopperGolemStatue", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "all_poses", "required_fields": ["id", "Pose"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "DecoratedPot", "nbt_id": "DecoratedPot", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "brick_sides_empty", "required_fields": ["id", "sherds"], "witness_ids": []},
+        {"variant_id": "mixed_sherds_with_item", "required_fields": ["id", "sherds", "item"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "EnchantTable", "nbt_id": "EnchantTable", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "default", "required_fields": ["id"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "animated", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "EnderChest", "nbt_id": "EnderChest", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "default", "required_fields": ["id"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "animated", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Furnace", "nbt_id": "Furnace", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "idle", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []},
+        {"variant_id": "active_recipe", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "GlowItemFrame", "nbt_id": "GlowItemFrame", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "ItemDropChance", "ItemRotation"], "witness_ids": []},
+        {"variant_id": "displayed_item_all_rotations", "required_fields": ["id", "ItemDropChance", "ItemRotation", "Item"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Hopper", "nbt_id": "Hopper", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "Items", "TransferCooldown"], "witness_ids": []},
+        {"variant_id": "inventory_named_cooldown", "required_fields": ["id", "Items", "TransferCooldown", "CustomName"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "ItemFrame", "nbt_id": "ItemFrame", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "ItemDropChance", "ItemRotation"], "witness_ids": []},
+        {"variant_id": "displayed_item_all_rotations", "required_fields": ["id", "ItemDropChance", "ItemRotation", "Item"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Jukebox", "nbt_id": "Jukebox", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id"], "witness_ids": []},
+        {"variant_id": "record", "required_fields": ["id", "RecordItem"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "sourced_logical_invisible", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Lectern", "nbt_id": "Lectern", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "empty", "required_fields": ["id", "hasBook", "page"], "witness_ids": []},
+        {"variant_id": "book_all_pages", "required_fields": ["id", "hasBook", "page", "book", "totalPages"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Note", "nbt_id": null, "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "all_pitches_unpowered", "required_fields": ["note", "powered"], "witness_ids": []},
+        {"variant_id": "all_pitches_powered", "required_fields": ["note", "powered"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "sourced_logical_invisible", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Sign", "nbt_id": "Sign", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "plain_front_back", "required_fields": ["id", "IsWaxed", "FrontText", "BackText"], "witness_ids": []},
+        {"variant_id": "coloured_glowing_waxed", "required_fields": ["id", "IsWaxed", "FrontText", "BackText"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "text_overlay", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Skull", "nbt_id": "Skull", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "standing_types_rotations", "required_fields": ["id", "SkullType", "Rotation"], "witness_ids": []},
+        {"variant_id": "wall_types", "required_fields": ["id", "SkullType", "Rotation"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "custom_geometry", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    },
+    {
+      "source_key": "Smoker", "nbt_id": "Smoker", "nbt_aliases": [],
+      "required_nbt_variants": [
+        {"variant_id": "idle", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []},
+        {"variant_id": "active_recipe", "required_fields": ["id", "BurnTime", "CookTime", "BurnDuration", "StoredXPInt", "Items"], "witness_ids": []}
+      ],
+      "chunk_nbt": {"supported": true, "witness_ids": ["world::block_entity_store::inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail", "world::block_entity_store::sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically"]},
+      "live_update": {"supported": true, "witness_ids": ["world::block_entity_store::live_update_uses_packet_position_and_rejects_conflicting_embedded_position"]},
+      "renderer_class": "static_block_model", "renderer_status": "deferred", "implementation_symbol": null, "gallery_builder": null,
+      "witnesses": {"gpu": [], "no_draw": []}
+    }
+  ]
+}

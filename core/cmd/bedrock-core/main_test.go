@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -13,6 +14,71 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"golang.org/x/oauth2"
 )
+
+func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
+	var stderr bytes.Buffer
+	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "secret-token-sentinel"})
+	err := run(
+		context.Background(),
+		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"},
+		io.Discard,
+		&stderr,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+			return source, nil
+		},
+		func(_ context.Context, cfg proxy.Config) error {
+			if cfg.Logger == nil {
+				t.Fatal("proxy logger is nil")
+			}
+			cfg.Logger.Info("listener ready; waiting for local Rust client", "socket_dir", cfg.SocketDir, "network", "tcp", "endpoint", "127.0.0.1:43123")
+			cfg.Logger.Info("local client accepted", "socket_dir", cfg.SocketDir)
+			cfg.Logger.Info("upstream connection starting", "target", cfg.Upstream, "authentication", "microsoft")
+			cfg.Logger.Info("upstream connected", "target", cfg.Upstream, "authentication", "microsoft")
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	output := stderr.String()
+	assertTextInOrder(t, output,
+		"msg=\"core starting\" endpoint=run upstream=zeqa.net:19132",
+		"msg=\"authentication starting\" mode=microsoft",
+		"msg=\"authentication ready\" mode=microsoft",
+		"msg=\"listener ready; waiting for local Rust client\" socket_dir=run network=tcp endpoint=127.0.0.1:43123",
+		"msg=\"local client accepted\" socket_dir=run",
+		"msg=\"upstream connection starting\" target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"upstream connected\" target=zeqa.net:19132 authentication=microsoft",
+	)
+	if strings.Contains(output, "secret-token-sentinel") || strings.Contains(output, "token.json") {
+		t.Fatalf("startup output exposed credential material or its cache path:\n%s", output)
+	}
+}
+
+func TestExecuteReportsFatalStartupError(t *testing.T) {
+	var stderr bytes.Buffer
+	wantErr := errors.New("listener bind failed")
+	exitCode := execute(
+		context.Background(),
+		[]string{"-socket-dir", "run", "-upstream", "localhost:19132"},
+		io.Discard,
+		&stderr,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+			t.Fatal("offline mode called auth source")
+			return nil, nil
+		},
+		func(context.Context, proxy.Config) error { return wantErr },
+	)
+	if exitCode != 1 {
+		t.Fatalf("execute() exit code = %d, want 1", exitCode)
+	}
+	assertTextInOrder(t, stderr.String(),
+		"msg=\"core starting\" endpoint=run upstream=localhost:19132",
+		"msg=\"authentication ready\" mode=offline",
+		"level=ERROR msg=\"core failed\" error=\"listener bind failed\"",
+	)
+}
 
 func TestParseFlagsAuthCacheIsOptional(t *testing.T) {
 	withoutAuth, err := parseFlags([]string{"-socket-dir", "run", "-upstream", "localhost:19132"}, io.Discard)
@@ -202,5 +268,17 @@ func TestParentCancellationStillStopsCoreContext(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("parent cancellation did not cancel the core context")
+	}
+}
+
+func assertTextInOrder(t *testing.T, text string, parts ...string) {
+	t.Helper()
+	position := 0
+	for _, part := range parts {
+		next := strings.Index(text[position:], part)
+		if next < 0 {
+			t.Fatalf("output missing %q after byte %d:\n%s", part, position, text)
+		}
+		position += next + len(part)
 	}
 }

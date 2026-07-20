@@ -1,0 +1,27 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decoders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Fuzz runtime asset decoding
+        run: cargo +nightly fuzz run runtime_assets_decode -- -max_total_time=60 -max_len=1048576
+      - name: Fuzz sub-chunk decoding
+        run: cargo +nightly fuzz run sub_chunk_decode -- -max_total_time=60 -max_len=1048576

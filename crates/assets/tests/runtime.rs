@@ -1,18 +1,18 @@
 use std::mem::size_of_val;
 
 use assets::{
-    BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK,
-    MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES,
-    Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage, TextureRef, TintSource,
-    VisualKind, encode_blob,
+    AssetError, BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS,
+    MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
+    TextureRef, TintSource, VisualKind, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
 #[test]
-fn runtime_decodes_mcbeas04_tables() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS04");
+fn runtime_decodes_mcbeas05_tables() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
@@ -72,6 +72,11 @@ fn compiled_assets() -> CompiledAssets {
             },
         ]
         .into_boxed_slice(),
+        light_properties: vec![
+            LightProperties::new(0, 0).unwrap(),
+            LightProperties::new(13, 2).unwrap(),
+        ]
+        .into_boxed_slice(),
         // Hash 1 deliberately collides with sequential ID 1 but maps to visual 0.
         hashed: vec![(1, 0), (0xdbf4_4120, 1)].into_boxed_slice(),
         materials: vec![
@@ -110,9 +115,144 @@ fn compiled_assets() -> CompiledAssets {
     }
 }
 
+#[test]
+fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
+    assert_eq!(
+        runtime
+            .resolve(NetworkIdMode::Sequential, 1)
+            .light_properties(),
+        LightProperties::new(13, 2).unwrap()
+    );
+    assert_eq!(
+        runtime
+            .resolve(NetworkIdMode::Hashed, 0xdbf4_4120)
+            .light_properties(),
+        LightProperties::new(13, 2).unwrap()
+    );
+    assert_eq!(
+        runtime.resolve(NetworkIdMode::Hashed, 1).light_properties(),
+        LightProperties::new(0, 0).unwrap()
+    );
+}
+
+fn synthetic_air_visual() -> BlockVisual {
+    BlockVisual {
+        faces: [DIAGNOSTIC_MATERIAL; 6],
+        flags: BlockFlags::AIR,
+        kind: VisualKind::Invisible,
+        contributor_role: assets::ContributorRole::Air,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+    }
+}
+
+#[test]
+fn runtime_derives_air_network_id_from_the_validated_registry_for_each_mode() {
+    let mut compiled = compiled_assets();
+    compiled.visuals = [compiled.visuals.as_ref(), &[synthetic_air_visual()]]
+        .concat()
+        .into_boxed_slice();
+    compiled.light_properties = [
+        compiled.light_properties.as_ref(),
+        &[LightProperties::new(0, 0).unwrap()],
+    ]
+    .concat()
+    .into_boxed_slice();
+    compiled.hashed = vec![(1, 0), (2, 1), (0xdbf4_4120, 2)].into_boxed_slice();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode non-default air registry")
+            .into_vec(),
+    )
+    .expect("decode non-default air registry");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), Some(2));
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Hashed),
+        Some(0xdbf4_4120)
+    );
+}
+
+#[test]
+fn runtime_air_network_id_fails_closed_for_ambiguous_air_visuals() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0] = synthetic_air_visual();
+    compiled.visuals[1] = synthetic_air_visual();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode ambiguous air registry")
+            .into_vec(),
+    )
+    .expect("decode ambiguous air registry");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), None);
+}
+
+#[test]
+fn runtime_air_network_id_fails_closed_for_ambiguous_air_hashes() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0] = synthetic_air_visual();
+    compiled.hashed = vec![(1, 0), (2, 0), (3, 1)].into_boxed_slice();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode ambiguous air hashes")
+            .into_vec(),
+    )
+    .expect("decode ambiguous air hashes");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Hashed), None);
+}
+
+#[test]
+fn runtime_air_network_id_ignores_noncanonical_air_flagged_visuals() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[0].flags = BlockFlags::AIR;
+    compiled.visuals[1] = synthetic_air_visual();
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode registry with diagnostic air decoy")
+            .into_vec(),
+    )
+    .expect("decode registry with diagnostic air decoy");
+
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), Some(1));
+}
+
+#[test]
+fn runtime_rejects_old_mcbeas04_magic() {
+    let mut old = valid_blob();
+    old[..8].copy_from_slice(b"MCBEAS04");
+    assert!(RuntimeAssets::decode(&old).is_err());
+}
+
 fn valid_blob() -> Vec<u8> {
     encode_blob(&compiled_assets())
         .expect("encode synthetic runtime assets")
+        .into_vec()
+}
+
+fn full_face_model_blob() -> Vec<u8> {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::OCCLUDES_FULL_FACE;
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = vec![ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    encode_blob(&compiled)
+        .expect("encode model full-face occluder")
         .into_vec()
 }
 
@@ -150,9 +290,83 @@ fn rich_blob() -> Vec<u8> {
     encode_blob(&compiled).unwrap().into_vec()
 }
 
+fn transparent_cube_compiled() -> CompiledAssets {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].faces = [1; 6];
+    compiled.materials[1].flags = assets::MATERIAL_FLAG_ALPHA_BLEND;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    }]
+    .into_boxed_slice();
+    let positions = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    compiled.model_quads = positions
+        .into_iter()
+        .enumerate()
+        .map(|(face, positions)| ModelQuad {
+            positions,
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: 1,
+            flags: [3, 4, 1, 2, 5, 6][face],
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled
+}
+
+fn transparent_cube_blob() -> Vec<u8> {
+    encode_blob(&transparent_cube_compiled())
+        .expect("encode canonical transparent cube")
+        .into_vec()
+}
+
+fn compound_blob() -> Vec<u8> {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        },
+        ModelTemplate {
+            quad_start: 1,
+            quad_count: 1,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 1,
+            flags: 0,
+        };
+        2
+    ]
+    .into_boxed_slice();
+    encode_blob(&compiled)
+        .expect("encode canonical compound pair")
+        .into_vec()
+}
+
 #[test]
 fn runtime_decodes_checked_contributor_role_with_new_tables() {
-    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS04 fixture");
+    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS05 fixture");
     let block = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert_eq!(
         block.contributor_role(),
@@ -227,13 +441,72 @@ fn decode_rejects_resealed_old_schema_magic_and_version() {
 
 #[test]
 fn decode_rejects_invalid_visual_flag_semantics() {
-    for raw in [0x10, 0x03, 0x04, 0x08, 0x0e] {
+    for raw in [0x10, 0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let mut blob = valid_blob();
         let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
         blob[visuals_offset + 24] = raw;
         reseal(&mut blob);
         assert_rejected(&blob, &format!("invalid visual flags {raw:#x}"));
     }
+}
+
+#[test]
+fn runtime_preserves_model_full_face_occluder_without_cube_geometry() {
+    let runtime =
+        RuntimeAssets::decode(&full_face_model_blob()).expect("decode model full-face occluder");
+    let block = runtime.resolve(NetworkIdMode::Sequential, 1);
+    assert_eq!(block.kind(), VisualKind::Model);
+    assert_eq!(block.flags(), BlockFlags::OCCLUDES_FULL_FACE);
+    assert!(!block.flags().contains(BlockFlags::CUBE_GEOMETRY));
+}
+
+#[test]
+fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
+    for (kind, role, template) in [
+        (
+            VisualKind::Diagnostic,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+        (VisualKind::Cross, assets::ContributorRole::Primary, 0),
+        (
+            VisualKind::Liquid,
+            assets::ContributorRole::LiquidAdditional,
+            NO_MODEL_TEMPLATE,
+        ),
+        (
+            VisualKind::Invisible,
+            assets::ContributorRole::Primary,
+            NO_MODEL_TEMPLATE,
+        ),
+    ] {
+        let mut blob = full_face_model_blob();
+        let visuals = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
+        blob[visuals + 40 + 25] = kind as u8;
+        blob[visuals + 40 + 26] = role as u8;
+        write_u32(&mut blob, visuals + 40 + 28, template);
+        reseal(&mut blob);
+        assert_rejected(&blob, &format!("standalone occlusion on {kind:?}"));
+    }
+
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    compiled.model_quads = Box::new([]);
+    let mut zero_quad = encode_blob(&compiled)
+        .expect("encode non-occluding zero-quad model")
+        .into_vec();
+    let visuals = read_u64(&zero_quad, VISUALS_OFFSET_OFFSET) as usize;
+    zero_quad[visuals + 40 + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
+    reseal(&mut zero_quad);
+    assert_rejected(&zero_quad, "standalone occlusion on zero-quad Model");
 }
 
 #[test]
@@ -362,7 +635,6 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
 
     mutate_byte(visuals + 40 + 25, 99, "unknown visual kind");
     mutate_byte(visuals + 40 + 26, 99, "unknown contributor role");
-    mutate_byte(visuals + 40 + 27, 1, "visual reserved byte");
     mutate_byte(visuals + 40 + 26, 0, "liquid with primary contributor role");
     mutate_byte(
         visuals + 40 + 25,
@@ -379,7 +651,7 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(templates, 1, "noncanonical template start");
     mutate(
         templates + 8,
-        assets::MODEL_TEMPLATE_FLAG_KELP << 1,
+        assets::MODEL_TEMPLATE_FLAG_STAIR << 1,
         "unknown template flags",
     );
     mutate(quads + 40, 2, "quad material ID");
@@ -421,12 +693,333 @@ fn decode_accepts_known_kelp_template_flag() {
 }
 
 #[test]
+fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
+    let canonical = transparent_cube_blob();
+    let runtime = RuntimeAssets::decode(&canonical).expect("decode canonical transparent cube");
+    assert_eq!(
+        runtime.model_templates()[0].flags,
+        assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+    );
+    assert_eq!(runtime.model_templates()[0].quad_count, 6);
+    assert!(runtime.model_quads().iter().all(|quad| {
+        quad.material != DIAGNOSTIC_MATERIAL
+            && runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0
+    }));
+
+    let templates = read_u64(&canonical, 120) as usize;
+    let materials = read_u64(&canonical, MATERIALS_OFFSET_OFFSET) as usize;
+    let quads = read_u64(&canonical, 128) as usize;
+
+    let mut opaque = canonical.clone();
+    write_u32(&mut opaque, materials + 12 + 4, 0);
+    reseal(&mut opaque);
+    assert_rejected(&opaque, "opaque transparent-cube material");
+
+    let mut diagnostic = canonical.clone();
+    write_u32(&mut diagnostic, quads + 5 * 48 + 40, DIAGNOSTIC_MATERIAL);
+    reseal(&mut diagnostic);
+    assert_rejected(&diagnostic, "diagnostic transparent-cube material");
+
+    let mut malformed_geometry = canonical.clone();
+    malformed_geometry[quads..quads + 2].copy_from_slice(&1_i16.to_le_bytes());
+    reseal(&mut malformed_geometry);
+    assert_rejected(&malformed_geometry, "malformed transparent-cube geometry");
+
+    for incompatible in [
+        assets::MODEL_TEMPLATE_FLAG_KELP,
+        assets::MODEL_TEMPLATE_FLAG_STAIR,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+        assets::MODEL_TEMPLATE_FLAG_WALL,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut combined = canonical.clone();
+        write_u32(
+            &mut combined,
+            templates + 8,
+            assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE | incompatible,
+        );
+        reseal(&mut combined);
+        assert_rejected(
+            &combined,
+            &format!("transparent cube combined with {incompatible:#x}"),
+        );
+    }
+
+    let mut split = transparent_cube_compiled();
+    split.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 5,
+            flags: 0,
+        },
+        ModelTemplate {
+            quad_start: 5,
+            quad_count: 1,
+            flags: 0,
+        },
+    ]
+    .into_boxed_slice();
+    let mut wrong_count = encode_blob(&split)
+        .expect("encode otherwise-valid split template fixture")
+        .into_vec();
+    let split_templates = read_u64(&wrong_count, 120) as usize;
+    write_u32(
+        &mut wrong_count,
+        split_templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    );
+    reseal(&mut wrong_count);
+    assert_rejected(&wrong_count, "five-quad transparent cube");
+}
+
+#[test]
+fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classes() {
+    let canonical = transparent_cube_blob();
+    let materials = read_u64(&canonical, MATERIALS_OFFSET_OFFSET) as usize;
+
+    let mut cutout = canonical.clone();
+    write_u32(
+        &mut cutout,
+        materials + 12 + 4,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    );
+    reseal(&mut cutout);
+    RuntimeAssets::decode(&cutout).expect("decode homogeneous copper-grate cutout cube");
+
+    let mut both = canonical.clone();
+    write_u32(
+        &mut both,
+        materials + 12 + 4,
+        assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    );
+    reseal(&mut both);
+    assert_rejected(&both, "both alpha bits on transparent cube");
+
+    let mut mixed_compiled = transparent_cube_compiled();
+    let mut compiled_materials = mixed_compiled.materials.into_vec();
+    compiled_materials.push(Material {
+        texture: TextureRef::new(0, 0).unwrap(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        animation: NO_ANIMATION,
+    });
+    mixed_compiled.materials = compiled_materials.into_boxed_slice();
+    let mut mixed = encode_blob(&mixed_compiled)
+        .expect("encode blend template with unused cutout material")
+        .into_vec();
+    let mixed_quads = read_u64(&mixed, 128) as usize;
+    write_u32(&mut mixed, mixed_quads + 5 * 48 + 40, 2);
+    reseal(&mut mixed);
+    assert_rejected(&mixed, "mixed blend/cutout transparent cube");
+}
+
+#[test]
 fn decode_rejects_kelp_flag_on_noncanonical_template_shape() {
     let mut blob = rich_blob();
     let templates = read_u64(&blob, 120) as usize;
     write_u32(&mut blob, templates + 8, assets::MODEL_TEMPLATE_FLAG_KELP);
     reseal(&mut blob);
     assert_rejected(&blob, "one-quad kelp template");
+}
+
+#[test]
+fn decode_rejects_malformed_stair_template_groups() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].variant = 7;
+    compiled.model_templates = (0..5)
+        .map(|index| ModelTemplate {
+            quad_start: index,
+            quad_count: 1,
+            flags: assets::MODEL_TEMPLATE_FLAG_STAIR,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0, 0, 0], [128, 0, 0], [128, 128, 0], [0, 128, 0]],
+            uvs: [[0, 4096], [2048, 4096], [2048, 2048], [0, 2048]],
+            material: 1,
+            flags: 5,
+        };
+        5
+    ]
+    .into_boxed_slice();
+    let mut blob = encode_blob(&compiled)
+        .expect("encode canonical stair group")
+        .into_vec();
+    let templates = read_u64(&blob, 120) as usize;
+    write_u32(&mut blob, templates + 4 * 12 + 8, 0);
+    reseal(&mut blob);
+    assert_rejected(&blob, "malformed stair group at runtime boundary");
+}
+
+#[test]
+fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
+    let canonical = compound_blob();
+    RuntimeAssets::decode(&canonical).expect("decode canonical compound pair");
+    let templates = read_u64(&canonical, 120) as usize;
+    let visuals = read_u64(&canonical, 96) as usize;
+
+    for axis in [
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+        assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    ] {
+        let mut gate = canonical.clone();
+        write_u32(
+            &mut gate,
+            templates + 8,
+            assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | axis,
+        );
+        reseal(&mut gate);
+        RuntimeAssets::decode(&gate).expect("decode compound gate axis metadata");
+    }
+    let mut ambiguous_gate = canonical.clone();
+    write_u32(
+        &mut ambiguous_gate,
+        templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+            | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X
+            | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    );
+    reseal(&mut ambiguous_gate);
+    assert_rejected(&ambiguous_gate, "compound gate with both axes");
+
+    let mut combined_head = canonical.clone();
+    write_u32(
+        &mut combined_head,
+        templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_KELP,
+    );
+    reseal(&mut combined_head);
+    assert_rejected(&combined_head, "compound head with incompatible flag");
+
+    let mut non_plain_tail = canonical.clone();
+    write_u32(
+        &mut non_plain_tail,
+        templates + 12 + 8,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    );
+    reseal(&mut non_plain_tail);
+    assert_rejected(
+        &non_plain_tail,
+        "compound continuation starting another pair",
+    );
+
+    let mut tail_referenced = canonical;
+    write_u32(&mut tail_referenced, visuals + 40 + 28, 1);
+    reseal(&mut tail_referenced);
+    assert_rejected(&tail_referenced, "direct compound continuation reference");
+
+    let mut zero_head = compound_blob();
+    write_u32(&mut zero_head, templates + 4, 0);
+    write_u32(&mut zero_head, templates + 12, 0);
+    write_u32(&mut zero_head, templates + 12 + 4, 2);
+    reseal(&mut zero_head);
+    let Err(AssetError::InvalidCompiledAssets { detail }) = RuntimeAssets::decode(&zero_head)
+    else {
+        panic!("zero-quad compound head must fail at runtime boundary");
+    };
+    assert_eq!(detail.as_ref(), "compound template head has no quads");
+
+    let mut zero_tail = compound_blob();
+    write_u32(&mut zero_tail, templates + 4, 2);
+    write_u32(&mut zero_tail, templates + 12, 2);
+    write_u32(&mut zero_tail, templates + 12 + 4, 0);
+    reseal(&mut zero_tail);
+    let Err(AssetError::InvalidCompiledAssets { detail }) = RuntimeAssets::decode(&zero_tail)
+    else {
+        panic!("zero-quad compound continuation must fail at runtime boundary");
+    };
+    assert_eq!(detail.as_ref(), "compound continuation has no quads");
+}
+
+#[test]
+fn decode_rejects_malformed_connected_template_groups() {
+    let mut unreferenced = compiled_assets();
+    unreferenced.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into_boxed_slice();
+    unreferenced.model_quads = vec![ModelQuad {
+        positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+        uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+        material: 1,
+        flags: 5,
+    }]
+    .into_boxed_slice();
+    let mut unreferenced_blob = encode_blob(&unreferenced)
+        .expect("encode unreferenced plain template")
+        .into_vec();
+    let unreferenced_templates = read_u64(&unreferenced_blob, 120) as usize;
+    write_u32(
+        &mut unreferenced_blob,
+        unreferenced_templates + 8,
+        assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+    );
+    reseal(&mut unreferenced_blob);
+    assert_rejected(
+        &unreferenced_blob,
+        "unreferenced mixed connected flags at runtime boundary",
+    );
+
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].flags = BlockFlags::empty();
+    compiled.visuals[1].kind = VisualKind::Model;
+    compiled.visuals[1].model_template = 0;
+    compiled.visuals[1].variant = 0;
+    let counts = (0_u32..16)
+        .map(|mask| 6 + mask.count_ones() * 4)
+        .collect::<Vec<_>>();
+    let mut start = 0;
+    compiled.model_templates = counts
+        .into_iter()
+        .map(|quad_count| {
+            let template = ModelTemplate {
+                quad_start: start,
+                quad_count,
+                flags: assets::MODEL_TEMPLATE_FLAG_PANE,
+            };
+            start += quad_count;
+            template
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.model_quads = vec![
+        ModelQuad {
+            positions: [[0, 0, 0], [16, 0, 0], [16, 16, 0], [0, 16, 0]],
+            uvs: [[0, 0], [256, 0], [256, 256], [0, 256]],
+            material: 1,
+            flags: 5,
+        };
+        start as usize
+    ]
+    .into_boxed_slice();
+    let mut blob = encode_blob(&compiled)
+        .expect("encode canonical pane group")
+        .into_vec();
+    let templates = read_u64(&blob, 120) as usize;
+    let mut mixed = blob.clone();
+    for index in 0..16 {
+        write_u32(
+            &mut mixed,
+            templates + index * 12 + 8,
+            assets::MODEL_TEMPLATE_FLAG_PANE | assets::MODEL_TEMPLATE_FLAG_WALL,
+        );
+    }
+    reseal(&mut mixed);
+    assert_rejected(&mixed, "mixed connected flags at runtime boundary");
+
+    write_u32(&mut blob, templates + 15 * 12 + 8, 0);
+    reseal(&mut blob);
+    assert_rejected(&blob, "malformed pane group at runtime boundary");
 }
 
 #[test]

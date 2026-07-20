@@ -5,6 +5,57 @@ use thiserror::Error;
 /// Errors produced while reading bounded registry and resource-pack sources.
 #[derive(Debug, Error)]
 pub enum AssetError {
+    #[error("invalid atmosphere source manifest: {source}")]
+    InvalidAtmosphereManifest {
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("atmosphere source manifest is {size} bytes, exceeding the {max}-byte limit")]
+    AtmosphereManifestTooLarge { size: usize, max: usize },
+
+    #[error("invalid atmosphere source provenance: {detail}")]
+    InvalidAtmosphereProvenance { detail: Box<str> },
+
+    #[error("failed to read atmosphere texture {role} from {path}: {source}")]
+    AtmosphereTextureIo {
+        role: &'static str,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("atmosphere texture {role} at {path} is {size} bytes, exceeding the {max}-byte limit")]
+    AtmosphereTextureTooLarge {
+        role: &'static str,
+        path: PathBuf,
+        size: usize,
+        max: usize,
+    },
+
+    #[error("atmosphere texture {role} at {path} does not match the pinned source SHA-256")]
+    AtmosphereTextureHashMismatch { role: &'static str, path: PathBuf },
+
+    #[error("failed to decode atmosphere texture {role} from {path}: {source}")]
+    AtmosphereTextureDecode {
+        role: &'static str,
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[error(
+        "atmosphere texture {role} at {path} is {width}x{height}; expected exactly {expected_width}x{expected_height}"
+    )]
+    WrongAtmosphereTextureDimensions {
+        role: &'static str,
+        path: PathBuf,
+        width: u32,
+        height: u32,
+        expected_width: u32,
+        expected_height: u32,
+    },
+
     #[error("failed to read {path}: {source}")]
     Io {
         path: PathBuf,
@@ -77,6 +128,9 @@ pub enum AssetError {
 
     #[error("registry has {remaining} trailing bytes")]
     TrailingRegistryBytes { remaining: usize },
+
+    #[error("invalid PREG1001 physics registry: {detail}")]
+    InvalidPhysicsRegistry { detail: Box<str> },
 
     #[error("source contains {count} texture keys, exceeding the limit of {max}")]
     TooManyTextureKeys { count: usize, max: usize },
@@ -224,7 +278,7 @@ pub enum AssetError {
         key: Box<str>,
         path: PathBuf,
         #[source]
-        source: ::image::ImageError,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     #[error("unsupported static texture format for key {key} at {path}; expected .png or .tga")]

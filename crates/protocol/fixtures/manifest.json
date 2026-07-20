@@ -28,11 +28,67 @@
     "sha256": "d8ea552cba9f22fdf35af9c14431640abee23163c4a58e2ba28071eae9b42734"
   },
   {
+    "name": "PlayerAuthInput",
+    "file": "player_auth_input.bin",
+    "id": 144,
+    "byte_length": 92,
+    "sha256": "32648c680d193905c05c389159349f81330198fc0e25c57a192bf40ffba4ed71"
+  },
+  {
     "name": "AddActor",
     "file": "add_actor.bin",
     "id": 13,
     "byte_length": 66,
     "sha256": "94488d2f25a50e01e1bcaa57f83200af36495605f299004b946c145d1d73d2a5"
+  },
+  {
+    "name": "Text",
+    "file": "text.bin",
+    "id": 9,
+    "byte_length": 29,
+    "sha256": "1416498c15383bbbb63b7035203648ae57fbcacf4ce7ea8089ad6da7caa3647d"
+  },
+  {
+    "name": "TextObjectRawText",
+    "file": "text_object_rawtext.bin",
+    "id": 9,
+    "byte_length": 80,
+    "sha256": "783f73009252c7c89b330d63b64f01ef6ad9ae6ef34c496175de248f63675ec4"
+  },
+  {
+    "name": "TextObjectWhisperRawText",
+    "file": "text_object_whisper_rawtext.bin",
+    "id": 9,
+    "byte_length": 123,
+    "sha256": "c8015a164c7ac7a051c3d03583cb77b08bcee1d977e3890cd59d48a83d32add8"
+  },
+  {
+    "name": "TextObjectAnnouncementRawText",
+    "file": "text_object_announcement_rawtext.bin",
+    "id": 9,
+    "byte_length": 48,
+    "sha256": "5d3cc91cf467934789ba22f40250aedede00887e4c7377dacbd4b9410d7cd6fa"
+  },
+  {
+    "name": "SetTitle",
+    "file": "set_title.bin",
+    "id": 88,
+    "byte_length": 25,
+    "sha256": "106484679c8f35b2a2bec9e2256abc8560c1f3de5a01210c8c3c1704f7dbdba0"
+  },
+  {
+    "name": "BossEvent",
+    "file": "boss_event.bin",
+    "id": 74,
+    "byte_length": 28,
+    "sha256": "8f1e17a077a1df621eaa1830d38c68f14fd4ce7073db63be1e458a83a4eaf5f1"
+  },
+  {
+    "name": "ModalFormRequest",
+    "file": "modal_form_request.bin",
+    "id": 100,
+    "byte_length": 39,
+    "sha256": "6969d1e79e6a639b307cd814d4a8e618e334a48f24df26fa7324a45b658a076c"
   },
   {
     "name": "AvailableCommands",
@@ -54,5 +110,42 @@
     "id": 52,
     "byte_length": 18,
     "sha256": "b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39"
+  },
+  {
+    "name": "BiomeDefinitionListChunkGeneration",
+    "file": "biome_definition_list_chunk_generation.bin",
+    "id": 122,
+    "byte_length": 48,
+    "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "9948b1729395d2e819fce28e079d4a7bfc67716c"
+  },
+  {
+    "name": "InventoryContent",
+    "file": "inventory_content.bin",
+    "id": 49,
+    "byte_length": 59,
+    "sha256": "7d6580d5b03af31e680c36bc2f2a507d0eac2e56d044d7299e096163a8e6b403"
+  },
+  {
+    "name": "InventorySlot",
+    "file": "inventory_slot.bin",
+    "id": 50,
+    "byte_length": 49,
+    "sha256": "4c8e403d45e7863ccd59eea258d7baea2cf049734fc15cf2180554a67acb72e9"
+  },
+  {
+    "name": "PlayerHotBar",
+    "file": "player_hotbar.bin",
+    "id": 48,
+    "byte_length": 7,
+    "sha256": "67fe723027547cf23f12a97d2e20731cf222670417c11406099fc86077a86f52"
+  },
+  {
+    "name": "ItemStackResponse",
+    "file": "item_stack_response.bin",
+    "id": 148,
+    "byte_length": 42,
+    "sha256": "936ec148613ea0055d7352af4ef40a7a7df839afa17051725e55141e9185a4ec"
   }
 ]

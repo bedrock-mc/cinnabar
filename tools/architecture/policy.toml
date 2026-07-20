@@ -1,0 +1,349 @@
+production_rust_max = 1000
+module_root_max = 300
+powershell_max = 800
+test_max = 1200
+forbidden_artifacts = [
+    "*.exe",
+    "*.dll",
+    "*.dylib",
+    "*.so",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.bmp",
+    "*.mcpack",
+    "*.mcworld",
+]
+
+# Existing oversized files may only shrink. New files and files below their
+# category limit remain governed by the strict limits above.
+[[line_baselines]]
+path = "app/tests/assets.rs"
+max = 1381
+
+[[line_baselines]]
+path = "app/src/tests/finish.rs"
+max = 1232
+
+[[vendored]]
+path = "crates/protocol/vendor/"
+ownership_record = "crates/protocol/vendor/UPSTREAM.md"
+
+[[crates]]
+name = "bridge"
+path = "crates/bridge"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "protocol"
+path = "crates/protocol"
+allowed_dependencies = ["bridge"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
+[[crates]]
+name = "world"
+path = "crates/world"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "assets"
+path = "crates/assets"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
+
+[[crates]]
+name = "asset-compiler"
+path = "crates/asset-compiler"
+allowed_dependencies = ["assets"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "meshing"
+path = "crates/meshing"
+allowed_dependencies = ["assets", "world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "client-world"
+path = "crates/client-world"
+allowed_dependencies = ["assets", "meshing", "protocol", "world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "semantic-input"
+path = "crates/input"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "render"
+path = "crates/render"
+allowed_dependencies = ["assets", "client-world", "meshing", "world"]
+forbidden_dependencies = ["asset-compiler"]
+
+[[crates]]
+name = "app"
+path = "app"
+allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "semantic-input", "sim", "ui", "world"]
+forbidden_dependencies = ["asset-compiler"]
+
+[[crates]]
+name = "sim"
+path = "crates/sim"
+allowed_dependencies = ["world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "ui"
+path = "crates/ui"
+allowed_dependencies = ["assets", "semantic-input"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "visualcoverage"
+path = "tools/visualcoverage"
+allowed_dependencies = ["assets"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "architecture"
+path = "tools/architecture"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "devtool"
+path = "tools/devtool"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "phase2-evidence"
+path = "tools/phase2-evidence"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[markers]]
+literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_CAMERA_COMMITTED"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Proofs.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_FAST_TRANSFER_ACTION"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_GALLERY_ANCHOR_READY"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_MODEL_WITNESS_COMPLETE"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_MOVE_PLAYER_INGRESS"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Proofs.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_MUTATION_COORDINATE"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Orchestration/Execute.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_EVENT"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE2_TIMING"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_FRAME"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_IDENTITY"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_TERMINAL"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_VIOLATION"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_TARGET_MUTATION_ARMED"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Proofs.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_TELEPORT_SETTLED"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Proofs.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_TRANSPARENT_SORT_COMMITTED"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_WORLD_READY"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Resources.ps1"
+
+[[markers]]
+literal = "RUST_MCBE_ASSETS"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/asset_startup.rs"
+
+[[markers]]
+literal = "RUST_MCBE_BUILD_COMMIT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_SOURCE_DIRTY"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_RUN_ID"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_ENDPOINT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_CORE_SHA256"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_CORE_PROCESS_ID"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_PHASE3_BRIDGE_ENDPOINT"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/runtime/phase3_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_ERROR_COUNTERS"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_SHUTDOWN_COMPLETED"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_TELEPORT_COHORT"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_TRANSPARENT_WITNESS_INCOMPLETE"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_TRANSPARENT_WITNESS_STAGE"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_VISIBILITY_SNAPSHOT"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY"
+kind = "harness_only"
+producer = "scripts/acceptance.ps1"

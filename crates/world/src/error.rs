@@ -1,8 +1,23 @@
 use thiserror::Error;
 
+use crate::BlockEntityError;
+
+/// The process-wide collision revision identity space has been exhausted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum CollisionRevisionError {
+    #[error("collision revision identity space is exhausted")]
+    Exhausted,
+}
+
 /// Errors produced while decoding Bedrock chunk data.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    #[error(transparent)]
+    CollisionRevision(#[from] CollisionRevisionError),
+
+    #[error(transparent)]
+    BlockEntity(#[from] BlockEntityError),
+
     #[error(
         "unexpected end of input while reading {context}: need {needed} bytes, have {remaining}"
     )]
@@ -54,6 +69,9 @@ pub enum DecodeError {
     #[error("level chunk has {count} sub-chunks, exceeding the client limit of {max}")]
     TooManySubChunks { count: usize, max: usize },
 
+    #[error("biome column has {count} storages, exceeding the client limit of {max}")]
+    TooManyBiomeStorages { count: usize, max: usize },
+
     #[error("sub-chunk Y index overflow for first index {first} and offset {offset}")]
     SubChunkYOverflow { first: i32, offset: usize },
 }
@@ -64,6 +82,9 @@ pub enum DecodeError {
 /// errors never leave a partially-applied sub-chunk behind.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MutationError {
+    #[error(transparent)]
+    CollisionRevision(#[from] CollisionRevisionError),
+
     #[error("local block coordinates ({x}, {y}, {z}) are outside a 16x16x16 sub-chunk")]
     LocalCoordinatesOutOfBounds { x: u8, y: u8, z: u8 },
 

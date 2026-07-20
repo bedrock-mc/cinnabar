@@ -1,8 +1,23 @@
-# Vendored upstream sources
+# Pinned upstream sources and retained asset snapshot
 
-The protocol crate vendors Valentine and Jolyne from
+The protocol crate resolves Valentine and Jolyne from the checked-in
+`vendor/valentine` and `vendor/jolyne` paths. This local source snapshot carries
+the reviewed Cinnabar patches published by
+[`HashimTheArab/axolotl-stack`](https://github.com/HashimTheArab/axolotl-stack)
+on branch `cinnabar/protocol-1001-fixes`, and the same files remain the pinned
+input used by `tools/registrygen` and its reproducible asset-generation
+documentation.
+
+Machine-checked provenance:
+
+- Dependency resolution: local vendored paths
+- Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
+- Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
+- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`)
+
+The snapshot originated from
 [`axolotl-stack/axolotl-stack`](https://github.com/axolotl-stack/axolotl-stack)
-merge commit `6f6806e821a579c183c44d786f76d9b358a2b825` under the upstream MIT license.
+merge commit `6f6806e821a579c183c44d786f76d9b358a2b825` under the retained upstream MIT license.
 
 Copied paths:
 

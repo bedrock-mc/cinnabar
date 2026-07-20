@@ -1,11 +1,21 @@
 [workspace]
 members = [
     "app",
+    "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
+    "crates/client-world",
+    "crates/input",
+    "crates/meshing",
     "crates/protocol",
     "crates/render",
+    "crates/sim",
+    "crates/ui",
     "crates/world",
+    "tools/visualcoverage",
+    "tools/architecture",
+    "tools/devtool",
+    "tools/phase2-evidence",
 ]
 resolver = "3"
 
@@ -23,3 +33,4 @@ futures = "0.3"
 anyhow = "1"
 thiserror = "2"
 rayon = "1.11"
+uuid = { version = "1", features = ["v4"] }

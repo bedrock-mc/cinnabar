@@ -14,11 +14,13 @@ import (
 )
 
 type testManifestEntry struct {
-	Name       string `json:"name"`
-	File       string `json:"file"`
-	ID         uint32 `json:"id"`
-	ByteLength int    `json:"byte_length"`
-	SHA256     string `json:"sha256"`
+	Name          string `json:"name"`
+	File          string `json:"file"`
+	ID            uint32 `json:"id"`
+	ByteLength    int    `json:"byte_length"`
+	SHA256        string `json:"sha256"`
+	WireAuthority string `json:"wire_authority,omitempty"`
+	WireCommit    string `json:"wire_commit,omitempty"`
 }
 
 func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
@@ -49,21 +51,47 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"StartGame",
 		"LevelChunk",
 		"MovePlayer",
+		"PlayerAuthInput",
 		"AddActor",
+		"Text",
+		"TextObjectRawText",
+		"TextObjectWhisperRawText",
+		"TextObjectAnnouncementRawText",
+		"SetTitle",
+		"BossEvent",
+		"ModalFormRequest",
 		"AvailableCommands",
 		"AvailableCommandsLive356513",
 		"CraftingDataMaterialReducer",
+		"BiomeDefinitionListChunkGeneration",
+		"InventoryContent",
+		"InventorySlot",
+		"PlayerHotBar",
+		"ItemStackResponse",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 13, 76, 76, 52}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 52, 122, 49, 50, 48, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
 		{0xba, 0x48},
 		{0x93, 0x48},
+		{0x90, 0x49},
 		{0x8d, 0x48},
+		{0x89, 0x48},
+		{0x89, 0x48},
+		{0x89, 0x48},
+		{0x89, 0x48},
+		{0xd8, 0x48},
+		{0xca, 0x48},
+		{0xe4, 0x48},
 		{0xcc, 0x48},
 		{0xcc, 0x48},
 		{0xb4, 0x48},
+		{0xfa, 0x48},
+		{0xb1, 0x48},
+		{0xb2, 0x48},
+		{0xb0, 0x48},
+		{0x94, 0x49},
 	}
 	if len(manifest) != len(wantNames) {
 		t.Fatalf("manifest entries = %d, want %d", len(manifest), len(wantNames))
@@ -104,6 +132,17 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 			const packetHeaderBytes = 2
 			if got := payload.Len() - packetHeaderBytes; got != 356_513 {
 				t.Fatalf("live AvailableCommands body length = %d, want 356513", got)
+			}
+		}
+		if entry.Name == "BiomeDefinitionListChunkGeneration" {
+			if entry.ByteLength != 48 {
+				t.Fatalf("biome definition fixture length = %d, want 48", entry.ByteLength)
+			}
+			if entry.SHA256 != "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4" {
+				t.Fatalf("biome definition fixture sha256 = %s", entry.SHA256)
+			}
+			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "9948b1729395d2e819fce28e079d4a7bfc67716c" {
+				t.Fatalf("biome definition fixture provenance = (%q, %q)", entry.WireAuthority, entry.WireCommit)
 			}
 		}
 	}

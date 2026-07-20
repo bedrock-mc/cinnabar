@@ -26,17 +26,21 @@ const (
 )
 
 type fixture struct {
-	name string
-	file string
-	pk   packet.Packet
+	name          string
+	file          string
+	pk            packet.Packet
+	wireAuthority string
+	wireCommit    string
 }
 
 type manifestEntry struct {
-	Name       string `json:"name"`
-	File       string `json:"file"`
-	ID         uint32 `json:"id"`
-	ByteLength int    `json:"byte_length"`
-	SHA256     string `json:"sha256"`
+	Name          string `json:"name"`
+	File          string `json:"file"`
+	ID            uint32 `json:"id"`
+	ByteLength    int    `json:"byte_length"`
+	SHA256        string `json:"sha256"`
+	WireAuthority string `json:"wire_authority,omitempty"`
+	WireCommit    string `json:"wire_commit,omitempty"`
 }
 
 func main() {
@@ -78,11 +82,13 @@ func generate(out string) error {
 		}
 		digest := sha256.Sum256(encoded)
 		manifest = append(manifest, manifestEntry{
-			Name:       fixture.name,
-			File:       fixture.file,
-			ID:         fixture.pk.ID(),
-			ByteLength: len(encoded),
-			SHA256:     hex.EncodeToString(digest[:]),
+			Name:          fixture.name,
+			File:          fixture.file,
+			ID:            fixture.pk.ID(),
+			ByteLength:    len(encoded),
+			SHA256:        hex.EncodeToString(digest[:]),
+			WireAuthority: fixture.wireAuthority,
+			WireCommit:    fixture.wireCommit,
 		})
 	}
 
@@ -187,6 +193,11 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "PlayerAuthInput",
+			file: "player_auth_input.bin",
+			pk:   playerAuthInputFixture(),
+		},
+		{
 			name: "AddActor",
 			file: "add_actor.bin",
 			pk: &packet.AddActor{
@@ -200,6 +211,84 @@ func fixtures() []fixture {
 				HeadYaw:         3,
 				BodyYaw:         4,
 				EntityMetadata:  protocol.EntityMetadata{},
+			},
+		},
+		{
+			name: "Text",
+			file: "text.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeRaw,
+				Message:          "§aFixture message",
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "TextObjectRawText",
+			file: "text_object_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObject,
+				Message:          `{"rawtext":[{"text":"\u00a7aLBSG "},{"rawtext":[{"text":"human chat"}]}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "TextObjectWhisperRawText",
+			file: "text_object_whisper_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObjectWhisper,
+				Message:          `{"rawtext":[{"text":"private "},{"translate":"chat.type.text","with":["Alice",{"rawtext":[{"text":"hello"}]}]}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "TextObjectAnnouncementRawText",
+			file: "text_object_announcement_rawtext.bin",
+			pk: &packet.Text{
+				TextType:         packet.TextTypeObjectAnnouncement,
+				Message:          `{"rawtext":[{"text":"Announcement"}]}`,
+				XUID:             "",
+				PlatformChatID:   "",
+				NeedsTranslation: false,
+			},
+		},
+		{
+			name: "SetTitle",
+			file: "set_title.bin",
+			pk: &packet.SetTitle{
+				ActionType:       packet.TitleActionSetTitle,
+				Text:             "Fixture title",
+				FadeInDuration:   5,
+				RemainDuration:   40,
+				FadeOutDuration:  10,
+				XUID:             "",
+				PlatformOnlineID: "",
+				FilteredMessage:  "",
+			},
+		},
+		{
+			name: "BossEvent",
+			file: "boss_event.bin",
+			pk: &packet.BossEvent{
+				BossEntityUniqueID: 77,
+				EventType:          packet.BossEventShow,
+				BossBarTitle:       "Fixture boss",
+				HealthPercentage:   0.75,
+				Colour:             packet.BossEventColourRebeccaPurple,
+				Overlay:            packet.BossEventOverlayNotched10,
+			},
+		},
+		{
+			name: "ModalFormRequest",
+			file: "modal_form_request.bin",
+			pk: &packet.ModalFormRequest{
+				FormID:   91,
+				FormData: []byte(`{"type":"form","title":"Fixture"}`),
 			},
 		},
 		{
@@ -228,6 +317,126 @@ func fixtures() []fixture {
 				ClearRecipes: true,
 			},
 		},
+		{
+			name: "BiomeDefinitionListChunkGeneration",
+			file: "biome_definition_list_chunk_generation.bin",
+			pk: &packet.BiomeDefinitionList{
+				BiomeDefinitions: []protocol.BiomeDefinition{
+					{
+						ChunkGeneration: protocol.Option(protocol.BiomeChunkGeneration{}),
+					},
+				},
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "9948b1729395d2e819fce28e079d4a7bfc67716c",
+		},
+		{
+			name: "InventoryContent",
+			file: "inventory_content.bin",
+			pk: &packet.InventoryContent{
+				WindowID: 0,
+				Content:  []protocol.ItemInstance{inventoryItem(5, 2, 11)},
+				Container: protocol.FullContainerName{
+					ContainerID:        12,
+					DynamicContainerID: protocol.Option(uint32(7)),
+				},
+			},
+		},
+		{
+			name: "InventorySlot",
+			file: "inventory_slot.bin",
+			pk: &packet.InventorySlot{
+				WindowID: 0,
+				Slot:     4,
+				Container: protocol.Option(protocol.FullContainerName{
+					ContainerID: 29,
+				}),
+				NewItem: inventoryItem(6, 3, 12),
+			},
+		},
+		{
+			name: "PlayerHotBar",
+			file: "player_hotbar.bin",
+			pk: &packet.PlayerHotBar{
+				SelectedHotBarSlot: 4,
+				WindowID:           0,
+				SelectHotBarSlot:   true,
+			},
+		},
+		{
+			name: "ItemStackResponse",
+			file: "item_stack_response.bin",
+			pk: &packet.ItemStackResponse{
+				Responses: []protocol.ItemStackResponse{
+					{
+						Status:    0,
+						RequestID: 44,
+						ContainerInfo: []protocol.StackResponseContainerInfo{
+							{
+								Container: protocol.FullContainerName{ContainerID: 28},
+								SlotInfo: []protocol.StackResponseSlotInfo{
+									{
+										Slot:                 2,
+										HotbarSlot:           2,
+										Count:                5,
+										StackNetworkID:       13,
+										CustomName:           "Fixture item",
+										FilteredCustomName:   "Fixture item",
+										DurabilityCorrection: -3,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func inventoryItem(networkID int32, count uint16, stackNetworkID int32) protocol.ItemInstance {
+	return protocol.ItemInstance{
+		StackNetworkID: stackNetworkID,
+		Stack: protocol.ItemStack{
+			ItemType: protocol.ItemType{
+				NetworkID:     networkID,
+				MetadataValue: 3,
+			},
+			BlockRuntimeID: 91,
+			Count:          count,
+			NBTData:        map[string]any{"fixture": int32(1)},
+			HasNetworkID:   true,
+		},
+	}
+}
+
+func playerAuthInputFixture() *packet.PlayerAuthInput {
+	flags := protocol.NewBitset(packet.PlayerAuthInputBitsetSize)
+	for _, flag := range []int{
+		packet.InputFlagJumping,
+		packet.InputFlagUp,
+		packet.InputFlagLeft,
+		packet.InputFlagSprinting,
+	} {
+		flags.Set(flag)
+	}
+	return &packet.PlayerAuthInput{
+		Pitch:              10.5,
+		Yaw:                20.25,
+		Position:           mgl32.Vec3{1.25, 64, -2.5},
+		MoveVector:         mgl32.Vec2{-1, 1},
+		HeadYaw:            30.75,
+		InputData:          flags,
+		InputMode:          packet.InputModeMouse,
+		PlayMode:           packet.PlayModeNormal,
+		InteractionModel:   packet.InteractionModelCrosshair,
+		InteractPitch:      10.5,
+		InteractYaw:        20.25,
+		Tick:               1234,
+		Delta:              mgl32.Vec3{0.25, 0, -0.5},
+		AnalogueMoveVector: mgl32.Vec2{-1, 1},
+		CameraOrientation:  mgl32.Vec3{0.25, -0.5, -0.75},
+		RawMoveVector:      mgl32.Vec2{-1, 1},
 	}
 }
 

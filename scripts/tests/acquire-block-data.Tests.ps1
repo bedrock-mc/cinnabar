@@ -448,6 +448,9 @@ public sealed class SlowReadMemoryStream : MemoryStream {
     )
     $first = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList $validArguments
     Assert-Equal 0 $first.ExitCode "valid acquisition failed: $($first.Output.Trim())"
+    foreach ($physicsSource in @("pmmp-bedrock-data", "prismarinejs-minecraft-data")) {
+        Assert-True (Test-StringContains -Value $first.Output -Needle "PREG1001_SOURCE_PATH $physicsSource=" -Comparison Ordinal) "acquisition omitted the pinned PREG1001 source marker for '$physicsSource'"
+    }
     foreach ($expectedPath in @(
         (Join-Path $validDestination "pmmp"),
         (Join-Path $validDestination "prismarine"),

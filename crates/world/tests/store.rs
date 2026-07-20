@@ -38,6 +38,68 @@ fn uniform_biome(biome_id: u32) -> Vec<u8> {
 }
 
 #[test]
+fn collision_revision_tracks_real_changes_and_never_reuses_an_evicted_identity() {
+    let mut store = ChunkStore::new();
+    let key = SubChunkKey::new(0, 4, -4, -7);
+    let chunk = key.chunk();
+    let first_payload = uniform(9, Some(-4), 10);
+
+    assert_eq!(store.collision_revision(chunk), None);
+    store.mark_chunk_loaded(chunk).unwrap();
+    let loaded = store
+        .collision_revision(chunk)
+        .expect("the newly known column has an identity");
+    store.apply_sub_chunk(key, &first_payload).unwrap();
+    let first = store
+        .collision_revision(chunk)
+        .expect("the first retained collision state has an identity");
+    assert!(first > loaded);
+
+    store.apply_sub_chunk(key, &first_payload).unwrap();
+    assert_eq!(store.collision_revision(chunk), Some(first));
+
+    store
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 11))
+        .unwrap();
+    let changed = store
+        .collision_revision(chunk)
+        .expect("the changed collision state has an identity");
+    assert!(changed > first);
+
+    store.evict_chunk(chunk);
+    assert_eq!(store.collision_revision(chunk), None);
+    store.mark_chunk_loaded(chunk).unwrap();
+    store.apply_sub_chunk(key, &first_payload).unwrap();
+    let reloaded = store
+        .collision_revision(chunk)
+        .expect("a reloaded collision state has an identity");
+    assert!(reloaded > changed);
+}
+
+#[test]
+fn collision_revision_marks_request_mode_load_once_and_full_column_noops_are_stable() {
+    let mut store = ChunkStore::new();
+    let chunk = ChunkKey::new(0, -3, 7);
+
+    store.mark_chunk_loaded(chunk).unwrap();
+    let request_mode = store
+        .collision_revision(chunk)
+        .expect("known request-mode air has an identity");
+    store.mark_chunk_loaded(chunk).unwrap();
+    assert_eq!(store.collision_revision(chunk), Some(request_mode));
+
+    let payload = uniform(9, Some(-4), 42);
+    store.apply_level_chunk(chunk, -4, 1, &payload).unwrap();
+    let replaced = store
+        .collision_revision(chunk)
+        .expect("the full-column replacement has an identity");
+    assert!(replaced > request_mode);
+
+    store.apply_level_chunk(chunk, -4, 1, &payload).unwrap();
+    assert_eq!(store.collision_revision(chunk), Some(replaced));
+}
+
+#[test]
 fn individual_sub_chunks_only_dirty_the_store_when_changed() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 4, -4, -7);
@@ -98,9 +160,9 @@ fn all_air_responses_remove_stale_data_without_a_flat_storage() {
         .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
         .unwrap();
 
-    assert_eq!(store.apply_all_air(key), Some(key));
+    assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
     assert!(store.sub_chunk(key).is_none());
-    assert_eq!(store.apply_all_air(key), None);
+    assert_eq!(store.apply_all_air(key).unwrap(), None);
 
     store
         .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
@@ -124,7 +186,7 @@ fn biome_only_column_survives_all_air_subchunk_removal() {
         .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
         .unwrap();
 
-    assert_eq!(store.apply_all_air(key), Some(key));
+    assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
     assert!(store.sub_chunk(key).is_none());
     assert_eq!(store.biome_id(key, 3, 4, 5), Some(42));
     assert!(store.chunk(chunk).is_some());
@@ -333,6 +395,42 @@ fn all_air_full_level_chunks_do_not_leave_empty_columns() {
         .unwrap();
     assert!(repeated.dirty.is_empty());
     assert!(store.chunk(chunk_key).is_none());
+}
+
+#[test]
+fn level_chunk_residency_survives_sparse_all_air_storage_until_eviction() {
+    let mut store = ChunkStore::new();
+    let chunk_key = ChunkKey::new(0, -3, 5);
+    let zero_storage = [9, 0, (-4_i8) as u8];
+
+    assert!(!store.is_chunk_loaded(chunk_key));
+    store
+        .apply_level_chunk(chunk_key, -4, 1, &zero_storage)
+        .unwrap();
+    assert!(
+        store.is_chunk_loaded(chunk_key),
+        "physics must distinguish a received all-air column from an unknown column"
+    );
+    assert!(
+        store.chunk(chunk_key).is_none(),
+        "residency must not allocate a fake flat or empty block column"
+    );
+
+    assert!(store.evict_chunk(chunk_key).is_empty());
+    assert!(!store.is_chunk_loaded(chunk_key));
+}
+
+#[test]
+fn request_mode_can_mark_a_sparse_column_loaded_until_normal_eviction() {
+    let mut store = ChunkStore::new();
+    let chunk_key = ChunkKey::new(0, 7, -9);
+
+    store.mark_chunk_loaded(chunk_key).unwrap();
+    assert!(store.is_chunk_loaded(chunk_key));
+    assert!(store.chunk(chunk_key).is_none());
+
+    assert!(store.evict_chunk(chunk_key).is_empty());
+    assert!(!store.is_chunk_loaded(chunk_key));
 }
 
 #[test]

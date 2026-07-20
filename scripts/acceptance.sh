@@ -2,11 +2,13 @@
 set -euo pipefail
 
 pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'
-pinned_valentine_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'
+pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {
     cat >&2 <<'EOF'
-usage: scripts/acceptance.sh --duration SECONDS (--bds-dir PATH | --upstream HOST:PORT) --metrics-out PATH [--mutation-command PATH] [--dry-run]
+usage: scripts/acceptance.sh --duration SECONDS (--bds-dir PATH | --upstream HOST:PORT) --metrics-out PATH [--mutation-command PATH] [--no-vsync] [--dry-run]
 
 When --upstream is used for a live run, --mutation-command is required. The executable
 receives each complete BDS console command as its single argument and must relay it to
@@ -52,6 +54,176 @@ sha256_file() {
     else
         sha256sum "$1" | awk '{print $1}'
     fi
+}
+
+assert_protocol_dependency_provenance() {
+    local root=$1
+    python3 - "$root" \
+        "$pinned_valentine_fork_commit" \
+        "$pinned_valentine_upstream_commit" \
+        "$pinned_valentine_license_sha256" <<'PY'
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+root = pathlib.Path(sys.argv[1])
+fork_revision, upstream_revision, license_sha256 = sys.argv[2:5]
+manifest_path = root / "crates/protocol/Cargo.toml"
+lock_path = root / "Cargo.lock"
+upstream_path = root / "crates/protocol/vendor/UPSTREAM.md"
+license_path = root / "crates/protocol/vendor/LICENSE"
+required_paths = [manifest_path, lock_path, upstream_path, license_path]
+for path in required_paths:
+    if not path.is_file():
+        raise SystemExit(f"protocol dependency provenance input is missing: {path}")
+
+def read_bounded_output(stream, label, maximum_bytes):
+    length = stream.tell()
+    if length > maximum_bytes:
+        raise SystemExit(
+            f"cargo metadata {label} exceeds the {maximum_bytes}-byte provenance bound"
+        )
+    stream.seek(0)
+    try:
+        return stream.read().decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SystemExit(f"cargo metadata {label} is not UTF-8: {error}") from error
+
+
+with tempfile.TemporaryFile() as metadata_stdout, tempfile.TemporaryFile() as metadata_stderr:
+    try:
+        metadata_result = subprocess.run(
+            [
+                "cargo", "metadata", "--locked", "--offline", "--no-deps",
+                "--format-version", "1", "--manifest-path", "crates/protocol/Cargo.toml",
+            ],
+            cwd=root,
+            stdout=metadata_stdout,
+            stderr=metadata_stderr,
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit("cargo metadata timed out after 120 seconds") from error
+    metadata_json = read_bounded_output(metadata_stdout, "stdout", 4 * 1024 * 1024)
+    metadata_error = read_bounded_output(metadata_stderr, "stderr", 256 * 1024)
+if metadata_result.returncode != 0:
+    raise SystemExit(
+        "cargo metadata failed for protocol provenance: " + metadata_error.strip()
+    )
+try:
+    metadata = json.loads(metadata_json)
+except (TypeError, ValueError) as error:
+    raise SystemExit(f"cargo metadata returned invalid JSON for protocol provenance: {error}") from error
+
+canonical_manifest = manifest_path.resolve(strict=True)
+protocol_packages = [
+    package
+    for package in metadata.get("packages", [])
+    if pathlib.Path(package.get("manifest_path", "")).resolve() == canonical_manifest
+]
+if len(protocol_packages) != 1:
+    raise SystemExit(
+        f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
+    )
+expected_dependencies = {
+    "valentine": ["bedrock_1_26_30"],
+    "jolyne": ["client"],
+}
+for dependency_name, expected_features in expected_dependencies.items():
+    matches = [
+        dependency
+        for dependency in protocol_packages[0].get("dependencies", [])
+        if dependency.get("name") == dependency_name or dependency.get("rename") == dependency_name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} must resolve exactly once from the canonical protocol manifest"
+        )
+    dependency = matches[0]
+    required_fields = {
+        "name", "source", "kind", "rename", "optional", "uses_default_features",
+        "features", "target", "path",
+    }
+    missing = sorted(required_fields.difference(dependency))
+    if missing:
+        raise SystemExit(
+            f"cargo metadata dependency {dependency_name} is missing {', '.join(missing)}"
+        )
+    if dependency["name"] != dependency_name or dependency["rename"] is not None:
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
+        )
+    if (
+        dependency["source"] is not None
+        or dependency["kind"] is not None
+        or dependency["target"] is not None
+        or dependency["optional"] is not False
+        or dependency["uses_default_features"] is not False
+    ):
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency with default features disabled"
+        )
+    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
+    if not vendored_manifest.is_file():
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
+        )
+    dependency_path = dependency["path"]
+    if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
+        )
+    actual_features = dependency["features"]
+    if (
+        not isinstance(actual_features, list)
+        or len(actual_features) != len(expected_features)
+        or set(actual_features) != set(expected_features)
+    ):
+        raise SystemExit(
+            f"protocol dependency provenance drifted: {dependency_name} resolved feature set is not exact"
+        )
+
+upstream = upstream_path.read_text(encoding="utf-8-sig")
+metadata_lines = [
+    f"- Reviewed fork revision: `{fork_revision}`",
+    f"- Upstream snapshot revision: `{upstream_revision}`",
+    f"- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `{license_sha256}`)",
+]
+for line in metadata_lines:
+    if upstream.splitlines().count(line) != 1:
+        raise SystemExit(f"protocol dependency provenance metadata is missing or ambiguous: {line}")
+
+license_text = license_path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+actual_license_sha256 = hashlib.sha256(license_text.encode("utf-8")).hexdigest()
+if actual_license_sha256 != license_sha256:
+    raise SystemExit(
+        f"protocol dependency retained license SHA-256 drifted: expected {license_sha256}, got {actual_license_sha256}"
+    )
+
+resolved = set()
+lock = lock_path.read_text(encoding="utf-8-sig")
+for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
+    name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', block)
+    if not name_match:
+        continue
+    name = name_match.group(1)
+    if name != "jolyne" and not name.startswith("valentine"):
+        continue
+    resolved.add(name)
+    resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
+    if resolution_key:
+        raise SystemExit(
+            f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
+        )
+for dependency in ("valentine", "jolyne"):
+    if dependency not in resolved:
+        raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
+PY
 }
 
 wait_for_marker() {
@@ -246,6 +418,107 @@ prepare_stable_runtime() {
     printf '%s/%s\n' "$runtime_full" "$executable"
 }
 
+read_world_publication_snapshots() {
+    local log_path=$1 expected_profile=$2 expected_present_mode=$3 output_path=$4
+    python3 - "$log_path" "$expected_profile" "$expected_present_mode" "$output_path" <<'PY'
+import json, math, os, sys
+
+log_path, expected_profile, expected_present_mode, output_path = sys.argv[1:]
+prefix = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT="
+
+def reject_duplicate_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"world publication snapshot contains duplicate field {key}")
+        result[key] = value
+    return result
+
+with open(log_path, encoding="utf-8") as source:
+    encoded = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
+if not encoded:
+    raise SystemExit("expected at least one world publication snapshot marker, found none")
+
+integer_fields = {
+    "accepted_light_jobs", "noop_light_jobs", "value_changed_light_jobs",
+    "provenance_only_light_jobs", "light_mesh_invalidations", "stale_light_jobs",
+    "stale_mesh_jobs", "queued_decode_jobs", "in_flight_decode_jobs",
+    "pending_light_jobs", "in_flight_light_jobs", "pending_mesh_jobs",
+    "in_flight_mesh_jobs", "upload_queue_items", "upload_queue_bytes",
+    "gpu_upload_bytes", "frame_generation", "pose_generation", "view_generation",
+}
+duration_fields = {
+    "max_decode_queue_wait_ms", "max_light_queue_wait_ms", "max_mesh_queue_wait_ms",
+    "max_decode_worker_ms", "max_light_worker_ms", "max_mesh_worker_ms",
+}
+identity_fields = {
+    "draw_mode", "build_profile", "requested_present_mode", "effective_present_mode",
+    "present_mode_proven", "backend", "adapter", "driver", "driver_info",
+}
+required = integer_fields | duration_fields | identity_fields
+snapshots = []
+for item in encoded:
+    try:
+        snapshot = json.loads(item, object_pairs_hook=reject_duplicate_fields)
+    except (json.JSONDecodeError, ValueError) as error:
+        raise SystemExit(f"invalid world publication snapshot JSON: {error}") from error
+    if not isinstance(snapshot, dict):
+        raise SystemExit("world publication snapshot JSON must be an object")
+    missing = sorted(required - snapshot.keys())
+    extra = sorted(snapshot.keys() - required)
+    if missing or extra:
+        raise SystemExit(
+            "world publication snapshot schema mismatch: "
+            f"missing={','.join(missing) if missing else '<none>'} "
+            f"extra={','.join(extra) if extra else '<none>'}"
+        )
+    for field in integer_fields:
+        value = snapshot[field]
+        if type(value) is not int or not 0 <= value <= 2**64 - 1:
+            raise SystemExit(f"world publication snapshot field {field} must be a nonnegative uint64")
+    for field in duration_fields:
+        value = snapshot[field]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise SystemExit(f"world publication snapshot field {field} must be finite and nonnegative")
+    if snapshot["draw_mode"] not in {"Direct", "MultiDrawIndirect"}:
+        raise SystemExit(f"world publication snapshot has invalid draw_mode {snapshot['draw_mode']}")
+    if snapshot["build_profile"] != expected_profile:
+        raise SystemExit(
+            "world publication snapshot build profile mismatch: "
+            f"expected={expected_profile} observed={snapshot['build_profile']}"
+        )
+    requested = snapshot["requested_present_mode"]
+    effective = snapshot["effective_present_mode"]
+    if requested != expected_present_mode or effective != expected_present_mode:
+        raise SystemExit(
+            "world publication snapshot present mode mismatch: "
+            f"expected={expected_present_mode} requested={requested} effective={effective}"
+        )
+    if snapshot["present_mode_proven"] is not True:
+        raise SystemExit("world publication snapshot does not prove the configured present mode")
+    for field in ("backend", "adapter", "driver", "driver_info"):
+        if not isinstance(snapshot[field], str) or not snapshot[field].strip():
+            raise SystemExit(f"world publication snapshot is missing {field}")
+    snapshots.append(snapshot)
+
+stable_fields = (
+    "draw_mode", "build_profile", "requested_present_mode", "effective_present_mode",
+    "backend", "adapter", "driver", "driver_info",
+)
+for snapshot in snapshots[1:]:
+    for field in stable_fields:
+        if snapshot[field] != snapshots[0][field]:
+            label = "draw mode" if field == "draw_mode" else f"identity field {field}"
+            raise SystemExit(f"world publication snapshot {label} changed within one run")
+
+temporary = output_path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
+    json.dump(snapshots[-1], output, indent=2, sort_keys=True)
+    output.write("\n")
+os.replace(temporary, output_path)
+PY
+}
+
 if [[ ${RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY:-} == 1 ]]; then
     return 0 2>/dev/null || exit 0
 fi
@@ -256,6 +529,7 @@ upstream=''
 metrics_out=''
 mutation_command=''
 dry_run=false
+no_vsync=false
 while (( $# )); do
     case "$1" in
         --duration) [[ $# -ge 2 ]] || { usage; exit 2; }; duration=$2; shift 2 ;;
@@ -263,6 +537,7 @@ while (( $# )); do
         --upstream) [[ $# -ge 2 ]] || { usage; exit 2; }; upstream=$2; shift 2 ;;
         --metrics-out) [[ $# -ge 2 ]] || { usage; exit 2; }; metrics_out=$2; shift 2 ;;
         --mutation-command) [[ $# -ge 2 ]] || { usage; exit 2; }; mutation_command=$2; shift 2 ;;
+        --no-vsync) no_vsync=true; shift ;;
         --dry-run) dry_run=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; die "unknown argument: $1" ;;
@@ -285,6 +560,7 @@ if [[ -n $upstream ]]; then
 fi
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+assert_protocol_dependency_provenance "$project_root" || die 'protocol dependency provenance validation failed'
 metrics_out=$(absolute_path "$metrics_out")
 exe_suffix=''
 bds_executable_name="bedrock_server$exe_suffix"
@@ -319,12 +595,22 @@ else
     bds_command=(external-upstream "$upstream")
 fi
 core_command=("$core_executable" -socket-dir "$socket_dir" -upstream "$initial_upstream")
-app_command=("$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync)
+app_command=("$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly)
+if [[ $no_vsync == true ]]; then
+    app_command+=(--no-vsync)
+fi
 
 if [[ $dry_run == true ]]; then
     printf 'BDS_COMMAND=%s\n' "$(format_command "${bds_command[@]}")"
     printf 'CORE_COMMAND=%s\n' "$(format_command "${core_command[@]}")"
     printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
+    printf 'BUILD_PROFILE=release\n'
+    if [[ $no_vsync == true ]]; then
+        printf 'REQUESTED_PRESENT_MODE=Immediate\n'
+    else
+        printf 'REQUESTED_PRESENT_MODE=Fifo\n'
+    fi
+    printf 'EFFECTIVE_PRESENT_MODE=UNPROVEN\n'
     exit 0
 fi
 
@@ -475,6 +761,8 @@ os_description=$(uname -a 2>/dev/null || printf unknown)
 cpu_description=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F: '/model name/{sub(/^ /,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null || printf unknown)
 gpu_description=$(system_profiler SPDisplaysDataType 2>/dev/null || printf unavailable)
 run_started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+runtime_metadata_json="$run_dir/runtime-metadata.json"
+publication_snapshot_json="$run_dir/world-publication-snapshot.json"
 
 write_command_manifest() {
     local temporary="$run_dir/commands.txt.tmp.$$"
@@ -495,7 +783,9 @@ write_metadata() {
     export RUST_MCBE_META_STARTED="$run_started_utc"
     export RUST_MCBE_META_REPO_COMMIT="$repo_commit"
     export RUST_MCBE_META_GOPHERTUNNEL="$pinned_gophertunnel_commit"
-    export RUST_MCBE_META_VALENTINE="$pinned_valentine_commit"
+    export RUST_MCBE_META_VALENTINE_FORK="$pinned_valentine_fork_commit"
+    export RUST_MCBE_META_VALENTINE_UPSTREAM="$pinned_valentine_upstream_commit"
+    export RUST_MCBE_META_VALENTINE_LICENSE="$pinned_valentine_license_sha256"
     export RUST_MCBE_META_BDS_HASH="$bds_hash"
     export RUST_MCBE_META_BDS_COMMAND="$(format_command "${bds_command[@]}")"
     export RUST_MCBE_META_CORE_COMMAND="$(format_command "${core_command[@]}")"
@@ -506,6 +796,8 @@ write_metadata() {
     export RUST_MCBE_META_CPU="$cpu_description"
     export RUST_MCBE_META_GPU="$gpu_description"
     export RUST_MCBE_META_DURATION="$duration"
+    export RUST_MCBE_META_NO_VSYNC="$no_vsync"
+    export RUST_MCBE_META_RUNTIME_PATH="$runtime_metadata_json"
     python3 - "$run_dir/metadata.json" <<'PY'
 import datetime, json, os, sys
 keys = {
@@ -513,7 +805,9 @@ keys = {
     "started_utc": "RUST_MCBE_META_STARTED",
     "repo_commit": "RUST_MCBE_META_REPO_COMMIT",
     "pinned_gophertunnel_commit": "RUST_MCBE_META_GOPHERTUNNEL",
-    "pinned_valentine_commit": "RUST_MCBE_META_VALENTINE",
+    "pinned_valentine_fork_commit": "RUST_MCBE_META_VALENTINE_FORK",
+    "pinned_valentine_upstream_commit": "RUST_MCBE_META_VALENTINE_UPSTREAM",
+    "pinned_valentine_license_sha256": "RUST_MCBE_META_VALENTINE_LICENSE",
     "bds_sha256": "RUST_MCBE_META_BDS_HASH",
     "bds_command": "RUST_MCBE_META_BDS_COMMAND",
     "core_command": "RUST_MCBE_META_CORE_COMMAND",
@@ -526,10 +820,21 @@ keys = {
 }
 metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
+    "protocol_dependency_resolution": "vendored-path",
     "duration_seconds": int(os.environ["RUST_MCBE_META_DURATION"]),
     "build_app_command": "cargo build --release -p bedrock-client --locked",
+    "build_profile": "release",
     "build_core_command": "go build -trimpath -o target/release/bedrock-core ./core/cmd/bedrock-core",
+    "use_vsync": os.environ["RUST_MCBE_META_NO_VSYNC"] != "true",
+    "no_vsync_ab": os.environ["RUST_MCBE_META_NO_VSYNC"] == "true",
+    "requested_present_mode": "Immediate" if os.environ["RUST_MCBE_META_NO_VSYNC"] == "true" else "Fifo",
+    "effective_present_mode": None,
+    "present_mode_proven": False,
 })
+runtime_path = os.environ["RUST_MCBE_META_RUNTIME_PATH"]
+if os.path.isfile(runtime_path):
+    with open(runtime_path, encoding="utf-8") as source:
+        metadata.update(json.load(source))
 if os.environ["RUST_MCBE_META_EXIT_CODE"]:
     metadata["exit_code"] = int(os.environ["RUST_MCBE_META_EXIT_CODE"])
 if metadata["status"] in {"passed", "failed"}:
@@ -569,7 +874,7 @@ printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
 write_command_manifest
 write_metadata building
 
-(cd "$project_root" && cargo build --release -p bedrock-client --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
+(cd "$project_root" && RUST_MCBE_BUILD_COMMIT="$repo_commit" cargo build --release -p bedrock-client --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
 (cd "$project_root" && go build -trimpath -o "$core_executable" ./core/cmd/bedrock-core) >"$run_dir/build-core.log" 2>&1 || die "release core build failed (log: $run_dir/build-core.log)"
 write_metadata launching
 
@@ -603,7 +908,7 @@ while [[ ! -S $endpoint ]]; do
     sleep 0.1
 done
 
-(cd "$project_root" && exec "$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly --no-vsync >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
+(cd "$project_root" && exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
 app_pid=$!
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_MUTATION_COORDINATE=' 180 "$app_pid"
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_WORLD_READY ' 180 "$app_pid"
@@ -651,6 +956,68 @@ while kill -0 "$app_pid" 2>/dev/null; do
 done
 wait "$app_pid" || die "app exited unsuccessfully (logs: $run_dir/app.stdout.log, $run_dir/app.stderr.log)"
 app_pid=''
+
+expected_present_mode=Fifo
+[[ $no_vsync == true ]] && expected_present_mode=Immediate
+read_world_publication_snapshots \
+    "$run_dir/app.stdout.log" \
+    release \
+    "$expected_present_mode" \
+    "$publication_snapshot_json"
+
+python3 - "$run_dir/app.stdout.log" "$runtime_metadata_json" "$no_vsync" "$publication_snapshot_json" <<'PY'
+import json, os, sys
+stdout_path, output_path, no_vsync, publication_path = sys.argv[1:]
+prefix = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA="
+with open(stdout_path, encoding="utf-8") as source:
+    markers = [line.rstrip("\n")[len(prefix):] for line in source if line.startswith(prefix)]
+if len(markers) != 1:
+    raise SystemExit(f"expected exactly one acceptance runtime metadata marker, found {len(markers)}")
+runtime = json.loads(markers[0])
+required = {
+    "build_profile", "requested_present_mode", "effective_present_mode",
+    "present_mode_proven", "backend", "adapter", "driver", "driver_info",
+}
+missing = sorted(name for name in required if not str(runtime.get(name, "")).strip())
+if missing:
+    raise SystemExit("acceptance runtime metadata is missing: " + ", ".join(missing))
+if runtime["present_mode_proven"] is not True:
+    raise SystemExit("acceptance runtime metadata does not prove the configured present mode")
+expected_mode = "Immediate" if no_vsync == "true" else "Fifo"
+effective_mode = runtime["effective_present_mode"]
+if runtime["build_profile"] != "release":
+    raise SystemExit(f"acceptance requires a release client, observed {runtime['build_profile']}")
+with open(publication_path, encoding="utf-8") as source:
+    publication = json.load(source)
+for field in (
+    "build_profile", "requested_present_mode", "effective_present_mode",
+    "backend", "adapter", "driver", "driver_info",
+):
+    if publication[field] != runtime[field]:
+        raise SystemExit(f"world publication snapshot did not match runtime metadata at {field}")
+metadata = {
+    "build_profile": runtime["build_profile"],
+    "requested_present_mode": runtime["requested_present_mode"],
+    "effective_present_mode": effective_mode,
+    "present_mode_proven": runtime["present_mode_proven"],
+    "graphics_backend": runtime["backend"],
+    "graphics_adapter": runtime["adapter"],
+    "graphics_driver": runtime["driver"],
+    "graphics_driver_info": runtime["driver_info"],
+    "draw_mode": publication["draw_mode"],
+}
+temporary = output_path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
+    json.dump(metadata, output, indent=2, sort_keys=True)
+    output.write("\n")
+os.replace(temporary, output_path)
+if runtime["requested_present_mode"] != expected_mode or effective_mode != expected_mode:
+    raise SystemExit(
+        "acceptance present mode mismatch: "
+        f"expected={expected_mode} requested={runtime['requested_present_mode']} "
+        f"effective={effective_mode}"
+    )
+PY
 
 python3 - "$canonical_metrics" "$duration" <<'PY'
 import json, math, platform, sys

@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+publication-test-support = ["wgpu/noop"]
+
 [dependencies]
 assets = { path = "../assets" }
 bevy = { workspace = true, default-features = false, features = [
@@ -21,7 +24,16 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 bytemuck = { version = "1", features = ["derive"] }
+client-world = { path = "../client-world" }
+meshing = { path = "../meshing" }
+rayon.workspace = true
 world = { path = "../world" }
+wgpu = { version = "27.0.1", default-features = false }
 
 [dev-dependencies]
+asset-compiler = { path = "../asset-compiler" }
+image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
+sha2 = "0.10"
+tempfile = "3"
+wgpu = { version = "27.0.1", default-features = false, features = ["noop"] }

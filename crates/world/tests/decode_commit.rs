@@ -73,7 +73,7 @@ fn level_chunk_decodes_on_a_rayon_worker_then_commits_atomically() {
 
     let mut store = ChunkStore::new();
     assert!(store.chunk(chunk_key).is_none(), "decode must be pure");
-    let committed = store.commit_level_chunk(chunk_key, decoded);
+    let committed = store.commit_level_chunk(chunk_key, decoded).unwrap();
     assert!(committed.dirty.contains(&lower_key));
     assert!(committed.dirty.contains(&upper_key));
     assert_eq!(committed.bytes_consumed, expected_consumed);
