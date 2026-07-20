@@ -254,11 +254,58 @@ pub fn default_advertised_skin() -> AdvertisedSkin {
     AdvertisedSkin {
         width: 64,
         height: 64,
-        rgba8: vec![255; 64 * 64 * 4],
+        rgba8: cinnabar_default_skin(),
         arm_size: "wide".to_owned(),
         resource_patch: generate_skin_resource_patch(),
         geometry_data: String::new(),
     }
+}
+
+/// Independently authored classic 64x64 skin used when no account appearance is available.
+/// Only the six base-layer box-UV islands are opaque; Bedrock's optional hat, jacket,
+/// sleeves, and trousers remain transparent instead of inflating into solid cuboids.
+fn cinnabar_default_skin() -> Vec<u8> {
+    const SIDE: usize = 64;
+    const TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
+    const SKIN: [u8; 4] = [198, 126, 84, 255];
+    const HAIR: [u8; 4] = [72, 43, 29, 255];
+    const EYE: [u8; 4] = [42, 54, 72, 255];
+    const SHIRT: [u8; 4] = [148, 45, 51, 255];
+    const SHIRT_DARK: [u8; 4] = [104, 31, 38, 255];
+    const TROUSERS: [u8; 4] = [45, 55, 76, 255];
+
+    let mut rgba8 = TRANSPARENT.repeat(SIDE * SIDE);
+    let mut fill = |x: usize, y: usize, width: usize, height: usize, colour: [u8; 4]| {
+        for py in y..y + height {
+            for px in x..x + width {
+                let offset = (py * SIDE + px) * 4;
+                rgba8[offset..offset + 4].copy_from_slice(&colour);
+            }
+        }
+    };
+
+    // Bedrock box UV islands for geometry.humanoid.custom.
+    fill(0, 0, 32, 16, SKIN); // head
+    fill(16, 16, 24, 16, SHIRT); // body
+    fill(40, 16, 16, 16, SKIN); // right arm
+    fill(0, 16, 16, 16, TROUSERS); // right leg
+    fill(32, 48, 16, 16, SKIN); // left arm
+    fill(16, 48, 16, 16, TROUSERS); // left leg
+
+    // Hair framing, face, shirt seams, and shoes keep every visible side readable.
+    fill(0, 0, 32, 8, HAIR);
+    fill(0, 8, 8, 8, HAIR);
+    fill(24, 8, 8, 8, HAIR);
+    fill(8, 8, 8, 2, HAIR);
+    fill(9, 11, 2, 1, EYE);
+    fill(14, 11, 2, 1, EYE);
+    fill(11, 14, 3, 1, [151, 72, 61, 255]);
+    fill(16, 30, 24, 2, SHIRT_DARK);
+    fill(40, 16, 16, 4, SHIRT);
+    fill(32, 48, 16, 4, SHIRT);
+    fill(0, 28, 16, 4, [30, 35, 50, 255]);
+    fill(16, 60, 16, 4, [30, 35, 50, 255]);
+    rgba8
 }
 
 fn validate_advertised_skin(skin: &AdvertisedSkin) -> Result<(), JolyneError> {
@@ -736,5 +783,27 @@ mod tests {
         let authenticated = generate_client_data_token(&key, "Cinnabar", uuid, &skin).unwrap();
         assert_token_matches(&offline, &skin);
         assert_token_matches(&authenticated, &skin);
+    }
+
+    #[test]
+    fn default_skin_is_a_recognizable_multicolour_wide_player() {
+        let skin = default_advertised_skin();
+        let pixel = |x: usize, y: usize| -> [u8; 4] {
+            skin.rgba8[(y * 64 + x) * 4..(y * 64 + x + 1) * 4]
+                .try_into()
+                .unwrap()
+        };
+
+        assert_eq!(pixel(9, 11), [42, 54, 72, 255], "left eye");
+        assert_eq!(pixel(14, 11), [42, 54, 72, 255], "right eye");
+        assert_eq!(pixel(10, 12), [198, 126, 84, 255], "face skin tone");
+        assert_eq!(pixel(20, 20), [148, 45, 51, 255], "shirt front");
+        assert_eq!(pixel(4, 20), [45, 55, 76, 255], "right trouser leg");
+        assert_eq!(pixel(20, 52), [45, 55, 76, 255], "left trouser leg");
+        assert_eq!(
+            pixel(32, 0),
+            [0, 0, 0, 0],
+            "unused overlay remains transparent"
+        );
     }
 }

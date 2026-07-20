@@ -182,14 +182,9 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
             geometry,
         })
     };
-    let legacy_skin = |geometry, byte| {
-        PlayerSkin::Standard(StandardSkin {
-            width: 64,
-            height: 32,
-            rgba8: [byte, byte, byte, 255].repeat(64 * 32).into(),
-            geometry,
-        })
-    };
+    let advertised_skin = protocol::LocalPlayerAppearanceAuthority::default_advertised()
+        .skin()
+        .clone();
     stream
         .submit(
             1,
@@ -200,7 +195,7 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
                         unique_id: -9,
                         username: "self".into(),
                         verified: true,
-                        skin: legacy_skin(protocol::PlayerSkinGeometry::Wide, 0x5a),
+                        skin: PlayerSkin::Standard(advertised_skin.clone()),
                     }]),
                 },
             )),
@@ -257,13 +252,21 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
         let offset = ((y + 1) * frame.texture_atlas_width as usize + x + 1) * 4;
         &frame.skins_rgba8[offset..offset + 4]
     };
-    assert_eq!(atlas_pixel(0, 0), &[0x5a, 0x5a, 0x5a, 255]);
-    assert_eq!(
-        atlas_pixel(20, 48),
-        &[0x5a, 0x5a, 0x5a, 255],
-        "WorldStream legacy authority reaches the canonical local presentation"
+    assert_eq!(atlas_pixel(9, 11), &[42, 54, 72, 255], "left eye");
+    assert_eq!(atlas_pixel(10, 12), &[198, 126, 84, 255], "face");
+    assert_eq!(atlas_pixel(20, 20), &[148, 45, 51, 255], "shirt");
+    assert_eq!(atlas_pixel(20, 52), &[45, 55, 76, 255], "left leg");
+    assert_eq!(atlas_pixel(32, 0), &[0; 4], "transparent outer layer");
+    let geometry_span = frame.rig.geometry_spans[frame.rig.instances[0].geometry_id as usize];
+    let geometry_vertices = &frame.rig.geometry_vertices[geometry_span.first_vertex as usize
+        ..(geometry_span.first_vertex + geometry_span.vertex_count) as usize];
+    assert!(
+        geometry_vertices.iter().any(|vertex| {
+            (vertex.uv[0] - 8.0 / 64.0).abs() < f32::EPSILON
+                && (vertex.uv[1] - 8.0 / 64.0).abs() < f32::EPSILON
+        }),
+        "the real compiled wide rig retains the head-front skin island"
     );
-    assert_eq!(atlas_pixel(0, 32), &[0; 4]);
 
     stream
         .submit(

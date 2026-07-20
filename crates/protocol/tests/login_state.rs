@@ -644,12 +644,27 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
         ),
         (64, 64)
     );
+    let advertised = jolyne::auth::client::default_advertised_skin();
+    assert_eq!(
+        local_appearance.skin().rgba8.as_ref(),
+        advertised.rgba8(),
+        "the exact outbound ClientData skin must become local render authority"
+    );
     assert!(
         local_appearance
             .skin()
             .rgba8
-            .iter()
-            .all(|byte| *byte == 255)
+            .chunks_exact(4)
+            .any(|pixel| pixel == [0, 0, 0, 0]),
+        "optional outer layers remain transparent"
+    );
+    assert!(
+        local_appearance
+            .skin()
+            .rgba8
+            .chunks_exact(4)
+            .any(|pixel| pixel == [148, 45, 51, 255]),
+        "the retained skin keeps its Cinnabar shirt"
     );
     assert_eq!(session.decode_error_count(), 0);
 
