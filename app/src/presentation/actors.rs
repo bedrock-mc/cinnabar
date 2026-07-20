@@ -173,10 +173,12 @@ pub(crate) fn local_diagnostic_presentation(
 pub(crate) fn local_actor_presentation_for_visibility(
     local_runtime_id: u64,
     visibility_runtime_id: u64,
+    local_render_eligible: bool,
     canonical: Option<ActorRigPresentation>,
     diagnostic: Option<ActorRigPresentation>,
 ) -> Option<ActorRigPresentation> {
-    if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id {
+    if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id || !local_render_eligible
+    {
         return None;
     }
     let diagnostic = diagnostic.filter(|presentation| {

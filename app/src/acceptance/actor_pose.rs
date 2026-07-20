@@ -247,7 +247,10 @@ mod tests {
             tracker.counts(),
             (MAX_PENDING_ACTOR_POSE_WITNESSES, 1, 0, 0)
         );
-        tracker.observe([frame(3, 0, 1, 1), frame(3, 0, 1, 3)]);
+        let first = frame(3, 0, 1, 1);
+        let mut draw_gap = frame(3, 0, 1, 2);
+        draw_gap.draw_generation = 3;
+        tracker.observe([first, draw_gap]);
         assert_eq!(tracker.counts().2, 1);
     }
 

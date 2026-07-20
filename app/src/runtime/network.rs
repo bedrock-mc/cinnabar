@@ -91,6 +91,7 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     witness: Res<'w, ActorRuntimeWitness>,
     acceptance: Res<'w, AcceptanceRun>,
     presented_frames: Res<'w, ActorPresentationGate>,
+    ui_runtime: Res<'w, UiRuntime>,
     pose_witness: Local<'s, ActorPoseWitnessTracker>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
@@ -771,6 +772,7 @@ pub(crate) fn publish_actor_render_frame(
         witness,
         acceptance,
         presented_frames,
+        ui_runtime,
         mut pose_witness,
         camera,
     } = presentation;
@@ -863,6 +865,10 @@ pub(crate) fn publish_actor_render_frame(
         let local = local_actor_presentation_for_visibility(
             local_runtime_id,
             visibility.runtime_id(),
+            !matches!(
+                ui_runtime.player_game_mode(),
+                Some(protocol::PlayerGameMode::Spectator)
+            ),
             canonical_local,
             diagnostic,
         );

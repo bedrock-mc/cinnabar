@@ -277,7 +277,19 @@ fn local_spectator_canonical_route_cannot_fall_back_to_synthetic_avatar() {
         .expect("exact spectator identity remains attributable");
     let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
         .expect("finite synthetic avatar");
-    let selected = local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic));
+    let selected =
+        local_actor_presentation_for_visibility(7, 7, true, Some(canonical), Some(diagnostic));
+    let batch = select_actor_presentations(7, true, selected, []);
+
+    assert!(batch.submissions.is_empty());
+}
+
+#[test]
+fn start_game_only_local_spectator_cannot_use_the_synthetic_f5_fallback() {
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+        .expect("finite synthetic avatar");
+
+    let selected = local_actor_presentation_for_visibility(7, 7, false, None, Some(diagnostic));
     let batch = select_actor_presentations(7, true, selected, []);
 
     assert!(batch.submissions.is_empty());
@@ -347,6 +359,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
     let local = local_actor_presentation_for_visibility(
         7,
         8,
+        true,
         Some(canonical.clone()),
         Some(mismatched_visibility),
     );
@@ -364,6 +377,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
         let local = local_actor_presentation_for_visibility(
             7,
             7,
+            true,
             Some(canonical.clone()),
             Some(matching_visibility.clone()),
         );
