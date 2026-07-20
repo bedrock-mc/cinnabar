@@ -539,6 +539,7 @@ fn decode_world_raw_with(
             | McpePacketName::PacketMobEffect
             | McpePacketName::PacketSetEntityLink
             | McpePacketName::PacketSetPlayerGameType
+            | McpePacketName::PacketSetDefaultGameType
             | McpePacketName::PacketInventoryContent
             | McpePacketName::PacketInventorySlot
             | McpePacketName::PacketPlayerHotbar

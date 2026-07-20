@@ -277,6 +277,8 @@ pub(crate) fn receive_network_events(
                 environment,
                 inventory,
                 player_game_mode,
+                world_default_game_mode,
+                player_game_mode_uses_world_default,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -319,7 +321,11 @@ pub(crate) fn receive_network_events(
                     continue;
                 };
                 ui_runtime.publish_inventory_authority(authority);
-                ui_runtime.publish_player_game_mode(player_game_mode);
+                ui_runtime.publish_bootstrap_game_modes(
+                    player_game_mode,
+                    world_default_game_mode,
+                    player_game_mode_uses_world_default,
+                );
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }

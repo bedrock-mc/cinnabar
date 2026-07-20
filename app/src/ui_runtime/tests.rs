@@ -818,4 +818,5 @@ fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions()
 
 mod chat_tests;
 mod gameplay_hud_tests;
+mod leniency_tests;
 mod retained_bounds_tests;

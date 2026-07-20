@@ -151,11 +151,15 @@ impl<'a> HudLayout<'a> {
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
-        let shows_hotbar = runtime.selected_hotbar_slot().is_some();
+        // Visibility gates on the authoritative game mode directly, never on
+        // inferred slot retention: a live switch to spectator with a retained
+        // local slot must still drop the hotbar and crosshair.
+        let mode = runtime.player_game_mode();
+        let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
+        let shows_hotbar = mode_allows_hotbar && runtime.selected_hotbar_slot().is_some();
         let survival_stats = runtime.survival_stats_visible();
-        let spectator = !shows_hotbar;
 
-        if frame.first_person && !spectator {
+        if frame.first_person && mode_allows_hotbar {
             self.crosshair()?;
         }
         if shows_hotbar {
@@ -177,11 +181,14 @@ impl<'a> HudLayout<'a> {
         Ok(())
     }
 
-    /// 15x15 invert-blend crosshair centered on the GUI viewport.
+    /// 15x15 invert-blend crosshair centered exactly on the framebuffer
+    /// center: the fractional GUI remainder of a non-divisible viewport is
+    /// kept rather than floored, so the quad's center equals width/2 and
+    /// height/2 in physical pixels at every GUI scale, aspect, and DPI.
     fn crosshair(&mut self) -> Result<(), UiPresentationError> {
         let g = self.geometry;
-        let x = ((g.gui_width - 15.0) / 2.0).floor();
-        let y = ((g.gui_height - 15.0) / 2.0).floor();
+        let x = (g.gui_width - 15.0) / 2.0;
+        let y = (g.gui_height - 15.0) / 2.0;
         let sprite = self.textures.sprite(HudTextureRole::Crosshair);
         let [left, top] = g.logical([x, y]);
         let node = UiNode::new(

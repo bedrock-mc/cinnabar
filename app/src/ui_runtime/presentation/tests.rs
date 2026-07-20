@@ -18,17 +18,46 @@ mod hud_matrix_tests;
 mod retained_hud_tests;
 
 #[test]
-fn start_game_survival_authority_presents_standard_stats_and_empty_hotbar_immediately() {
+fn start_game_survival_presents_the_hotbar_and_waits_for_attribute_authority() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
 
+    // No attributes yet: only the empty hotbar renders; stat rows are never
+    // fabricated ahead of the server's own values.
     let input = presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert_eq!(input.vertices.len(), 52 * 4);
-    assert_eq!(input.indices.len(), 52 * 6);
+    assert_eq!(input.vertices.len(), 12 * 4);
     assert_eq!(input.batches.len(), 1);
+
+    // The login attribute batch fills the rows to the authoritative values.
+    let attribute = |name: &str| protocol::ActorAttribute {
+        name: std::sync::Arc::from(name),
+        min: 0.0,
+        max: 20.0,
+        current: 20.0,
+        default: None,
+        modifiers: std::sync::Arc::from([]),
+    };
+    runtime
+        .apply_local_attributes(crate::ui_runtime::SequencedLocalAttributes {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 10,
+            server_tick: 1,
+            attributes: vec![
+                attribute("minecraft:health"),
+                attribute("minecraft:player.hunger"),
+            ]
+            .into(),
+        })
+        .unwrap();
+    let with_stats = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert_eq!(with_stats.vertices.len(), 52 * 4);
+    assert_eq!(with_stats.indices.len(), 52 * 6);
 }
 
 #[test]

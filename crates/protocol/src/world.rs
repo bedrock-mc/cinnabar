@@ -553,7 +553,12 @@ pub fn into_world_event(
         }
         McpePacketData::PacketSetPlayerGameType(packet) => {
             WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
-                mode: PlayerGameMode::from_explicit_game_mode(packet.gamemode),
+                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
+            }))
+        }
+        McpePacketData::PacketSetDefaultGameType(packet) => {
+            WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
+                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
             }))
         }
         McpePacketData::PacketInventoryContent(packet) => {

@@ -83,6 +83,14 @@ pub struct GameplayHudDiagnostics {
     pub evicted_effects: u64,
     pub odd_metadata_values: u64,
     pub dropped_inventory_events: u64,
+    /// Well-formed attribute updates whose values were semantically odd
+    /// (non-finite, inverted range); the field was skipped, never fatal.
+    pub odd_attribute_values: u64,
+    /// Well-formed HUD/game-mode packets carrying semantically odd values
+    /// (negative SetHealth, negative title durations, unknown modes).
+    pub odd_hud_packets: u64,
+    /// Server chat rows beyond the retention byte bound, skipped whole.
+    pub oversized_chat_rows: u64,
 }
 
 /// App-owned retained gameplay HUD state fed exclusively by committed
@@ -267,6 +275,23 @@ impl GameplayHudState {
             boots: event.boots.clone(),
             body: event.body.clone(),
         });
+    }
+
+    /// Counts one semantically odd attribute value that was skipped.
+    pub fn note_odd_attribute(&mut self) {
+        self.diagnostics.odd_attribute_values =
+            self.diagnostics.odd_attribute_values.saturating_add(1);
+    }
+
+    /// Counts one semantically odd HUD/game-mode packet that was skipped.
+    pub fn note_odd_hud_packet(&mut self) {
+        self.diagnostics.odd_hud_packets = self.diagnostics.odd_hud_packets.saturating_add(1);
+    }
+
+    /// Counts one oversized server chat row that was skipped whole.
+    pub fn note_oversized_chat_row(&mut self) {
+        self.diagnostics.oversized_chat_rows =
+            self.diagnostics.oversized_chat_rows.saturating_add(1);
     }
 
     pub fn apply_metadata(&mut self, metadata: &[ActorMetadata]) {

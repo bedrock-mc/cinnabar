@@ -894,6 +894,8 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             environment,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
             player_game_mode: PlayerGameMode::Survival,
+            world_default_game_mode: PlayerGameMode::Survival,
+            player_game_mode_uses_world_default: false,
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
@@ -928,6 +930,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             environment: value,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
             player_game_mode: PlayerGameMode::Survival,
+            ..
         }) if world == bootstrap && value == environment
     ));
     assert!(matches!(

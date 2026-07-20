@@ -148,21 +148,42 @@ fn set_player_game_type_normalizes_explicit_modes() {
         else {
             panic!("expected a game mode event")
         };
-        assert_eq!(event.mode, Some(expected));
+        assert_eq!(event.update, protocol::GameModeUpdate::Explicit(expected));
     }
 }
 
 #[test]
-fn set_player_game_type_fallback_and_unknown_are_retained_without_a_guess() {
-    for wire in [GameMode::Fallback, GameMode::Unknown(77)] {
+fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
+    for (wire, expected) in [
+        (GameMode::Fallback, protocol::GameModeUpdate::WorldDefault),
+        (GameMode::Unknown(77), protocol::GameModeUpdate::Unknown(77)),
+    ] {
         let packet = SetPlayerGameTypePacket { gamemode: wire }.into();
         let Some(WorldEvent::Ui(UiEvent::GameMode(event))) =
             into_world_event(packet, 0).expect("normalize odd game type")
         else {
             panic!("expected a game mode event")
         };
-        assert_eq!(event.mode, None);
+        assert_eq!(event.update, expected);
     }
+}
+
+#[test]
+fn set_default_game_type_dispatches_as_a_default_mode_event() {
+    use valentine::bedrock::version::v1_26_30::SetDefaultGameTypePacket;
+    let packet = SetDefaultGameTypePacket {
+        gamemode: GameMode::Adventure,
+    }
+    .into();
+    let Some(WorldEvent::Ui(UiEvent::DefaultGameMode(event))) =
+        into_world_event(packet, 0).expect("normalize default game type")
+    else {
+        panic!("expected a default game mode event")
+    };
+    assert_eq!(
+        event.update,
+        protocol::GameModeUpdate::Explicit(PlayerGameMode::Adventure)
+    );
 }
 
 #[test]

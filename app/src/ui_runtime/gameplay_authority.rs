@@ -134,18 +134,17 @@ impl UiRuntime {
         let mut xp_progress = self.hud.experience().map(|xp| xp.progress);
         for attribute in envelope.attributes.iter() {
             match attribute.name.as_ref() {
-                "minecraft:health" => {
-                    health = Some(
-                        hud_adapter::attribute_stat(attribute)
-                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "health" })?,
-                    );
-                }
-                "minecraft:player.hunger" => {
-                    hunger = Some(
-                        hud_adapter::attribute_stat(attribute)
-                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
-                    );
-                }
+                // A semantically odd value (non-finite, inverted range) in a
+                // well-formed attribute skips that field, counted, keeping the
+                // previous authoritative value and the session alive.
+                "minecraft:health" => match hud_adapter::attribute_stat(attribute) {
+                    Some(stat) => health = Some(stat),
+                    None => self.gameplay_hud.note_odd_attribute(),
+                },
+                "minecraft:player.hunger" => match hud_adapter::attribute_stat(attribute) {
+                    Some(stat) => hunger = Some(stat),
+                    None => self.gameplay_hud.note_odd_attribute(),
+                },
                 // Absorption is an ordinary bounded attribute; zero is common
                 // and simply hides the golden hearts.
                 "minecraft:absorption" => {

@@ -56,6 +56,33 @@ impl PlayerGameMode {
         }
     }
 
+    /// StartGame's world default mode, retained so a later level-default
+    /// sentinel (SetPlayerGameType 5) or SetDefaultGameType can resolve.
+    #[must_use]
+    pub fn world_default_from_game_data(game_data: &GameData) -> Self {
+        Self::from_explicit_game_mode(game_data.start_game.world_gamemode).unwrap_or(Self::Unknown)
+    }
+
+    /// Whether StartGame bound the player to the level default rather than an
+    /// explicit personal mode.
+    #[must_use]
+    pub fn bootstrap_uses_world_default(game_data: &GameData) -> bool {
+        game_data.start_game.player_gamemode == GameMode::Fallback
+    }
+
+    /// Typed wire value for runtime game-mode packets.
+    #[must_use]
+    pub fn update_from_game_mode(mode: GameMode) -> crate::GameModeUpdate {
+        match Self::from_explicit_game_mode(mode) {
+            Some(resolved) => crate::GameModeUpdate::Explicit(resolved),
+            None if mode == GameMode::Fallback => crate::GameModeUpdate::WorldDefault,
+            None => crate::GameModeUpdate::Unknown(match mode {
+                GameMode::Unknown(value) => value,
+                _ => -1,
+            }),
+        }
+    }
+
     #[must_use]
     pub const fn shows_hotbar(self) -> bool {
         matches!(self, Self::Survival | Self::Creative | Self::Adventure)

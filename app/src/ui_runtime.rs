@@ -109,9 +109,6 @@ pub enum UiRuntimeError {
     InventoryQueueFull { maximum: usize },
     NonMonotonicLocalTime { previous: u64, actual: u64 },
     NonMonotonicServerTick { previous: u64, actual: u64 },
-    InvalidTitleDurations,
-    InvalidHealth(i32),
-    InvalidLocalAttribute { field: &'static str },
     ChatRejected(ChatApplyResult),
     ChatAutocomplete(ChatAutocompleteError),
     ChatAutocompleteCatalog(ChatAutocompleteCatalogError),
@@ -160,6 +157,8 @@ pub struct UiRuntime {
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
     inventory_authority: Option<InventoryAuthority>,
     player_game_mode: Option<PlayerGameMode>,
+    world_default_game_mode: Option<PlayerGameMode>,
+    player_mode_from_default: bool,
     last_inventory_sequence: Option<u64>,
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
@@ -208,6 +207,8 @@ impl UiRuntime {
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
             inventory_authority: None,
             player_game_mode: None,
+            world_default_game_mode: None,
+            player_mode_from_default: false,
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
@@ -238,19 +239,77 @@ impl UiRuntime {
         self.inventory_authority = Some(authority);
     }
 
+    /// Installs an explicit authoritative game mode. Stats are never
+    /// fabricated or cleared here: attributes remain the only stat authority,
+    /// and visibility is a pure presentation gate on the mode.
     pub(crate) fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
         self.player_game_mode = Some(game_mode);
-        if game_mode.shows_survival_stats() {
-            self.hud.set_stats(
-                BoundedStat::new(20, 20),
-                BoundedStat::new(20, 20),
-                self.hud.armor(),
-                self.hud.air(),
-            );
-        } else {
-            self.hud
-                .set_stats(None, None, self.hud.armor(), self.hud.air());
+        self.player_mode_from_default = false;
+    }
+
+    /// Installs the StartGame game modes: the resolved player mode, the
+    /// world's default mode, and whether the player is bound to that default
+    /// (StartGame carried the level-default sentinel).
+    pub(crate) fn publish_bootstrap_game_modes(
+        &mut self,
+        player: PlayerGameMode,
+        world_default: PlayerGameMode,
+        player_uses_world_default: bool,
+    ) {
+        self.player_game_mode = Some(player);
+        self.world_default_game_mode = Some(world_default);
+        self.player_mode_from_default = player_uses_world_default;
+    }
+
+    fn apply_game_mode_update(&mut self, update: protocol::GameModeUpdate) -> UiApplyOutcome {
+        match update {
+            protocol::GameModeUpdate::Explicit(mode) => {
+                self.player_game_mode = Some(mode);
+                self.player_mode_from_default = false;
+                UiApplyOutcome::Applied
+            }
+            protocol::GameModeUpdate::WorldDefault => match self.world_default_game_mode {
+                Some(default) => {
+                    self.player_game_mode = Some(default);
+                    self.player_mode_from_default = true;
+                    UiApplyOutcome::Applied
+                }
+                // No retained default to resolve against: keep the current
+                // authoritative mode and count the skip.
+                None => {
+                    self.gameplay_hud.note_odd_hud_packet();
+                    UiApplyOutcome::IgnoredByReceiveStore
+                }
+            },
+            protocol::GameModeUpdate::Unknown(_) => {
+                self.gameplay_hud.note_odd_hud_packet();
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
         }
+    }
+
+    fn apply_default_game_mode_update(
+        &mut self,
+        update: protocol::GameModeUpdate,
+    ) -> UiApplyOutcome {
+        match update {
+            protocol::GameModeUpdate::Explicit(mode) => {
+                self.world_default_game_mode = Some(mode);
+                if self.player_mode_from_default {
+                    self.player_game_mode = Some(mode);
+                }
+                UiApplyOutcome::Applied
+            }
+            // A default-of-default or unknown default is odd; keep state.
+            protocol::GameModeUpdate::WorldDefault | protocol::GameModeUpdate::Unknown(_) => {
+                self.gameplay_hud.note_odd_hud_packet();
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
+        }
+    }
+
+    pub(crate) const fn player_game_mode(&self) -> Option<PlayerGameMode> {
+        self.player_game_mode
     }
 
     pub(crate) const fn survival_stats_visible(&self) -> bool {
@@ -619,6 +678,8 @@ impl UiRuntime {
         self.pending_block_cracks.clear();
         self.inventory_authority = None;
         self.player_game_mode = None;
+        self.world_default_game_mode = None;
+        self.player_mode_from_default = false;
         self.last_inventory_sequence = None;
         self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);
@@ -738,15 +799,8 @@ impl UiRuntime {
                     .apply(envelope.fifo_sequence, scoreboard_adapter::boss(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
-            UiEvent::GameMode(event) => match event.mode {
-                Some(mode) => {
-                    self.publish_player_game_mode(mode);
-                    UiApplyOutcome::Applied
-                }
-                // A level-default or unknown wire mode keeps the current
-                // authoritative mode instead of guessing.
-                None => UiApplyOutcome::IgnoredByReceiveStore,
-            },
+            UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
+            UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
             UiEvent::Form(_) => UiApplyOutcome::IgnoredByReceiveStore,
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
@@ -887,6 +941,12 @@ impl UiRuntime {
             parameters: event.parameters,
         }) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
+            // An oversized server row is odd data, not a wire fault: skip the
+            // whole row, count it, keep the session alive.
+            ChatApplyResult::RejectedTooLarge => {
+                self.gameplay_hud.note_oversized_chat_row();
+                Ok(UiApplyOutcome::IgnoredByReceiveStore)
+            }
             result => Err(UiRuntimeError::ChatRejected(result)),
         }
     }
@@ -911,6 +971,10 @@ impl UiRuntime {
             .collect();
         match self.chat.push_batch(messages) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
+            ChatApplyResult::RejectedTooLarge => {
+                self.gameplay_hud.note_oversized_chat_row();
+                Ok(UiApplyOutcome::IgnoredByReceiveStore)
+            }
             result => Err(UiRuntimeError::ChatRejected(result)),
         }
     }
@@ -936,13 +1000,16 @@ impl UiRuntime {
                     .set_actionbar(event.text, fifo_sequence, event_millis);
             }
             TitleAction::SetDurations => {
-                let durations = TitleDurations::from_wire(
+                // Negative tick counts are semantically odd but well-formed:
+                // keep the previous durations and count the skip.
+                match TitleDurations::from_wire(
                     event.fade_in_ticks,
                     event.stay_ticks,
                     event.fade_out_ticks,
-                )
-                .ok_or(UiRuntimeError::InvalidTitleDurations)?;
-                self.hud.set_durations(durations);
+                ) {
+                    Some(durations) => self.hud.set_durations(durations),
+                    None => self.gameplay_hud.note_odd_hud_packet(),
+                }
             }
         }
         Ok(())
@@ -964,10 +1031,15 @@ impl UiRuntime {
                 });
             }
             HudEvent::Health { health } => {
-                let health =
-                    u16::try_from(health).map_err(|_| UiRuntimeError::InvalidHealth(health))?;
-                let maximum = health.max(20);
-                self.hud.set_health(BoundedStat::new(health, maximum));
+                // A negative or overflowing SetHealth is semantically odd but
+                // well-formed wire: skip it, count it, keep the session alive.
+                match u16::try_from(health) {
+                    Ok(health) => {
+                        let maximum = health.max(20);
+                        self.hud.set_health(BoundedStat::new(health, maximum));
+                    }
+                    Err(_) => self.gameplay_hud.note_odd_hud_packet(),
+                }
             }
             HudEvent::PlayerStatus(status) => {
                 self.hud
