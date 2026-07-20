@@ -17,7 +17,7 @@ use render::{
 use semantic_input::PerspectiveMode;
 
 use crate::local_player::{
-    LocalAvatarPresentation, LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier,
+    CameraPose, LocalAvatarPresentation, LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier,
     LocalPlayerFrameSample,
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
@@ -27,7 +27,10 @@ use crate::presentation::actors::{
     local_player_rig_presentation, select_actor_presentations, select_actor_presentations_for_view,
     update_actor_rig_scene,
 };
-use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
+use crate::runtime::network::{
+    authoritative_local_actor_eye, publish_local_actor_visibility,
+    publish_local_actor_visibility_from_camera,
+};
 use crate::runtime::world::apply_committed_ui_event;
 use crate::ui_runtime::UiRuntime;
 
@@ -1069,6 +1072,34 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         &mut visibility,
     );
     assert!(visibility.snapshot().is_none());
+}
+
+#[test]
+fn local_visibility_uses_the_collision_resolved_camera_perspective() {
+    let subject_eye = Vec3::new(3.0, 65.62, -2.0);
+    let rotation = Quat::from_rotation_y(35.0_f32.to_radians());
+    let mut avatar = LocalAvatarPresentation::default();
+    avatar.begin_session(7, 42);
+    let mut visibility = LocalAvatarVisibilityCarrier::default();
+
+    for (perspective, expected_visible) in [
+        (PerspectiveMode::FirstPerson, false),
+        (PerspectiveMode::ThirdPersonBack, true),
+        (PerspectiveMode::ThirdPersonFront, true),
+    ] {
+        let transform = crate::camera::perspective_pose(subject_eye, rotation, perspective);
+        let camera = CameraPose::new_for_perspective(transform, perspective);
+        publish_local_actor_visibility_from_camera(
+            &avatar,
+            &camera,
+            authoritative_local_actor_eye(None, Some(subject_eye.to_array())),
+            rotation,
+            &mut visibility,
+        );
+        let snapshot = visibility.snapshot().copied().unwrap();
+        assert_eq!(snapshot.visible(), expected_visible, "{perspective:?}");
+        assert_eq!(snapshot.eye(), subject_eye);
+    }
 }
 
 #[test]

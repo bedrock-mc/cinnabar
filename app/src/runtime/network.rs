@@ -34,8 +34,9 @@ use crate::{
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
     local_player::{
-        InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-        LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+        CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation,
+        LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+        LocalViewPose, reset_local_player_session,
     },
     movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
@@ -86,7 +87,7 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
 pub(crate) struct ActorPresentationState<'w, 's> {
     avatar: Res<'w, LocalAvatarPresentation>,
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
-    settings: Res<'w, CameraSettingsAuthority>,
+    camera_pose: Res<'w, CameraPose>,
     view: Res<'w, LocalViewPose>,
     local_physics: Res<'w, LocalPhysicsController>,
     witness: Res<'w, ActorRuntimeWitness>,
@@ -117,6 +118,22 @@ pub(crate) fn publish_local_actor_visibility(
         return;
     };
     avatar.publish_view_visibility(perspective, subject_eye, rotation, carrier);
+}
+
+pub(crate) fn publish_local_actor_visibility_from_camera(
+    avatar: &LocalAvatarPresentation,
+    camera: &CameraPose,
+    authoritative_subject_eye: Option<bevy::prelude::Vec3>,
+    rotation: bevy::prelude::Quat,
+    carrier: &mut LocalAvatarVisibilityCarrier,
+) {
+    publish_local_actor_visibility(
+        avatar,
+        camera.perspective(),
+        authoritative_subject_eye,
+        rotation,
+        carrier,
+    );
 }
 
 pub(crate) fn authoritative_local_actor_eye(
@@ -767,7 +784,7 @@ pub(crate) fn publish_actor_render_frame(
     let ActorPresentationState {
         avatar,
         mut local_visibility,
-        settings,
+        camera_pose,
         view,
         local_physics,
         witness,
@@ -796,9 +813,9 @@ pub(crate) fn publish_actor_render_frame(
             .as_ref()
             .map(|stream| stream.resolved_server_position().position),
     );
-    publish_local_actor_visibility(
+    publish_local_actor_visibility_from_camera(
         &avatar,
-        settings.perspective(),
+        &camera_pose,
         authoritative_subject_eye,
         view.rotation(),
         &mut local_visibility,

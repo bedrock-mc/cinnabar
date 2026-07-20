@@ -226,28 +226,45 @@ impl LocalViewPose {
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct CameraPose {
     transform: Transform,
+    perspective: PerspectiveMode,
 }
 
 impl Default for CameraPose {
     fn default() -> Self {
         let view = LocalViewPose::default();
-        Self::new(perspective_pose(
-            view.eye_translation(),
-            view.rotation(),
+        Self::new_for_perspective(
+            perspective_pose(
+                view.eye_translation(),
+                view.rotation(),
+                PerspectiveMode::FirstPerson,
+            ),
             PerspectiveMode::FirstPerson,
-        ))
+        )
     }
 }
 
 impl CameraPose {
     #[must_use]
     pub const fn new(transform: Transform) -> Self {
-        Self { transform }
+        Self::new_for_perspective(transform, PerspectiveMode::FirstPerson)
+    }
+
+    #[must_use]
+    pub const fn new_for_perspective(transform: Transform, perspective: PerspectiveMode) -> Self {
+        Self {
+            transform,
+            perspective,
+        }
     }
 
     #[must_use]
     pub const fn transform(&self) -> &Transform {
         &self.transform
+    }
+
+    #[must_use]
+    pub const fn perspective(&self) -> PerspectiveMode {
+        self.perspective
     }
 }
 
@@ -545,7 +562,7 @@ pub(crate) fn resolve_camera_pose(
         unavailable_world_perspective_pose(view.eye_translation(), view.rotation(), perspective)
     };
     **camera_transform = transform;
-    published.transform = transform;
+    *published = CameraPose::new_for_perspective(transform, perspective);
 }
 
 pub(crate) fn publish_interaction_origin(
