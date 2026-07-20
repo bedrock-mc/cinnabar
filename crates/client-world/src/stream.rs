@@ -18,11 +18,12 @@ use assets::{
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
-    request_sub_chunk_column, vanilla_dimension_range,
+    ActorAttribute, ActorEvent, ActorMoveEvent, ActorPositionOrigin, BiomeDefinitionEvent,
+    BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
+    PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -36,14 +37,15 @@ use world::{
     solve_light,
 };
 
-use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
+use super::actor_animation::{ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot};
+use super::actor_store::{ActorApplyResult, ActorPose, ActorSnapshot, ActorStore, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
 use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
+mod actor_witness;
 mod block_entities;
 mod cohort;
 mod connectivity;
@@ -72,6 +74,7 @@ use lighting::types::*;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
+pub use actor_witness::{COMMITTED_ACTOR_MOVE_CAPACITY, CommittedActorMove, CommittedActorPose};
 pub use diagnostics::{
     BuildProfileIdentity, CohortManifestIdentity, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
     Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
@@ -127,6 +130,8 @@ pub struct WorldStream {
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,
+    committed_actor_moves: VecDeque<CommittedActorMove>,
+    actor_move_commit_dropped_count: u64,
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,

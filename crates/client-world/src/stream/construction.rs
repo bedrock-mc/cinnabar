@@ -112,6 +112,8 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,
+            committed_actor_moves: VecDeque::new(),
+            actor_move_commit_dropped_count: 0,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,

@@ -449,6 +449,7 @@ impl WorldStream {
             }
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
+                self.reset_committed_actor_moves();
                 self.block_entity_visuals.clear();
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
                 let _ =
@@ -484,11 +485,29 @@ impl WorldStream {
             }
             WorldEvent::MovePlayer(movement) => {
                 let sequence = sequence.expect("sequenced MovePlayer commits through submit");
-                let _ = self.actors.apply_player_move(
+                let result = self.actors.apply_player_move(
                     self.actor_session_id,
                     sequence,
                     self.current_dimension,
                     movement,
+                );
+                self.record_committed_actor_move(
+                    sequence,
+                    ActorMoveEvent {
+                        dimension: self.current_dimension,
+                        runtime_id: movement.runtime_id,
+                        position: movement.position.map(Some),
+                        position_origin: ActorPositionOrigin::NetworkOffset,
+                        pitch: Some(movement.pitch),
+                        yaw: Some(movement.yaw),
+                        head_yaw: Some(movement.head_yaw),
+                        on_ground: Some(movement.on_ground),
+                        teleported: movement.teleported,
+                        snap: movement.teleported,
+                        player_mode: Some(movement.mode),
+                        source_tick: Some(movement.source_tick),
+                    },
+                    result,
                 );
                 if movement.runtime_id != self.local_player_runtime_id {
                     return;
@@ -563,7 +582,14 @@ impl WorldStream {
                         attributes: Arc::clone(&update.attributes),
                     });
                 }
-                let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                let movement = match &event {
+                    ActorEvent::Move(movement) => Some(*movement),
+                    _ => None,
+                };
+                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if let Some(movement) = movement {
+                    self.record_committed_actor_move(sequence, movement, result);
+                }
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
