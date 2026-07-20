@@ -98,6 +98,10 @@ impl WorldStream {
     pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_display_name(unique_id)
     }
+    /// Every username on the retained authoritative player list, sorted.
+    pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
+        self.actors.player_list_usernames()
+    }
     /// The authoritative `(current, maximum)` health of the actor with this
     /// unique id, if it is known and well-formed.
     pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {

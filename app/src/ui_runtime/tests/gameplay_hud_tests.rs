@@ -500,6 +500,115 @@ fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     );
 }
 
+fn raw_text_event(json: &str) -> protocol::UiEvent {
+    protocol::UiEvent::RawText(protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document: protocol::parse_raw_text(json).unwrap(),
+    })
+}
+
+#[test]
+fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_chat_source_name(std::sync::Arc::from("Reader"));
+
+    // A sidebar objective with one real player owner (unique id 42), one
+    // real entity owner (unique id 7), and the reader's own fake-player row.
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::Objective(protocol::ObjectiveEvent::Display {
+                display_slot: std::sync::Arc::from("sidebar"),
+                objective_name: std::sync::Arc::from("coins"),
+                display_name: std::sync::Arc::from("Coins"),
+                criteria_name: std::sync::Arc::from("dummy"),
+                sort_order: 1,
+            }),
+        ))
+        .unwrap();
+    let entry = |scoreboard_id, score, identity| protocol::ScoreEntry {
+        scoreboard_id,
+        objective_name: std::sync::Arc::from("coins"),
+        score,
+        identity,
+    };
+    runtime
+        .apply(envelope(
+            1,
+            2,
+            UiEvent::Score(protocol::ScoreEvent {
+                action: protocol::ScoreAction::Change,
+                entries: vec![
+                    entry(1, 31, protocol::ScoreIdentity::Player(42)),
+                    entry(2, 55, protocol::ScoreIdentity::Entity(7)),
+                    entry(
+                        3,
+                        99,
+                        protocol::ScoreIdentity::FakePlayer(std::sync::Arc::from("Reader")),
+                    ),
+                ]
+                .into(),
+            }),
+        ))
+        .unwrap();
+
+    // The world stream authority supplies the id-to-name map and player list.
+    runtime.refresh_raw_text_identities(
+        |unique_id| match unique_id {
+            42 => Some(std::sync::Arc::from("Steve")),
+            7 => Some(std::sync::Arc::from("Dinnerbone the Pig")),
+            _ => None,
+        },
+        vec![
+            std::sync::Arc::from("Reader"),
+            std::sync::Arc::from("Steve"),
+        ],
+    );
+
+    // Real player and entity owners resolve by their authoritative display
+    // names; the `*` sentinel resolves as the reader's own row.
+    runtime
+        .apply(envelope(
+            1,
+            3,
+            raw_text_event(
+                r#"{"rawtext":[{"score":{"name":"Steve","objective":"coins"}},{"text":"/"},{"score":{"name":"Dinnerbone the Pig","objective":"coins"}},{"text":"/"},{"score":{"name":"*","objective":"coins"}}]}"#,
+            ),
+        ))
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "31/55/99"
+    );
+
+    // `@s` resolves to the reader and `@a` to the sorted known player list;
+    // an entity selector needs a live query and presents as empty.
+    runtime
+        .apply(envelope(
+            1,
+            4,
+            raw_text_event(
+                r#"{"rawtext":[{"selector":"@s"},{"text":" | "},{"selector":"@a"},{"text":" | ("},{"selector":"@e[type=cow]"},{"text":")"}]}"#,
+            ),
+        ))
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Reader | Reader, Steve | ()"
+    );
+}
+
 #[test]
 fn lang_catalog_translates_rawtext_and_localizes_item_names() {
     let entries = [

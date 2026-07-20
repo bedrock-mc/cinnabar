@@ -29,6 +29,19 @@ impl ActorStore {
         (!name.is_empty()).then_some(name)
     }
 
+    /// Every username on the retained authoritative player list, sorted for
+    /// deterministic presentation (the `@a` selector's known answer).
+    pub(crate) fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
+        let mut names = self
+            .players
+            .values()
+            .map(|profile| std::sync::Arc::clone(&profile.username))
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,

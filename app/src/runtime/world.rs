@@ -541,6 +541,15 @@ pub(crate) fn drive_world_stream(
     let committed_ui = stream.take_committed_ui();
     let poll_report = std::mem::take(&mut frame_poll.0);
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if !committed_ui.is_empty() {
+        // Rawtext score owners and selectors resolve against the stream's
+        // authoritative actor names and player list as of this drain.
+        let known_player_names = stream.player_list_usernames();
+        ui_runtime.refresh_raw_text_identities(
+            |unique_id| stream.actor_display_name(unique_id),
+            known_player_names,
+        );
+    }
     for committed in committed_ui {
         let result = match committed {
             CommittedUiEvent::Ui { sequence, event } => ui_runtime

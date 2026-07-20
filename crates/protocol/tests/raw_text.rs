@@ -337,24 +337,27 @@ fn raw_text_input_depth_component_and_output_limits_are_explicit() {
 
 #[test]
 fn raw_text_with_document_counts_every_retained_component() {
-    let arguments = |count| {
-        std::iter::repeat_n(r#"{"translate":"key","with":{"rawtext":[]}}"#, count)
-            .collect::<Vec<_>>()
-            .join(",")
+    // A with-document retains one component per child (each child is its
+    // own placeholder argument), so a document with N children costs N
+    // components on top of the translate itself.
+    let wide = |children: usize| {
+        format!(
+            r#"{{"rawtext":[{{"translate":"key","with":{{"rawtext":[{}]}}}}]}}"#,
+            std::iter::repeat_n(r#"{"text":"x"}"#, children)
+                .collect::<Vec<_>>()
+                .join(",")
+        )
     };
 
-    let exact = parse_raw_text(&format!(
-        r#"{{"rawtext":[{}]}}"#,
-        arguments(MAX_RAW_TEXT_COMPONENTS / 2)
-    ))
-    .unwrap();
-    assert_eq!(exact.components().len(), MAX_RAW_TEXT_COMPONENTS / 2);
+    let exact = parse_raw_text(&wide(MAX_RAW_TEXT_COMPONENTS - 1)).unwrap();
+    assert_eq!(exact.components().len(), 1);
+    let [RawTextComponent::Translate { with, .. }] = exact.components() else {
+        panic!("one translate component with the document children as arguments");
+    };
+    assert_eq!(with.len(), MAX_RAW_TEXT_COMPONENTS - 1);
 
     assert!(matches!(
-        parse_raw_text(&format!(
-            r#"{{"rawtext":[{}]}}"#,
-            arguments(MAX_RAW_TEXT_COMPONENTS / 2 + 1)
-        )),
+        parse_raw_text(&wide(MAX_RAW_TEXT_COMPONENTS)),
         Err(UiPacketError::RawTextComponentLimitExceeded {
             count,
             max: MAX_RAW_TEXT_COMPONENTS,
@@ -482,10 +485,12 @@ fn resolver_substitutes_scores_translations_and_skips_selectors() {
     let score = |owner: &str, objective: &str| -> Option<i32> {
         (owner == "Reader" && objective == "coins").then_some(41)
     };
+    let selector = |_: &str| -> Option<Arc<str>> { None };
     let resolved = document.resolve(&protocol::RawTextResolver {
         reader_name: "Reader",
         translate: &translate,
         score: &score,
+        selector: &selector,
     });
 
     assert_eq!(
@@ -508,10 +513,12 @@ fn resolver_output_is_bounded_and_missing_scores_degrade_to_empty_counted_text()
     .unwrap();
     let translate = |_: &str| -> Option<Arc<str>> { None };
     let score = |_: &str, _: &str| -> Option<i32> { None };
+    let selector = |_: &str| -> Option<Arc<str>> { None };
     let resolver = protocol::RawTextResolver {
         reader_name: "Reader",
         translate: &translate,
         score: &score,
+        selector: &selector,
     };
     let resolved = document.resolve(&resolver);
     assert_eq!(resolved.text, "tail");
@@ -528,7 +535,83 @@ fn resolver_output_is_bounded_and_missing_scores_degrade_to_empty_counted_text()
         reader_name: "Reader",
         translate: &expand,
         score: &score,
+        selector: &selector,
     });
     assert!(resolved.text.len() <= protocol::MAX_RAW_TEXT_OUTPUT_BYTES);
     assert!(resolved.truncated);
+}
+
+#[test]
+fn with_document_children_each_become_their_own_placeholder_argument() {
+    use std::sync::Arc;
+
+    // The nested-document `with` form is positionally identical to the list
+    // form: every child component fills its own %N slot.
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"translate":"pair.order","with":{"rawtext":[{"text":"first"},{"text":"second"}]}}]}"#,
+    )
+    .unwrap();
+    let translate =
+        |key: &str| -> Option<Arc<str>> { (key == "pair.order").then(|| Arc::from("%2 then %1")) };
+    let score = |_: &str, _: &str| -> Option<i32> { None };
+    let selector = |_: &str| -> Option<Arc<str>> { None };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &score,
+        selector: &selector,
+    });
+    assert_eq!(resolved.text, "second then first");
+    assert_eq!(resolved.unknown_translations, 0);
+}
+
+#[test]
+fn fixed_precision_forms_format_numeric_arguments_exactly() {
+    use std::sync::Arc;
+
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"translate":"stat.precise","with":[{"text":"3.14159"},{"text":"not a number"}]}]}"#,
+    )
+    .unwrap();
+    let translate = |key: &str| -> Option<Arc<str>> {
+        (key == "stat.precise").then(|| Arc::from("%.2f and %.2f and %.f"))
+    };
+    let score = |_: &str, _: &str| -> Option<i32> { None };
+    let selector = |_: &str| -> Option<Arc<str>> { None };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &score,
+        selector: &selector,
+    });
+    // The numeric argument rounds to two decimals, the non-numeric argument
+    // presents verbatim, and a malformed precision keeps its literal form.
+    assert_eq!(resolved.text, "3.14 and not a number and %.f");
+}
+
+#[test]
+fn selectors_resolve_from_lent_authority_and_otherwise_count_as_skipped() {
+    use std::sync::Arc;
+
+    let document = parse_raw_text(
+        r#"{"rawtext":[{"selector":"@s"},{"text":" | "},{"selector":"@a"},{"text":" | "},{"selector":"@e[type=cow]"}]}"#,
+    )
+    .unwrap();
+    let translate = |_: &str| -> Option<Arc<str>> { None };
+    let score = |_: &str, _: &str| -> Option<i32> { None };
+    let selector = |selector: &str| -> Option<Arc<str>> {
+        match selector {
+            "@s" => Some(Arc::from("Reader")),
+            "@a" => Some(Arc::from("Reader, Steve")),
+            _ => None,
+        }
+    };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &score,
+        selector: &selector,
+    });
+    assert_eq!(resolved.text, "Reader | Reader, Steve | ");
+    assert_eq!(resolved.skipped_selectors, 1);
 }

@@ -275,15 +275,43 @@ impl ScoreboardStore {
     /// display name inside the store; entity/player rows require the actor
     /// authority a caller may layer on top.
     pub fn score_for_named_owner(&self, objective: &str, owner_name: &str) -> Option<i32> {
+        self.score_for_resolved_owner(objective, owner_name, |_| None)
+    }
+
+    /// The score whose owner presents as `owner_name`: fake players match
+    /// their literal name, and real player/entity owners match through the
+    /// caller's authoritative id-to-display-name resolution.
+    pub fn score_for_resolved_owner(
+        &self,
+        objective: &str,
+        owner_name: &str,
+        mut resolve_owner_name: impl FnMut(i64) -> Option<Arc<str>>,
+    ) -> Option<i32> {
         let objective = self.objectives.get(objective)?;
         objective
             .scores
             .values()
             .find(|score| match &score.owner {
                 ScoreOwner::FakePlayer(name) => name.as_ref() == owner_name,
-                ScoreOwner::Player(_) | ScoreOwner::Entity(_) | ScoreOwner::None => false,
+                ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => {
+                    resolve_owner_name(*unique_id).is_some_and(|name| name.as_ref() == owner_name)
+                }
+                ScoreOwner::None => false,
             })
             .map(|score| score.score)
+    }
+
+    /// Unique ids of every retained real player/entity score owner, for the
+    /// caller to refresh its bounded id-to-name authority.
+    pub fn score_owner_ids(&self) -> BTreeSet<i64> {
+        self.objectives
+            .values()
+            .flat_map(|objective| objective.scores.values())
+            .filter_map(|score| match &score.owner {
+                ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => Some(*unique_id),
+                ScoreOwner::FakePlayer(_) | ScoreOwner::None => None,
+            })
+            .collect()
     }
 
     /// The list-slot score for one player entry, as the player list presents

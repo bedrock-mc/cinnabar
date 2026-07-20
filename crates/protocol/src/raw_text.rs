@@ -72,10 +72,14 @@ pub enum RawTextComponent {
 /// for an unknown key — the vanilla client then presents the raw key.
 /// `score` resolves an owner display name and objective to a value; the
 /// reader sentinel `*` is replaced with `reader_name` before lookup.
+/// `selector` resolves the selector patterns the retained authoritative
+/// state can answer (`@s`, the known player list for `@a`); returning `None`
+/// counts the selector as skipped and presents it as empty text.
 pub struct RawTextResolver<'a> {
     pub reader_name: &'a str,
     pub translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
     pub score: &'a dyn Fn(&str, &str) -> Option<i32>,
+    pub selector: &'a dyn Fn(&str) -> Option<Arc<str>>,
 }
 
 /// The outcome of resolving one document: human text plus counters for every
@@ -85,8 +89,10 @@ pub struct ResolvedRawText {
     pub text: String,
     pub unknown_translations: u32,
     pub unresolved_scores: u32,
-    /// Selectors require live server entity queries; the vanilla server
-    /// resolves them before sending, so a live one presents as empty.
+    /// Selectors the lent state could not answer. The vanilla server
+    /// resolves selectors before sending; the reader (`@s`) and the known
+    /// player list (`@a`) resolve from retained state, and anything needing
+    /// a live entity query presents as empty text and counts here.
     pub skipped_selectors: u32,
     /// Set when the bounded output budget truncated the resolved text.
     pub truncated: bool,
@@ -125,9 +131,12 @@ fn resolve_component(
                 resolve_component(child, resolver, resolved, depth + 1);
             }
         }
-        RawTextComponent::Selector(_) => {
-            resolved.skipped_selectors = resolved.skipped_selectors.saturating_add(1);
-        }
+        RawTextComponent::Selector(selector) => match (resolver.selector)(selector) {
+            Some(text) => push_bounded(resolved, &text),
+            None => {
+                resolved.skipped_selectors = resolved.skipped_selectors.saturating_add(1);
+            }
+        },
         RawTextComponent::Score { name, objective } => {
             let owner = if name.as_ref() == "*" {
                 resolver.reader_name
@@ -177,9 +186,11 @@ fn resolve_component(
     }
 }
 
-/// Substitutes `%s`/`%d` sequentially and `%1` / `%1$s` positionally, the two
-/// argument families the pinned Bedrock language files use. `%%` escapes one
-/// percent sign; an out-of-range reference keeps its literal form.
+/// Substitutes `%s`/`%d` sequentially, `%1` / `%1$s` positionally, and the
+/// fixed-precision `%.Nf` form — the argument families the pinned Bedrock
+/// language files use (`en_US.lang` carries five `%.2f` templates). `%%`
+/// escapes one percent sign; an out-of-range reference keeps its literal
+/// form, and a non-numeric argument for `%.Nf` presents verbatim.
 fn format_translation(template: &str, arguments: &[String]) -> String {
     let mut output = String::with_capacity(template.len());
     let mut sequential = 0usize;
@@ -200,6 +211,33 @@ fn format_translation(template: &str, arguments: &[String]) -> String {
                     output.push_str(argument);
                 }
                 sequential += 1;
+            }
+            Some((_, '.')) => {
+                chars.next();
+                match (chars.peek().copied(), {
+                    let mut lookahead = chars.clone();
+                    lookahead.next();
+                    lookahead.peek().copied()
+                }) {
+                    (Some((_, precision @ '0'..='9')), Some((_, 'f'))) => {
+                        chars.next();
+                        chars.next();
+                        let precision = precision as usize - '0' as usize;
+                        if let Some(argument) = arguments.get(sequential) {
+                            match argument.trim().parse::<f64>() {
+                                Ok(value) if value.is_finite() => {
+                                    output.push_str(&format!("{value:.precision$}"));
+                                }
+                                _ => output.push_str(argument),
+                            }
+                        }
+                        sequential += 1;
+                    }
+                    _ => {
+                        output.push('%');
+                        output.push('.');
+                    }
+                }
             }
             Some((_, digit @ '1'..='9')) => {
                 chars.next();
@@ -587,12 +625,10 @@ fn convert_with(
                 })
                 .collect()
         }
-        WireWith::Document(document) => {
-            budget.component()?;
-            Ok(vec![RawTextComponent::Sequence(Arc::from(
-                convert_document(document, depth, false, true, budget)?,
-            ))])
-        }
+        // A `with` document contributes one placeholder argument per child
+        // component, exactly like the list form; wrapping the children in a
+        // single sequence would collapse them into `%1` alone.
+        WireWith::Document(document) => convert_document(document, depth, false, true, budget),
     }
 }
 

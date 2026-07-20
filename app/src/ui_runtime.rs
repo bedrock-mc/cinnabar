@@ -175,6 +175,12 @@ pub struct UiRuntime {
     /// Startup-loaded localization catalog; survives session replacement
     /// because it is local pinned data, not server state.
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
+    /// Authoritative display names of real player/entity score owners,
+    /// refreshed from the world stream before committed events apply.
+    score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
+    /// Sorted usernames on the authoritative player list, the retained
+    /// answer for the `@a` selector.
+    known_player_names: Vec<Arc<str>>,
 }
 
 impl UiRuntime {
@@ -187,6 +193,8 @@ impl UiRuntime {
             last_server_tick: None,
             last_tick_observed_millis: None,
             chat_focused: false,
+            score_owner_names: std::collections::BTreeMap::new(),
+            known_player_names: Vec::new(),
             hud: HudStore::default(),
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
@@ -665,6 +673,8 @@ impl UiRuntime {
         self.last_server_tick = None;
         self.last_tick_observed_millis = None;
         self.chat_focused = false;
+        self.score_owner_names.clear();
+        self.known_player_names.clear();
         self.hud.clear();
         self.chat.clear();
         self.scoreboards.clear();
@@ -717,22 +727,66 @@ impl UiRuntime {
         }
     }
 
+    /// Refreshes the authoritative identities rawtext resolution reads: the
+    /// display names of real score owners and the player-list usernames.
+    /// Bounded by the retained score and player-list caps.
+    pub fn refresh_raw_text_identities(
+        &mut self,
+        mut resolve_owner_name: impl FnMut(i64) -> Option<Arc<str>>,
+        known_player_names: Vec<Arc<str>>,
+    ) {
+        self.score_owner_names = self
+            .scoreboards
+            .score_owner_ids()
+            .into_iter()
+            .filter_map(|unique_id| resolve_owner_name(unique_id).map(|name| (unique_id, name)))
+            .collect();
+        self.known_player_names = known_player_names;
+    }
+
     /// Resolves one typed rawtext document against the retained scoreboard
-    /// state and the local reader identity. Translation lookups return the
-    /// raw key until the localization carrier lands (the vanilla unknown-key
-    /// presentation); selectors present as empty because the vanilla server
-    /// evaluates them before sending.
+    /// state, the pinned localization catalog, and the local reader
+    /// identity. Score owners resolve through the authoritative
+    /// id-to-display-name map (with the `*` reader sentinel handled by the
+    /// resolver); selectors resolve only from retained authoritative state
+    /// (`@s`, the player list for `@a`) and otherwise present as empty,
+    /// counted. Nothing ever presents as JSON.
     fn resolve_raw_text(&self, document: &protocol::RawTextDocument) -> protocol::ResolvedRawText {
         let catalog = self.lang_catalog.as_deref();
         let translate =
             |key: &str| -> Option<Arc<str>> { catalog.and_then(|catalog| catalog.lookup(key)) };
         let scoreboards = &self.scoreboards;
-        let score =
-            |owner: &str, objective: &str| scoreboards.score_for_named_owner(objective, owner);
+        let owner_names = &self.score_owner_names;
+        let score = |owner: &str, objective: &str| {
+            scoreboards.score_for_resolved_owner(objective, owner, |unique_id| {
+                owner_names.get(&unique_id).cloned()
+            })
+        };
+        let reader_name = &self.chat_source_name;
+        let known_player_names = &self.known_player_names;
+        let selector = |selector: &str| -> Option<Arc<str>> {
+            match selector.trim() {
+                "@s" => Some(Arc::clone(reader_name)).filter(|name| !name.is_empty()),
+                "@a" if !known_player_names.is_empty() => {
+                    let mut joined = String::new();
+                    for (index, name) in known_player_names.iter().enumerate() {
+                        if index > 0 {
+                            joined.push_str(", ");
+                        }
+                        joined.push_str(name);
+                    }
+                    Some(Arc::from(joined))
+                }
+                // Position- or entity-dependent selectors need live queries
+                // the retained state cannot answer authoritatively.
+                _ => None,
+            }
+        };
         document.resolve(&protocol::RawTextResolver {
-            reader_name: &self.chat_source_name,
+            reader_name,
             translate: &translate,
             score: &score,
+            selector: &selector,
         })
     }
 
