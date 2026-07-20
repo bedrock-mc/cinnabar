@@ -33,6 +33,14 @@ const INPUT_IMPULSE_MULTIPLIER: f64 = 0.98;
 const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
+/// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
+const CLIMB_SPEED: f64 = 0.2;
+/// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
+/// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
+/// zero and the factor collapses to its constant term.
+const SLIME_WALK_DAMPING: f64 = 0.4;
+/// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
+const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Simulator {
@@ -70,6 +78,7 @@ impl Simulator {
             next.jump_delay = 0;
         }
         let grounded_at_start = next.on_ground;
+        let retained_collisions = next.collisions;
         let sampled = sample(world, next.position, next.velocity)?;
         let friction = if grounded_at_start {
             DEFAULT_AIR_FRICTION * sampled.friction
@@ -118,9 +127,15 @@ impl Simulator {
         }
 
         if sampled.movement.on_climbable || sampled.movement.in_scaffolding {
-            next.velocity.y = next.velocity.y.max(-0.2);
-            if input.jumping {
-                next.velocity.y = 0.2;
+            next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
+            // `bedsim v0.1.3` `simulateMovement` ascends a climbable block on a
+            // held jump *or* on the previous tick's horizontal collision, which
+            // is how walking into a ladder climbs it. Scaffolding has no bedsim
+            // oracle, so it keeps the held-jump-only clause it already had.
+            let wall_climb =
+                sampled.movement.on_climbable && (retained_collisions.x || retained_collisions.z);
+            if input.jumping || wall_climb {
+                next.velocity.y = CLIMB_SPEED;
             } else if input.sneaking && next.velocity.y < 0.0 {
                 next.velocity.y = 0.0;
             }
@@ -153,13 +168,25 @@ impl Simulator {
         let motion = resolve_motion(world, next.position, next.velocity, grounded_at_start)?;
         identity = identity.merge(&motion.identity)?;
         next.position += motion.resolved;
-        next.movement = motion.resolved;
         next.on_ground = motion.stepped
             || (motion.collisions.y && next.velocity.y < 0.0)
             || (grounded_at_start
                 && !motion.collisions.y
                 && next.velocity.y.abs() <= COLLISION_EPSILON);
-        next.velocity = motion.resolved;
+
+        // `bedsim v0.1.3` applies `walkOnBlock` to the resolved velocity before
+        // publishing this tick's movement, so the damping is visible in both.
+        let mut resolved = motion.resolved;
+        if resolved.y == 0.0
+            && next.on_ground
+            && !input.sneaking
+            && sampled.movement.surface_response == crate::SurfaceResponse::Slime
+        {
+            resolved.x *= SLIME_WALK_DAMPING;
+            resolved.z *= SLIME_WALK_DAMPING;
+        }
+        next.movement = resolved;
+        next.velocity = resolved;
         if motion.stepped {
             next.velocity.y = 0.0;
         }
@@ -167,15 +194,19 @@ impl Simulator {
             next.velocity.x = 0.0;
         }
         if motion.collisions.y {
+            // `bedsim v0.1.3` `landOnBlock` bounces only an airborne, non-sneaking
+            // descent; sneaking zeroes the rebound on every surface.
+            let bounces = !grounded_at_start && !input.sneaking && pre_collision_velocity.y < 0.0;
             next.velocity.y = match sampled.movement.surface_response {
-                crate::SurfaceResponse::Slime
-                    if !grounded_at_start && !input.sneaking && pre_collision_velocity.y < 0.0 =>
-                {
-                    -pre_collision_velocity.y
+                crate::SurfaceResponse::Slime if bounces => {
+                    let rebound = -pre_collision_velocity.y;
+                    if rebound.abs() < SLIME_REBOUND_DEADZONE {
+                        0.0
+                    } else {
+                        rebound
+                    }
                 }
-                crate::SurfaceResponse::Bed
-                    if !grounded_at_start && pre_collision_velocity.y < 0.0 =>
-                {
+                crate::SurfaceResponse::Bed if bounces => {
                     (-0.66 * pre_collision_velocity.y).min(1.0)
                 }
                 _ => 0.0,
@@ -203,6 +234,7 @@ impl Simulator {
             _ => {}
         }
         next.jump_delay = next.jump_delay.saturating_sub(1);
+        next.collisions = motion.collisions;
 
         let result = TickResult {
             tick: next.tick,
