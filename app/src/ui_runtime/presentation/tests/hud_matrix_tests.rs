@@ -6,7 +6,6 @@ use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorMetadata, ActorMetadataValue, ArmorEquipmentEvent,
     ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack, PlayerGameMode,
 };
-use ui::BoundedStat;
 
 use super::{fixture_font, fixture_hud};
 use crate::ui_runtime::presentation::{HudFrame, UiPresentationRuntime};

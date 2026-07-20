@@ -380,10 +380,11 @@ pub enum CommittedUiEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
-    /// Local-player MobArmorEquipment stacks.
+    /// Local-player MobArmorEquipment stacks. Boxed so the five item stacks
+    /// do not dominate every committed UI event.
     LocalArmor {
         sequence: u64,
-        event: protocol::ArmorEquipmentEvent,
+        event: Box<protocol::ArmorEquipmentEvent>,
     },
     /// The local player's authoritative mount after a SetActorLink change.
     /// `None` means the player is no longer riding anything.

@@ -413,7 +413,8 @@ pub enum WorldEvent {
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),
-    ArmorEquipment(ArmorEquipmentEvent),
+    // Boxed: five item stacks would otherwise dominate every WorldEvent.
+    ArmorEquipment(Box<ArmorEquipmentEvent>),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
 }
@@ -542,7 +543,7 @@ pub fn into_world_event(
             WorldEvent::Equipment(normalize_equipment(*packet)?)
         }
         McpePacketData::PacketMobArmorEquipment(packet) => {
-            WorldEvent::ArmorEquipment(normalize_armor_equipment(*packet)?)
+            WorldEvent::ArmorEquipment(Box::new(normalize_armor_equipment(*packet)?))
         }
         McpePacketData::PacketMobEffect(packet) => {
             WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)

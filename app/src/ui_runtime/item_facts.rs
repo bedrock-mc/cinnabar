@@ -148,7 +148,6 @@ pub(crate) fn mechanical_display_name(identifier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use protocol::NetworkItemStack;
-    use sha2::{Digest, Sha256};
 
     use super::*;
 

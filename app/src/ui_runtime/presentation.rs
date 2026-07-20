@@ -558,6 +558,7 @@ impl UiPresentationRuntime {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,

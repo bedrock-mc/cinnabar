@@ -116,7 +116,7 @@ pub(super) fn damage_flash_phase(drop_millis: Option<u64>, now_millis: u64) -> O
     if elapsed >= DAMAGE_FLASH_WINDOW_MILLIS {
         return None;
     }
-    Some((elapsed / DAMAGE_FLASH_PHASE_MILLIS) % 2 == 0)
+    Some((elapsed / DAMAGE_FLASH_PHASE_MILLIS).is_multiple_of(2))
 }
 
 pub(super) fn heart_role(
