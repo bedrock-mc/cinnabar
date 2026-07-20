@@ -28,6 +28,9 @@ impl WorldStream {
             existing_anchor,
         )
     }
+    pub fn set_default_actor_game_mode(&mut self, game_mode: protocol::ActorGameMode) {
+        self.actors.set_default_game_mode(game_mode);
+    }
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,

@@ -953,6 +953,7 @@ fn actor_culling_precedes_the_remote_cap_and_preserves_visible_high_id_and_local
         yaw_degrees: 0.0,
         head_yaw_degrees: 0.0,
         teleported: false,
+        render_eligible: true,
         skin: None,
     };
     let mut remote_sources = (1..=u64::try_from(MAX_RENDERED_PLAYERS + 1).unwrap())

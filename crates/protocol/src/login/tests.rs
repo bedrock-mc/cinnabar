@@ -806,6 +806,7 @@ fn absolute_actor_move_uses_bedrock_varuint_and_raw_byte_rotations() {
             head_yaw: Some(180.0),
             on_ground: Some(true),
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         }))

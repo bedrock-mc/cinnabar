@@ -16,6 +16,9 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
         kind: ActorKind::Entity {
             identifier: "minecraft:test".into(),
         },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
         position: [0.0; 3],
         velocity: [0.0; 3],
         pitch: 0.0,

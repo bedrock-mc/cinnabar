@@ -610,6 +610,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
                 kind: ActorKind::Entity {
                     identifier: "minecraft:bee".into(),
                 },
+                game_mode: None,
                 position: [1.0, 2.0, 3.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -653,6 +654,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                     uuid: [8; 16],
                     username: "Alex".into(),
                 },
+                game_mode: None,
                 position: [1.0, 64.0, 2.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -693,6 +695,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: None,
             })),

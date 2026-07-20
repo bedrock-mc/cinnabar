@@ -277,6 +277,7 @@ pub(crate) fn receive_network_events(
                 environment,
                 inventory,
                 player_game_mode,
+                default_actor_game_mode,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -348,6 +349,7 @@ pub(crate) fn receive_network_events(
                         client_world.pending_surface_spawn,
                     )
                 };
+                stream.set_default_actor_game_mode(default_actor_game_mode);
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -700,6 +702,7 @@ pub(crate) fn actor_render_source(
         yaw_degrees: actor.yaw,
         head_yaw_degrees: actor.head_yaw,
         teleported: actor.teleported,
+        render_eligible: actor.is_render_eligible(),
         skin,
     }
 }
@@ -735,6 +738,7 @@ pub(crate) fn update_actor_render_scene<'a>(
             yaw_degrees,
             head_yaw_degrees: yaw_degrees,
             teleported: false,
+            render_eligible: true,
             skin: None,
         }
     });

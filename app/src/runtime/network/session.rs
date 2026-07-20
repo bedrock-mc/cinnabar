@@ -7,8 +7,9 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    ActorGameMode, BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet,
+    PacketIdTraceSnapshot, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -37,6 +38,7 @@ pub enum NetworkControlEvent {
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
         player_game_mode: PlayerGameMode,
+        default_actor_game_mode: ActorGameMode,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -320,6 +322,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
+                let default_actor_game_mode = game_data.start_game.world_gamemode.into();
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -329,6 +332,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         environment,
                         inventory,
                         player_game_mode,
+                        default_actor_game_mode,
                     },
                 )
                 .await
@@ -931,6 +935,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    snap: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                 }))
