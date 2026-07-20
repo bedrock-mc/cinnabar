@@ -419,7 +419,7 @@ fn lang_catalog_resolves_rawtext_translation_and_item_names() {
         value: value.into(),
     })
     .collect::<Vec<_>>();
-    let bytes = assets::encode_lang_catalog([9; 32], &entries).unwrap();
+    let bytes = assets::encode_lang_catalog([9; 32], [10; 32], &entries).unwrap();
     let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
 
     let mut runtime = UiRuntime::new(1);
@@ -512,7 +512,7 @@ fn lang_catalog_translates_rawtext_and_localizes_item_names() {
             value: std::sync::Arc::from("Golden Apple"),
         },
     ];
-    let bytes = assets::encode_lang_catalog([7; 32], &entries).unwrap();
+    let bytes = assets::encode_lang_catalog([7; 32], [8; 32], &entries).unwrap();
     let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
 
     let mut runtime = UiRuntime::new(1);

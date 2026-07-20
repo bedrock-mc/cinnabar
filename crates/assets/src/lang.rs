@@ -3,8 +3,10 @@
 //!
 //! The carrier is provenance-pinned like the entity carrier: it embeds the
 //! SHA-256 of the canonical `assets/vanilla-source.json` manifest whose
-//! archive supplied the language file, and startup rejects a carrier whose
-//! identity differs from the embedded manifest.
+//! archive supplied the language file AND the SHA-256 of the exact
+//! `texts/en_US.lang` bytes it was compiled from. The compiler and startup
+//! both reject anything that does not match the pinned identities, so a
+//! tampered language file beside a canonical manifest cannot reach players.
 
 use std::sync::Arc;
 
@@ -12,13 +14,22 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const LANG_CARRIER_MAGIC: [u8; 8] = *b"MCBELNG1";
-pub const LANG_CARRIER_VERSION: u32 = 1;
+pub const LANG_CARRIER_VERSION: u32 = 2;
 pub const MAX_LANG_ENTRIES: usize = 32_768;
 pub const MAX_LANG_KEY_BYTES: usize = 256;
 pub const MAX_LANG_VALUE_BYTES: usize = 1_024;
 pub const MAX_LANG_CARRIER_BYTES: usize = 8 * 1024 * 1024;
-const HEADER_BYTES: usize = 64;
+const HEADER_BYTES: usize = 96;
 const HASH_BYTES: usize = 32;
+
+/// SHA-256 of the exact `texts/en_US.lang` bytes (801,848 bytes) inside the
+/// pinned official Mojang sample pack v1.26.30.32-preview. The compiler
+/// refuses any other source and startup refuses any carrier not compiled
+/// from these bytes.
+pub const VANILLA_EN_US_LANG_SHA256: [u8; 32] = [
+    0xae, 0x1b, 0xab, 0x8a, 0x3a, 0xb0, 0x05, 0x59, 0x21, 0xa9, 0x07, 0x7c, 0x8f, 0x32, 0x44, 0xd5,
+    0x3b, 0xb9, 0xa1, 0x65, 0x40, 0x51, 0x0c, 0x4f, 0x0e, 0x07, 0x79, 0x10, 0x3c, 0x52, 0x1e, 0xde,
+];
 
 /// One resolved translation entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +41,7 @@ pub struct LangEntry {
 /// Decoded, validated localization catalog with binary-search lookup.
 pub struct RuntimeLangCatalog {
     source_manifest_sha256: [u8; 32],
+    lang_source_sha256: [u8; 32],
     entries: Box<[LangEntry]>,
 }
 
@@ -57,8 +69,9 @@ impl RuntimeLangCatalog {
         }
         let count = read_u32(bytes, 12)? as usize;
         let source_manifest_sha256 = read_array::<32>(bytes, 16)?;
-        let entries_offset = read_usize(bytes, 48)?;
-        let entries_end = read_usize(bytes, 56)?;
+        let lang_source_sha256 = read_array::<32>(bytes, 48)?;
+        let entries_offset = read_usize(bytes, 80)?;
+        let entries_end = read_usize(bytes, 88)?;
         if count > MAX_LANG_ENTRIES
             || entries_offset != HEADER_BYTES
             || entries_end < entries_offset
@@ -113,6 +126,7 @@ impl RuntimeLangCatalog {
         }
         Ok(Self {
             source_manifest_sha256,
+            lang_source_sha256,
             entries: entries.into_boxed_slice(),
         })
     }
@@ -120,6 +134,13 @@ impl RuntimeLangCatalog {
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
+    }
+
+    /// SHA-256 of the exact `texts/en_US.lang` bytes this carrier was
+    /// compiled from.
+    #[must_use]
+    pub const fn lang_source_sha256(&self) -> [u8; 32] {
+        self.lang_source_sha256
     }
 
     #[must_use]
@@ -156,6 +177,7 @@ pub enum LangCatalogError {
 /// Encodes a sorted entry table into the canonical carrier bytes.
 pub fn encode_lang_catalog(
     source_manifest_sha256: [u8; 32],
+    lang_source_sha256: [u8; 32],
     entries: &[LangEntry],
 ) -> Result<Vec<u8>, LangCatalogError> {
     if entries.len() > MAX_LANG_ENTRIES {
@@ -190,8 +212,9 @@ pub fn encode_lang_catalog(
     bytes[8..12].copy_from_slice(&LANG_CARRIER_VERSION.to_le_bytes());
     bytes[12..16].copy_from_slice(&(entries.len() as u32).to_le_bytes());
     bytes[16..48].copy_from_slice(&source_manifest_sha256);
-    bytes[48..56].copy_from_slice(&(HEADER_BYTES as u64).to_le_bytes());
-    bytes[56..64].copy_from_slice(&(entries_end as u64).to_le_bytes());
+    bytes[48..80].copy_from_slice(&lang_source_sha256);
+    bytes[80..88].copy_from_slice(&(HEADER_BYTES as u64).to_le_bytes());
+    bytes[88..96].copy_from_slice(&(entries_end as u64).to_le_bytes());
     bytes.extend_from_slice(&payload);
     let digest = Sha256::digest(&bytes);
     bytes.extend_from_slice(&digest);

@@ -20,7 +20,12 @@ pub(crate) fn armor_points(identifier: &str) -> u16 {
         "leather_leggings" => 2,
         "leather_chestplate" => 3,
         "golden_helmet" | "chainmail_helmet" | "iron_helmet" | "iron_boots" | "turtle_helmet" => 2,
-        "golden_leggings" => 3,
+        // The 1.26.30 copper set (base durability 11) protects between
+        // leather and chainmail: 2/4/3/1.
+        "copper_helmet" => 2,
+        "copper_chestplate" => 4,
+        "copper_leggings" | "golden_leggings" => 3,
+        "copper_boots" => 1,
         "chainmail_leggings" => 4,
         "golden_chestplate" | "chainmail_chestplate" => 5,
         "iron_leggings" => 5,
@@ -51,6 +56,7 @@ pub(crate) fn max_durability(identifier: &str) -> Option<u32> {
         // Tools and weapons by material tier.
         "wooden_sword" | "wooden_pickaxe" | "wooden_axe" | "wooden_shovel" | "wooden_hoe" => 59,
         "stone_sword" | "stone_pickaxe" | "stone_axe" | "stone_shovel" | "stone_hoe" => 131,
+        "copper_sword" | "copper_pickaxe" | "copper_axe" | "copper_shovel" | "copper_hoe" => 190,
         "iron_sword" | "iron_pickaxe" | "iron_axe" | "iron_shovel" | "iron_hoe" => 250,
         "golden_sword" | "golden_pickaxe" | "golden_axe" | "golden_shovel" | "golden_hoe" => 32,
         "diamond_sword" | "diamond_pickaxe" | "diamond_axe" | "diamond_shovel" | "diamond_hoe" => {
@@ -68,6 +74,10 @@ pub(crate) fn max_durability(identifier: &str) -> Option<u32> {
         "golden_chestplate" => 112,
         "golden_leggings" => 105,
         "golden_boots" => 91,
+        "copper_helmet" => 121,
+        "copper_chestplate" => 176,
+        "copper_leggings" => 165,
+        "copper_boots" => 143,
         "chainmail_helmet" | "iron_helmet" => 165,
         "chainmail_chestplate" | "iron_chestplate" => 240,
         "chainmail_leggings" | "iron_leggings" => 225,
@@ -158,6 +168,11 @@ mod tests {
         assert_eq!(armor_points("minecraft:turtle_helmet"), 2);
         assert_eq!(armor_points("minecraft:elytra"), 0);
         assert_eq!(armor_points("custom:armor"), 0);
+        // The 1.26.30 copper set sits between leather and chainmail.
+        assert_eq!(armor_points("minecraft:copper_helmet"), 2);
+        assert_eq!(armor_points("minecraft:copper_chestplate"), 4);
+        assert_eq!(armor_points("minecraft:copper_leggings"), 3);
+        assert_eq!(armor_points("minecraft:copper_boots"), 1);
         let total = total_armor_points(
             [
                 Some("minecraft:iron_helmet"),
@@ -177,6 +192,25 @@ mod tests {
                 .into_iter(),
         );
         assert_eq!(clamped, 20);
+    }
+
+    #[test]
+    fn copper_durabilities_follow_the_material_scheme() {
+        // Copper tools share the 190 tier between stone (131) and iron (250);
+        // copper armor is material base 11 times the per-piece multipliers.
+        for tool in [
+            "minecraft:copper_sword",
+            "minecraft:copper_pickaxe",
+            "minecraft:copper_axe",
+            "minecraft:copper_shovel",
+            "minecraft:copper_hoe",
+        ] {
+            assert_eq!(max_durability(tool), Some(190), "{tool}");
+        }
+        assert_eq!(max_durability("minecraft:copper_helmet"), Some(121));
+        assert_eq!(max_durability("minecraft:copper_chestplate"), Some(176));
+        assert_eq!(max_durability("minecraft:copper_leggings"), Some(165));
+        assert_eq!(max_durability("minecraft:copper_boots"), Some(143));
     }
 
     #[test]

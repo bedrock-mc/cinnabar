@@ -114,7 +114,8 @@ pub fn vanilla_source_manifest_json() -> &'static str {
 }
 
 pub use lang_carrier::{
-    LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, require_lang_assets,
+    LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
+    require_lang_assets,
 };
 
 impl LoadedFontAssets {
@@ -367,7 +368,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: io::Error,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -376,7 +377,7 @@ pub enum AssetStartupError {
     HudAssetsTooLarge {
         path: PathBuf,
         max_bytes: u64,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -386,7 +387,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: HudCatalogError,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error("{notice}")]
@@ -403,7 +404,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: io::Error,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -412,7 +413,7 @@ pub enum AssetStartupError {
     LangAssetsTooLarge {
         path: PathBuf,
         max_bytes: u64,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -422,7 +423,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: assets::LangCatalogError,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -432,13 +433,23 @@ pub enum AssetStartupError {
         path: PathBuf,
         carrier: String,
         manifest: String,
-        rebuild_command: &'static str,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from texts/en_US.lang bytes {carrier} but the checkout pins {pinned}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsSourceProvenance {
+        path: PathBuf,
+        carrier: String,
+        pinned: String,
+        rebuild_command: String,
     },
 
     #[error("{notice}")]
     LangAssetsMissing {
         path: PathBuf,
-        rebuild_command: &'static str,
+        rebuild_command: String,
         notice: String,
     },
 }
@@ -787,7 +798,21 @@ fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartu
     })
 }
 
-fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
+/// Quotes a path for copy-paste into the platform shell running `make`.
+#[cfg(windows)]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    format!("'{}'", path.replace('\'', "''"))
+}
+
+#[cfg(not(windows))]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+/// SHA-256 of the manifest with line endings canonicalized to LF, matching
+/// the compiler-side identity regardless of checkout autocrlf.
+pub fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
     let source = source.as_bytes();
     if !source.contains(&b'\r') {
         return Sha256::digest(source).into();

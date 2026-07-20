@@ -17,6 +17,7 @@ pub(super) struct LangAssetsReport {
     pub(super) schema: u32,
     pub(super) canonical_pack_path: Box<str>,
     pub(super) source_manifest_sha256: Box<str>,
+    pub(super) lang_source_sha256: Box<str>,
     pub(super) carrier_sha256: Box<str>,
     pub(super) counts: LangAssetCounts,
 }
@@ -44,14 +45,21 @@ pub(super) fn compile_lang_assets_command(
         MAX_SOURCE_MANIFEST_BYTES,
         "language source manifest",
     )?;
-    let compiled = compile_lang_assets(&canonical_pack, &manifest_bytes)?;
+    // Production compiles refuse any source that is not the pinned official
+    // sample `texts/en_US.lang` bytes.
+    let compiled = compile_lang_assets(
+        &canonical_pack,
+        &manifest_bytes,
+        Some(assets::VANILLA_EN_US_LANG_SHA256),
+    )?;
     let report_data = LangAssetsReport {
-        schema: 1,
+        schema: 2,
         canonical_pack_path: canonical_pack
             .to_string_lossy()
             .into_owned()
             .into_boxed_str(),
         source_manifest_sha256: hex(&compiled.report.source_manifest_sha256).into_boxed_str(),
+        lang_source_sha256: hex(&compiled.report.lang_source_sha256).into_boxed_str(),
         carrier_sha256: hex(&compiled.report.carrier_sha256).into_boxed_str(),
         counts: LangAssetCounts {
             entries: compiled.report.entries,

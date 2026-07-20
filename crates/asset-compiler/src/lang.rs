@@ -24,6 +24,7 @@ pub struct CompiledLangCarrier {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LangCompileReport {
     pub source_manifest_sha256: [u8; 32],
+    pub lang_source_sha256: [u8; 32],
     pub carrier_sha256: [u8; 32],
     pub entries: usize,
     pub duplicate_keys: usize,
@@ -45,15 +46,28 @@ pub enum LangCompileError {
     SourceTooLarge { path: Box<Path>, maximum: usize },
     #[error("language source {path} is not UTF-8")]
     SourceNotUtf8 { path: Box<Path> },
+    #[error(
+        "language source {path} is not the pinned official Mojang sample `texts/en_US.lang` (sha256 {actual}, pinned {expected})"
+    )]
+    SourceBytesMismatch {
+        path: Box<Path>,
+        actual: String,
+        expected: String,
+    },
     #[error("language table exceeds the {maximum}-entry bound")]
     TooManyEntries { maximum: usize },
     #[error("language carrier encoding failed: {0}")]
     Carrier(#[from] assets::LangCatalogError),
 }
 
+/// Compiles the carrier from `<root>/texts/en_US.lang`. When
+/// `expected_source_sha256` is set (production always pins
+/// [`assets::VANILLA_EN_US_LANG_SHA256`]), source bytes with any other
+/// identity are refused before an entry is parsed.
 pub fn compile_lang_assets(
     root: &Path,
     source_manifest: &[u8],
+    expected_source_sha256: Option<[u8; 32]>,
 ) -> Result<CompiledLangCarrier, LangCompileError> {
     let source_manifest_sha256 = validate_vanilla_source_manifest(source_manifest)?;
     let path = root.join(LANG_RELATIVE_PATH);
@@ -65,6 +79,16 @@ pub fn compile_lang_assets(
         return Err(LangCompileError::SourceTooLarge {
             path: path.into_boxed_path(),
             maximum: MAX_LANG_SOURCE_BYTES,
+        });
+    }
+    let lang_source_sha256: [u8; 32] = Sha256::digest(&bytes).into();
+    if let Some(expected) = expected_source_sha256
+        && lang_source_sha256 != expected
+    {
+        return Err(LangCompileError::SourceBytesMismatch {
+            path: path.into_boxed_path(),
+            actual: hex_lower(&lang_source_sha256),
+            expected: hex_lower(&expected),
         });
     }
     let text = std::str::from_utf8(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes)).map_err(
@@ -113,10 +137,11 @@ pub fn compile_lang_assets(
             value: value.into(),
         })
         .collect();
-    let carrier = encode_lang_catalog(source_manifest_sha256, &entries)?;
+    let carrier = encode_lang_catalog(source_manifest_sha256, lang_source_sha256, &entries)?;
     Ok(CompiledLangCarrier {
         report: LangCompileReport {
             source_manifest_sha256,
+            lang_source_sha256,
             carrier_sha256: Sha256::digest(&carrier).into(),
             entries: entries.len(),
             duplicate_keys,
@@ -125,6 +150,10 @@ pub fn compile_lang_assets(
         },
         bytes: carrier,
     })
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -157,7 +186,7 @@ mod tests {
         )
         .unwrap();
 
-        let compiled = compile_lang_assets(&root, &manifest).unwrap();
+        let compiled = compile_lang_assets(&root, &manifest, None).unwrap();
         assert_eq!(compiled.report.entries, 2);
         assert_eq!(compiled.report.duplicate_keys, 1);
         assert_eq!(compiled.report.skipped_oversized, 1);
@@ -172,6 +201,20 @@ mod tests {
             Some("Opped: %s")
         );
         assert_eq!(catalog.lookup("missing"), None);
+        // The exact source-byte identity is embedded in the carrier.
+        let source_bytes = fs::read(root.join(LANG_RELATIVE_PATH)).unwrap();
+        let expected: [u8; 32] = Sha256::digest(&source_bytes).into();
+        assert_eq!(catalog.lang_source_sha256(), expected);
+        assert_eq!(compiled.report.lang_source_sha256, expected);
+
+        // With the pinned production identity enforced, tampered source
+        // bytes beside the canonical manifest refuse to compile.
+        let refused =
+            compile_lang_assets(&root, &manifest, Some(assets::VANILLA_EN_US_LANG_SHA256));
+        assert!(matches!(
+            refused,
+            Err(LangCompileError::SourceBytesMismatch { .. })
+        ));
 
         fs::remove_dir_all(root).unwrap();
     }
