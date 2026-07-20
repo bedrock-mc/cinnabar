@@ -287,6 +287,12 @@ impl UiRuntime {
         self.local_selected_slot = Some(slot);
     }
 
+    /// The local player's StartGame-assigned runtime id, once known — required to address the
+    /// local player in outbound packets such as the hotbar-selection `MobEquipment`.
+    pub(crate) fn local_runtime_id(&self) -> Option<u64> {
+        self.equipment_router.local_runtime_id()
+    }
+
     pub(crate) fn enqueue_inventory_event(
         &mut self,
         session_generation: u64,
