@@ -508,17 +508,56 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
 }
 
 fn run_make_atmosphere(root: &Path, assignments: &[String]) {
-    let output = Command::new("make")
+    let mut command = Command::new("make");
+    command
         .current_dir(root)
         .args(["-f", "Makefile", "-j4", "atmosphere-assets"])
-        .args(assignments)
-        .output()
-        .unwrap();
+        .args(assignments);
+    if let Some(cargo) = std::env::var_os("CARGO") {
+        command.arg(format!(
+            "CARGO={}",
+            bash_command_path(Path::new(&cargo))
+        ));
+    }
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "make atmosphere-assets failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn bash_command_path(path: &Path) -> String {
+    let slash_path = path.to_string_lossy().replace('\\', "/");
+    let bytes = slash_path.as_bytes();
+    let shell_path = if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes[2] == b'/'
+    {
+        format!(
+            "/{}/{}",
+            char::from(bytes[0]).to_ascii_lowercase(),
+            &slash_path[3..]
+        )
+    } else {
+        slash_path
+    };
+    format!("'{}'", shell_path.replace('\'', "'\"'\"'"))
+}
+
+#[test]
+fn bash_command_path_converts_and_quotes_windows_executables() {
+    assert_eq!(
+        bash_command_path(Path::new(
+            r"C:\Users\CI Runner\.cargo\bin\cargo.exe"
+        )),
+        "'/c/Users/CI Runner/.cargo/bin/cargo.exe'"
+    );
+    assert_eq!(
+        bash_command_path(Path::new("/opt/runner's tools/cargo")),
+        "'/opt/runner'\"'\"'s tools/cargo'"
     );
 }
 
