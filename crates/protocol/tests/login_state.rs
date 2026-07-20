@@ -629,10 +629,28 @@ fn item_registry() -> McpePacket {
 
 async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     let transport = ScriptTransport::new(mode, order, false);
-    let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
+    let protocol::LoginResult {
+        mut session,
+        game_data,
+        local_appearance,
+    } = LoginSequence::connect_transport(transport, "RustClient")
         .await
         .expect("scripted login");
     assert_eq!(game_data.start_game.runtime_entity_id, RUNTIME_ID);
+    assert_eq!(
+        (
+            local_appearance.skin().width,
+            local_appearance.skin().height
+        ),
+        (64, 64)
+    );
+    assert!(
+        local_appearance
+            .skin()
+            .rgba8
+            .iter()
+            .all(|byte| *byte == 255)
+    );
     assert_eq!(session.decode_error_count(), 0);
 
     for expected_time in [12_345, 23_456] {
@@ -712,7 +730,7 @@ async fn no_compression_login_uses_the_uncompressed_batch_marker() {
 async fn encrypted_login_advertises_client_cache_only_when_resolver_is_installed() {
     let transport =
         ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
-    let (session, _) = LoginSequence::connect_transport_with_blob_cache(
+    let protocol::LoginResult { session, .. } = LoginSequence::connect_transport_with_blob_cache(
         transport,
         "RustClient",
         ClientBlobCache::default(),
@@ -726,13 +744,14 @@ async fn encrypted_login_advertises_client_cache_only_when_resolver_is_installed
 async fn encrypted_play_resolves_client_cached_level_chunk_and_preserves_world_fifo() {
     let transport =
         ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
-    let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("cache-enabled scripted login");
+    let protocol::LoginResult { mut session, .. } =
+        LoginSequence::connect_transport_with_blob_cache(
+            transport,
+            "RustClient",
+            ClientBlobCache::default(),
+        )
+        .await
+        .expect("cache-enabled scripted login");
 
     for expected in [
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),

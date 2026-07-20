@@ -112,9 +112,21 @@ pub(crate) fn actor_rig_presentation(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn local_player_rig_presentation(
     rig: &LocalPlayerRigSnapshot<'_>,
     profile: &PlayerProfile,
+    authority: LocalPlayerPresentationAuthority,
+) -> Option<ActorRigPresentation> {
+    let PlayerSkin::Standard(skin) = &profile.skin else {
+        return None;
+    };
+    local_player_skin_rig_presentation(rig, skin, authority)
+}
+
+pub(crate) fn local_player_skin_rig_presentation(
+    rig: &LocalPlayerRigSnapshot<'_>,
+    skin: &protocol::StandardSkin,
     authority: LocalPlayerPresentationAuthority,
 ) -> Option<ActorRigPresentation> {
     let LocalPlayerPresentationAuthority {
@@ -141,9 +153,6 @@ pub(crate) fn local_player_rig_presentation(
         EntityRigFallback::Skip => ActorRigRoute::Compiled,
         EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
         EntityRigFallback::Diagnostic => return None,
-    };
-    let PlayerSkin::Standard(skin) = &profile.skin else {
-        return None;
     };
     if !local_skin_geometry_matches_rig(&skin.geometry, rig) {
         return None;

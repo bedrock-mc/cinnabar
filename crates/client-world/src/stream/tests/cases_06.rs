@@ -230,6 +230,88 @@ fn start_game_self_resolves_only_its_exact_player_list_skin_without_add_player()
 }
 
 #[test]
+fn local_login_skin_survives_absent_hostile_roster_and_world_resets() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+    stream.set_local_player_appearance_authority(
+        protocol::LocalPlayerAppearanceAuthority::default_advertised(),
+    );
+
+    assert!(stream.local_player_profile().is_none());
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [9; 16],
+                    unique_id: -9,
+                    username: "hostile-self-echo".into(),
+                    verified: true,
+                    skin: PlayerSkin::Standard(StandardSkin {
+                        width: 64,
+                        height: 64,
+                        rgba8: vec![9; 64 * 64 * 4].into(),
+                        geometry: protocol::PlayerSkinGeometry::Custom {
+                            identifier: "geometry.humanoid.custom".into(),
+                            data_sha256: [9; 32],
+                        },
+                    }),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+
+    stream.reset_local_player_animation();
+    // The app's fast-transfer barrier commits only its FIFO slot on the same
+    // WorldStream. Prove that exact operation cannot erase login authority.
+    stream.commit(2).unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+    stream
+        .submit(
+            3,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 80.0, 0.0],
+            }),
+        )
+        .unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+}
+
+#[test]
 fn local_fallback_re_resolves_when_default_game_mode_changes() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

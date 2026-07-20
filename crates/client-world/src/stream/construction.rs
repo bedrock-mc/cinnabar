@@ -36,6 +36,12 @@ impl WorldStream {
             .set_default_game_mode(authority.default_game_mode());
         self.local_player_game_mode = Some(authority);
     }
+    pub fn set_local_player_appearance_authority(
+        &mut self,
+        authority: protocol::LocalPlayerAppearanceAuthority,
+    ) {
+        self.local_player_appearance = Some(authority);
+    }
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
@@ -130,6 +136,7 @@ impl WorldStream {
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_game_mode: None,
+            local_player_appearance: None,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),

@@ -107,17 +107,44 @@ impl WorldStream {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
-    /// Returns the one PlayerList profile whose unique entity ID exactly
-    /// matches the local StartGame authority. Missing or ambiguous authority
-    /// deliberately produces no profile.
+    /// Returns only exact correlated PlayerList roster data. Local login
+    /// appearance authority never fabricates roster identity fields.
     pub fn local_player_profile(&self) -> Option<&PlayerProfile> {
         let unique_id = self.local_player_game_mode?.unique_id();
         self.actors.player_profile_by_unique_id(unique_id)
+    }
+    pub fn local_player_skin_authority(&self) -> Option<&protocol::StandardSkin> {
+        if let Some(appearance) = self.local_player_appearance.as_ref() {
+            return Some(appearance.skin());
+        }
+        let profile = self.local_player_profile()?;
+        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
+            return None;
+        };
+        Some(skin)
     }
     pub fn local_player_rig_authority_status(&self) -> LocalPlayerRigAuthorityStatus {
         let Some(authority) = self.local_player_game_mode else {
             return LocalPlayerRigAuthorityStatus::MissingStartGameAuthority;
         };
+        if let Some(skin) = self
+            .local_player_appearance
+            .as_ref()
+            .map(|value| value.skin())
+        {
+            return match self.actors.local_player_rig_resolution(&skin.geometry) {
+                LocalPlayerRigResolution::MissingVariant => {
+                    LocalPlayerRigAuthorityStatus::MissingCompiledRigVariant
+                }
+                LocalPlayerRigResolution::GeometryFingerprintMismatch => {
+                    LocalPlayerRigAuthorityStatus::GeometryFingerprintMismatch
+                }
+                LocalPlayerRigResolution::PoseNotReady => {
+                    LocalPlayerRigAuthorityStatus::PoseNotReady
+                }
+                LocalPlayerRigResolution::Ready => LocalPlayerRigAuthorityStatus::Ready,
+            };
+        }
         let profile = match self
             .actors
             .player_profile_lookup_by_unique_id(authority.unique_id())
@@ -150,10 +177,7 @@ impl WorldStream {
         self.actors.actor_rigs()
     }
     pub fn local_player_rig(&self) -> Option<crate::LocalPlayerRigSnapshot<'_>> {
-        let profile = self.local_player_profile()?;
-        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
-            return None;
-        };
+        let skin = self.local_player_skin_authority()?;
         self.actors.local_player_rig(&skin.geometry)
     }
     pub fn advance_local_player_animation(&mut self, input: crate::LocalPlayerAnimationTickInput) {

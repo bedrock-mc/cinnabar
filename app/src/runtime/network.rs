@@ -40,8 +40,8 @@ use crate::{
     movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
         LocalPlayerPresentationAuthority, actor_rig_presentation,
-        local_actor_presentation_for_visibility, local_player_rig_presentation,
-        select_actor_presentations_for_view, update_actor_rig_scene,
+        local_actor_presentation_for_visibility, select_actor_presentations_for_view,
+        update_actor_rig_scene,
     },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
@@ -285,6 +285,7 @@ pub(crate) fn receive_network_events(
                 environment,
                 inventory,
                 local_player_game_mode,
+                local_player_appearance,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -357,6 +358,7 @@ pub(crate) fn receive_network_events(
                     )
                 };
                 stream.set_local_player_game_mode_authority(local_player_game_mode);
+                stream.set_local_player_appearance_authority(*local_player_appearance);
                 stream.set_actor_move_witness_enabled(acceptance.enabled());
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
@@ -847,7 +849,7 @@ pub(crate) fn publish_actor_render_frame(
                 stream.actor_session_id(),
                 stream.current_dimension(),
                 stream.local_player_render_eligible(),
-                stream.local_player_profile(),
+                stream.local_player_skin_authority(),
                 stream.local_player_rig(),
                 remotes,
                 canonical_local,
@@ -874,10 +876,10 @@ pub(crate) fn publish_actor_render_frame(
         let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
         let mut position = visibility.eye();
         position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let local_authority = local_rig.zip(local_profile).and_then(|(rig, profile)| {
-            local_player_rig_presentation(
+        let local_authority = local_rig.zip(local_profile).and_then(|(rig, skin)| {
+            crate::presentation::actors::local_player_skin_rig_presentation(
                 &rig,
-                profile,
+                skin,
                 LocalPlayerPresentationAuthority {
                     actor_session_id,
                     dimension,

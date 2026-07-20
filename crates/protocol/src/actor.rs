@@ -653,7 +653,7 @@ pub(crate) fn normalize_player_list(
 }
 
 mod skin;
-use skin::normalize_player_skin;
+pub(crate) use skin::normalize_player_skin;
 #[cfg(test)]
 use skin::normalize_player_skin_geometry;
 fn normalize_entity_attributes(

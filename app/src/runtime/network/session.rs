@@ -38,6 +38,7 @@ pub enum NetworkControlEvent {
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
         local_player_game_mode: LocalPlayerGameModeAuthority,
+        local_player_appearance: Box<protocol::LocalPlayerAppearanceAuthority>,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -302,7 +303,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let protocol::LoginResult {
+                    session,
+                    game_data,
+                    local_appearance,
+                } = match login {
                     Ok(connected) => connected,
                     Err(error) => {
                         let _ = send_control_event_or_cancel(
@@ -331,6 +336,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         environment,
                         inventory,
                         local_player_game_mode,
+                        local_player_appearance: Box::new(local_appearance),
                     },
                 )
                 .await

@@ -49,7 +49,9 @@ pub use item::{
     MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
 };
 pub use jolyne::GameData;
-pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
+pub use login::{
+    LocalPlayerAppearanceAuthority, LoginResult, LoginSequence, PacketIdTraceSnapshot, PlaySession,
+};
 pub use movement::{
     PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     player_auth_input,

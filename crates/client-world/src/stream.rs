@@ -194,6 +194,7 @@ pub struct WorldStream {
     current_dimension: i32,
     local_player_runtime_id: u64,
     local_player_game_mode: Option<protocol::LocalPlayerGameModeAuthority>,
+    local_player_appearance: Option<protocol::LocalPlayerAppearanceAuthority>,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,

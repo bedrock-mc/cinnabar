@@ -1,7 +1,7 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-pub(super) fn normalize_player_skin(
+pub(crate) fn normalize_player_skin(
     skin: valentine::bedrock::version::v1_26_30::Skin,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {

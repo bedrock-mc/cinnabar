@@ -32,6 +32,7 @@ use crate::runtime::world::apply_committed_ui_event;
 use crate::ui_runtime::UiRuntime;
 
 mod custom_geometry;
+mod login_authority;
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
