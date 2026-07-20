@@ -155,10 +155,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
+    let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     let font_runtime = loaded_assets.fonts.into_runtime();
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
+    let actor_render_scene = ActorRenderScene::with_runtime_entity_assets(&entity_runtime)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "prepare validated runtime entity geometry for actor rendering: {error:?}"
+            )
+        })?;
     let collision_breg = include_bytes!("../../crates/assets/data/block-registry-v1001.bin");
     let collision_records = assets::read_registry(collision_breg)
         .context("decode checked-in protocol-1001 collision registry")?;
@@ -222,7 +229,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(network)
-        .insert_resource(ClientWorld::new(Arc::clone(&runtime_assets)))
+        .insert_resource(ClientWorld::new_with_entity_assets(
+            Arc::clone(&runtime_assets),
+            entity_runtime,
+        ))
         .insert_resource(UiRuntime::new(0))
         .insert_resource(
             UiPresentationRuntime::new(font_runtime)
@@ -236,7 +246,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(MovementTicker::default())
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(collision_registries)
-        .insert_resource(ActorRenderScene::default())
+        .insert_resource(actor_render_scene)
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,

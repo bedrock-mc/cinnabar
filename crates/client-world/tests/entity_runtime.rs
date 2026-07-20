@@ -353,6 +353,67 @@ fn stream_with_entity_assets(entity_assets: Arc<RuntimeEntityAssets>) -> WorldSt
 }
 
 #[test]
+fn world_stream_retains_the_exact_runtime_entity_asset_catalog() {
+    let entity_assets = entity_assets(EntityRigFallback::Skip);
+    let stream = WorldStream::new_with_asset_sets(
+        bootstrap(),
+        Arc::new(RuntimeAssets::diagnostic()),
+        Arc::clone(&entity_assets),
+        [0.0, 64.0, 0.0],
+        None,
+    );
+
+    assert!(Arc::ptr_eq(
+        stream
+            .runtime_entity_assets()
+            .expect("asset-set streams retain their immutable entity catalog"),
+        &entity_assets,
+    ));
+}
+
+#[test]
+fn asset_set_constructor_applies_start_game_default_before_actor_spawn() {
+    let mut stream = WorldStream::new_with_asset_sets_and_actor_default(
+        bootstrap(),
+        Arc::new(RuntimeAssets::diagnostic()),
+        entity_assets(EntityRigFallback::Skip),
+        [0.0, 64.0, 0.0],
+        None,
+        ActorGameMode::Spectator,
+    );
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: -7,
+                runtime_id: 42,
+                kind: ActorKind::Player {
+                    uuid: [7; 16],
+                    username: "spectator".into(),
+                },
+                game_mode: Some(ActorGameMode::Fallback),
+                position: [0.0, 64.0, 0.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+            })),
+        )
+        .unwrap();
+
+    assert_eq!(
+        stream.actor(42).unwrap().resolved_game_mode,
+        Some(ActorGameMode::Spectator)
+    );
+}
+
+#[test]
 fn runtime_budgets_are_the_reviewed_exact_ceilings() {
     assert_eq!(MAX_RUNTIME_BONES_PER_RIG, 96);
     assert_eq!(MAX_CONTROLLER_TRANSITIONS_PER_TICK, 8);

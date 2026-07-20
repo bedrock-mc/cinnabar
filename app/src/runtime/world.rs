@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use assets::RuntimeAssets;
+use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     app::AppExit,
     ecs::system::SystemParam,
@@ -51,6 +51,7 @@ pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
+    pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
     pub(crate) network_decode_errors: u64,
@@ -181,12 +182,23 @@ impl ClientWorld {
         Self {
             stream: None,
             runtime_assets,
+            entity_assets: None,
             pending_surface_spawn: None,
             fatal_error: None,
             network_decode_errors: 0,
             reported_decode_errors: 0,
             client_blob_cache_enabled: false,
             client_blob_cache: BlobCacheStats::default(),
+        }
+    }
+
+    pub(crate) fn new_with_entity_assets(
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Arc<RuntimeEntityAssets>,
+    ) -> Self {
+        Self {
+            entity_assets: Some(entity_assets),
+            ..Self::new(runtime_assets)
         }
     }
 }

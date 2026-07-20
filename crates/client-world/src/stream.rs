@@ -121,6 +121,7 @@ pub struct WorldStream {
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
+    entity_assets: Option<Arc<RuntimeEntityAssets>>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
     biome_tint_stream_id: u64,

@@ -86,6 +86,9 @@ impl WorldStream {
         self.actors
             .render_players(Some(self.local_player_runtime_id))
     }
+    pub fn runtime_entity_assets(&self) -> Option<&Arc<RuntimeEntityAssets>> {
+        self.entity_assets.as_ref()
+    }
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }

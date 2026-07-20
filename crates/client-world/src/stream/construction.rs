@@ -51,6 +51,24 @@ impl WorldStream {
             existing_anchor,
         )
     }
+    pub fn new_with_asset_sets_and_actor_default(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Arc<RuntimeEntityAssets>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+        default_game_mode: protocol::ActorGameMode,
+    ) -> Self {
+        let mut stream = Self::new_with_asset_sets(
+            bootstrap,
+            runtime_assets,
+            entity_assets,
+            current_position,
+            existing_anchor,
+        );
+        stream.actors.set_default_game_mode(default_game_mode);
+        stream
+    }
     pub(super) fn with_first_sequence_and_recovery(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
@@ -104,10 +122,14 @@ impl WorldStream {
         let air_network_id = runtime_assets
             .air_network_id(network_id_mode)
             .unwrap_or(bootstrap.air_network_id);
-        let mut actors = entity_assets.map_or_else(
+        let mut actors = entity_assets.as_ref().map_or_else(
             || ActorStore::new(actor_session_id, bootstrap.dimension),
             |assets| {
-                ActorStore::new_with_entity_assets(actor_session_id, bootstrap.dimension, assets)
+                ActorStore::new_with_entity_assets(
+                    actor_session_id,
+                    bootstrap.dimension,
+                    Arc::clone(assets),
+                )
             },
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
@@ -119,6 +141,7 @@ impl WorldStream {
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,
+            entity_assets,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
             biome_tint_stream_id,

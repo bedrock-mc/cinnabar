@@ -106,6 +106,19 @@ fn invalid_pose_is_rejected_transactionally_and_no_draw_is_attributed() {
 }
 
 #[test]
+fn stationary_spawn_identity_is_exact_and_admitted_without_a_move_packet() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let mut actor = submission(1, 1);
+    actor.input.identity.movement_revision = 0;
+
+    let frame = builder.build(0.5, None, [actor]);
+
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.manifest[0].identity.movement_revision, 0);
+    assert_eq!(frame.rejects.invalid_identity, 0);
+}
+
+#[test]
 fn culling_precedes_actor_and_bone_arena_reservation() {
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let view = ActorCullView {
@@ -194,6 +207,7 @@ fn missing_geometry_uses_only_an_explicit_fallback_or_no_draw_route() {
     compiled.route = ActorRigRoute::Compiled;
     let mut fallback = submission(2, 1);
     fallback.route = ActorRigRoute::Diagnostic;
+    fallback.input = input(2, 1, 6);
 
     let frame = builder.build(0.5, None, [compiled, fallback]);
 
@@ -208,6 +222,7 @@ fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
     let mut scene = ActorRenderScene::default();
     let mut actor = submission(1, 1);
     actor.route = ActorRigRoute::Diagnostic;
+    actor.input = input(1, 1, 6);
     actor.texture_layer = 1;
 
     let frame = scene.update_rigs(
@@ -220,4 +235,46 @@ fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
     assert!(frame.rig.instances.is_empty());
     assert!(frame.skins_rgba8.is_empty());
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
+}
+
+#[test]
+fn one_bounded_skin_family_can_back_multiple_visible_actors_after_culling() {
+    let mut scene = ActorRenderScene::default();
+    let mut first = submission(1, 1);
+    first.route = ActorRigRoute::Diagnostic;
+    first.input = input(1, 1, 6);
+    let mut second = submission(2, 1);
+    second.route = ActorRigRoute::Diagnostic;
+    second.input = input(2, 1, 6);
+    let mut culled = submission(3, 1);
+    culled.route = ActorRigRoute::Diagnostic;
+    culled.input = input(3, 1, 6);
+    culled.world_from_actor[0][3] = 500.0;
+    let view = ActorCullView {
+        clip_from_world: Mat4::from_scale(Vec3::splat(0.001)),
+        camera_position: Vec3::new(0.0, 65.0, 0.0),
+        max_distance: 192.0,
+    };
+
+    let frame = scene.update_rigs(
+        0.5,
+        Some(view),
+        [first, second, culled],
+        Arc::from(vec![255_u8; STANDARD_SKIN_BYTES]),
+    );
+
+    assert_eq!(
+        frame.rig.instances.len(),
+        2,
+        "unexpected rig rejects: {:?}",
+        frame.rig.rejects
+    );
+    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert!(
+        frame
+            .rig
+            .instances
+            .iter()
+            .all(|actor| actor.texture_layer == 0)
+    );
 }

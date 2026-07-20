@@ -10,12 +10,17 @@ use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, Vec3, With},
     time::Real,
 };
-use client_world::{ActorSnapshot, PlayerProfile, SAFE_SERVER_HEIGHT, WorldStream};
+#[cfg(test)]
+use client_world::{ActorSnapshot, PlayerProfile};
+use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorRenderFrame, ActorRenderScene, ChunkUploadAcknowledgements,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
+#[cfg(test)]
+use render::{ActorRenderSource, ActorSkinPixels};
+use semantic_input::PerspectiveMode;
 
 use crate::{
     acceptance::{
@@ -29,6 +34,7 @@ use crate::{
     camera::FlyCamera,
     environment::replace_session,
     movement::MovementSource,
+    presentation::actors::{actor_rig_presentation, select_actor_presentations_for_view},
     runtime::{
         shutdown::record_fatal_error,
         visibility::AppMetrics,
@@ -269,13 +275,24 @@ pub(crate) fn receive_network_events(
                         SAFE_SERVER_HEIGHT,
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]);
-                let stream = WorldStream::new_with_assets_and_actor_default(
-                    bootstrap,
-                    Arc::clone(&client_world.runtime_assets),
-                    current,
-                    client_world.pending_surface_spawn,
-                    default_game_mode,
-                );
+                let stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
+                    WorldStream::new_with_asset_sets_and_actor_default(
+                        bootstrap,
+                        Arc::clone(&client_world.runtime_assets),
+                        Arc::clone(entity_assets),
+                        current,
+                        client_world.pending_surface_spawn,
+                        default_game_mode,
+                    )
+                } else {
+                    WorldStream::new_with_assets_and_actor_default(
+                        bootstrap,
+                        Arc::clone(&client_world.runtime_assets),
+                        current,
+                        client_world.pending_surface_spawn,
+                        default_game_mode,
+                    )
+                };
                 let resolved = stream.resolved_server_position();
                 if let Ok(mut camera) = cameras.single_mut() {
                     camera.translation = Vec3::from_array(resolved.position);
@@ -542,6 +559,7 @@ pub(crate) fn drain_network_ingress<T>(
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn actor_render_source(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
@@ -595,14 +613,23 @@ pub(crate) fn publish_actor_render_frame(
     if let Some(stream) = client_world.stream.as_mut() {
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
-    let sources = client_world
+    let presentations = client_world
         .stream
         .as_ref()
         .map(|stream| {
-            stream
+            let profiles = stream
                 .render_players()
                 .into_iter()
-                .map(|(actor, profile)| actor_render_source(actor, profile))
+                .map(|(actor, profile)| (actor.runtime_id, profile))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            stream
+                .actor_rigs()
+                .into_iter()
+                .filter_map(|rig| {
+                    let actor = stream.actor(rig.actor.runtime_id)?;
+                    let profile = profiles.get(&rig.actor.runtime_id).copied().flatten();
+                    actor_rig_presentation(&rig, actor, profile, step.partial_tick)
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -614,7 +641,28 @@ pub(crate) fn publish_actor_render_frame(
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    *frame = scene.update(step.partial_tick, cull_view, sources).clone();
+    let local_runtime_id = client_world
+        .stream
+        .as_ref()
+        .map_or(0, WorldStream::local_player_runtime_id);
+    // Phase 3 owns the future local-avatar snapshot and perspective carrier.
+    // Until that call-site lands, first person deliberately contributes no
+    // render-owned local actor while remote runtime IDs remain deduplicated.
+    let batch = select_actor_presentations_for_view(
+        PerspectiveMode::FirstPerson,
+        local_runtime_id,
+        None,
+        presentations,
+        cull_view,
+    );
+    *frame = scene
+        .update_rigs(
+            step.partial_tick,
+            cull_view,
+            batch.submissions,
+            batch.skins_rgba8,
+        )
+        .clone();
 }
 
 pub(crate) mod session;

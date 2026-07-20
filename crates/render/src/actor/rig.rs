@@ -33,7 +33,6 @@ impl ActorRenderIdentity {
             && self.runtime_id != 0
             && self.spawn_revision != 0
             && self.ingress_sequence != 0
-            && self.movement_revision != 0
             && self.pose_generation != 0
     }
 }
@@ -403,8 +402,8 @@ impl ActorRigFrameBuilder {
                 continue;
             }
             let diagnostic = submission.route == ActorRigRoute::Diagnostic;
-            if (!diagnostic && !submission.input.identity.is_exact())
-                || (!diagnostic && submission.input.completed_tick == 0)
+            if (!diagnostic
+                && (!submission.input.identity.is_exact() || submission.input.completed_tick == 0))
                 || submission.input.reset_generation == 0
             {
                 rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
@@ -419,7 +418,7 @@ impl ActorRigFrameBuilder {
                 rejects.invalid_world_transform = rejects.invalid_world_transform.saturating_add(1);
                 continue;
             }
-            if !actor_submission_is_visible(&submission, view) {
+            if !actor_rig_submission_is_visible(&submission, view) {
                 continue;
             }
             if instances.len() == MAX_RENDERED_PLAYERS {
@@ -687,7 +686,8 @@ fn geometry_catalog_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeome
     hash.max(1)
 }
 
-fn actor_submission_is_visible(
+#[must_use]
+pub fn actor_rig_submission_is_visible(
     submission: &ActorRigSubmission,
     view: Option<ActorCullView>,
 ) -> bool {
@@ -770,7 +770,7 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
     ];
     let rotated_pivot =
         rows.map(|row| row[0] * bind_pivot[0] + row[1] * bind_pivot[1] + row[2] * bind_pivot[2]);
-    let translation =
+    let translation: [f32; 3] =
         std::array::from_fn(|axis| transform.translation_scale[axis] - rotated_pivot[axis]);
     Some(std::array::from_fn(|axis| {
         [
