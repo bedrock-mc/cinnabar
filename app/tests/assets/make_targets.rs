@@ -428,13 +428,22 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     let light = temporary.join("light.bin");
     let biome = temporary.join("biome.bin");
     let manifest = temporary.join("vanilla-source.json");
+    let pack = temporary.join("resource_pack");
+    let sentinel = pack.join("blocks.json");
     let atmosphere = temporary.join("atmosphere.mcbeatm");
     let report = temporary.join("atmosphere.json");
     let invocations = temporary.join("invocations.log");
+    // Hermeticity traps: the atmosphere contract must never reach the vanilla
+    // fetch or the world compiler. A leaked invocation writes one of these logs
+    // (on CI the un-stubbed defaults would hit the network instead).
+    let fetch_leak = temporary.join("fetch-leak.log");
+    let world_leak = temporary.join("world-leak.log");
+    fs::create_dir_all(&pack).unwrap();
     for prerequisite in [&block, &light, &biome] {
         fs::write(prerequisite, b"registry").unwrap();
     }
     fs::write(&world, b"world").unwrap();
+    fs::write(&sentinel, b"pack").unwrap();
     fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
     let now = SystemTime::now();
     for prerequisite in [&block, &light, &biome, &manifest] {
@@ -445,6 +454,14 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
             .set_modified(now - Duration::from_secs(120))
             .unwrap();
     }
+    // The pack sentinel must be newer than its manifest prerequisite and older
+    // than the world blob so neither the fetch nor the world compile is due.
+    fs::File::options()
+        .write(true)
+        .open(&sentinel)
+        .unwrap()
+        .set_modified(now - Duration::from_secs(90))
+        .unwrap();
     fs::File::options()
         .write(true)
         .open(&world)
@@ -460,15 +477,28 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     );
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
+        "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("ASSET_BLOB={}", make_path(&world)),
         format!("BLOCK_REGISTRY={}", make_path(&block)),
         format!("LIGHT_REGISTRY={}", make_path(&light)),
         format!("BIOME_REGISTRY={}", make_path(&biome)),
         format!("VANILLA_SOURCE_MANIFEST={}", make_path(&manifest)),
+        format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
         format!("ATMOSPHERE_REPORT={}", make_path(&report)),
         format!("ATMOSPHERE_COMPILE={producer}"),
+        format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&fetch_leak)),
+        format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&world_leak)),
     ];
+    let backdate_atmosphere_pair = |target: &Path| {
+        // A stale blob/report pair is one older than the manifest prerequisite.
+        fs::File::options()
+            .write(true)
+            .open(target)
+            .unwrap()
+            .set_modified(now - Duration::from_secs(150))
+            .unwrap();
+    };
 
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 1);
@@ -479,12 +509,8 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
     assert!(atmosphere.is_file() && report.is_file());
 
-    fs::File::options()
-        .write(true)
-        .open(&manifest)
-        .unwrap()
-        .set_modified(SystemTime::now() + Duration::from_secs(60))
-        .unwrap();
+    backdate_atmosphere_pair(&atmosphere);
+    backdate_atmosphere_pair(&report);
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
     assert!(atmosphere.is_file() && report.is_file());
@@ -499,10 +525,21 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     run_make_atmosphere(root, &override_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 4);
 
+    backdate_atmosphere_pair(&atmosphere);
+    backdate_atmosphere_pair(&report);
     let mut default_assignments = assignments.to_vec();
     default_assignments.push("CINNABAR_CLOUDS_PNG=".to_owned());
     run_make_atmosphere(root, &default_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
+
+    assert!(
+        !fetch_leak.exists(),
+        "the atmosphere target must not reach the vanilla asset fetch"
+    );
+    assert!(
+        !world_leak.exists(),
+        "the atmosphere target must not reach the world asset compiler"
+    );
 
     fs::remove_dir_all(temporary).unwrap();
 }

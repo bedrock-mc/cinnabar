@@ -4,6 +4,7 @@ pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
 pub mod inventory_router;
+mod platform_clipboard;
 pub mod presentation;
 pub mod render_adapter;
 mod scoreboard_adapter;
@@ -45,30 +46,7 @@ const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
 const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
 
-#[derive(Default)]
-pub(crate) struct PlatformClipboard;
-
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum PlatformClipboardError {
-    #[error("platform clipboard failed: {0}")]
-    Platform(#[from] arboard::Error),
-    #[error("clipboard text exceeds the {maximum}-byte chat insertion bound")]
-    TooLong { maximum: usize },
-}
-
-impl ChatClipboard for PlatformClipboard {
-    type Error = PlatformClipboardError;
-
-    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Result<Option<Arc<str>>, Self::Error> {
-        let text = arboard::Clipboard::new()?.get_text()?;
-        if text.len() > maximum_bytes {
-            return Err(PlatformClipboardError::TooLong {
-                maximum: maximum_bytes,
-            });
-        }
-        Ok(Some(Arc::from(text)))
-    }
-}
+pub(crate) use platform_clipboard::PlatformClipboard;
 
 #[derive(Clone, Debug)]
 pub struct SequencedUiEvent {
