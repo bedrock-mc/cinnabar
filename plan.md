@@ -1766,13 +1766,16 @@ UI phases get fable-5/opus-4.8 review before merge.
 
 **Phase 5 roadmap (kept current as work lands):**
 
-**Approved chat presentation exception (2026-07-17):** chat may use a compact
-Java Edition-style bottom-left presentation instead of the vanilla Bedrock chat
-screen. This exception applies only to chat layout; the HUD, hotbar, menus,
-inventory, forms, controls, and all behavior remain strict vanilla Bedrock
-targets. The current text/panel renderer is an incomplete scaffold until
-server/resource-pack font glyphs, the complete HUD, and native/live comparison
-gates below are green.
+**Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the
+in-game HUD may use the pinned Java Edition 26.2 presentation for chat, hotbar,
+scoreboard, hearts, hunger, armor, air, experience/level, and applicable
+mount/offhand/effect/attack-indicator surfaces. Bedrock remains authoritative
+for packets, attributes, equipment, inventory, game mode, combat timing, and
+reconciliation; Java presentation must not invent state that Bedrock does not
+expose. Menus, inventories, containers, forms, controls, and resource-pack JSON
+UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
+incomplete scaffold until the full state matrix and native/live comparison gates
+below are green.
 
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
@@ -1804,27 +1807,27 @@ work and are not closed by asset availability. Base Latin Mojangles, 185 sound
 binaries, and block-render model JSON remain absent from the official sample
 archive.
 
-**Approved Hybrid HUD deviation (2026-07-19):** the user reviewed the live HUD
-and chose a deliberate hybrid target — vanilla-Bedrock parity for the
-server-driven gameplay icons (health, hunger, armor, air, XP, hotbar), but
-Java Edition presentation for the chrome elements. Recorded deviations from
-strict Bedrock parity: (1) the scoreboard sidebar is enabled with Java Edition's
-background opacities (body `getBackgroundColor(0.3)` → alpha 77, title
-`getBackgroundColor(0.4)` → alpha 102), because Bedrock supplies those alphas as
-runtime engine bindings with no static authority in the pinned pack; the sidebar
-still renders only when the server publishes a sidebar objective. (2) Chat uses
-Java Edition presentation — an always-on translucent per-line backdrop behind
-unfocused chat lines (byte alpha 128, Java `textBackgroundOpacity` default 0.5).
-Delivered under this hybrid so far: the scoreboard enable (1), the Java chat
-backdrop (2), the centered hotbar selection sprite, and local hotbar-slot
-selection — number keys 1-9, mouse wheel, and controller cycle predict the slot
-locally (client-authoritative) and announce it upstream via a `PlayerHotbar`
-packet. Bedrock-parity items still remaining under this hybrid: the missing XP
-bar from the pinned `experiencebar*` sprites, plus wiring armor (computed from
-equipped pieces) and air (from local-player entity metadata) data — both render
-paths exist but their data was never populated. Held-item icons in hotbar slots
-remain a separate unbuilt piece. Java chat fade-out of idle messages is deferred
-(needs message-age plumbing across the server-tick/real-time clock boundary).
+**Approved Java-style gameplay HUD contract (2026-07-19):** the clean-room
+visual reference is Minecraft Java Edition 26.2 with default resources on
+Windows 11. Acceptance covers survival, creative, and spectator; normal,
+damaged, absorption, poisoned, withered, and frozen hearts; normal/depleted
+hunger; air; XP/level; armor present/absent; mount health/jump; main/offhand;
+attack indicator; selected-item label; effects; and scoreboard/chat overlap.
+The armor row appears above hearts only while authoritative equipped armor is
+nonzero. Capture GUI scales 2, 3, 4, and Auto at 1280x720, 1920x1080, and
+2560x1440 with 100% and 150% desktop scaling where applicable, then validate
+equivalent logical layout and safe areas on supported macOS Retina output.
+Decompiled proprietary Java source must not be copied, translated, vendored, or
+used as implementation code; independently implement only observable behavior
+from a legally obtained running client or other approved references.
+
+Delivered so far: Java-style scoreboard/chat presentation, centered hotbar
+selection, local number-key/wheel/controller slot prediction with outbound
+`MobEquipment`, experience attribute retention, and XP bar/level presentation.
+Still incomplete: hotbar item icons/counts/durability, authoritative selected
+stack, armor derivation and conditional row, nonstandard maxima, full state
+matrix, GUI scaling/safe areas, and native/live comparison. Java chat fade-out
+remains pending measured timing.
 
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
