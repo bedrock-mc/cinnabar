@@ -36,7 +36,7 @@ This draft PR also contains unmerged HUD/chat/scoreboard/hotbar/XP changes:
 
 The prior PR description called a broader "Hybrid HUD" deviation approved, but `main` authorizes a Java-style exception for chat layout only; HUD and scoreboard remain strict vanilla Bedrock targets. The Java-style scoreboard/background deviation is therefore neither authorized nor landed and must be corrected before review approval.
 
-No completed real rendered-frame visual acceptance pass or independent review is recorded. Current CI is also red: Linux architecture enforcement reports oversized production/test modules, and Windows acceptance fails in the atmosphere Make concurrency test when `Get-FileHash` is unavailable. These failures must be resolved or proven unrelated on a replacement green run before any branch delta counts as landed.
+No completed real rendered-frame visual acceptance pass or independent review is recorded. At implementation head `228ae70`, CI run `29713142467` failed Linux architecture enforcement because `app/src/asset_startup.rs` was 1,030 lines versus the 1,000-line production limit (unchanged from `main`), `app/src/ui_runtime.rs` was 1,006 versus 1,000, and `app/src/ui_runtime/tests.rs` was 1,204 versus the 1,200-line test limit. Windows acceptance failed `make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs` because `fetch-vanilla-assets.ps1` could not resolve `Get-FileHash`. These failures must be resolved or proven unrelated on a replacement green run before any branch delta counts as landed.
 
 ## Historical references
 
