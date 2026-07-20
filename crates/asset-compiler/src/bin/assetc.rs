@@ -11,17 +11,20 @@ use asset_compiler::{
     inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob,
-    encode_entity_blob, read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "assetc/entity_report.rs"]
+mod entity_report;
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
 
+use entity_report::{EntityAssetCounts, EntityAssetsReport};
 use hud_command::{HudAssetCounts, HudAssetsReport};
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
@@ -182,52 +185,6 @@ struct AtmosphereTextureReport {
     decoded_rgba8_bytes: usize,
     source_sha256: Box<str>,
     pixels_sha256: Box<str>,
-}
-
-#[derive(Serialize)]
-struct EntityAssetsReport<'a> {
-    schema: u32,
-    source: serde_json::Value,
-    source_manifest_sha256: Box<str>,
-    blob_sha256: Box<str>,
-    counts: EntityAssetCounts,
-    sources: &'a [EntityAssetSource],
-    symbols: &'a [EntityAssetSymbol],
-    reference_outcomes: &'a [CompileReferenceOutcome<u32>],
-}
-
-#[derive(Serialize)]
-struct EntityAssetCounts {
-    sources: usize,
-    symbols: usize,
-    dependencies: usize,
-    geometries: usize,
-    bones: usize,
-    cubes: usize,
-    animation_clips: usize,
-    animation_channels: usize,
-    animation_keyframes: usize,
-    molang_symbols: usize,
-    molang_expressions: usize,
-    molang_ops: usize,
-    molang_collections: usize,
-    molang_collection_items: usize,
-    controllers: usize,
-    controller_states: usize,
-    controller_animations: usize,
-    controller_transitions: usize,
-    rig_bindings: usize,
-    rig_geometry_candidates: usize,
-    rig_animations: usize,
-    rig_controllers: usize,
-    rig_geometry_selections: usize,
-    item_visuals: usize,
-    item_visual_aliases: usize,
-    item_sprite_routes: usize,
-    item_block_routes: usize,
-    item_empty_hand_routes: usize,
-    item_missing_routes: usize,
-    block_visuals: usize,
 }
 
 #[derive(Serialize)]
@@ -624,7 +581,7 @@ fn compile_entity_assets_command(
     let compiled = &compilation.assets;
     let blob = encode_entity_blob(compiled)?;
     let report_data = EntityAssetsReport {
-        schema: 4,
+        schema: 5,
         source,
         source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
         blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
@@ -664,6 +621,12 @@ fn compile_entity_assets_command(
             rig_geometry_candidates: compiled.rig_geometries.len(),
             rig_animations: compiled.rig_animations.len(),
             rig_controllers: compiled.rig_controllers.len(),
+            rig_textures: compiled.rig_textures.len(),
+            rig_texture_bytes: compiled
+                .rig_textures
+                .iter()
+                .map(|texture| texture.rgba8.len())
+                .sum(),
             rig_geometry_selections: compiled
                 .rig_geometries
                 .iter()
@@ -709,13 +672,15 @@ fn compile_entity_assets_command(
     write_blob_atomic(out, &blob)?;
     write_blob_atomic(report, &report_bytes)?;
     println!(
-        "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
+        "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, {} cubes, and {} rig textures ({} bytes) to {} and {}",
         report_data.counts.sources,
         report_data.counts.symbols,
         report_data.counts.dependencies,
         report_data.counts.geometries,
         report_data.counts.bones,
         report_data.counts.cubes,
+        report_data.counts.rig_textures,
+        report_data.counts.rig_texture_bytes,
         out.display(),
         report.display()
     );

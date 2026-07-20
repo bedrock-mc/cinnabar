@@ -53,6 +53,7 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
             [0.0, 0.0, 1.0, 0.0],
         ],
         texture_layer: 0,
+        texture_region: [0.0, 0.0, 1.0, 1.0],
         route: ActorRigRoute::Compiled,
     }
 }
@@ -68,7 +69,30 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 #[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     assert_eq!(size_of::<RenderBoneTransform>(), 32);
-    assert_eq!(size_of::<ActorGpuInstance>(), 72);
+    assert_eq!(size_of::<ActorGpuInstance>(), 88);
+    let instance = ActorGpuInstance {
+        previous_bone_base: 12,
+        current_bone_base: 13,
+        geometry_id: 14,
+        texture_layer: 15,
+        partial_tick: 16.25,
+        reset_generation: 17,
+        texture_region: [18.25, 19.25, 20.25, 21.25],
+        ..Default::default()
+    };
+    let words: [u32; 22] = bytemuck::cast(instance);
+    assert_eq!(&words[12..16], &[12, 13, 14, 15]);
+    assert_eq!(words[16], 16.25_f32.to_bits());
+    assert_eq!(words[17], 17);
+    assert_eq!(
+        &words[18..22],
+        &[
+            18.25_f32.to_bits(),
+            19.25_f32.to_bits(),
+            20.25_f32.to_bits(),
+            21.25_f32.to_bits(),
+        ]
+    );
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
         MAX_ACTOR_BONE_ARENA_BYTES,

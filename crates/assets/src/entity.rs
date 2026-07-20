@@ -16,18 +16,19 @@ pub use v4::{
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding, EntityRigTexture,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
     MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_ENTITY_RIG_TEXTURE_BYTES, MAX_ENTITY_RIG_TEXTURE_SIDE, MAX_ENTITY_RIG_TEXTURES,
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
     MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 4;
+pub const ENTITY_BLOB_VERSION: u32 = 5;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -217,6 +218,7 @@ pub struct CompiledEntityAssets {
     pub rig_geometries: Box<[EntityRigGeometryBinding]>,
     pub rig_animations: Box<[EntityRigAnimationBinding]>,
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
+    pub rig_textures: Box<[EntityRigTexture]>,
     pub item_visuals: Box<[ItemVisualDefinition]>,
     pub item_visual_aliases: Box<[ItemVisualAlias]>,
 }
@@ -244,6 +246,7 @@ struct EntityCatalogPayload {
     rig_geometries: Box<[EntityRigGeometryBinding]>,
     rig_animations: Box<[EntityRigAnimationBinding]>,
     rig_controllers: Box<[EntityRigControllerBinding]>,
+    rig_textures: Box<[EntityRigTexture]>,
     item_visuals: Box<[ItemVisualDefinition]>,
     item_visual_aliases: Box<[ItemVisualAlias]>,
 }
@@ -271,6 +274,7 @@ pub struct RuntimeEntityAssets {
     rig_geometries: Arc<[EntityRigGeometryBinding]>,
     rig_animations: Arc<[EntityRigAnimationBinding]>,
     rig_controllers: Arc<[EntityRigControllerBinding]>,
+    rig_textures: Arc<[EntityRigTexture]>,
     item_visuals: Arc<[ItemVisualDefinition]>,
     item_visual_aliases: Arc<[ItemVisualAlias]>,
 }
@@ -363,6 +367,7 @@ impl RuntimeEntityAssets {
             rig_geometries: payload.rig_geometries,
             rig_animations: payload.rig_animations,
             rig_controllers: payload.rig_controllers,
+            rig_textures: payload.rig_textures,
             item_visuals: payload.item_visuals,
             item_visual_aliases: payload.item_visual_aliases,
         };
@@ -389,6 +394,7 @@ impl RuntimeEntityAssets {
             rig_geometries: Arc::from(compiled.rig_geometries),
             rig_animations: Arc::from(compiled.rig_animations),
             rig_controllers: Arc::from(compiled.rig_controllers),
+            rig_textures: Arc::from(compiled.rig_textures),
             item_visuals: Arc::from(compiled.item_visuals),
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
         })

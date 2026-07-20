@@ -48,6 +48,14 @@ pub struct ActorRigSnapshot<'a> {
     pub completed_tick: u64,
     pub reset_generation: u64,
     pub fallback: EntityRigFallback,
+    pub texture: Option<ActorRigTextureSnapshot<'a>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ActorRigTextureSnapshot<'a> {
+    pub width: u16,
+    pub height: u16,
+    pub rgba8: &'a Arc<[u8]>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -61,6 +69,7 @@ pub struct ActorAnimationStats {
 #[derive(Debug)]
 pub(crate) struct ActorAnimationStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
+    textures: Arc<[ActorRigTexture]>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     completed_tick: u64,
@@ -82,7 +91,15 @@ struct ActorRigState {
     animation_epoch: u64,
     completed_tick: u64,
     fallback: EntityRigFallback,
+    texture: Option<usize>,
     history: VecDeque<ActorTickInput>,
+}
+
+#[derive(Debug)]
+struct ActorRigTexture {
+    width: u16,
+    height: u16,
+    rgba8: Arc<[u8]>,
 }
 
 #[derive(Clone, Debug)]
@@ -169,8 +186,23 @@ impl ActorAnimationStore {
     }
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
+        let textures = assets
+            .as_ref()
+            .map(|assets| {
+                assets
+                    .rig_textures()
+                    .iter()
+                    .map(|texture| ActorRigTexture {
+                        width: texture.width,
+                        height: texture.height,
+                        rgba8: Arc::from(texture.rgba8.as_ref()),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         Self {
             assets,
+            textures: textures.into(),
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
             completed_tick: 0,
@@ -330,6 +362,14 @@ impl ActorAnimationStore {
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
             fallback: state.fallback,
+            texture: state
+                .texture
+                .and_then(|texture| self.textures.get(texture))
+                .map(|texture| ActorRigTextureSnapshot {
+                    width: texture.width,
+                    height: texture.height,
+                    rgba8: &texture.rgba8,
+                }),
         })
     }
 
@@ -358,6 +398,7 @@ fn resolve_rig(
         .rig_bindings()
         .iter()
         .find(|rig| rig.entity_symbol as usize == entity_symbol_index)?;
+    let texture = rig.default_texture.map(|index| index as usize);
     let first = rig.first_geometry as usize;
     let end = first.checked_add(rig.geometry_count as usize)?;
     let candidates = assets.rig_geometries().get(first..end)?;
@@ -425,6 +466,7 @@ fn resolve_rig(
         animation_epoch: completed_tick,
         completed_tick,
         fallback: rig.fallback,
+        texture,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
     })
 }

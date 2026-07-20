@@ -74,6 +74,7 @@ fn fixture() -> CompiledEntityAssets {
         rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
+        rig_textures: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
     }
@@ -424,6 +425,39 @@ fn entity_carrier_rejects_corruption_noncanonical_order_and_unbounded_strings() 
     assert!(encode_entity_blob(&oversized).is_err());
 }
 
+#[test]
+fn entity_rig_texture_rejects_bad_dimensions_provenance_hash_and_binding() {
+    let mut valid = carrier_v4_fixture();
+    let pixels = vec![31_u8; 8 * 4 * 4].into_boxed_slice();
+    valid.rig_textures = vec![entity::EntityRigTexture {
+        symbol: 5,
+        source: 5,
+        width: 8,
+        height: 4,
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        rgba8: pixels,
+    }]
+    .into_boxed_slice();
+    valid.rig_bindings[0].default_texture = Some(0);
+    encode_entity_blob(&valid).expect("bounded texture payload");
+
+    let mut bad_dimensions = valid.clone();
+    bad_dimensions.rig_textures[0].width = 0;
+    assert!(encode_entity_blob(&bad_dimensions).is_err());
+
+    let mut bad_hash = valid.clone();
+    bad_hash.rig_textures[0].pixels_sha256[0] ^= 1;
+    assert!(encode_entity_blob(&bad_hash).is_err());
+
+    let mut bad_source = valid.clone();
+    bad_source.rig_textures[0].source = 4;
+    assert!(encode_entity_blob(&bad_source).is_err());
+
+    let mut bad_binding = valid;
+    bad_binding.rig_bindings[0].default_texture = Some(1);
+    assert!(encode_entity_blob(&bad_binding).is_err());
+}
+
 fn identity_transform() -> ItemDisplayTransform {
     ItemDisplayTransform::identity()
 }
@@ -600,6 +634,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             render_controller: 4,
             first_geometry: 0,
             geometry_count: 1,
+            default_texture: None,
             fallback: EntityRigFallback::GeometryOnly,
         }]
         .into_boxed_slice(),
@@ -618,6 +653,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             controller: 0,
         }]
         .into_boxed_slice(),
+        rig_textures: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {
             key: ItemVisualKey {
                 identifier: "minecraft:allay_spawn_egg".into(),
@@ -644,11 +680,11 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
 }
 
 #[test]
-fn carrier_v4_round_trips_every_extended_section_byte_identically() {
+fn carrier_v5_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
-    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
+    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-5 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 4);
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 5);
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
@@ -660,9 +696,9 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 }
 
 #[test]
-fn carrier_v4_rejects_versions_three_and_five_and_hashes_extended_payload() {
+fn carrier_v5_rejects_versions_three_and_four_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    for version in [3_u32, 5] {
+    for version in [3_u32, 4] {
         let mut wrong = encoded.to_vec();
         wrong[8..12].copy_from_slice(&version.to_le_bytes());
         assert!(RuntimeEntityAssetsV4::decode(&wrong).is_err());

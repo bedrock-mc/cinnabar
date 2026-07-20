@@ -15,8 +15,8 @@ use super::{
     CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
     EntityAnimationController, EntityAnimationKeyframe, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigGeometryBinding, MolangCollection, MolangCollectionItem,
-    MolangOp, MolangSymbol,
+    EntityRigControllerBinding, EntityRigGeometryBinding, EntityRigTexture, MolangCollection,
+    MolangCollectionItem, MolangOp, MolangSymbol,
 };
 
 #[derive(Serialize)]
@@ -42,6 +42,7 @@ struct EntityCatalogPayloadRef<'a> {
     rig_geometries: &'a [EntityRigGeometryBinding],
     rig_animations: &'a [EntityRigAnimationBinding],
     rig_controllers: &'a [EntityRigControllerBinding],
+    rig_textures: &'a [EntityRigTexture],
     item_visuals: &'a [ItemVisualDefinition],
     item_visual_aliases: &'a [ItemVisualAlias],
 }
@@ -71,6 +72,7 @@ pub(crate) fn encode_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[u8
             rig_geometries: &compiled.rig_geometries,
             rig_animations: &compiled.rig_animations,
             rig_controllers: &compiled.rig_controllers,
+            rig_textures: &compiled.rig_textures,
             item_visuals: &compiled.item_visuals,
             item_visual_aliases: &compiled.item_visual_aliases,
         },
@@ -101,6 +103,7 @@ pub(crate) fn encode_runtime(runtime: &RuntimeEntityAssets) -> Result<Box<[u8]>,
             rig_geometries: &runtime.rig_geometries,
             rig_animations: &runtime.rig_animations,
             rig_controllers: &runtime.rig_controllers,
+            rig_textures: &runtime.rig_textures,
             item_visuals: &runtime.item_visuals,
             item_visual_aliases: &runtime.item_visual_aliases,
         },

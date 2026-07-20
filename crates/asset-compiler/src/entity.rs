@@ -21,6 +21,7 @@ mod item;
 mod json;
 mod molang;
 mod source;
+mod texture;
 
 use geometry::parse_geometry;
 use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
@@ -244,7 +245,7 @@ pub fn compile_entity_assets_with_report(
         )?;
     }
     let mut molang_compiler = molang::MolangCompiler::default();
-    let animation = animation::compile(
+    let mut animation = animation::compile(
         root,
         &source_payloads,
         &sources,
@@ -253,6 +254,13 @@ pub fn compile_entity_assets_with_report(
         &mut molang_compiler,
     )?;
     validate_reference_coverage(&symbols, &animation)?;
+    let rig_textures = texture::compile_default_rig_textures(
+        root,
+        &sources,
+        &symbols,
+        &source_payloads,
+        &mut animation.rig_bindings,
+    )?;
     let molang = molang_compiler.finish()?;
     let items = item::compile(root, &source_payloads, &sources)?;
     let reference_outcomes = animation.outcomes;
@@ -278,6 +286,7 @@ pub fn compile_entity_assets_with_report(
         rig_geometries: animation.rig_geometries,
         rig_animations: animation.rig_animations,
         rig_controllers: animation.rig_controllers,
+        rig_textures,
         item_visuals: items.visuals,
         item_visual_aliases: items.aliases,
     };

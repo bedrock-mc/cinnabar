@@ -98,7 +98,7 @@ fn selected_geometry(index: f32, members: &[&str]) -> Box<str> {
 
 fn animation_pack(reverse: bool) -> TempDir {
     let temporary = tempfile::tempdir().unwrap();
-    let files: [(&str, &[u8]); 7] = [
+    let files: [(&str, &[u8]); 6] = [
         (
             "entity/test.entity.json",
             br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
@@ -119,7 +119,6 @@ fn animation_pack(reverse: bool) -> TempDir {
             "render_controllers/test.render_controllers.json",
             br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"arrays":{"geometries":{"Array.test":["Geometry.default","Geometry.default"]}},"geometry":"Array.test[math.floor(query.modified_move_speed)]","textures":["Texture.default"]}}}"#,
         ),
-        ("textures/entity/test.png", b"synthetic-raster"),
         (
             "textures/entity/test.texture_set.json",
             br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"test"}}"#,
@@ -133,6 +132,11 @@ fn animation_pack(reverse: bool) -> TempDir {
     for (path, bytes) in iterator {
         write(temporary.path(), path, bytes);
     }
+    let texture_path = temporary.path().join("textures/entity/test.png");
+    std::fs::create_dir_all(texture_path.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(16, 8, image::Rgba([17, 34, 51, 255]))
+        .save(texture_path)
+        .unwrap();
     temporary
 }
 
@@ -171,6 +175,11 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     assert_eq!(first.rig_bindings.len(), 1);
     assert_eq!(first.rig_bindings[0].fallback, EntityRigFallback::Skip);
     let rig = first.rig_bindings[0];
+    let texture =
+        &first.rig_textures[rig.default_texture.expect("literal default texture") as usize];
+    assert_eq!((texture.width, texture.height), (16, 8));
+    assert_eq!(texture.rgba8.len(), 16 * 8 * 4);
+    assert_eq!(&texture.rgba8[..4], &[17, 34, 51, 255]);
     assert_eq!(rig.geometry_count, 3);
     let candidates = &first.rig_geometries[rig.first_geometry as usize
         ..(rig.first_geometry + u32::from(rig.geometry_count)) as usize];
@@ -190,6 +199,47 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
     assert!(first.molang_ops.contains(&MolangOp::And));
     assert!(first.molang_ops.contains(&MolangOp::Clamp));
     assert!(first.molang_ops.contains(&MolangOp::Equal));
+}
+
+#[test]
+fn dynamic_and_multiple_render_controller_textures_are_bounded_no_draw_inputs() {
+    for textures in [
+        serde_json::json!(["Texture.default", "Texture.alternate"]),
+        serde_json::json!([{"Texture.default": "query.is_in_water"}]),
+    ] {
+        let pack = animation_pack(false);
+        let controller = serde_json::json!({
+            "format_version": "1.8.0",
+            "render_controllers": {
+                "controller.render.test": {
+                    "geometry": "Geometry.default",
+                    "textures": textures,
+                }
+            }
+        });
+        write(
+            pack.path(),
+            "render_controllers/test.render_controllers.json",
+            &serde_json::to_vec(&controller).unwrap(),
+        );
+        let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.rig_bindings.len(), 1);
+        assert_eq!(compiled.rig_bindings[0].default_texture, None);
+        assert!(compiled.rig_textures.is_empty());
+    }
+}
+
+#[test]
+fn ambiguous_default_texture_candidates_are_not_guessed() {
+    let pack = animation_pack(false);
+    image::RgbaImage::from_pixel(16, 8, image::Rgba([99, 88, 77, 255]))
+        .save(pack.path().join("textures/entity/test.tga"))
+        .unwrap();
+
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.rig_bindings.len(), 1);
+    assert_eq!(compiled.rig_bindings[0].default_texture, None);
+    assert!(compiled.rig_textures.is_empty());
 }
 
 #[test]

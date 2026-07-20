@@ -5,21 +5,21 @@ use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
-    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin,
+    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, ActorTextureAtlas, ActorTexturePixels,
+    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
+    default_actor_skin_rgba8, normalize_actor_skin, pack_actor_textures,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
-    pub(crate) skin_rgba8: Option<Arc<[u8]>>,
+    pub(crate) texture: Option<ActorTexturePixels>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
-    pub(crate) skins_rgba8: Arc<[u8]>,
+    pub(crate) atlas: ActorTextureAtlas,
 }
 
 pub(crate) fn update_actor_rig_scene(
@@ -31,7 +31,7 @@ pub(crate) fn update_actor_rig_scene(
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
     // modes while the render-owned builder still validates every other field.
-    scene.update_rigs(partial_tick, None, batch.submissions, batch.skins_rgba8)
+    scene.update_rigs_with_atlas(partial_tick, None, batch.submissions, batch.atlas)
 }
 
 pub(crate) fn actor_rig_presentation(
@@ -77,7 +77,7 @@ pub(crate) fn actor_rig_presentation(
         return None;
     }
 
-    let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
+    let (route, texture) = actor_route_and_texture(actor, profile, rig);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
             input: ActorRigRenderInput {
@@ -94,9 +94,10 @@ pub(crate) fn actor_rig_presentation(
                 [-sine, 0.0, cosine, position[2]],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route,
         },
-        skin_rgba8,
+        texture,
     })
 }
 
@@ -158,9 +159,14 @@ pub(crate) fn local_diagnostic_presentation(
                 [-sine, 0.0, cosine, position[2]],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route: ActorRigRoute::Diagnostic,
         },
-        skin_rgba8: Some(default_actor_skin_rgba8()),
+        texture: Some(ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8: default_actor_skin_rgba8(),
+        }),
     })
 }
 
@@ -246,33 +252,31 @@ pub(crate) fn select_actor_presentations_for_view(
         selected.push(remote);
     }
 
-    let mut skin_families = Vec::<Arc<[u8]>>::new();
     let mut submissions = Vec::with_capacity(selected.len());
-    for mut presentation in selected {
-        let Some(skin) = presentation.skin_rgba8 else {
-            presentation.submission.route = ActorRigRoute::NoDraw;
-            presentation.submission.texture_layer = u32::MAX;
+    let mut textures = Vec::with_capacity(selected.len());
+    for presentation in selected {
+        if let Some(texture) = presentation.texture {
+            textures.push(texture);
             submissions.push(presentation.submission);
-            continue;
-        };
-        let layer = skin_families
-            .iter()
-            .position(|existing| existing.as_ref() == skin.as_ref())
-            .unwrap_or_else(|| {
-                skin_families.push(skin);
-                skin_families.len() - 1
-            });
-        presentation.submission.texture_layer =
-            u32::try_from(layer).expect("actor skin family count is bounded");
-        submissions.push(presentation.submission);
+        }
     }
-    let mut skin_bytes = Vec::new();
-    for skin in skin_families {
-        skin_bytes.extend_from_slice(&skin);
+    let atlas = pack_actor_textures(&textures);
+    if let Some(atlas) = &atlas {
+        for (submission, region) in submissions.iter_mut().zip(atlas.regions.iter()) {
+            submission.texture_layer = 0;
+            submission.texture_region = *region;
+        }
+    } else {
+        submissions.clear();
     }
     ActorPresentationBatch {
         submissions,
-        skins_rgba8: skin_bytes.into(),
+        atlas: atlas.unwrap_or_else(|| ActorTextureAtlas {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([0, 0, 0, 0]),
+            regions: Arc::from([]),
+        }),
     }
 }
 
@@ -316,32 +320,52 @@ fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     ]
 }
 
-fn player_route_and_skin(
+fn actor_route_and_texture(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
-    fallback: EntityRigFallback,
-) -> (ActorRigRoute, Option<Arc<[u8]>>) {
+    rig: &ActorRigSnapshot<'_>,
+) -> (ActorRigRoute, Option<ActorTexturePixels>) {
     if !actor.is_render_eligible() {
         return (ActorRigRoute::NoDraw, None);
     }
-    let ActorKind::Player { .. } = &actor.kind else {
-        return (ActorRigRoute::NoDraw, None);
-    };
-    let route = match fallback {
+    let route = match rig.fallback {
         EntityRigFallback::Skip => ActorRigRoute::Compiled,
         EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
         EntityRigFallback::Diagnostic => ActorRigRoute::Diagnostic,
     };
-    let skin = profile
-        .filter(|profile| profile.unique_id == actor.unique_id)
-        .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
-                width: skin.width,
-                height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
-            }),
-            PlayerSkin::Unavailable(_) => None,
-        })
-        .unwrap_or_else(default_actor_skin_rgba8);
-    (route, Some(skin))
+    match &actor.kind {
+        ActorKind::Player { .. } => {
+            let rgba8 = profile
+                .filter(|profile| profile.unique_id == actor.unique_id)
+                .and_then(|profile| match &profile.skin {
+                    PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
+                        width: skin.width,
+                        height: skin.height,
+                        rgba8: Arc::clone(&skin.rgba8),
+                    }),
+                    PlayerSkin::Unavailable(_) => None,
+                })
+                .unwrap_or_else(default_actor_skin_rgba8);
+            (
+                route,
+                Some(ActorTexturePixels {
+                    width: 64,
+                    height: 64,
+                    rgba8,
+                }),
+            )
+        }
+        ActorKind::Entity { .. } => {
+            let texture = rig.texture.map(|texture| ActorTexturePixels {
+                width: u32::from(texture.width),
+                height: u32::from(texture.height),
+                rgba8: Arc::clone(texture.rgba8),
+            });
+            if texture.is_some() {
+                (route, texture)
+            } else {
+                (ActorRigRoute::NoDraw, None)
+            }
+        }
+    }
 }

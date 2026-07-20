@@ -3,7 +3,8 @@ use std::mem::size_of;
 use crate::actor::{
     ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
     ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRigVertex, ActorRuntimeWitness,
-    ActorSubmitWitness, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, gpu::ActorDrawTracker,
+    ActorSubmitWitness, MAX_ACTOR_TEXTURE_ATLAS_BYTES, MAX_ACTOR_TEXTURE_ATLAS_SIDE,
+    gpu::ActorDrawTracker,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -120,28 +121,45 @@ struct ActorGpu {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ActorSkinUploadPlan {
-    layer_count: u32,
+    width: u32,
+    height: u32,
 }
 
 fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPlan> {
     if frame.rig.instances.is_empty()
         || frame.skins_rgba8.is_empty()
-        || !frame.skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES)
+        || frame.texture_atlas_width == 0
+        || frame.texture_atlas_height == 0
     {
         return None;
     }
-    let layer_count = frame.skins_rgba8.len() / STANDARD_SKIN_BYTES;
-    if layer_count > crate::actor::MAX_RENDERED_PLAYERS
-        || frame
-            .rig
-            .instances
-            .iter()
-            .any(|instance| instance.texture_layer as usize >= layer_count)
+    let width = frame.texture_atlas_width as usize;
+    let height = frame.texture_atlas_height as usize;
+    let expected = width.checked_mul(height)?.checked_mul(4)?;
+    if width > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+        || height > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+        || expected != frame.skins_rgba8.len()
+        || expected > MAX_ACTOR_TEXTURE_ATLAS_BYTES
+        || frame.rig.instances.iter().any(|instance| {
+            let [offset_x, offset_y, scale_x, scale_y] = instance.texture_region;
+            instance.texture_layer != 0
+                || instance
+                    .texture_region
+                    .iter()
+                    .any(|value| !value.is_finite())
+                || offset_x < 0.0
+                || offset_y < 0.0
+                || scale_x < 0.0
+                || scale_y < 0.0
+                || offset_x + scale_x > 1.0
+                || offset_y + scale_y > 1.0
+        })
     {
         return None;
     }
     Some(ActorSkinUploadPlan {
-        layer_count: u32::try_from(layer_count).ok()?,
+        width: frame.texture_atlas_width,
+        height: frame.texture_atlas_height,
     })
 }
 
@@ -279,11 +297,11 @@ fn prepare_actor_resources(
         let texture = render_device.create_texture_with_data(
             &render_queue,
             &TextureDescriptor {
-                label: Some("bounded normalized server player skins"),
+                label: Some("bounded active-frame actor texture atlas"),
                 size: Extent3d {
-                    width: STANDARD_SKIN_SIDE as u32,
-                    height: STANDARD_SKIN_SIDE as u32,
-                    depth_or_array_layers: plan.layer_count,
+                    width: plan.width,
+                    height: plan.height,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -296,8 +314,8 @@ fn prepare_actor_resources(
             &frame.skins_rgba8,
         );
         let view = texture.create_view(&TextureViewDescriptor {
-            label: Some("bounded normalized server player skin array"),
-            dimension: Some(TextureViewDimension::D2Array),
+            label: Some("bounded active-frame actor texture atlas"),
+            dimension: Some(TextureViewDimension::D2),
             ..default()
         });
         gpu.skin_texture = Some(texture);
@@ -404,7 +422,7 @@ fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2Array,
+                    view_dimension: TextureViewDimension::D2,
                     multisampled: false,
                 },
                 count: None,
@@ -779,24 +797,28 @@ mod tests {
     };
 
     #[test]
-    fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
+    fn shared_texture_region_prepares_one_atlas_for_multiple_actors() {
         let mut frame = crate::actor::ActorRenderFrame::default();
         frame.rig.instances = Arc::from([
             crate::actor::ActorGpuInstance {
                 texture_layer: 0,
+                texture_region: [0.0, 0.0, 1.0, 1.0],
                 ..Default::default()
             },
             crate::actor::ActorGpuInstance {
                 texture_layer: 0,
+                texture_region: [0.0, 0.0, 1.0, 1.0],
                 ..Default::default()
             },
         ]);
         frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();
+        frame.texture_atlas_width = 64;
+        frame.texture_atlas_height = 64;
 
         let plan = actor_skin_upload_plan(&frame)
             .expect("a shared normalized skin family remains drawable");
 
-        assert_eq!(plan.layer_count, 1);
+        assert_eq!((plan.width, plan.height), (64, 64));
     }
 
     #[test]
@@ -804,9 +826,12 @@ mod tests {
         let mut frame = crate::actor::ActorRenderFrame::default();
         frame.rig.instances = Arc::from([crate::actor::ActorGpuInstance {
             texture_layer: 0,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             ..Default::default()
         }]);
         frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES - 1].into();
+        frame.texture_atlas_width = 64;
+        frame.texture_atlas_height = 64;
         assert!(actor_skin_upload_plan(&frame).is_none());
 
         frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();

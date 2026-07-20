@@ -86,6 +86,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
         rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
+        rig_textures: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {
             key: ItemVisualKey {
                 identifier: "minecraft:apple".into(),

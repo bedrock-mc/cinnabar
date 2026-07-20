@@ -3,8 +3,8 @@ use std::sync::Arc;
 use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
 use client_world::{
-    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
-    PlayerProfile,
+    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorRigTextureSnapshot, ActorSnapshot,
+    BoneTransform, EntityRigId, PlayerProfile,
 };
 use protocol::{ActorGameMode, ActorKind, ActorMetadataValue, PlayerSkin, StandardSkin};
 use render::{
@@ -114,6 +114,7 @@ fn rig<'a>(
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
+        texture: None,
     }
 }
 
@@ -143,9 +144,14 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
                 [0.0, 0.0, 1.0, 0.0],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route: ActorRigRoute::Compiled,
         },
-        skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
+        texture: Some(render::ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
+        }),
     }
 }
 
@@ -178,9 +184,9 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
     assert_eq!(converted.submission.route, ActorRigRoute::StaticFallback);
     assert!(
         converted
-            .skin_rgba8
+            .texture
             .as_ref()
-            .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
+            .is_some_and(|texture| texture.rgba8.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
 }
@@ -221,6 +227,45 @@ fn production_rig_conversion_rejects_spectators_before_selection_capacity() {
             .iter()
             .any(|entry| { entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 2 })
     );
+}
+
+#[test]
+fn compiled_non_player_texture_reaches_the_production_atlas_without_player_fallback() {
+    let bones = [model_bone([0.0; 3])];
+    let mut allay = actor(44, 1);
+    allay.kind = ActorKind::Entity {
+        identifier: "minecraft:allay".into(),
+    };
+    let pixels: Arc<[u8]> = vec![73; 32 * 64 * 4].into();
+    let mut allay_rig = rig(44, &bones, &bones);
+    allay_rig.texture = Some(ActorRigTextureSnapshot {
+        width: 32,
+        height: 64,
+        rgba8: &pixels,
+    });
+    let presentation = actor_rig_presentation(&allay_rig, &allay, None, 0.5)
+        .expect("exact allay lifetime converts");
+    assert_eq!(presentation.submission.route, ActorRigRoute::StaticFallback);
+    assert_eq!(
+        presentation
+            .texture
+            .as_ref()
+            .map(|texture| (texture.width, texture.height)),
+        Some((32, 64))
+    );
+
+    let batch = select_actor_presentations(999, false, None, [presentation]);
+    assert_eq!((batch.atlas.width, batch.atlas.height), (32, 64));
+    assert_eq!(batch.atlas.rgba8.as_ref(), pixels.as_ref());
+    assert_eq!(
+        batch.submissions[0].texture_region,
+        [0.5 / 32.0, 0.5 / 64.0, 31.0 / 32.0, 63.0 / 64.0]
+    );
+
+    let missing = actor_rig_presentation(&rig(44, &bones, &bones), &allay, None, 0.5)
+        .expect("exact unsupported lifetime remains attributable");
+    assert_eq!(missing.submission.route, ActorRigRoute::NoDraw);
+    assert!(missing.texture.is_none());
 }
 
 #[test]
@@ -344,7 +389,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
 fn identical_skin_families_share_one_bounded_texture_layer() {
     let batch =
         select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 31)]);
-    assert_eq!(batch.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(batch.atlas.rgba8.len(), STANDARD_SKIN_BYTES);
     assert!(
         batch
             .submissions

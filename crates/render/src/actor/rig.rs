@@ -96,6 +96,8 @@ pub struct ActorRigSubmission {
     pub input: ActorRigRenderInput,
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
+    /// Normalized atlas offset (xy) and scale (zw) for this actor's texture.
+    pub texture_region: [f32; 4],
     pub route: ActorRigRoute,
 }
 
@@ -109,9 +111,10 @@ pub struct ActorGpuInstance {
     pub texture_layer: u32,
     pub partial_tick: f32,
     pub reset_generation: u32,
+    pub texture_region: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 72);
+const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 88);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -418,6 +421,21 @@ impl ActorRigFrameBuilder {
                 rejects.invalid_world_transform = rejects.invalid_world_transform.saturating_add(1);
                 continue;
             }
+            let [offset_x, offset_y, scale_x, scale_y] = submission.texture_region;
+            if submission
+                .texture_region
+                .iter()
+                .any(|value| !value.is_finite())
+                || offset_x < 0.0
+                || offset_y < 0.0
+                || scale_x < 0.0
+                || scale_y < 0.0
+                || offset_x + scale_x > 1.0
+                || offset_y + scale_y > 1.0
+            {
+                rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
+                continue;
+            }
             if !actor_rig_submission_is_visible(&submission, view) {
                 continue;
             }
@@ -514,6 +532,7 @@ impl ActorRigFrameBuilder {
                 current_bone_base,
                 geometry_id: geometry_index,
                 texture_layer: submission.texture_layer,
+                texture_region: submission.texture_region,
                 partial_tick,
                 reset_generation,
             });

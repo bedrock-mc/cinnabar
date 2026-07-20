@@ -658,6 +658,7 @@ impl PendingRigPayload {
                 render_controller: rig.render_controller,
                 first_geometry,
                 geometry_count: (geometries.len() as u32 - first_geometry) as u16,
+                default_texture: None,
                 fallback: rig.fallback,
             });
         }
