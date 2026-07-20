@@ -99,6 +99,16 @@ pub(super) struct ScoreboardOwnerNameAuthority {
     names: BTreeMap<i64, Arc<str>>,
 }
 
+// Java Edition scoreboard sidebar background opacities, adopted for the Hybrid HUD.
+//
+// Bedrock exposes `#objective_background_opacity` / `#scoreboard_objective_background_opacity` as
+// runtime engine bindings with no static value in the hash-pinned pack, so there is no Bedrock
+// authority to bind here. Java Edition draws the sidebar body with `getBackgroundColor(0.3)` and
+// the title with `getBackgroundColor(0.4)`; converting those normalized channels to byte alpha
+// gives 77 and 102. Recorded as a Hybrid HUD deviation in plan.md.
+const JAVA_SCOREBOARD_BODY_ALPHA: u8 = 77;
+const JAVA_SCOREBOARD_TITLE_ALPHA: u8 = 102;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ScoreboardOpacityAuthority {
     body: u8,
@@ -107,20 +117,28 @@ pub(crate) struct ScoreboardOpacityAuthority {
 
 impl ScoreboardOpacityAuthority {
     #[must_use]
-    pub(super) const fn from_native_alpha_bytes(body: u8, title: u8) -> Self {
+    const fn from_alpha_bytes(body: u8, title: u8) -> Self {
         Self { body, title }
+    }
+
+    #[must_use]
+    const fn java_edition_style() -> Self {
+        Self::from_alpha_bytes(JAVA_SCOREBOARD_BODY_ALPHA, JAVA_SCOREBOARD_TITLE_ALPHA)
     }
 }
 
 impl UiPresentationRuntime {
-    #[allow(
-        dead_code,
-        reason = "enabled only after native evidence binds both scoreboard alpha values"
-    )]
+    /// Enables the scoreboard sidebar using the Java Edition background opacities.
+    ///
+    /// The sidebar still renders only when the server publishes a sidebar objective; this just
+    /// binds the background alpha the fail-closed gate requires.
+    pub(crate) fn enable_scoreboard_background(&mut self) {
+        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::java_edition_style());
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_native_scoreboard_opacity(&mut self, body: u8, title: u8) {
-        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_native_alpha_bytes(
-            body, title,
-        ));
+        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_alpha_bytes(body, title));
     }
 
     pub(crate) fn set_scoreboard_owner_names(

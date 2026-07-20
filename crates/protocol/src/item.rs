@@ -9,9 +9,26 @@ use valentine::bedrock::{
         AnimateEntityPacket, AnimatePacket, AnimatePacketActionId, Item, ItemContentExtra,
         ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
         ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemRegistryPacket,
-        ItemstatesItemVersion, MobEquipmentPacket, WindowId,
+        ItemstatesItemVersion, MobEquipmentPacket, PlayerHotbarPacket, WindowId,
     },
 };
+
+/// Number of hotbar slots on the vanilla survival hotbar.
+pub const HOTBAR_SLOT_COUNT: u8 = 9;
+
+/// Builds the vanilla outbound packet announcing a local hotbar-slot selection.
+///
+/// Bedrock clients own hotbar-slot selection locally and notify the server with a `PlayerHotbar`
+/// packet against the inventory window. `slot` is a 0-based hotbar index in `0..HOTBAR_SLOT_COUNT`.
+#[must_use]
+pub fn select_hotbar_slot_packet(slot: u8) -> crate::Packet {
+    PlayerHotbarPacket {
+        selected_slot: i32::from(slot.min(HOTBAR_SLOT_COUNT - 1)),
+        window_id: WindowId::Inventory,
+        select_slot: true,
+    }
+    .into()
+}
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;
 pub const MAX_ITEM_EXTRA_BYTES: usize = 64 * 1024;
@@ -584,4 +601,29 @@ fn window_id(window: WindowId) -> (u8, Option<ActorHandedness>) {
         WindowId::Unknown(value) => (value, None),
     };
     (u8::from_ne_bytes(wire.to_ne_bytes()), handedness)
+}
+
+#[cfg(test)]
+mod hotbar_tests {
+    use valentine::bedrock::version::v1_26_30::McpePacketData;
+
+    use super::*;
+
+    #[test]
+    fn select_hotbar_slot_packet_builds_a_player_hotbar_selection() {
+        let McpePacketData::PacketPlayerHotbar(packet) = select_hotbar_slot_packet(3).data else {
+            panic!("hotbar selection must build a PlayerHotbar packet");
+        };
+        assert_eq!(packet.selected_slot, 3);
+        assert_eq!(packet.window_id, WindowId::Inventory);
+        assert!(packet.select_slot);
+    }
+
+    #[test]
+    fn select_hotbar_slot_packet_clamps_out_of_range_slots() {
+        let McpePacketData::PacketPlayerHotbar(packet) = select_hotbar_slot_packet(200).data else {
+            panic!("hotbar selection must build a PlayerHotbar packet");
+        };
+        assert_eq!(packet.selected_slot, i32::from(HOTBAR_SLOT_COUNT - 1));
+    }
 }

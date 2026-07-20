@@ -182,6 +182,7 @@ pub struct UiRuntime {
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
+    local_selected_slot: Option<u8>,
 }
 
 impl UiRuntime {
@@ -221,6 +222,7 @@ impl UiRuntime {
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
+            local_selected_slot: None,
         }
     }
 
@@ -263,14 +265,26 @@ impl UiRuntime {
     }
 
     pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
-        self.local_selected_equipment
-            .as_ref()
-            .map(|equipment| equipment.event.selected_slot)
+        // Local selection is client-authoritative in Bedrock: once the player picks a slot
+        // (number key / scroll / controller) that prediction wins over the server-echoed
+        // equipment slot until the session resets.
+        self.local_selected_slot
+            .or_else(|| {
+                self.local_selected_equipment
+                    .as_ref()
+                    .map(|equipment| equipment.event.selected_slot)
+            })
             .or_else(|| {
                 self.player_game_mode
                     .filter(|game_mode| game_mode.shows_hotbar())
                     .map(|_| 0)
             })
+    }
+
+    /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
+    /// immediately, ahead of any server confirmation.
+    pub(crate) fn set_local_selected_slot(&mut self, slot: u8) {
+        self.local_selected_slot = Some(slot);
     }
 
     pub(crate) fn enqueue_inventory_event(
@@ -619,6 +633,7 @@ impl UiRuntime {
         self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
+        self.local_selected_slot = None;
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {

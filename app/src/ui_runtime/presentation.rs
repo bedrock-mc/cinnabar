@@ -38,6 +38,11 @@ const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 const CHAT_TEXT_SCALE: f32 = 0.5;
+// Java-style chat presentation (Hybrid HUD): unfocused chat lines get an always-on translucent
+// black backdrop, matching Java Edition's per-line chat background (drawn at textBackgroundOpacity,
+// default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
+const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
+const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -381,6 +386,27 @@ impl UiPresentationRuntime {
                 }),
             );
             next_id = next_id.saturating_add(1);
+        }
+        // Java-style unfocused chat: draw a translucent per-line backdrop behind each visible
+        // line. When focused, the unified chat panel above already provides the background, so
+        // these are skipped to avoid double-darkening. Backdrops precede the text nodes so they
+        // render underneath.
+        if !chat_focused {
+            let backdrop_left = (chat_left - CHAT_LINE_BACKDROP_PAD).max(0.0);
+            for (_, top, bottom) in &visible_chat {
+                nodes.push(
+                    UiNode::new(
+                        UiNodeId::new(next_id),
+                        None,
+                        rect(backdrop_left, *top, chat_right, *bottom)?,
+                    )
+                    .with_visual(UiVisual::Solid {
+                        texture_page: self.solid_texture_page,
+                        color: CHAT_LINE_BACKDROP_COLOR,
+                    }),
+                );
+                next_id = next_id.saturating_add(1);
+            }
         }
         for (layout, y, bottom) in visible_chat.into_iter().rev() {
             nodes.push(

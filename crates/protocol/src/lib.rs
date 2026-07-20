@@ -41,10 +41,10 @@ pub use inventory::{
     normalize_response, normalize_slot, validate_item_nbt_size,
 };
 pub use item::{
-    ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, ItemActorEvent,
-    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
+    ActorActionEvent, ActorActionKind, ActorHandedness, EquipmentEvent, HOTBAR_SLOT_COUNT,
+    ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
     MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
-    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
+    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, select_hotbar_slot_packet,
 };
 pub use jolyne::GameData;
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};

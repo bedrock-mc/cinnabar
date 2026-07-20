@@ -131,7 +131,9 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
     );
     let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
-    assert_eq!([top, bottom], [645.0, 717.0]);
+    // The 24x24 selection is centered on slot 0's 20x22 cell: its center (400, 684) matches the
+    // slot center, overhanging 2px horizontally and 1px vertically (physical px at scale 2, DPI 1.5).
+    assert_eq!([top, bottom], [648.0, 720.0]);
     let left = selected
         .iter()
         .map(|vertex| vertex.position[0])
@@ -140,7 +142,7 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .iter()
         .map(|vertex| vertex.position[0])
         .fold(f32::NEG_INFINITY, f32::max);
-    assert_eq!([left, right], [361.0, 433.0]);
+    assert_eq!([left, right], [364.0, 436.0]);
 }
 
 #[test]
@@ -405,12 +407,19 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
     let active = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
+    // Filter to the white chat text vertices so the Java-style translucent per-line backdrops
+    // (separate solid quads) do not shift the per-message vertex ranges this assertion relies on.
+    let text: Vec<_> = active
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .collect();
     let first_vertex_count = first.chars().count() * 4;
-    let first_bottom = active.vertices[..first_vertex_count]
+    let first_bottom = text[..first_vertex_count]
         .iter()
         .map(|vertex| vertex.position[1])
         .fold(f32::NEG_INFINITY, f32::max);
-    let second_top = active.vertices[first_vertex_count..]
+    let second_top = text[first_vertex_count..]
         .iter()
         .map(|vertex| vertex.position[1])
         .fold(f32::INFINITY, f32::min);
@@ -418,6 +427,47 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
     assert!(
         first_bottom <= second_top,
         "wrapped chat rows overlap: first bottom {first_bottom}, second top {second_top}"
+    );
+}
+
+#[test]
+fn unfocused_chat_lines_get_a_java_style_translucent_backdrop() {
+    let font = fixture_font();
+    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: chat_event("hello world"),
+        })
+        .unwrap();
+
+    // Unfocused: a translucent per-line backdrop sits behind the chat line (Java-style).
+    let unfocused = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let backdrop = bounds_for_color(&unfocused, CHAT_LINE_BACKDROP_COLOR)
+        .expect("unfocused chat line has a Java-style translucent backdrop");
+    // Backdrop is left-anchored just inside the screen edge and has positive width/height.
+    assert!(
+        backdrop[0] < 12.0,
+        "backdrop starts at/left of the chat text inset"
+    );
+    assert!(backdrop[2] > backdrop[0], "backdrop has positive width");
+    assert!(backdrop[3] > backdrop[1], "backdrop has positive height");
+
+    // Focused: the unified chat panel provides the background instead, so the per-line backdrop
+    // layer is not added (avoids double-darkening).
+    runtime.open_chat();
+    let focused = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        bounds_for_color(&focused, CHAT_LINE_BACKDROP_COLOR).is_none(),
+        "focused chat should not add the unfocused per-line backdrop"
     );
 }
 

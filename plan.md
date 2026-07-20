@@ -1804,6 +1804,28 @@ work and are not closed by asset availability. Base Latin Mojangles, 185 sound
 binaries, and block-render model JSON remain absent from the official sample
 archive.
 
+**Approved Hybrid HUD deviation (2026-07-19):** the user reviewed the live HUD
+and chose a deliberate hybrid target — vanilla-Bedrock parity for the
+server-driven gameplay icons (health, hunger, armor, air, XP, hotbar), but
+Java Edition presentation for the chrome elements. Recorded deviations from
+strict Bedrock parity: (1) the scoreboard sidebar is enabled with Java Edition's
+background opacities (body `getBackgroundColor(0.3)` → alpha 77, title
+`getBackgroundColor(0.4)` → alpha 102), because Bedrock supplies those alphas as
+runtime engine bindings with no static authority in the pinned pack; the sidebar
+still renders only when the server publishes a sidebar objective. (2) Chat uses
+Java Edition presentation — an always-on translucent per-line backdrop behind
+unfocused chat lines (byte alpha 128, Java `textBackgroundOpacity` default 0.5).
+Delivered under this hybrid so far: the scoreboard enable (1), the Java chat
+backdrop (2), the centered hotbar selection sprite, and local hotbar-slot
+selection — number keys 1-9, mouse wheel, and controller cycle predict the slot
+locally (client-authoritative) and announce it upstream via a `PlayerHotbar`
+packet. Bedrock-parity items still remaining under this hybrid: the missing XP
+bar from the pinned `experiencebar*` sprites, plus wiring armor (computed from
+equipped pieces) and air (from local-player entity metadata) data — both render
+paths exist but their data was never populated. Held-item icons in hotbar slots
+remain a separate unbuilt piece. Java chat fade-out of idle messages is deferred
+(needs message-age plumbing across the server-tick/real-time clock boundary).
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.

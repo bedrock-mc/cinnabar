@@ -199,14 +199,18 @@ pub(super) fn append(
             [255, 255, 255, VANILLA_HOTBAR_CAP_ALPHA],
             scale,
         )?;
+        // Center the 24x24 selection sprite on the selected 20x22 slot. The slot sits at
+        // `inner_left + selected*20` (inner_left already skips the 1px start cap), so a centered
+        // highlight overhangs 2px horizontally and 1px vertically: left = slot_left - 2px =
+        // outer_left + (selected*20 - 1)px, top = slot_top - 1px.
         append_sprite(
             nodes,
             next_id,
             textures,
             HudTextureRole::SelectedHotbarSlot,
             [
-                outer_left + (selected as f32 * 20.0 - 2.0) * scale,
-                hotbar_y - 2.0 * scale,
+                outer_left + (selected as f32 * 20.0 - 1.0) * scale,
+                hotbar_y - 1.0 * scale,
             ],
             [255; 4],
             scale,

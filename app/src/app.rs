@@ -202,6 +202,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
+            crate::hotbar::select_hotbar_slot
+                .after(ClientFrameSet::SemanticFinalize)
+                .before(ClientFrameSet::UiPublication),
+        )
+        .add_systems(
+            Update,
             publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
         )
         .add_systems(
@@ -300,11 +306,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
-    let ui_presentation = UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
-        .context("prepare bounded font and HUD texture array for UI rendering")?;
-    eprintln!(
-        "scoreboard sidebar background remains hidden until native #objective_background_opacity and #scoreboard_objective_background_opacity authority is supplied"
-    );
+    let mut ui_presentation =
+        UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
+            .context("prepare bounded font and HUD texture array for UI rendering")?;
+    // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
+    // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
+    // server publishes a sidebar objective.
+    ui_presentation.enable_scoreboard_background();
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;

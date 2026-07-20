@@ -3,7 +3,10 @@ use std::f32::consts::{PI, TAU};
 use bevy::{
     anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
-    input::{mouse::AccumulatedMouseMotion, touch::Touches},
+    input::{
+        mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+        touch::Touches,
+    },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -359,6 +362,7 @@ impl Plugin for FlyCameraPlugin {
         app.init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<AccumulatedMouseScroll>()
             .init_resource::<Touches>()
             .insert_resource(AutoFly::new(self.auto_fly))
             .init_resource::<CameraSettingsAuthority>()

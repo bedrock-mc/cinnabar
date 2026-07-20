@@ -63,6 +63,36 @@ fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
 }
 
 #[test]
+fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
+    let mut runtime = UiRuntime::new(1);
+    // Survival game mode defaults the highlight to slot 0.
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert_eq!(runtime.selected_hotbar_slot(), Some(0));
+
+    // A local selection (number key / scroll) is predicted immediately and wins.
+    runtime.set_local_selected_slot(4);
+    assert_eq!(runtime.selected_hotbar_slot(), Some(4));
+
+    // A later server equipment event for the local player does not override the local prediction.
+    runtime.retain_local_selected_equipment(
+        7,
+        protocol::EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 0,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: None,
+        },
+    );
+    assert_eq!(runtime.selected_hotbar_slot(), Some(4));
+
+    // A new session clears the local prediction (and every other per-session field).
+    runtime.begin_session(2);
+    assert_eq!(runtime.selected_hotbar_slot(), None);
+}
+
+#[test]
 fn command_output_rows_from_one_packet_reach_chat_in_order() {
     let mut runtime = UiRuntime::new(1);
     runtime
