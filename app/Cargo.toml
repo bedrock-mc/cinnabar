@@ -39,5 +39,6 @@ world = { path = "../crates/world" }
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+asset-compiler = { path = "../crates/asset-compiler" }
 client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }

@@ -352,6 +352,7 @@ impl ActorStore {
                     }
                 }
                 self.rebuild_player_unique_ids();
+                self.rebind_player_rigs();
                 if capacity_rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
@@ -368,6 +369,41 @@ impl ActorStore {
                 .entry(profile.unique_id)
                 .and_modify(|entry| *entry = None)
                 .or_insert(Some(*uuid));
+        }
+    }
+
+    fn rebind_player_rigs(&mut self) {
+        let runtime_ids = self
+            .actors
+            .iter()
+            .filter_map(|(&runtime_id, actor)| {
+                matches!(actor.kind, ActorKind::Player { .. }).then_some(runtime_id)
+            })
+            .collect::<Vec<_>>();
+        for runtime_id in runtime_ids {
+            let geometry =
+                self.player_profile(runtime_id)
+                    .and_then(|profile| match &profile.skin {
+                        PlayerSkin::Standard(skin) => Some(skin.geometry.clone()),
+                        PlayerSkin::Unavailable(_) => None,
+                    });
+            let desired_identifier = geometry.as_ref().and_then(|geometry| match geometry {
+                protocol::PlayerSkinGeometry::Wide => Some("geometry.humanoid.custom"),
+                protocol::PlayerSkinGeometry::Slim => Some("geometry.humanoid.customSlim"),
+                protocol::PlayerSkinGeometry::Custom { .. } => None,
+            });
+            if self
+                .animation
+                .get(runtime_id)
+                .map(|rig| rig.geometry_identifier)
+                == desired_identifier
+            {
+                continue;
+            }
+            if let Some(actor) = self.actors.get(&runtime_id) {
+                self.animation
+                    .insert(self.session_id, self.dimension, actor, geometry.as_ref());
+            }
         }
     }
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
@@ -463,8 +499,14 @@ impl ActorStore {
         );
         self.unique_to_runtime.insert(unique_id, runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
+            let geometry =
+                self.player_profile(runtime_id)
+                    .and_then(|profile| match &profile.skin {
+                        PlayerSkin::Standard(skin) => Some(skin.geometry.clone()),
+                        PlayerSkin::Unavailable(_) => None,
+                    });
             self.animation
-                .insert(self.session_id, self.dimension, actor);
+                .insert(self.session_id, self.dimension, actor, geometry.as_ref());
             if self.remote_state_excluded_runtime_id != Some(runtime_id) {
                 self.items
                     .insert_spawn(self.lifetime_for(actor), sequence, held_item);

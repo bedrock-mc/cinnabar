@@ -10,6 +10,9 @@ impl ActorStore {
         let ActorKind::Player { uuid, .. } = &actor.kind else {
             return None;
         };
+        if self.player_unique_ids.get(&actor.unique_id)?.as_ref() != Some(uuid) {
+            return None;
+        }
         self.players
             .get(uuid)
             .filter(|profile| profile.unique_id == actor.unique_id)

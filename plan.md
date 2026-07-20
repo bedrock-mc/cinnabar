@@ -1705,8 +1705,11 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   one PlayerList profile without requiring a remote `AddPlayer`. The pinned compiler extracts the
   official wide and slim player geometries from `models/mobs.json`, records semantic fingerprints,
   and emits a dedicated `minecraft:player` rig despite unrelated unavailable animation aliases.
-  ResourcePatch selects arm geometry exactly; nonempty geometry data renders only when its selected
-  fingerprint matches the pinned geometry. Completed local physics ticks drive the bounded local
+  ResourcePatch selects the exact pinned wide/slim arm geometry; nonempty custom geometry data
+  remains NoDraw until packet-provided geometry has a bounded compiler/runtime path. Remote player
+  rigs are rebound from the exact UUID plus unambiguous unique-ID roster authority across either
+  PlayerList/AddPlayer packet order, replacement, and removal; presentation independently rejects
+  any skin/rig identity mismatch. Completed local physics ticks drive the bounded local
   rig evaluator with velocity, ground state, pitch, head yaw, and body yaw; corrections, dimension
   changes, and tick discontinuities reset its interpolation history. Focused protocol/app/render tests,
   shader parsing, no-op-backend binding-layout validation, pipeline specialization, format, and

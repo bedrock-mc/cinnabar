@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, LocalPlayerRigSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin};
+use protocol::{ActorKind, PlayerSkin, PlayerSkinGeometry};
 #[cfg(test)]
 use render::default_actor_skin_rgba8;
 use render::{
@@ -145,6 +145,9 @@ pub(crate) fn local_player_rig_presentation(
     let PlayerSkin::Standard(skin) = &profile.skin else {
         return None;
     };
+    if !local_skin_geometry_matches_rig(&skin.geometry, rig) {
+        return None;
+    }
     let rgba8 = normalize_actor_skin(&ActorSkinPixels {
         width: skin.width,
         height: skin.height,
@@ -430,11 +433,16 @@ fn actor_route_and_texture(
             let Some(rgba8) = profile
                 .filter(|profile| profile.unique_id == actor.unique_id)
                 .and_then(|profile| match &profile.skin {
-                    PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
-                        width: skin.width,
-                        height: skin.height,
-                        rgba8: Arc::clone(&skin.rgba8),
-                    }),
+                    PlayerSkin::Standard(skin)
+                        if skin_geometry_matches_rig(&skin.geometry, rig) =>
+                    {
+                        normalize_actor_skin(&ActorSkinPixels {
+                            width: skin.width,
+                            height: skin.height,
+                            rgba8: Arc::clone(&skin.rgba8),
+                        })
+                    }
+                    PlayerSkin::Standard(_) => None,
                     PlayerSkin::Unavailable(_) => None,
                 })
             else {
@@ -461,5 +469,24 @@ fn actor_route_and_texture(
                 (ActorRigRoute::NoDraw, None)
             }
         }
+    }
+}
+
+fn skin_geometry_matches_rig(geometry: &PlayerSkinGeometry, rig: &ActorRigSnapshot<'_>) -> bool {
+    match geometry {
+        PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
+        PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
+        PlayerSkinGeometry::Custom { .. } => false,
+    }
+}
+
+fn local_skin_geometry_matches_rig(
+    geometry: &PlayerSkinGeometry,
+    rig: &LocalPlayerRigSnapshot<'_>,
+) -> bool {
+    match geometry {
+        PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
+        PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
+        PlayerSkinGeometry::Custom { .. } => false,
     }
 }

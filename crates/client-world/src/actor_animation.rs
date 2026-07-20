@@ -43,6 +43,8 @@ pub struct BoneTransform {
 pub struct ActorRigSnapshot<'a> {
     pub actor: ActorLifetimeId,
     pub rig: EntityRigId,
+    pub geometry_identifier: &'a str,
+    pub geometry_sha256: [u8; 32],
     pub previous: &'a [BoneTransform],
     pub current: &'a [BoneTransform],
     pub completed_tick: u64,
@@ -64,6 +66,8 @@ pub struct ActorRigTextureSnapshot<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct LocalPlayerRigSnapshot<'a> {
     pub rig: EntityRigId,
+    pub geometry_identifier: &'a str,
+    pub geometry_sha256: [u8; 32],
     pub previous: &'a [BoneTransform],
     pub current: &'a [BoneTransform],
     pub completed_tick: u64,
@@ -118,6 +122,7 @@ struct ActorRigTexture {
 
 #[derive(Clone, Debug)]
 struct RuntimeBone {
+    name: Box<str>,
     parent: Option<usize>,
     pivot: [f32; 3],
     rotation: [f32; 3],
@@ -295,7 +300,10 @@ impl ActorAnimationStore {
                 transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
                 used: 0,
             };
-            if let Ok(evaluated) = evaluate_state(&assets, state, &actor, input.tick, &mut budget) {
+            if let Ok(mut evaluated) =
+                evaluate_state(&assets, state, &actor, input.tick, &mut budget)
+            {
+                apply_local_player_view_pose(state, &mut evaluated.pose, input);
                 state.controllers = evaluated.controllers;
                 state.history = evaluated.history;
                 if state.reset_pending {
@@ -326,7 +334,13 @@ impl ActorAnimationStore {
         }
     }
 
-    pub(crate) fn insert(&mut self, session_id: u64, dimension: i32, actor: &ActorSnapshot) {
+    pub(crate) fn insert(
+        &mut self,
+        session_id: u64,
+        dimension: i32,
+        actor: &ActorSnapshot,
+        player_geometry: Option<&PlayerSkinGeometry>,
+    ) {
         self.remove_runtime(actor.runtime_id);
         let Some(assets) = self.assets.clone() else {
             return;
@@ -337,7 +351,18 @@ impl ActorAnimationStore {
             runtime_id: actor.runtime_id,
             spawn_revision: actor.spawn_revision,
         };
-        let Some(mut state) = resolve_rig(&assets, actor, self.completed_tick) else {
+        let requested_geometry = match &actor.kind {
+            ActorKind::Player { .. } => {
+                let Some(geometry) = player_geometry else {
+                    return;
+                };
+                Some(geometry)
+            }
+            ActorKind::Entity { .. } => None,
+        };
+        let Some(mut state) =
+            resolve_rig_for_skin_geometry(&assets, actor, self.completed_tick, requested_geometry)
+        else {
             return;
         };
         state.reset_generation = self.next_reset_generation;
@@ -448,33 +473,18 @@ impl ActorAnimationStore {
         &self,
         geometry: &PlayerSkinGeometry,
     ) -> Option<LocalPlayerRigSnapshot<'_>> {
-        let (identifier, expected_hash) = match geometry {
-            PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
-            PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
-            PlayerSkinGeometry::Custom {
-                identifier,
-                data_sha256,
-            } => (identifier.as_ref(), Some(data_sha256)),
+        let identifier = match geometry {
+            PlayerSkinGeometry::Wide => "geometry.humanoid.custom",
+            PlayerSkinGeometry::Slim => "geometry.humanoid.customSlim",
+            PlayerSkinGeometry::Custom { .. } => return None,
         };
         let state = self.local_players.get(identifier)?;
-        if let Some(expected_hash) = expected_hash {
-            let candidate = self
-                .assets
-                .as_ref()?
-                .rig_geometries()
-                .get(state.geometry_binding)?;
-            let geometry = self
-                .assets
-                .as_ref()?
-                .geometries()
-                .get(candidate.geometry as usize)?;
-            if &geometry.semantic_sha256 != expected_hash {
-                return None;
-            }
-        }
+        let compiled_geometry = self.geometry(state)?;
         (state.previous.len() == state.current.len() && !state.previous.is_empty()).then_some(
             LocalPlayerRigSnapshot {
                 rig: state.rig,
+                geometry_identifier: identifier,
+                geometry_sha256: compiled_geometry.semantic_sha256,
                 previous: &state.previous,
                 current: &state.current,
                 completed_tick: state.completed_tick,
@@ -496,9 +506,12 @@ impl ActorAnimationStore {
         if state.previous.len() != state.current.len() {
             return None;
         }
+        let geometry = self.geometry(state)?;
         Some(ActorRigSnapshot {
             actor,
             rig: state.rig,
+            geometry_identifier: geometry.identifier.as_ref(),
+            geometry_sha256: geometry.semantic_sha256,
             previous: &state.previous,
             current: &state.current,
             completed_tick: state.completed_tick,
@@ -518,269 +531,59 @@ impl ActorAnimationStore {
     fn bump_generation(&mut self) {
         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
     }
-}
 
-fn local_player_resolution_actor() -> ActorSnapshot {
-    let pose = crate::actor_store::ActorPose {
-        position: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-    };
-    ActorSnapshot {
-        unique_id: 0,
-        runtime_id: 0,
-        spawn_revision: 0,
-        movement_revision: 0,
-        kind: ActorKind::Player {
-            uuid: [0; 16],
-            username: Arc::from(""),
-        },
-        game_mode: None,
-        resolved_game_mode: None,
-        game_mode_tick: None,
-        position: pose.position,
-        velocity: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-        previous_pose: pose,
-        received_pose: pose,
-        interpolation_ticks_remaining: 0,
-        body_yaw: 0.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata: HashMap::new(),
-        attributes: HashMap::new(),
-        int_properties: HashMap::new(),
-        float_properties: HashMap::new(),
+    fn geometry<'a>(&'a self, state: &ActorRigState) -> Option<&'a assets::EntityGeometry> {
+        let candidate = self
+            .assets
+            .as_ref()?
+            .rig_geometries()
+            .get(state.geometry_binding)?;
+        self.assets
+            .as_ref()?
+            .geometries()
+            .get(candidate.geometry as usize)
     }
 }
 
-fn local_player_animation_actor(input: LocalPlayerAnimationTickInput) -> ActorSnapshot {
-    let mut actor = local_player_resolution_actor();
-    actor.velocity = input.velocity;
-    actor.on_ground = Some(input.on_ground);
-    actor.body_yaw = input.body_yaw;
-    actor.yaw = input.body_yaw;
-    actor.head_yaw = input.head_yaw;
-    actor.pitch = input.pitch;
-    actor
+fn apply_local_player_view_pose(
+    state: &ActorRigState,
+    pose: &mut [BoneTransform],
+    input: LocalPlayerAnimationTickInput,
+) {
+    apply_view_pose_to_bones(&state.bones, pose, input);
 }
 
-fn resolve_rig(
-    assets: &RuntimeEntityAssets,
-    actor: &ActorSnapshot,
-    completed_tick: u64,
-) -> Option<ActorRigState> {
-    resolve_rig_for_geometry(assets, actor, completed_tick, None)
-}
-
-fn resolve_rig_for_geometry(
-    assets: &RuntimeEntityAssets,
-    actor: &ActorSnapshot,
-    completed_tick: u64,
-    requested_geometry: Option<&str>,
-) -> Option<ActorRigState> {
-    let identifier = match &actor.kind {
-        ActorKind::Player { .. } => "minecraft:player",
-        ActorKind::Entity { identifier } => identifier,
-    };
-    let entity_symbols = assets.symbol_candidates(EntityAssetKind::Entity, identifier);
-    let [entity_symbol] = entity_symbols else {
-        return None;
-    };
-    let entity_symbol_index = assets
-        .symbols()
+fn apply_view_pose_to_bones(
+    bones: &[RuntimeBone],
+    pose: &mut [BoneTransform],
+    input: LocalPlayerAnimationTickInput,
+) {
+    let Some(head) = bones
         .iter()
-        .position(|symbol| std::ptr::eq(symbol, entity_symbol))?;
-    let mut rigs = assets
-        .rig_bindings()
-        .iter()
-        .filter(|rig| rig.entity_symbol as usize == entity_symbol_index);
-    let rig = rigs.next()?;
-    if rigs.next().is_some() {
-        return None;
-    }
-    let texture = rig.default_texture.map(|index| index as usize);
-    let first = rig.first_geometry as usize;
-    let end = first.checked_add(rig.geometry_count as usize)?;
-    let candidates = assets.rig_geometries().get(first..end)?;
-    let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
-    let mut budget = EvalBudget {
-        actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
-        world_left: &mut world_left,
-        work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
-        transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-        used: 0,
+        .position(|bone| bone.name.eq_ignore_ascii_case("head"))
+    else {
+        return;
     };
-    let requested_offset = requested_geometry.map(|identifier| {
-        candidates.iter().position(|candidate| {
-            assets
-                .geometries()
-                .get(candidate.geometry as usize)
-                .is_some_and(|geometry| geometry.identifier.as_ref() == identifier)
-        })
-    });
-    let mut candidate_offset = match requested_offset {
-        Some(Some(offset)) => offset,
-        Some(None) => return None,
-        None => 0,
-    };
-    let empty_history = VecDeque::new();
-    for (offset, candidate) in candidates.iter().enumerate().skip(1) {
-        if requested_geometry.is_some() {
-            break;
-        }
-        let selected = evaluate_expression(
-            assets,
-            candidate.condition? as usize,
-            actor,
-            &empty_history,
-            0,
-            0,
-            &mut budget,
-        )
-        .ok()?;
-        if truthy(selected) {
-            candidate_offset = offset;
-            break;
-        }
-    }
-    let geometry_binding = first + candidate_offset;
-    let candidate = &assets.rig_geometries()[geometry_binding];
-    if candidate.animation_count as usize + candidate.controller_count as usize
-        > MAX_RUNTIME_BINDINGS_PER_RIG
-    {
-        return None;
-    }
-    let bones = resolve_bones(assets, candidate.geometry as usize)?;
-    let current = compose_pose(&bones, &[])?;
-    let controller_first = candidate.first_controller as usize;
-    let controller_end = controller_first.checked_add(candidate.controller_count as usize)?;
-    let controllers = assets
-        .rig_controllers()
-        .get(controller_first..controller_end)?
-        .iter()
-        .map(|binding| {
-            let controller = assets.controllers().get(binding.controller as usize)?;
-            Some(ControllerState {
-                controller: binding.controller as usize,
-                state: controller.initial_state,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some(ActorRigState {
-        // The renderer needs the resolved geometry candidate, not only the
-        // entity-level binding that may contain several candidates.
-        rig: EntityRigId(geometry_binding as u32),
-        geometry_binding,
-        bones,
-        controllers,
-        previous: current.clone(),
-        current,
-        reset_generation: 0,
-        reset_pending: false,
-        lifetime_epoch: completed_tick,
-        animation_epoch: completed_tick,
-        completed_tick,
-        fallback: rig.fallback,
-        texture,
-        history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
-    })
-}
-
-fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<Vec<RuntimeBone>> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries()).ok()?;
-    let mut chain = Vec::new();
-    let mut current = geometry_index;
-    for _ in 0..=parents.len() {
-        chain.push(current);
-        let Some(parent) = parents.get(current).copied().flatten() else {
-            break;
-        };
-        current = parent;
-    }
-    if chain
-        .last()
-        .and_then(|index| parents.get(*index))
-        .copied()
-        .flatten()
-        .is_some()
-    {
-        return None;
-    }
-    chain.reverse();
-    let mut merged: Vec<EntityGeometryBone> = Vec::new();
-    for index in chain {
-        for child in assets.geometries().get(index)?.bones.iter() {
-            if let Some(existing) = merged
-                .iter_mut()
-                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
-            {
-                overlay_bone(existing, child);
-            } else {
-                merged.push(child.clone());
+    let relative_yaw = (input.head_yaw - input.body_yaw + 180.0).rem_euclid(360.0) - 180.0;
+    let view = quat_from_euler([input.pitch.clamp(-90.0, 90.0), relative_yaw, 0.0]);
+    for (index, transform) in pose.iter_mut().enumerate() {
+        let mut current = Some(index);
+        let mut under_head = false;
+        while let Some(bone) = current {
+            if bone == head {
+                under_head = true;
+                break;
             }
+            current = bones.get(bone).and_then(|bone| bone.parent);
+        }
+        if under_head {
+            transform.rotation = quat_multiply(view, transform.rotation);
         }
     }
-    if merged.len() > MAX_RUNTIME_BONES_PER_RIG {
-        return None;
-    }
-    merged
-        .iter()
-        .map(|bone| {
-            let parent = bone.parent.as_ref().map(|name| {
-                merged
-                    .iter()
-                    .position(|candidate| candidate.name.eq_ignore_ascii_case(name))
-            });
-            Some(RuntimeBone {
-                parent: match parent {
-                    Some(Some(index)) => Some(index),
-                    Some(None) => return None,
-                    None => None,
-                },
-                pivot: scalars(bone.pivot.as_ref()),
-                rotation: scalars(bone.rotation.as_ref()),
-            })
-        })
-        .collect()
 }
 
-fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
-    if child.parent.is_some() {
-        base.parent.clone_from(&child.parent);
-    }
-    if child.pivot.is_some() {
-        base.pivot = child.pivot;
-    }
-    if child.rotation.is_some() {
-        base.rotation = child.rotation;
-    }
-    if child.mirror.is_some() {
-        base.mirror = child.mirror;
-    }
-    if child.inflate.is_some() {
-        base.inflate = child.inflate;
-    }
-    if child.never_render.is_some() {
-        base.never_render = child.never_render;
-    }
-    if child.reset.is_some() {
-        base.reset = child.reset;
-    }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
-    }
-}
-
-fn scalars(values: Option<&[assets::EntityGeometryScalar; 3]>) -> [f32; 3] {
-    values.map_or([0.0; 3], |values| values.map(|value| value.get()))
-}
-
+mod resolution;
+use resolution::*;
 fn evaluate_state(
     assets: &RuntimeEntityAssets,
     state: &ActorRigState,
