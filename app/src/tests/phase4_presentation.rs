@@ -6,7 +6,7 @@ use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
     PlayerProfile,
 };
-use protocol::{ActorKind, PlayerSkin, StandardSkin};
+use protocol::{ActorGameMode, ActorKind, ActorMetadataValue, PlayerSkin, StandardSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
@@ -183,6 +183,59 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
             .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
+}
+
+#[test]
+fn production_rig_conversion_rejects_spectators_before_selection_capacity() {
+    let bones = [model_bone([0.0; 3])];
+    let mut spectator = actor(1, 1);
+    spectator.resolved_game_mode = Some(ActorGameMode::Spectator);
+    let rejected = actor_rig_presentation(&rig(1, &bones, &bones), &spectator, None, 0.5)
+        .expect("an exact ineligible lifetime publishes an explicit no-draw route");
+    assert_eq!(rejected.submission.route, ActorRigRoute::NoDraw);
+
+    let mut invisible = actor(2, 1);
+    invisible
+        .metadata
+        .insert(0, ActorMetadataValue::Flags(1 << 5));
+    let invisible = actor_rig_presentation(&rig(2, &bones, &bones), &invisible, None, 0.5)
+        .expect("an exact invisible lifetime publishes an explicit no-draw route");
+    assert_eq!(invisible.submission.route, ActorRigRoute::NoDraw);
+
+    let remotes = [rejected, invisible]
+        .into_iter()
+        .chain((3..=MAX_RENDERED_PLAYERS as u64 + 2).map(|id| render_owned(id, 31)))
+        .collect::<Vec<_>>();
+    let batch = select_actor_presentations(999, false, None, remotes);
+
+    assert_eq!(batch.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert!(
+        batch
+            .submissions
+            .iter()
+            .all(|entry| entry.route != ActorRigRoute::NoDraw)
+    );
+    assert!(
+        batch
+            .submissions
+            .iter()
+            .any(|entry| { entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 2 })
+    );
+}
+
+#[test]
+fn local_spectator_canonical_route_cannot_fall_back_to_synthetic_avatar() {
+    let bones = [model_bone([0.0; 3])];
+    let mut spectator = actor(7, 1);
+    spectator.resolved_game_mode = Some(ActorGameMode::Spectator);
+    let canonical = actor_rig_presentation(&rig(7, &bones, &bones), &spectator, None, 0.5)
+        .expect("exact spectator identity remains attributable");
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+        .expect("finite synthetic avatar");
+    let selected = local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic));
+    let batch = select_actor_presentations(7, true, selected, []);
+
+    assert!(batch.submissions.is_empty());
 }
 
 #[test]

@@ -223,10 +223,10 @@ pub(crate) fn select_actor_presentations_for_view(
         }
     }
 
-    let local = local_visible
-        .then_some(local)
-        .flatten()
-        .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
+    let local = local_visible.then_some(local).flatten().filter(|local| {
+        local.submission.input.identity.runtime_id == local_runtime_id
+            && local.submission.route != ActorRigRoute::NoDraw
+    });
     let mut selected = Vec::with_capacity(MAX_RENDERED_PLAYERS);
     let mut drawable_count = 0usize;
     if let Some(local) = local {
@@ -235,7 +235,6 @@ pub(crate) fn select_actor_presentations_for_view(
     }
     for remote in latest.into_values() {
         if remote.submission.route == ActorRigRoute::NoDraw {
-            selected.push(remote);
             continue;
         }
         if drawable_count == MAX_RENDERED_PLAYERS
@@ -322,6 +321,9 @@ fn player_route_and_skin(
     profile: Option<&PlayerProfile>,
     fallback: EntityRigFallback,
 ) -> (ActorRigRoute, Option<Arc<[u8]>>) {
+    if !actor.is_render_eligible() {
+        return (ActorRigRoute::NoDraw, None);
+    }
     let ActorKind::Player { .. } = &actor.kind else {
         return (ActorRigRoute::NoDraw, None);
     };
