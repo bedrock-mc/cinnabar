@@ -45,7 +45,7 @@ const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
 // Vanilla experience-level green, drawn above the XP bar.
 const XP_LEVEL_COLOR: [u8; 4] = [128, 255, 32, 255];
-const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
+const VANILLA_HUD_ATLAS_SIDE: u32 = 256;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
 #[derive(Debug)]

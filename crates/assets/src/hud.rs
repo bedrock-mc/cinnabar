@@ -2,17 +2,20 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
-pub const HUD_CARRIER_VERSION: u32 = 3;
+pub const HUD_CARRIER_VERSION: u32 = 4;
 pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
-    0x29, 0x08, 0x1c, 0x62, 0x48, 0x55, 0x6f, 0x2c, 0x1f, 0xa0, 0xdd, 0xc3, 0xf6, 0xc4, 0xbc, 0xd0,
-    0xf9, 0xb2, 0xfe, 0x4d, 0xe8, 0xec, 0xd6, 0x78, 0x5a, 0x43, 0x36, 0x9e, 0xac, 0xf2, 0xbe, 0x85,
+    0xd8, 0x1a, 0x90, 0xce, 0x1a, 0xcb, 0x52, 0x0c, 0x0c, 0x45, 0xa4, 0x04, 0x48, 0xaf, 0x3e, 0x49,
+    0xd4, 0xe2, 0x91, 0x62, 0x4f, 0xcf, 0xcc, 0x87, 0xfe, 0xa0, 0xf7, 0x09, 0x86, 0x38, 0x90, 0x52,
 ];
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
 const DESCRIPTOR_BYTES: usize = 96;
 const HASH_BYTES: usize = 32;
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
-const MAX_TEXTURE_SIDE: u32 = 64;
+// The widest carried texture is the classic-sheet 182x5 bar strip.
+const MAX_TEXTURE_SIDE: u32 = 256;
+/// The classic `textures/gui/icons.png` sheet several roles crop from.
+const CLASSIC_ICONS_SHEET: &str = "textures/gui/icons.png";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u32)]
@@ -44,10 +47,65 @@ pub enum HudTextureRole {
     BossProgressFilled = 24,
     ExperienceBarEmpty = 25,
     ExperienceBarFull = 26,
+    Crosshair = 27,
+    HeartFlashFull = 28,
+    HeartFlashHalf = 29,
+    AbsorptionHeartFull = 30,
+    AbsorptionHeartHalf = 31,
+    PoisonHeartFull = 32,
+    PoisonHeartHalf = 33,
+    PoisonHeartFlashFull = 34,
+    PoisonHeartFlashHalf = 35,
+    WitherHeartFull = 36,
+    WitherHeartHalf = 37,
+    WitherHeartFlashFull = 38,
+    WitherHeartFlashHalf = 39,
+    FreezeHeartFull = 40,
+    FreezeHeartHalf = 41,
+    FreezeHeartFlashFull = 42,
+    FreezeHeartFlashHalf = 43,
+    HungerEffectBackground = 44,
+    HungerEffectFull = 45,
+    HungerEffectHalf = 46,
+    MountHeartFull = 47,
+    MountHeartHalf = 48,
+    BubblePop = 49,
+    MountJumpBackground = 50,
+    MountJumpProgress = 51,
+    ExperienceBarBackground182 = 52,
+    ExperienceBarProgress182 = 53,
+    EffectBackground = 54,
+    EffectBackgroundAmbient = 55,
+    EffectIconSpeed = 56,
+    EffectIconSlowness = 57,
+    EffectIconHaste = 58,
+    EffectIconMiningFatigue = 59,
+    EffectIconStrength = 60,
+    EffectIconJumpBoost = 61,
+    EffectIconNausea = 62,
+    EffectIconRegeneration = 63,
+    EffectIconResistance = 64,
+    EffectIconFireResistance = 65,
+    EffectIconWaterBreathing = 66,
+    EffectIconInvisibility = 67,
+    EffectIconBlindness = 68,
+    EffectIconNightVision = 69,
+    EffectIconHunger = 70,
+    EffectIconWeakness = 71,
+    EffectIconPoison = 72,
+    EffectIconWither = 73,
+    EffectIconHealthBoost = 74,
+    EffectIconAbsorption = 75,
+    EffectIconLevitation = 76,
+    EffectIconConduitPower = 77,
+    EffectIconSlowFalling = 78,
+    EffectIconBadOmen = 79,
+    EffectIconVillageHero = 80,
+    EffectIconDarkness = 81,
 }
 
 impl HudTextureRole {
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 82] = [
         Self::HeartBackground,
         Self::HeartFull,
         Self::HeartHalf,
@@ -75,6 +133,61 @@ impl HudTextureRole {
         Self::BossProgressFilled,
         Self::ExperienceBarEmpty,
         Self::ExperienceBarFull,
+        Self::Crosshair,
+        Self::HeartFlashFull,
+        Self::HeartFlashHalf,
+        Self::AbsorptionHeartFull,
+        Self::AbsorptionHeartHalf,
+        Self::PoisonHeartFull,
+        Self::PoisonHeartHalf,
+        Self::PoisonHeartFlashFull,
+        Self::PoisonHeartFlashHalf,
+        Self::WitherHeartFull,
+        Self::WitherHeartHalf,
+        Self::WitherHeartFlashFull,
+        Self::WitherHeartFlashHalf,
+        Self::FreezeHeartFull,
+        Self::FreezeHeartHalf,
+        Self::FreezeHeartFlashFull,
+        Self::FreezeHeartFlashHalf,
+        Self::HungerEffectBackground,
+        Self::HungerEffectFull,
+        Self::HungerEffectHalf,
+        Self::MountHeartFull,
+        Self::MountHeartHalf,
+        Self::BubblePop,
+        Self::MountJumpBackground,
+        Self::MountJumpProgress,
+        Self::ExperienceBarBackground182,
+        Self::ExperienceBarProgress182,
+        Self::EffectBackground,
+        Self::EffectBackgroundAmbient,
+        Self::EffectIconSpeed,
+        Self::EffectIconSlowness,
+        Self::EffectIconHaste,
+        Self::EffectIconMiningFatigue,
+        Self::EffectIconStrength,
+        Self::EffectIconJumpBoost,
+        Self::EffectIconNausea,
+        Self::EffectIconRegeneration,
+        Self::EffectIconResistance,
+        Self::EffectIconFireResistance,
+        Self::EffectIconWaterBreathing,
+        Self::EffectIconInvisibility,
+        Self::EffectIconBlindness,
+        Self::EffectIconNightVision,
+        Self::EffectIconHunger,
+        Self::EffectIconWeakness,
+        Self::EffectIconPoison,
+        Self::EffectIconWither,
+        Self::EffectIconHealthBoost,
+        Self::EffectIconAbsorption,
+        Self::EffectIconLevitation,
+        Self::EffectIconConduitPower,
+        Self::EffectIconSlowFalling,
+        Self::EffectIconBadOmen,
+        Self::EffectIconVillageHero,
+        Self::EffectIconDarkness,
     ];
 
     #[must_use]
@@ -107,6 +220,77 @@ impl HudTextureRole {
             Self::BossProgressFilled => "textures/ui/filled_progress_bar.png",
             Self::ExperienceBarEmpty => "textures/ui/experiencebarempty.png",
             Self::ExperienceBarFull => "textures/ui/experiencebarfull.png",
+            Self::Crosshair
+            | Self::MountJumpBackground
+            | Self::MountJumpProgress
+            | Self::ExperienceBarBackground182
+            | Self::ExperienceBarProgress182 => CLASSIC_ICONS_SHEET,
+            Self::HeartFlashFull => "textures/ui/heart_flash.png",
+            Self::HeartFlashHalf => "textures/ui/heart_flash_half.png",
+            Self::AbsorptionHeartFull => "textures/ui/absorption_heart.png",
+            Self::AbsorptionHeartHalf => "textures/ui/absorption_heart_half.png",
+            Self::PoisonHeartFull => "textures/ui/poison_heart.png",
+            Self::PoisonHeartHalf => "textures/ui/poison_heart_half.png",
+            Self::PoisonHeartFlashFull => "textures/ui/poison_heart_flash.png",
+            Self::PoisonHeartFlashHalf => "textures/ui/poison_heart_flash_half.png",
+            Self::WitherHeartFull => "textures/ui/wither_heart.png",
+            Self::WitherHeartHalf => "textures/ui/wither_heart_half.png",
+            Self::WitherHeartFlashFull => "textures/ui/wither_heart_flash.png",
+            Self::WitherHeartFlashHalf => "textures/ui/wither_heart_flash_half.png",
+            Self::FreezeHeartFull => "textures/ui/freeze_heart.png",
+            Self::FreezeHeartHalf => "textures/ui/freeze_heart_half.png",
+            Self::FreezeHeartFlashFull => "textures/ui/freeze_heart_flash.png",
+            Self::FreezeHeartFlashHalf => "textures/ui/freeze_heart_flash_half.png",
+            Self::HungerEffectBackground => "textures/ui/hunger_effect_background.png",
+            Self::HungerEffectFull => "textures/ui/hunger_effect_full.png",
+            Self::HungerEffectHalf => "textures/ui/hunger_effect_half.png",
+            Self::MountHeartFull => "textures/ui/horse_heart.png",
+            Self::MountHeartHalf => "textures/ui/horse_heart_half.png",
+            Self::BubblePop => "textures/ui/bubble_pop.png",
+            Self::EffectBackground => "textures/ui/hud_mob_effect_background.png",
+            Self::EffectBackgroundAmbient => "textures/ui/hud_mob_ambient_effect_background.png",
+            Self::EffectIconSpeed => "textures/ui/speed_effect.png",
+            Self::EffectIconSlowness => "textures/ui/slowness_effect.png",
+            Self::EffectIconHaste => "textures/ui/haste_effect.png",
+            Self::EffectIconMiningFatigue => "textures/ui/mining_fatigue_effect.png",
+            Self::EffectIconStrength => "textures/ui/strength_effect.png",
+            Self::EffectIconJumpBoost => "textures/ui/jump_boost_effect.png",
+            Self::EffectIconNausea => "textures/ui/nausea_effect.png",
+            Self::EffectIconRegeneration => "textures/ui/regeneration_effect.png",
+            Self::EffectIconResistance => "textures/ui/resistance_effect.png",
+            Self::EffectIconFireResistance => "textures/ui/fire_resistance_effect.png",
+            Self::EffectIconWaterBreathing => "textures/ui/water_breathing_effect.png",
+            Self::EffectIconInvisibility => "textures/ui/invisibility_effect.png",
+            Self::EffectIconBlindness => "textures/ui/blindness_effect.png",
+            Self::EffectIconNightVision => "textures/ui/night_vision_effect.png",
+            Self::EffectIconHunger => "textures/ui/hunger_effect.png",
+            Self::EffectIconWeakness => "textures/ui/weakness_effect.png",
+            Self::EffectIconPoison => "textures/ui/poison_effect.png",
+            Self::EffectIconWither => "textures/ui/wither_effect.png",
+            Self::EffectIconHealthBoost => "textures/ui/health_boost_effect.png",
+            Self::EffectIconAbsorption => "textures/ui/absorption_effect.png",
+            Self::EffectIconLevitation => "textures/ui/levitation_effect.png",
+            Self::EffectIconConduitPower => "textures/ui/conduit_power_effect.png",
+            Self::EffectIconSlowFalling => "textures/ui/slow_falling_effect.png",
+            Self::EffectIconBadOmen => "textures/ui/bad_omen_effect.png",
+            Self::EffectIconVillageHero => "textures/ui/village_hero_effect.png",
+            Self::EffectIconDarkness => "textures/ui/darkness_effect.png",
+        }
+    }
+
+    /// The pinned `[x, y, width, height]` region within [`Self::source_path`]
+    /// for roles cropped out of the classic icons sheet. The crosshair sits at
+    /// the sheet origin; the two 182x5 experience-bar strips and the two
+    /// mount-jump strips occupy rows 64/69 and 84/89 respectively.
+    #[must_use]
+    pub const fn source_crop(self) -> Option<[u32; 4]> {
+        match self {
+            Self::Crosshair => Some([0, 0, 15, 15]),
+            Self::ExperienceBarBackground182 => Some([0, 64, 182, 5]),
+            Self::ExperienceBarProgress182 => Some([0, 69, 182, 5]),
+            Self::MountJumpBackground => Some([0, 84, 182, 5]),
+            Self::MountJumpProgress => Some([0, 89, 182, 5]),
+            _ => None,
         }
     }
 
@@ -123,7 +307,29 @@ impl HudTextureRole {
             | Self::ArmorFull
             | Self::ArmorHalf
             | Self::BubbleFull
-            | Self::BubbleEmpty => [9, 9],
+            | Self::BubbleEmpty
+            | Self::HeartFlashFull
+            | Self::HeartFlashHalf
+            | Self::AbsorptionHeartFull
+            | Self::AbsorptionHeartHalf
+            | Self::PoisonHeartFull
+            | Self::PoisonHeartHalf
+            | Self::PoisonHeartFlashFull
+            | Self::PoisonHeartFlashHalf
+            | Self::WitherHeartFull
+            | Self::WitherHeartHalf
+            | Self::WitherHeartFlashFull
+            | Self::WitherHeartFlashHalf
+            | Self::FreezeHeartFull
+            | Self::FreezeHeartHalf
+            | Self::FreezeHeartFlashFull
+            | Self::FreezeHeartFlashHalf
+            | Self::HungerEffectBackground
+            | Self::HungerEffectFull
+            | Self::HungerEffectHalf
+            | Self::MountHeartFull
+            | Self::MountHeartHalf
+            | Self::BubblePop => [9, 9],
             Self::Hotbar0
             | Self::Hotbar1
             | Self::Hotbar2
@@ -139,6 +345,38 @@ impl HudTextureRole {
             | Self::BossProgressFilled
             | Self::ExperienceBarEmpty
             | Self::ExperienceBarFull => [13, 5],
+            Self::Crosshair => [15, 15],
+            Self::MountJumpBackground
+            | Self::MountJumpProgress
+            | Self::ExperienceBarBackground182
+            | Self::ExperienceBarProgress182 => [182, 5],
+            Self::EffectBackground | Self::EffectBackgroundAmbient => [24, 24],
+            Self::EffectIconSpeed
+            | Self::EffectIconSlowness
+            | Self::EffectIconHaste
+            | Self::EffectIconMiningFatigue
+            | Self::EffectIconStrength
+            | Self::EffectIconJumpBoost
+            | Self::EffectIconNausea
+            | Self::EffectIconRegeneration
+            | Self::EffectIconResistance
+            | Self::EffectIconFireResistance
+            | Self::EffectIconWaterBreathing
+            | Self::EffectIconInvisibility
+            | Self::EffectIconBlindness
+            | Self::EffectIconNightVision
+            | Self::EffectIconHunger
+            | Self::EffectIconWeakness
+            | Self::EffectIconPoison
+            | Self::EffectIconWither
+            | Self::EffectIconHealthBoost
+            | Self::EffectIconAbsorption
+            | Self::EffectIconLevitation
+            | Self::EffectIconConduitPower
+            | Self::EffectIconSlowFalling
+            | Self::EffectIconBadOmen
+            | Self::EffectIconVillageHero
+            | Self::EffectIconDarkness => [18, 18],
         }
     }
 
