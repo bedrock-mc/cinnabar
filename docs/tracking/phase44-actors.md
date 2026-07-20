@@ -1,6 +1,6 @@
 # Phase 4.4 actor authority and live interpolation tracker
 
-Current audited progress: **69%** at integrated head `5316ca3` (production authority + correlation landed; live/native still open).
+Current audited progress: **69%** at PR head `3dc24ba` (production authority + correlation landed; live/native still open).
 
 This estimate uses equal contract, runtime, presentation, deterministic-verification, and live/native/performance gates.
 
@@ -14,11 +14,11 @@ Gate scores: contract 95%, runtime 90%, production presentation 75%, determinist
 - [x] Separate adjacent-frame renderer interpolation.
 - [x] Teleport/replacement snaps plus finite, frustum, distance, and capacity controls.
 - [x] Deterministic ordinary-move, teleport, origin, and interpolation tests.
-- [x] Retain and resolve `AddPlayer` game mode against the authoritative default (`2c7019c`).
-- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`2c7019c`).
-- [x] Filter spectator and metadata-invisible actors before culling and the 128-instance cap (`2c7019c`).
-- [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport (`2c7019c`).
-- [x] Add bounded packet-to-store-to-presented-frame correlation (`5316ca3`).
+- [x] Retain and resolve `AddPlayer` game mode against the authoritative default (`29b47bb`).
+- [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`29b47bb`).
+- [x] Filter spectator and metadata-invisible actors before culling and the 128-instance cap (`29b47bb`).
+- [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport (`29b47bb`).
+- [x] Add bounded packet-to-store-to-presented-frame correlation (`f74a3cd`).
 
 ## Remaining production authority
 
