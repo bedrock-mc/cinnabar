@@ -25,10 +25,18 @@ Gate scores: contract 80%, runtime 75%, production presentation 45%, determinist
 - [ ] Run matching Windows/macOS scale, DPI, aspect-ratio, native Bedrock, and third-party server acceptance.
 - [ ] Prove bounded retained memory and stable frame time with all UI surfaces active.
 
-## Active related implementation
+## Current branch implementation
 
-- PR #3 (`phase5-hybrid-hud`) contains unmerged HUD/chat/scoreboard/hotbar/XP changes. Its description calls a broader "Hybrid HUD" deviation approved and applies Java-style scoreboard/background chrome, but `main` authorizes a Java-style exception for chat layout only; HUD and scoreboard remain strict vanilla Bedrock targets. That broader deviation is therefore neither authorized nor landed.
-- PR #3 reports deterministic tests but no completed real rendered-frame visual acceptance pass. It requires correction to the approved policy, independent review, target-platform visual/native acceptance, and CI before any portion counts as landed here.
+This draft PR also contains unmerged HUD/chat/scoreboard/hotbar/XP changes:
+
+- Java-style chat backdrop changes within the approved chat-layout exception.
+- Hotbar number-key, wheel, and controller selection plus outbound `MobEquipment` routing.
+- Experience attribute retention and XP bar/level presentation.
+- Scoreboard/background presentation changes that currently apply Java-style chrome.
+
+The prior PR description called a broader "Hybrid HUD" deviation approved, but `main` authorizes a Java-style exception for chat layout only; HUD and scoreboard remain strict vanilla Bedrock targets. The Java-style scoreboard/background deviation is therefore neither authorized nor landed and must be corrected before review approval.
+
+No completed real rendered-frame visual acceptance pass or independent review is recorded. Current CI is also red: Linux architecture enforcement reports oversized production/test modules, and Windows acceptance fails in the atmosphere Make concurrency test when `Get-FileHash` is unavailable. These failures must be resolved or proven unrelated on a replacement green run before any branch delta counts as landed.
 
 ## Historical references
 
