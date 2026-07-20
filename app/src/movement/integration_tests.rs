@@ -34,6 +34,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position,
+        velocity: [0.0; 3],
         move_vector: [0.0, 1.0],
         pitch: 10.0,
         yaw: 20.0,

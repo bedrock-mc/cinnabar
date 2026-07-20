@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Buf, Bytes, BytesMut};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::{
     bedrock::codec::{BedrockCodec, VarInt},
@@ -28,6 +29,9 @@ pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
 pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
 pub const MAX_STANDARD_SKIN_SIDE: u32 = 256;
 pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_PLAYER_SKIN_GEOMETRY_BYTES: usize = 1_048_576;
+pub const MAX_PLAYER_SKIN_GEOMETRY_DEPTH: usize = 32;
+pub const MAX_PLAYER_SKIN_GEOMETRY_NODES: usize = 16_384;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -233,13 +237,28 @@ pub struct StandardSkin {
     pub width: u32,
     pub height: u32,
     pub rgba8: Arc<[u8]>,
+    pub geometry: PlayerSkinGeometry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerSkinGeometry {
+    Wide,
+    Slim,
+    Custom {
+        identifier: Arc<str>,
+        data_sha256: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSkinUnavailable {
     UnsupportedPersona,
+    UnsupportedAppearance,
     InvalidDimensions,
     InvalidByteLength,
+    InvalidArmSize,
+    InvalidGeometry,
+    GeometryTooLarge,
     RetainedBudgetExceeded,
 }
 
@@ -641,6 +660,21 @@ fn normalize_player_skin(
     if skin.persona {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
     }
+    if !skin.animations.is_empty()
+        || !skin.personal_pieces.is_empty()
+        || !skin.piece_tint_colors.is_empty()
+        || !skin.animation_data.is_empty()
+    {
+        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedAppearance);
+    }
+    let geometry = match normalize_player_skin_geometry(
+        &skin.arm_size,
+        &skin.skin_resource_pack,
+        &skin.geometry_data,
+    ) {
+        Ok(geometry) => geometry,
+        Err(unavailable) => return PlayerSkin::Unavailable(unavailable),
+    };
     let Ok(width) = u32::try_from(skin.skin_data.width) else {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     };
@@ -672,7 +706,137 @@ fn normalize_player_skin(
         width,
         height,
         rgba8: Arc::from(skin.skin_data.data),
+        geometry,
     })
+}
+
+fn normalize_player_skin_geometry(
+    arm_size: &str,
+    resource_patch: &str,
+    geometry_data: &str,
+) -> Result<PlayerSkinGeometry, PlayerSkinUnavailable> {
+    let (standard, expected_identifier) = match arm_size {
+        "wide" => (PlayerSkinGeometry::Wide, "geometry.humanoid.custom"),
+        "slim" => (PlayerSkinGeometry::Slim, "geometry.humanoid.customSlim"),
+        _ => return Err(PlayerSkinUnavailable::InvalidArmSize),
+    };
+    if resource_patch.is_empty() && geometry_data.is_empty() {
+        return Ok(standard);
+    }
+    let patch_identifier = skin_resource_patch_identifier(resource_patch)?;
+    if patch_identifier != expected_identifier {
+        return Err(PlayerSkinUnavailable::InvalidGeometry);
+    }
+    if geometry_data.is_empty() {
+        return Ok(standard);
+    }
+    if geometry_data.len() > MAX_PLAYER_SKIN_GEOMETRY_BYTES {
+        return Err(PlayerSkinUnavailable::GeometryTooLarge);
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(geometry_data).map_err(|_| PlayerSkinUnavailable::InvalidGeometry)?;
+    validate_skin_geometry_tree(&value, 0, &mut 0)?;
+    let geometry = select_skin_geometry(&value, &patch_identifier)?;
+    Ok(PlayerSkinGeometry::Custom {
+        identifier: Arc::from(patch_identifier),
+        data_sha256: Sha256::digest(
+            serde_json::to_vec(geometry).map_err(|_| PlayerSkinUnavailable::InvalidGeometry)?,
+        )
+        .into(),
+    })
+}
+
+fn skin_resource_patch_identifier(patch: &str) -> Result<String, PlayerSkinUnavailable> {
+    if patch.is_empty() || patch.len() > 4_096 {
+        return Err(PlayerSkinUnavailable::InvalidGeometry);
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(patch).map_err(|_| PlayerSkinUnavailable::InvalidGeometry)?;
+    validate_skin_geometry_tree(&value, 0, &mut 0)?;
+    let root = value
+        .as_object()
+        .ok_or(PlayerSkinUnavailable::InvalidGeometry)?;
+    if root.len() != 1 {
+        return Err(PlayerSkinUnavailable::InvalidGeometry);
+    }
+    let geometry = root
+        .get("geometry")
+        .and_then(serde_json::Value::as_object)
+        .ok_or(PlayerSkinUnavailable::InvalidGeometry)?;
+    if geometry.len() != 1 {
+        return Err(PlayerSkinUnavailable::InvalidGeometry);
+    }
+    geometry
+        .get("default")
+        .and_then(serde_json::Value::as_str)
+        .filter(|identifier| identifier.len() <= MAX_ACTOR_IDENTIFIER_BYTES)
+        .map(str::to_owned)
+        .ok_or(PlayerSkinUnavailable::InvalidGeometry)
+}
+
+fn validate_skin_geometry_tree(
+    value: &serde_json::Value,
+    depth: usize,
+    nodes: &mut usize,
+) -> Result<(), PlayerSkinUnavailable> {
+    if depth > MAX_PLAYER_SKIN_GEOMETRY_DEPTH {
+        return Err(PlayerSkinUnavailable::InvalidGeometry);
+    }
+    *nodes = nodes
+        .checked_add(1)
+        .filter(|nodes| *nodes <= MAX_PLAYER_SKIN_GEOMETRY_NODES)
+        .ok_or(PlayerSkinUnavailable::InvalidGeometry)?;
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                validate_skin_geometry_tree(value, depth + 1, nodes)?;
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values() {
+                validate_skin_geometry_tree(value, depth + 1, nodes)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn select_skin_geometry<'a>(
+    value: &'a serde_json::Value,
+    selected: &str,
+) -> Result<&'a serde_json::Value, PlayerSkinUnavailable> {
+    if let Some(geometries) = value.get("minecraft:geometry") {
+        let geometries = geometries
+            .as_array()
+            .ok_or(PlayerSkinUnavailable::InvalidGeometry)?;
+        let matches = geometries
+            .iter()
+            .filter(|geometry| {
+                geometry
+                    .get("description")
+                    .and_then(|description| description.get("identifier"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(selected)
+            })
+            .collect::<Vec<_>>();
+        return match matches.as_slice() {
+            [geometry] => Ok(*geometry),
+            _ => Err(PlayerSkinUnavailable::InvalidGeometry),
+        };
+    }
+    let object = value
+        .as_object()
+        .ok_or(PlayerSkinUnavailable::InvalidGeometry)?;
+    let matches = object
+        .iter()
+        .filter(|(identifier, _)| identifier.split(':').next() == Some(selected))
+        .map(|(_, geometry)| geometry)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [geometry] => Ok(*geometry),
+        _ => Err(PlayerSkinUnavailable::InvalidGeometry),
+    }
 }
 
 fn normalize_entity_attributes(
@@ -909,4 +1073,58 @@ fn validate_finite(field: &'static str, value: f32) -> Result<(), ActorPacketErr
         return Err(ActorPacketError::NonFiniteField { field });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod skin_geometry_tests {
+    use super::*;
+
+    #[test]
+    fn resource_patch_selects_one_geometry_from_a_multi_geometry_payload() {
+        let slim = serde_json::json!({
+            "description": {"identifier": "geometry.humanoid.customSlim"},
+            "bones": [{"name": "root"}]
+        });
+        let payload = serde_json::json!({
+            "format_version": "1.12.0",
+            "minecraft:geometry": [
+                {"description": {"identifier": "geometry.humanoid.custom"}},
+                slim.clone()
+            ]
+        });
+        let geometry = normalize_player_skin_geometry(
+            "slim",
+            r#"{"geometry":{"default":"geometry.humanoid.customSlim"}}"#,
+            &serde_json::to_string(&payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            geometry,
+            PlayerSkinGeometry::Custom {
+                identifier: "geometry.humanoid.customSlim".into(),
+                data_sha256: Sha256::digest(serde_json::to_vec(&slim).unwrap()).into(),
+            }
+        );
+    }
+
+    #[test]
+    fn resource_patch_arm_mismatch_and_ambiguous_geometry_fail_closed() {
+        let payload = r#"{"minecraft:geometry":[{"description":{"identifier":"geometry.humanoid.custom"}},{"description":{"identifier":"geometry.humanoid.custom"}}]}"#;
+        assert_eq!(
+            normalize_player_skin_geometry(
+                "slim",
+                r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#,
+                payload,
+            ),
+            Err(PlayerSkinUnavailable::InvalidGeometry)
+        );
+        assert_eq!(
+            normalize_player_skin_geometry(
+                "wide",
+                r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#,
+                payload,
+            ),
+            Err(PlayerSkinUnavailable::InvalidGeometry)
+        );
+    }
 }

@@ -332,6 +332,33 @@ fn pinned_pack_duplicate_entity_generations_have_no_runtime_rig() {
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let first = compile_entity_assets(Path::new(&pack), MANIFEST).unwrap();
     let second = compile_entity_assets(Path::new(&pack), MANIFEST).unwrap();
+    let player_symbol = first
+        .symbols
+        .iter()
+        .position(|symbol| {
+            symbol.kind == assets::EntityAssetKind::Entity
+                && symbol.identifier.as_ref() == "minecraft:player"
+        })
+        .unwrap() as u32;
+    let player_rig = first
+        .rig_bindings
+        .iter()
+        .find(|rig| rig.entity_symbol == player_symbol)
+        .expect("pinned player authority must compile a runtime rig");
+    let player_geometries = &first.rig_geometries[player_rig.first_geometry as usize
+        ..player_rig.first_geometry as usize + player_rig.geometry_count as usize];
+    let identifiers = player_geometries
+        .iter()
+        .map(|binding| {
+            first.geometries[binding.geometry as usize]
+                .identifier
+                .as_ref()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        identifiers,
+        ["geometry.humanoid.custom", "geometry.humanoid.customSlim"]
+    );
     assert_eq!(
         encode_entity_blob(&first).unwrap(),
         encode_entity_blob(&second).unwrap(),

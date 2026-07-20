@@ -138,6 +138,7 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
 #[allow(dead_code)]
 struct GeometryProbe {
     identifier: de::IgnoredAny,
+    semantic_sha256: de::IgnoredAny,
     inherits: de::IgnoredAny,
     source_index: de::IgnoredAny,
     texture_width: de::IgnoredAny,
@@ -238,6 +239,7 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
                 while let Some(geometry) = sequence.next_element::<GeometryProbe>()? {
                     let GeometryProbe {
                         identifier: _,
+                        semantic_sha256: _,
                         inherits: _,
                         source_index: _,
                         texture_width: _,

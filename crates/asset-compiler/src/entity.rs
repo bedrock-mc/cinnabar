@@ -53,6 +53,7 @@ struct PendingSymbol {
 #[derive(Clone)]
 struct PendingGeometry {
     identifier: Box<str>,
+    semantic_sha256: [u8; 32],
     inherits: Option<Box<str>>,
     source_path: Box<str>,
     texture_width: Option<u16>,
@@ -81,6 +82,9 @@ pub fn compile_entity_assets_with_report(
     let mut selected = Vec::new();
     collect_family(root, "entity", &["json"], &mut selected)?;
     collect_family(root, "models/entity", &["json"], &mut selected)?;
+    // The official pack keeps the two canonical player arm geometries in this
+    // pinned legacy file rather than under models/entity.
+    collect_optional_file(root, "models/mobs.json", &mut selected)?;
     collect_family(root, "animations", &["json"], &mut selected)?;
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
@@ -210,6 +214,7 @@ pub fn compile_entity_assets_with_report(
                 .ok_or_else(|| invalid("entity geometry references an absent source"))?;
             Ok(EntityGeometry {
                 identifier: geometry.identifier,
+                semantic_sha256: geometry.semantic_sha256,
                 inherits: geometry
                     .inherits
                     .map(|identifier| EntityGeometryInheritance {
@@ -547,7 +552,9 @@ fn parse_source(
         return Ok(());
     }
 
-    let value = if relative_path.starts_with("models/entity/") {
+    let is_geometry_source =
+        relative_path.starts_with("models/entity/") || relative_path == "models/mobs.json";
+    let value = if is_geometry_source {
         parse_fully_unique_json(absolute_path, bytes)?
     } else {
         parse_unique_json(absolute_path, bytes)?
@@ -560,7 +567,7 @@ fn parse_source(
             &["format_version", "minecraft:client_entity"],
         )?;
         parse_entity(relative_path, absolute_path, &value, symbols)
-    } else if relative_path.starts_with("models/entity/") {
+    } else if is_geometry_source {
         parse_geometry(
             relative_path,
             absolute_path,

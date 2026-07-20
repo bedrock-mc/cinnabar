@@ -7,6 +7,7 @@ fn roster_unique_id_lookup_is_exact_and_fails_closed_on_ambiguity() {
             width: 64,
             height: 64,
             rgba8: vec![value; 64 * 64 * 4].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
         })
     };
     let add = |uuid, unique_id, value| {

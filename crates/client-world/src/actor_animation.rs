@@ -8,7 +8,7 @@ use assets::{
     EntityAnimationProperty, EntityAssetKind, EntityGeometryBone, EntityRigFallback, MolangOp,
     RuntimeEntityAssets, validate_entity_geometry_inheritance,
 };
-use protocol::{ActorKind, ActorMetadataValue};
+use protocol::{ActorKind, ActorMetadataValue, PlayerSkinGeometry};
 
 use crate::actor_store::ActorSnapshot;
 
@@ -85,7 +85,7 @@ pub(crate) struct ActorAnimationStore {
     textures: Arc<[ActorRigTexture]>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
-    local_player: Option<ActorRigState>,
+    local_players: BTreeMap<Box<str>, ActorRigState>,
     completed_tick: u64,
     next_reset_generation: u64,
     stats: ActorAnimationStats,
@@ -136,6 +136,18 @@ struct ActorTickInput {
     body_yaw: f32,
     head_yaw: f32,
     pitch: f32,
+}
+
+/// Sanitized fixed-tick authority for the StartGame-owned local player rig.
+/// Action state is intentionally absent until an authoritative source exists.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LocalPlayerAnimationTickInput {
+    pub tick: u64,
+    pub velocity: [f32; 3],
+    pub on_ground: bool,
+    pub body_yaw: f32,
+    pub head_yaw: f32,
+    pub pitch: f32,
 }
 
 struct EvaluatedState {
@@ -214,17 +226,27 @@ impl ActorAnimationStore {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let local_player = assets.as_ref().and_then(|assets| {
-            let mut state = resolve_rig(assets, &local_player_resolution_actor(), 1)?;
-            state.reset_generation = 1;
-            Some(state)
+        let local_players = assets.as_ref().map_or_else(BTreeMap::new, |assets| {
+            ["geometry.humanoid.custom", "geometry.humanoid.customSlim"]
+                .into_iter()
+                .filter_map(|identifier| {
+                    let mut state = resolve_rig_for_geometry(
+                        assets,
+                        &local_player_resolution_actor(),
+                        1,
+                        Some(identifier),
+                    )?;
+                    state.reset_generation = 1;
+                    Some((identifier.into(), state))
+                })
+                .collect()
         });
         Self {
             assets,
             textures: textures.into(),
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
-            local_player,
+            local_players,
             completed_tick: 0,
             next_reset_generation: 1,
             stats: ActorAnimationStats::default(),
@@ -235,7 +257,67 @@ impl ActorAnimationStore {
         self.rigs.clear();
         self.runtime_to_lifetime.clear();
         self.completed_tick = 0;
+        self.reset_local_player();
         self.bump_generation();
+    }
+
+    pub(crate) fn reset_local_player(&mut self) {
+        for state in self.local_players.values_mut() {
+            state.reset_pending = true;
+            state.completed_tick = 0;
+            state.history.clear();
+        }
+    }
+
+    pub(crate) fn advance_local_player_tick(&mut self, input: LocalPlayerAnimationTickInput) {
+        if !input.velocity.into_iter().all(f32::is_finite)
+            || ![input.body_yaw, input.head_yaw, input.pitch]
+                .into_iter()
+                .all(f32::is_finite)
+        {
+            self.reset_local_player();
+            return;
+        }
+        let Some(assets) = self.assets.clone() else {
+            return;
+        };
+        let actor = local_player_animation_actor(input);
+        let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
+        for state in self.local_players.values_mut() {
+            if state.completed_tick != 0 && input.tick != state.completed_tick.saturating_add(1) {
+                state.reset_pending = true;
+                state.history.clear();
+            }
+            let mut budget = EvalBudget {
+                actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+                world_left: &mut world_left,
+                work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
+                transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
+                used: 0,
+            };
+            if let Ok(evaluated) = evaluate_state(&assets, state, &actor, input.tick, &mut budget) {
+                state.controllers = evaluated.controllers;
+                state.history = evaluated.history;
+                if state.reset_pending {
+                    state.previous.clone_from(&evaluated.pose);
+                    state.current = evaluated.pose;
+                    state.reset_pending = false;
+                    state.reset_generation = self.next_reset_generation;
+                    self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+                    state.lifetime_epoch = input.tick;
+                    state.animation_epoch = input.tick;
+                } else {
+                    state.previous = std::mem::replace(&mut state.current, evaluated.pose);
+                }
+                state.completed_tick = input.tick;
+            } else {
+                self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+            }
+            self.stats.evaluated_molang_ops = self
+                .stats
+                .evaluated_molang_ops
+                .saturating_add(budget.used as u64);
+        }
     }
 
     pub(crate) fn remove_runtime(&mut self, runtime_id: u64) {
@@ -362,8 +444,34 @@ impl ActorAnimationStore {
             .collect()
     }
 
-    pub(crate) fn local_player(&self) -> Option<LocalPlayerRigSnapshot<'_>> {
-        let state = self.local_player.as_ref()?;
+    pub(crate) fn local_player(
+        &self,
+        geometry: &PlayerSkinGeometry,
+    ) -> Option<LocalPlayerRigSnapshot<'_>> {
+        let (identifier, expected_hash) = match geometry {
+            PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
+            PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
+            PlayerSkinGeometry::Custom {
+                identifier,
+                data_sha256,
+            } => (identifier.as_ref(), Some(data_sha256)),
+        };
+        let state = self.local_players.get(identifier)?;
+        if let Some(expected_hash) = expected_hash {
+            let candidate = self
+                .assets
+                .as_ref()?
+                .rig_geometries()
+                .get(state.geometry_binding)?;
+            let geometry = self
+                .assets
+                .as_ref()?
+                .geometries()
+                .get(candidate.geometry as usize)?;
+            if &geometry.semantic_sha256 != expected_hash {
+                return None;
+            }
+        }
         (state.previous.len() == state.current.len() && !state.previous.is_empty()).then_some(
             LocalPlayerRigSnapshot {
                 rig: state.rig,
@@ -451,10 +559,30 @@ fn local_player_resolution_actor() -> ActorSnapshot {
     }
 }
 
+fn local_player_animation_actor(input: LocalPlayerAnimationTickInput) -> ActorSnapshot {
+    let mut actor = local_player_resolution_actor();
+    actor.velocity = input.velocity;
+    actor.on_ground = Some(input.on_ground);
+    actor.body_yaw = input.body_yaw;
+    actor.yaw = input.body_yaw;
+    actor.head_yaw = input.head_yaw;
+    actor.pitch = input.pitch;
+    actor
+}
+
 fn resolve_rig(
     assets: &RuntimeEntityAssets,
     actor: &ActorSnapshot,
     completed_tick: u64,
+) -> Option<ActorRigState> {
+    resolve_rig_for_geometry(assets, actor, completed_tick, None)
+}
+
+fn resolve_rig_for_geometry(
+    assets: &RuntimeEntityAssets,
+    actor: &ActorSnapshot,
+    completed_tick: u64,
+    requested_geometry: Option<&str>,
 ) -> Option<ActorRigState> {
     let identifier = match &actor.kind {
         ActorKind::Player { .. } => "minecraft:player",
@@ -488,9 +616,24 @@ fn resolve_rig(
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
     };
-    let mut candidate_offset = 0;
+    let requested_offset = requested_geometry.map(|identifier| {
+        candidates.iter().position(|candidate| {
+            assets
+                .geometries()
+                .get(candidate.geometry as usize)
+                .is_some_and(|geometry| geometry.identifier.as_ref() == identifier)
+        })
+    });
+    let mut candidate_offset = match requested_offset {
+        Some(Some(offset)) => offset,
+        Some(None) => return None,
+        None => 0,
+    };
     let empty_history = VecDeque::new();
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
+        if requested_geometry.is_some() {
+            break;
+        }
         let selected = evaluate_expression(
             assets,
             candidate.condition? as usize,

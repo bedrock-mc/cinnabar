@@ -116,10 +116,10 @@ fn encode(
 ) -> Result<Box<[u8]>, AssetError> {
     let mut bytes = vec![0; HEADER_BYTES];
     serde_json::to_writer(&mut bytes, &payload)
-        .map_err(|_| invalid("failed to encode MCBEENT5 catalog payload"))?;
+        .map_err(|_| invalid("failed to encode MCBEENT6 catalog payload"))?;
     let payload_bytes = bytes.len() - HEADER_BYTES;
     if payload_bytes > MAX_ENTITY_CATALOG_BYTES {
-        return Err(invalid("MCBEENT5 catalog payload exceeds bound"));
+        return Err(invalid("MCBEENT6 catalog payload exceeds bound"));
     }
     bytes[0..8].copy_from_slice(&ENTITY_BLOB_MAGIC);
     bytes[8..12].copy_from_slice(&ENTITY_BLOB_VERSION.to_le_bytes());
@@ -129,7 +129,7 @@ fn encode(
     bytes[24..56].copy_from_slice(&source_manifest_sha256);
     bytes[56..64].copy_from_slice(
         &u64::try_from(payload_bytes)
-            .map_err(|_| invalid("MCBEENT5 payload length overflow"))?
+            .map_err(|_| invalid("MCBEENT6 payload length overflow"))?
             .to_le_bytes(),
     );
     write_count(
@@ -155,7 +155,7 @@ fn write_count(
 ) -> Result<(), AssetError> {
     bytes[offset..offset + 4].copy_from_slice(
         &u32::try_from(count)
-            .map_err(|_| invalid(format!("MCBEENT5 {section} count overflow")))?
+            .map_err(|_| invalid(format!("MCBEENT6 {section} count overflow")))?
             .to_le_bytes(),
     );
     Ok(())

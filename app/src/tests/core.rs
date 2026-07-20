@@ -45,6 +45,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         width: 64,
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
+        geometry: protocol::PlayerSkinGeometry::Wide,
     });
     let actor = client_world::ActorSnapshot {
         unique_id: 9,

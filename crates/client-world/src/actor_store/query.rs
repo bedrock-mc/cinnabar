@@ -1,5 +1,7 @@
 use super::*;
-use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot, LocalPlayerRigSnapshot};
+use crate::actor_animation::{
+    ActorAnimationStats, ActorRigSnapshot, LocalPlayerAnimationTickInput, LocalPlayerRigSnapshot,
+};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
@@ -67,8 +69,17 @@ impl ActorStore {
     pub(crate) fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
         self.animation.snapshots()
     }
-    pub(crate) fn local_player_rig(&self) -> Option<LocalPlayerRigSnapshot<'_>> {
-        self.animation.local_player()
+    pub(crate) fn local_player_rig(
+        &self,
+        geometry: &protocol::PlayerSkinGeometry,
+    ) -> Option<LocalPlayerRigSnapshot<'_>> {
+        self.animation.local_player(geometry)
+    }
+    pub(crate) fn advance_local_player_animation(&mut self, input: LocalPlayerAnimationTickInput) {
+        self.animation.advance_local_player_tick(input);
+    }
+    pub(crate) fn reset_local_player_animation(&mut self) {
+        self.animation.reset_local_player();
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()

@@ -95,6 +95,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         symbols,
         geometries: vec![
             EntityGeometry {
+                semantic_sha256: [0; 32],
                 identifier: "geometry.base".into(),
                 inherits: None,
                 source_index: 3,
@@ -114,6 +115,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 .into_boxed_slice(),
             },
             EntityGeometry {
+                semantic_sha256: [0; 32],
                 identifier: "geometry.bee".into(),
                 inherits: Some(EntityGeometryInheritance {
                     identifier: "geometry.base".into(),

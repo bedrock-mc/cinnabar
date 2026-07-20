@@ -97,7 +97,10 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
                     compiled.rig_controllers.len(),
                 )
             {
-                return Err(invalid("entity rig geometry candidate is invalid"));
+                return Err(invalid(format!(
+                    "entity rig geometry candidate is invalid: entity_symbol={}, candidate={}, geometry={}, condition={:?}",
+                    binding.entity_symbol, candidate_index, candidate.geometry, candidate.condition
+                )));
             }
             let geometry_bones = effective_bone_counts[candidate.geometry as usize];
             let animations = &compiled.rig_animations[candidate.first_animation as usize

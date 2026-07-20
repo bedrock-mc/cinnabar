@@ -35,7 +35,7 @@ pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_ticker: ResMut<MovementTicker>,
@@ -99,6 +99,16 @@ pub(crate) fn advance_local_physics(
         return;
     }
     for sample in frame.samples {
+        if let Some(stream) = client_world.stream.as_mut() {
+            stream.advance_local_player_animation(client_world::LocalPlayerAnimationTickInput {
+                tick: sample.tick,
+                velocity: sample.velocity,
+                on_ground: sample.grounded_after_tick,
+                body_yaw: sample.yaw,
+                head_yaw: sample.head_yaw,
+                pitch: sample.pitch,
+            });
+        }
         if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
             debug!(?fault, "candidate Physics movement authority failed closed");
             physics.deactivate();
@@ -759,6 +769,7 @@ mod tests {
             .enqueue_completed_physics(PhysicsMovementSample {
                 tick: 11,
                 position: [1.0, 2.0, 3.0],
+                velocity: [0.0; 3],
                 move_vector: [0.0; 2],
                 pitch: 0.0,
                 yaw: 0.0,

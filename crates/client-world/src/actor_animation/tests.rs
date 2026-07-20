@@ -40,6 +40,44 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
 }
 
 #[test]
+#[ignore = "requires PINNED_ENTITY_CARRIER built from the pinned official resource pack"]
+fn pinned_carrier_resolves_both_local_player_rigs_and_advances_consecutive_ticks() {
+    let path = std::env::var_os("PINNED_ENTITY_CARRIER")
+        .expect("set PINNED_ENTITY_CARRIER to the ignored compiled carrier");
+    let bytes = std::fs::read(path).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let mut store = ActorAnimationStore::with_assets(assets);
+    assert!(store.local_player(&PlayerSkinGeometry::Wide).is_some());
+    assert!(store.local_player(&PlayerSkinGeometry::Slim).is_some());
+    for tick in 1..=2 {
+        store.advance_local_player_tick(LocalPlayerAnimationTickInput {
+            tick,
+            velocity: [0.2, 0.0, 0.0],
+            on_ground: true,
+            body_yaw: 45.0,
+            head_yaw: 55.0,
+            pitch: -10.0,
+        });
+    }
+    assert_eq!(
+        store
+            .local_player(&PlayerSkinGeometry::Wide)
+            .unwrap()
+            .completed_tick,
+        2
+    );
+    assert!(
+        store
+            .local_player(&PlayerSkinGeometry::Custom {
+                identifier: "geometry.humanoid.custom".into(),
+                data_sha256: [0xff; 32],
+            })
+            .is_none(),
+        "unproven packet geometry must fail closed"
+    );
+}
+
+#[test]
 fn child_before_parent_composes_without_reindexing_channels() {
     let bones = [
         RuntimeBone {

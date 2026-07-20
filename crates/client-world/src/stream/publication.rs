@@ -121,7 +121,17 @@ impl WorldStream {
         self.actors.actor_rigs()
     }
     pub fn local_player_rig(&self) -> Option<crate::LocalPlayerRigSnapshot<'_>> {
-        self.actors.local_player_rig()
+        let profile = self.local_player_profile()?;
+        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
+            return None;
+        };
+        self.actors.local_player_rig(&skin.geometry)
+    }
+    pub fn advance_local_player_animation(&mut self, input: crate::LocalPlayerAnimationTickInput) {
+        self.actors.advance_local_player_animation(input);
+    }
+    pub fn reset_local_player_animation(&mut self) {
+        self.actors.reset_local_player_animation();
     }
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
         self.actors.animation_stats()

@@ -6,6 +6,7 @@ pub enum FallbackReason {
     UnsupportedOptionalExpression,
     UnreferencedDefinition,
     UnsupportedGeometryBinding,
+    IncompleteAnimationReferences,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

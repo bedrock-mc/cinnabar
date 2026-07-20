@@ -108,6 +108,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        semantic_sha256: [0; 32],
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -165,6 +166,7 @@ fn inherited_geometry_fixture() -> CompiledEntityAssets {
     compiled.geometries = vec![
         compiled.geometries[0].clone(),
         EntityGeometry {
+            semantic_sha256: [0; 32],
             identifier: "geometry.derived".into(),
             inherits: Some(EntityGeometryInheritance {
                 identifier: "geometry.allay".into(),
@@ -247,12 +249,12 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
 #[test]
 fn entity_carrier_round_trips_canonical_catalog_and_provenance() {
     let compiled = fixture();
-    let first = encode_entity_blob(&compiled).expect("encode MCBEENT5");
-    let second = encode_entity_blob(&compiled).expect("encode MCBEENT5 twice");
+    let first = encode_entity_blob(&compiled).expect("encode MCBEENT6");
+    let second = encode_entity_blob(&compiled).expect("encode MCBEENT6 twice");
     assert_eq!(first, second);
     assert_eq!(&first[..8], b"MCBEENT3");
 
-    let runtime = RuntimeEntityAssets::decode(&first).expect("decode MCBEENT5");
+    let runtime = RuntimeEntityAssets::decode(&first).expect("decode MCBEENT6");
     assert_eq!(runtime.source_manifest_sha256(), [0x11; 32]);
     assert_eq!(runtime.sources(), compiled.sources.as_ref());
     assert_eq!(runtime.symbols(), compiled.symbols.as_ref());
@@ -384,6 +386,7 @@ fn carrier_rejects_dependency_resolution_that_disagrees_with_catalog() {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        semantic_sha256: [0; 32],
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -519,6 +522,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         sources,
         symbols,
         geometries: vec![entity::EntityGeometry {
+            semantic_sha256: [0; 32],
             identifier: "geometry.allay".into(),
             inherits: None,
             source_index: 3,
@@ -680,11 +684,11 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
 }
 
 #[test]
-fn carrier_v5_round_trips_every_extended_section_byte_identically() {
+fn carrier_v6_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
-    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-5 carrier");
+    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-6 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 5);
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 6);
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
@@ -696,7 +700,7 @@ fn carrier_v5_round_trips_every_extended_section_byte_identically() {
 }
 
 #[test]
-fn carrier_v5_rejects_versions_three_and_four_and_hashes_extended_payload() {
+fn carrier_v6_rejects_older_versions_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
     for version in [3_u32, 4] {
         let mut wrong = encoded.to_vec();
@@ -736,7 +740,7 @@ fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match(
 #[test]
 fn current_entity_carrier_diagnostics_name_schema_five() {
     let error = RuntimeEntityAssets::decode(&[]).unwrap_err();
-    assert!(error.to_string().contains("MCBEENT5"));
+    assert!(error.to_string().contains("MCBEENT6"));
     assert!(!error.to_string().contains("MCBEENT4"));
 }
 

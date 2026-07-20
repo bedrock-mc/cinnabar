@@ -322,6 +322,10 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
                     uuid,
                     entity_unique_id: 77,
                     username: "Steve".to_owned(),
+                    skin_data: Skin {
+                        arm_size: "wide".to_owned(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
             )))],
@@ -374,6 +378,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     let classic = PlayerRecordsRecordsItemAdd {
         username: "Classic".to_owned(),
         skin_data: Skin {
+            arm_size: "wide".to_owned(),
             skin_data: SkinImage {
                 width: 64,
                 height: 64,
@@ -424,6 +429,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
             width: 64,
             height: 64,
             rgba8: vec![0x7f; 64 * 64 * 4].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
         })
     );
     let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {

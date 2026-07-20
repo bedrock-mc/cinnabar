@@ -57,6 +57,7 @@ struct RigInputs<'a> {
     clip_indices: &'a ClipIndices,
     controllers: &'a [PendingController],
     geometry_selections: &'a GeometrySelections,
+    player_slim_condition: u32,
 }
 
 struct ControllerInputs<'a> {
@@ -277,6 +278,9 @@ pub(super) fn compile(
         .iter()
         .flat_map(|controller| controller.states.iter().map(|state| state.name.clone()))
         .collect::<Vec<_>>();
+    // Runtime profile authority selects this candidate explicitly. The normal
+    // conditional resolver must never select it by movement state.
+    let player_slim_condition = molang.compile("query.modified_move_speed < -1.0")?;
     let (rig_payload, rig_names) = compile_rigs(
         root,
         payloads,
@@ -287,6 +291,7 @@ pub(super) fn compile(
             clip_indices: &clip_indices,
             controllers: &pending_controllers,
             geometry_selections: &geometry_selections,
+            player_slim_condition,
         },
     )?;
     names.extend(rig_names.iter().cloned());
@@ -684,6 +689,7 @@ fn compile_rigs(
         clip_indices,
         controllers,
         geometry_selections,
+        player_slim_condition,
     } = inputs;
     let geometry_indices = unique_geometry_indices(geometries);
     let render_indices = unique_symbol_indices(symbols, EntityAssetKind::RenderController);
@@ -707,6 +713,7 @@ fn compile_rigs(
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
     {
+        let is_player = entity.identifier.as_ref() == "minecraft:player";
         if symbols
             .iter()
             .filter(|candidate| {
@@ -739,7 +746,21 @@ fn compile_rigs(
             });
             continue;
         };
-        let Some(geometry) = geometry_indices.get(geometry_name) else {
+        let player_geometry = |identifier: &str| {
+            geometries.iter().enumerate().find_map(|(index, geometry)| {
+                (geometry.identifier.as_ref() == identifier
+                    && sources
+                        .get(geometry.source_index as usize)
+                        .is_some_and(|source| source.path.as_ref() == "models/mobs.json"))
+                .then_some(index as u32)
+            })
+        };
+        let geometry_resolution = if is_player {
+            player_geometry(geometry_name).map(Some)
+        } else {
+            geometry_indices.get(geometry_name).copied()
+        };
+        let Some(geometry) = geometry_resolution else {
             outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,
@@ -747,7 +768,7 @@ fn compile_rigs(
             });
             continue;
         };
-        let Some(geometry) = *geometry else {
+        let Some(geometry) = geometry else {
             outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,
@@ -782,9 +803,26 @@ fn compile_rigs(
             continue;
         };
         let mut rejected = false;
+        let mut incomplete_player_animation = false;
         let mut static_fallback = false;
         let mut geometry_candidates = vec![(geometry, None)];
-        match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
+        if is_player {
+            let Some(slim) = player_geometry("geometry.humanoid.customSlim") else {
+                outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
+                    source: entity.source_index,
+                    symbol: entity_symbol as u32,
+                    reason: RejectReason::MissingGeometryReference,
+                });
+                continue;
+            };
+            if slim != geometry {
+                geometry_candidates.push((slim, Some(player_slim_condition)));
+            }
+        }
+        match (!is_player)
+            .then(|| geometry_selections.get(&(render_name.into(), entity_symbol as u32)))
+            .flatten()
+        {
             Some(GeometrySelection::Supported(selectable)) => geometry_candidates.extend(
                 selectable
                     .iter()
@@ -813,6 +851,8 @@ fn compile_rigs(
                         candidate_geometry,
                     )) {
                         controller_bindings.push((name.clone(), target.clone()));
+                    } else if is_player {
+                        incomplete_player_animation = true;
                     } else {
                         static_fallback = true;
                     }
@@ -825,7 +865,13 @@ fn compile_rigs(
                 {
                     animation_bindings.push((name.clone(), clip));
                 } else if animation_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
+                    if is_player {
+                        incomplete_player_animation = true;
+                    } else {
+                        static_fallback = true;
+                    }
+                } else if is_player {
+                    incomplete_player_animation = true;
                 } else {
                     rejected = true;
                 }
@@ -844,7 +890,13 @@ fn compile_rigs(
                 )) {
                     controller_bindings.push((name.clone(), target.clone()));
                 } else if controller_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
+                    if is_player {
+                        incomplete_player_animation = true;
+                    } else {
+                        static_fallback = true;
+                    }
+                } else if is_player {
+                    incomplete_player_animation = true;
                 } else {
                     rejected = true;
                 }
@@ -884,6 +936,13 @@ fn compile_rigs(
                 .compile(expression)
                 .is_err()
         });
+        if incomplete_player_animation {
+            outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
+                source: entity.source_index,
+                symbol: entity_symbol as u32,
+                reason: FallbackReason::IncompleteAnimationReferences,
+            });
+        }
         let fallback = if static_fallback {
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source: entity.source_index,

@@ -13,7 +13,7 @@ pub use action::{
 };
 pub use actor_animation::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, ActorRigTextureSnapshot, BoneTransform,
-    EntityRigId, LocalPlayerRigSnapshot, MAX_ACTOR_ACTION_HISTORY,
+    EntityRigId, LocalPlayerAnimationTickInput, LocalPlayerRigSnapshot, MAX_ACTOR_ACTION_HISTORY,
     MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
 };

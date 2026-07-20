@@ -140,6 +140,7 @@ fn start_game_self_resolves_only_its_exact_player_list_skin_without_add_player()
             width: 64,
             height: 64,
             rgba8: vec![value; 64 * 64 * 4].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
         })
     };
 

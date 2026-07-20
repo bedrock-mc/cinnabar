@@ -520,6 +520,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
+        stream.reset_local_player_animation();
         local_frame.reset(reset);
         interaction.invalidate();
         let _ = acceptance.observe_committed_full_view_control(&control);

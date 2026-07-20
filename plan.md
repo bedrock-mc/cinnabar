@@ -1678,7 +1678,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   skins/persona data, Molang, name tags, or item/first-person visuals; those remain open Phase 4
   work.
 
-- [x] **4.2 Standard remote-player render slice.** `PlayerList` now retains explicitly bounded
+- [ ] **4.2 Standard remote-player render slice (reopened for parity).** `PlayerList` now retains explicitly bounded
   classic 64x64, 128x128, or 256x256 RGBA skin images, with deterministic unavailable states for
   persona, malformed, or retained-budget-exhausted data; `AddPlayer` UUIDs join those roster
   profiles to the sparse actor store, whose cumulative retained skin bytes remain capped across
@@ -1700,13 +1700,21 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   movement state and sends no free-camera position updates. One
   custom `Opaque3d` instanced draw expands a shared six-cuboid standard
   Bedrock biped vertex buffer and samples a bounded 64x64 texture array, with no `StandardMaterial`
-  or per-actor Bevy mesh. Missing/unsupported/invalid skins use the documented, locally generated
-  `Cinnabar Default` skin (no Mojang or diagnostic bytes). Focused protocol/app/render tests,
+  or per-actor Bevy mesh. Missing, ambiguous, persona, and unsupported custom skins fail closed to
+  NoDraw; production no longer substitutes diagnostic art. The StartGame unique-ID joins to exactly
+  one PlayerList profile without requiring a remote `AddPlayer`. The pinned compiler extracts the
+  official wide and slim player geometries from `models/mobs.json`, records semantic fingerprints,
+  and emits a dedicated `minecraft:player` rig despite unrelated unavailable animation aliases.
+  ResourcePatch selects arm geometry exactly; nonempty geometry data renders only when its selected
+  fingerprint matches the pinned geometry. Completed local physics ticks drive the bounded local
+  rig evaluator with velocity, ground state, pitch, head yaw, and body yaw; corrections, dimension
+  changes, and tick discontinuities reset its interpolation history. Focused protocol/app/render tests,
   shader parsing, no-op-backend binding-layout validation, pipeline specialization, format, and
-  warnings-denied workspace Clippy are green. Persona/custom geometry,
+  warnings-denied workspace Clippy are required before integration. Persona geometry,
   legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
-  first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
-  visual evidence remain open Phase 4 work.
+  first-person visuals, authoritative local attack/use animation inputs, full vanilla player Molang
+  variables, live render-pipeline creation on a hardware backend, and version-matched third-person
+  native visual evidence remain open Phase 4 work. Therefore 4.2 remains open after this correction.
   The complete absolute-movement origin correction, regression suite, independent review, and
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
@@ -1725,9 +1733,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   **Bounded asset-catalog tranche complete (2026-07-16):** the pinned vanilla
   `entity`, geometry, animation, animation-controller, render-controller, and
   entity-texture trees now compile into the deterministic `MCBEENT3` carrier
-  with exact source-manifest provenance. The real reviewed pack produces 3,247
-  source records, 2,993 symbols, and 3,071 dependency edges (2,929 internal and
-  142 explicitly external); duplicate identifiers remain selectable candidates
+  with exact source-manifest provenance. After pinned player-geometry extraction, the real
+  reviewed pack produces 5,768 source records, 3,014 symbols, 3,071 dependency edges, and 245
+  geometries; duplicate identifiers remain selectable candidates
   rather than silently choosing a generation. Texture identifiers and
   conditional render-controller keys resolve canonically, startup fails closed
   on stale provenance, and generated carriers/reports and Mojang payloads remain
