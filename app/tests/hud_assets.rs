@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
 use bedrock_client::asset_startup::{
-    AssetStartupError, HUD_ASSETS_COMPILE_COMMAND, hud_asset_path, hud_assets_missing_notice,
-    load_hud_assets, require_hud_assets,
+    AssetStartupError, DEFAULT_ASSET_PATH, HUD_ASSETS_COMPILE_COMMAND, hud_asset_path,
+    hud_assets_missing_notice, hud_assets_rebuild_command, load_hud_assets, require_hud_assets,
 };
 use sha2::{Digest, Sha256};
 
@@ -55,6 +55,11 @@ fn optional_hud_probe_reports_absence_without_inventing_fallback_art() {
 #[test]
 fn hud_recovery_uses_the_automatic_official_sample_target() {
     assert_eq!(HUD_ASSETS_COMPILE_COMMAND, "make hud-assets");
+    let default_hud_path = hud_asset_path(PathBuf::from(DEFAULT_ASSET_PATH).as_path());
+    assert_eq!(
+        hud_assets_rebuild_command(&default_hud_path),
+        HUD_ASSETS_COMPILE_COMMAND
+    );
 }
 
 #[test]
@@ -74,7 +79,7 @@ fn absent_hud_carrier_fails_startup_closed_with_official_sample_notice() {
             ..
         } => {
             assert_eq!(path, &expected_hud_path);
-            assert_eq!(*rebuild_command, HUD_ASSETS_COMPILE_COMMAND);
+            assert_eq!(rebuild_command, &hud_assets_rebuild_command(path));
         }
         other => panic!("unexpected missing-HUD error: {other}"),
     }
@@ -84,14 +89,42 @@ fn absent_hud_carrier_fails_startup_closed_with_official_sample_notice() {
     assert!(error.contains(&expected_hud_path.display().to_string()));
     assert!(error.contains("client will not start"));
     assert!(error.contains(HUD_ASSETS_COMPILE_COMMAND));
-    assert!(error.contains("make assets"));
+    assert!(error.contains("HUD_ASSET_BLOB="));
+    assert!(!error.contains("make assets"));
 
     fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
+fn custom_hud_recovery_command_writes_the_exact_lookup_sibling() {
+    let world_assets = PathBuf::from("custom asset root/compiled/world.mcbea");
+    let hud_path = hud_asset_path(&world_assets);
+    let command = hud_assets_rebuild_command(&hud_path);
+
+    assert!(command.starts_with("make hud-assets "));
+    assert!(command.contains("HUD_ASSET_BLOB='custom asset root/compiled/vanilla-v1.mcbehud'"));
+    assert!(command.contains("HUD_ASSET_REPORT='custom asset root/compiled/hud-assets.json'"));
+    assert!(!command.contains("make assets"));
+
+    let notice = hud_assets_missing_notice(&hud_path);
+    assert!(notice.contains(&command));
+    assert!(!notice.contains("refresh every required carrier with `make assets`"));
+}
+
+#[test]
+fn custom_hud_recovery_command_quotes_shell_sensitive_paths() {
+    let hud_path = PathBuf::from("custom player's assets/vanilla-v1.mcbehud");
+    let command = hud_assets_rebuild_command(&hud_path);
+
+    #[cfg(windows)]
+    assert!(command.contains("HUD_ASSET_BLOB='custom player''s assets/vanilla-v1.mcbehud'"));
+    #[cfg(not(windows))]
+    assert!(command.contains("HUD_ASSET_BLOB='custom player'\"'\"'s assets/vanilla-v1.mcbehud'"));
+}
+
+#[test]
 fn missing_hud_notice_identifies_the_official_sample_and_automatic_repairs() {
-    let path = PathBuf::from("custom/assets/compiled/vanilla-v1.mcbehud");
+    let path = hud_asset_path(PathBuf::from(DEFAULT_ASSET_PATH).as_path());
     let notice = hud_assets_missing_notice(&path);
     assert!(notice.contains("pinned official Mojang sample HUD carrier"));
     assert!(notice.contains(&path.display().to_string()));

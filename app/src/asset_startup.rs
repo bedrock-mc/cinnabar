@@ -29,6 +29,7 @@ pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
 pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
+pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
@@ -126,10 +127,45 @@ impl LoadedHudAssets {
 
 #[must_use]
 pub fn hud_assets_missing_notice(path: &Path) -> String {
+    let rebuild_command = hud_assets_rebuild_command(path);
+    let recovery = if rebuild_command == HUD_ASSETS_COMPILE_COMMAND {
+        format!(
+            "Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
+        )
+    } else {
+        format!("Build the carrier at that exact custom location with `{rebuild_command}`.")
+    };
     format!(
-        "required pinned official Mojang sample HUD carrier was not found at {}; the survival HUD cannot render, so the client will not start. Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`.",
+        "required pinned official Mojang sample HUD carrier was not found at {}; the survival HUD cannot render, so the client will not start. {recovery}",
         path.display()
     )
+}
+
+/// Returns a copy-paste recovery command that writes the carrier where startup looked for it.
+#[must_use]
+pub fn hud_assets_rebuild_command(path: &Path) -> String {
+    let default_path = hud_asset_path(Path::new(DEFAULT_ASSET_PATH));
+    if path == default_path {
+        return HUD_ASSETS_COMPILE_COMMAND.to_owned();
+    }
+
+    let report_path = path.with_file_name(HUD_ASSETS_REPORT_FILENAME);
+    format!(
+        "{HUD_ASSETS_COMPILE_COMMAND} HUD_ASSET_BLOB={} HUD_ASSET_REPORT={}",
+        shell_quote_path(path),
+        shell_quote_path(&report_path)
+    )
+}
+
+#[cfg(windows)]
+fn shell_quote_path(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    format!("'{}'", path.replace('\'', "''"))
+}
+
+#[cfg(not(windows))]
+fn shell_quote_path(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
 }
 
 impl LoadedFontAssets {
@@ -407,7 +443,7 @@ pub enum AssetStartupError {
     #[error("{notice}")]
     HudAssetsMissing {
         path: PathBuf,
-        rebuild_command: &'static str,
+        rebuild_command: String,
         notice: String,
     },
 }
@@ -580,8 +616,8 @@ pub fn require_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, As
         let path = hud_asset_path(world_asset_path);
         AssetStartupError::HudAssetsMissing {
             notice: hud_assets_missing_notice(&path),
+            rebuild_command: hud_assets_rebuild_command(&path),
             path,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
         }
     })
 }
