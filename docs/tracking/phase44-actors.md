@@ -1,10 +1,10 @@
 # Phase 4.4 actor authority and live interpolation tracker
 
-Current audited progress: **66%** at implementation head `5492459` (authority primitives and the acceptance-only correlation pipeline are landed; production renderer correction, independent re-review, and live/native gates remain open).
+Current pre-review progress: **70%** at implementation head `8cb2518` (authority, production eligibility, acceptance-only correlation, and the bounded literal-default entity-texture route are implemented; independent review and live/native/performance gates remain open).
 
 This estimate uses equal contract, runtime, presentation, deterministic-verification, and live/native/performance gates.
 
-Gate scores: contract 95%, runtime 90%, production presentation 65%, deterministic verification/review 80%, live/native/performance 0%; arithmetic mean 66%. No binding live/native/performance witness has passed, and the material correlation fix still requires independent re-review after integration with the production renderer correction.
+Gate scores: contract 95%, runtime 92%, production presentation 82%, deterministic verification/review 81%, live/native/performance 0%; arithmetic mean 70%. No binding live/native/performance witness has passed, and the complete integrated range still requires independent review.
 
 ## Landed
 
@@ -16,30 +16,34 @@ Gate scores: contract 95%, runtime 90%, production presentation 65%, determinist
 - [x] Deterministic ordinary-move, teleport, origin, and interpolation tests.
 - [x] Retain and resolve `AddPlayer` game mode against the authoritative default (`29b47bb`).
 - [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly (`29b47bb`).
-- [ ] Apply spectator and metadata-invisible filtering in the production rig renderer before culling and the 128-instance cap. The store predicate is landed, but the PR-head renderer hookup still needs correction.
+- [x] Apply spectator and metadata-invisible filtering in the production rig renderer before culling and the 128-instance cap (`b5f1c09`), including suppression of synthetic local F5 fallback for a spectator.
 - [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport (`29b47bb`).
 - [x] Add bounded packet-to-store-to-presented-frame correlation (`5492459`): capture is disabled during normal gameplay; timed acceptance runs correlate an exact committed identity across two consecutive GPU-presented frames, reset at session/dimension boundaries, record rejected/drop counts, and emit at most 64 parsed witnesses per session.
+- [x] Compile and render bounded schema-v5 literal-default PNG/TGA entity textures (`8cb2518`): the pinned official pack yields 42 exact rig textures / 521,504 RGBA bytes, client-world publishes shared texture authority, and the renderer packs visible submissions into a bounded variable-size active-frame atlas with texel-center UVs. Dynamic, conditional, multiple, or ambiguous texture routes remain explicit unsupported `NoDraw` cases rather than guessed presentation.
 
 ## Remaining production authority
 
 - [x] Retain and resolve `AddPlayer` game mode against the authoritative default.
 - [x] Handle `UpdatePlayerGameType` and `SetDefaultGameType` correctly.
-- [ ] Correct production renderer eligibility filtering before culling/capacity; the predicate and deterministic store coverage are present, but the production rig path is not yet fixed at `5492459`.
+- [x] Correct production renderer eligibility filtering before culling/capacity.
 - [x] Treat `FORCE_MOVE` as a snap without falsely reporting a teleport.
 - [x] Add bounded packet-to-store-to-presented-frame correlation.
 
-## Deterministic verification at `5492459`
+## Deterministic verification at `8cb2518`
 
 - Actor witness, movement-authority, and Windows make-target regressions pass.
 - Strict `client-world` and `bedrock-client` Clippy with warnings denied passes.
 - Architecture enforcement and the full acceptance PowerShell dry-run suite pass.
 - The prior `actor_store/tests.rs` and `asset_startup.rs` file-size violations are split without policy exemptions.
+- Full assets/compiler, client-world, render, and bedrock-client suites pass in the isolated implementation lanes; the pinned official schema-v5 entity carrier compiles successfully.
+- Strict Clippy with warnings denied passes for every changed crate. Fresh combined-branch verification and independent review remain required before push.
 
 ## Live/native acceptance
 
 - [ ] Authenticate to LBSG and capture spawn, ordinary movement, rotation, and teleport in one valid witness.
 - [ ] Prove feet remain on the same ground plane without a 1.6-block jump.
 - [ ] Compare matched native actor movement/interpolation.
+- [ ] Render representative supported literal-default mobs from the pinned pack and verify texture orientation, atlas UVs, geometry, animation, culling, and reset behavior on Windows; record unsupported dynamic/multi-texture families without visual substitution.
 - [ ] Pass release performance/resource gates and final independent review.
 
 ## Historical references
