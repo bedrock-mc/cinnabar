@@ -69,11 +69,12 @@ use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket, AnimatePacketActionId,
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockEntityDataPacket,
-    CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
+    CorrectPlayerMovePredictionPacket, GameMode, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
     GameRulesChangedPacket, ItemNew, ItemRegistryPacket, LevelChunkPacket, LevelChunkPacketBlobs,
     LevelEventPacket, LevelEventPacketEvent, McpePacketName, MobEquipmentPacket, MovePlayerPacket,
-    SetTimePacket, TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson,
-    TextPacketType, UpdateBlockPacket, Vec2F, Vec3F, WindowId,
+    SetDefaultGameTypePacket, SetTimePacket, TextPacket, TextPacketCategory, TextPacketContent,
+    TextPacketContentJson, TextPacketType, UpdateBlockPacket, UpdatePlayerGameTypePacket, Vec2F,
+    Vec3F, WindowId,
 };
 
 fn raw_packet(id: McpePacketName, body: &[u8]) -> jolyne::raw::RawPacket {
@@ -634,6 +635,68 @@ fn allowlisted_actor_packet_is_materialized_and_normalized() {
 }
 
 #[test]
+fn allowlisted_player_game_mode_authority_is_decoded_and_normalized() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = UpdatePlayerGameTypePacket {
+        gamemode: GameMode::Spectator,
+        player_unique_id: -9,
+        tick: 27,
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode player game-mode authority");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw player game-mode authority");
+    let decoder_called = Cell::new(false);
+
+    let event = decode_world_raw_with(raw, 2, |raw| {
+        decoder_called.set(true);
+        raw.decode(&session)
+    })
+    .expect("decode player game-mode authority");
+
+    assert!(
+        decoder_called.get(),
+        "allowlisted packet must reach decoder"
+    );
+    assert!(matches!(
+        event,
+        Some(WorldEvent::Actor(crate::ActorEvent::GameMode(update)))
+            if update.unique_id == -9
+                && update.game_mode == crate::ActorGameMode::Spectator
+                && update.tick == 27
+    ));
+}
+
+#[test]
+fn allowlisted_default_game_mode_authority_is_decoded_and_normalized() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = SetDefaultGameTypePacket {
+        gamemode: GameMode::Spectator,
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode default game-mode authority");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw default game-mode authority");
+    let decoder_called = Cell::new(false);
+
+    let event = decode_world_raw_with(raw, 2, |raw| {
+        decoder_called.set(true);
+        raw.decode(&session)
+    })
+    .expect("decode default game-mode authority");
+
+    assert!(
+        decoder_called.get(),
+        "allowlisted packet must reach decoder"
+    );
+    assert!(matches!(
+        event,
+        Some(WorldEvent::Actor(crate::ActorEvent::DefaultGameMode(update)))
+            if update.game_mode == crate::ActorGameMode::Spectator
+    ));
+}
+
+#[test]
 fn allowlisted_item_and_action_packets_are_materialized_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packets: [Packet; 5] = [
@@ -806,6 +869,7 @@ fn absolute_actor_move_uses_bedrock_varuint_and_raw_byte_rotations() {
             head_yaw: Some(180.0),
             on_ground: Some(true),
             teleported: true,
+            snap: true,
             player_mode: None,
             source_tick: None,
         }))

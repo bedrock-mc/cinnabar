@@ -12,8 +12,9 @@ pub use action::{
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_animation::{
-    ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId,
-    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
+    ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, ActorRigTextureSnapshot, BoneTransform,
+    EntityRigId, LocalPlayerAnimationTickInput, LocalPlayerRigSnapshot, MAX_ACTOR_ACTION_HISTORY,
+    MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
 };
 pub use actor_store::{ActorPose, ActorSnapshot, PlayerProfile};
@@ -26,10 +27,11 @@ pub use item::{
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 pub use stream::{
-    BuildProfileIdentity, COMMITTED_CONTROL_CAPACITY, CohortManifestIdentity,
-    CommittedControlEvent, CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL,
-    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
-    LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS,
+    BuildProfileIdentity, COMMITTED_ACTOR_MOVE_CAPACITY, COMMITTED_CONTROL_CAPACITY,
+    CohortManifestIdentity, CommittedActorMove, CommittedActorPose, CommittedControlEvent,
+    CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL, DEFERRED_RETRY_CAPACITY,
+    ForcedRemeshManifest, ForcedRemeshManifestState, LIGHT_DISPATCH_BUDGET_PER_POLL,
+    LocalPlayerRigAuthorityStatus, MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS,
     MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
     MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES, OUTBOUND_REQUEST_CAPACITY,
     PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest, Phase2PresentationSnapshot,

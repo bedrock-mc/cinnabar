@@ -3,10 +3,12 @@ use std::sync::Arc;
 use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
 use client_world::{
-    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
-    PlayerProfile,
+    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorRigTextureSnapshot, ActorSnapshot,
+    BoneTransform, CommittedUiEvent, EntityRigId, LocalPlayerRigSnapshot, PlayerProfile,
 };
-use protocol::{ActorKind, PlayerSkin, StandardSkin};
+use protocol::{
+    ActorGameMode, ActorKind, ActorMetadataValue, PlayerGameMode, PlayerSkin, StandardSkin,
+};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
@@ -20,11 +22,17 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
-    local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
+    ActorRigPresentation, LocalPlayerPresentationAuthority, actor_rig_presentation,
+    local_actor_presentation_for_visibility, local_diagnostic_presentation,
+    local_player_rig_presentation, select_actor_presentations, select_actor_presentations_for_view,
     update_actor_rig_scene,
 };
 use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
+use crate::runtime::world::apply_committed_ui_event;
+use crate::ui_runtime::UiRuntime;
+
+mod custom_geometry;
+mod login_authority;
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
@@ -50,6 +58,9 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
         },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
         position: [4.0, 64.0, -2.0],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -89,6 +100,7 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
             width: 64,
             height: 64,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
         }),
     }
 }
@@ -106,12 +118,518 @@ fn rig<'a>(
             spawn_revision: 3,
         },
         rig: EntityRigId(9),
+        geometry_identifier: "geometry.humanoid.custom",
+        geometry_sha256: [0; 32],
         previous,
         current,
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
+        texture: None,
     }
+}
+
+fn local_rig<'a>(bones: &'a [BoneTransform]) -> LocalPlayerRigSnapshot<'a> {
+    LocalPlayerRigSnapshot {
+        rig: EntityRigId(17),
+        geometry_identifier: "geometry.humanoid.custom",
+        geometry_sha256: [0; 32],
+        previous: bones,
+        current: bones,
+        completed_tick: 11,
+        reset_generation: 5,
+        fallback: EntityRigFallback::GeometryOnly,
+    }
+}
+
+#[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned official resource pack"]
+fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_authority() {
+    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+        .expect("set PINNED_VANILLA_PACK to the pinned official resource pack");
+    let compiled = asset_compiler::compile_entity_assets(
+        std::path::Path::new(&pack),
+        include_bytes!("../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    let bytes = assets::encode_entity_blob(&compiled).unwrap();
+    let entity_assets = Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap());
+    let bootstrap = protocol::WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0, 64.0, 0.0],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    };
+    let mut stream = client_world::WorldStream::new_with_asset_sets(
+        bootstrap,
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        Arc::clone(&entity_assets),
+        [0.0, 64.0, 0.0],
+        None,
+    );
+    stream.set_local_player_game_mode_authority(protocol::LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+    let skin = |geometry, byte| {
+        PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![byte; 64 * 64 * 4].into(),
+            geometry,
+        })
+    };
+    let legacy_skin = |geometry, byte| {
+        PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 32,
+            rgba8: [byte, byte, byte, 255].repeat(64 * 32).into(),
+            geometry,
+        })
+    };
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: legacy_skin(protocol::PlayerSkinGeometry::Wide, 0x5a),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    stream.advance_local_player_animation(client_world::LocalPlayerAnimationTickInput {
+        tick: 1,
+        velocity: [0.25, 0.0, 0.0],
+        on_ground: true,
+        body_yaw: 30.0,
+        head_yaw: 30.0,
+        pitch: 0.0,
+    });
+    stream.advance_local_player_animation(client_world::LocalPlayerAnimationTickInput {
+        tick: 2,
+        velocity: [0.25, 0.0, 0.0],
+        on_ground: true,
+        body_yaw: 30.0,
+        head_yaw: 45.0,
+        pitch: -10.0,
+    });
+    let wide_snapshot = stream.local_player_rig().expect("wide local rig");
+    let wide_geometry_sha256 = wide_snapshot.geometry_sha256;
+    assert_ne!(
+        wide_snapshot.previous, wide_snapshot.current,
+        "authoritative movement/view ticks must change the real compiled pose"
+    );
+    let local = local_player_rig_presentation(
+        &wide_snapshot,
+        stream.local_player_profile().expect("exact local profile"),
+        LocalPlayerPresentationAuthority {
+            actor_session_id: 7,
+            dimension: 0,
+            runtime_id: 42,
+            pose_generation: 2,
+            position: [0.0, 64.0, 0.0],
+            yaw_degrees: 30.0,
+        },
+    )
+    .expect("carrier-backed local presentation");
+    assert_eq!(local.submission.route, ActorRigRoute::StaticFallback);
+    let wide_rig = local.submission.input.rig;
+    let batch = select_actor_presentations_for_view(42, true, Some(local), [], |_| true);
+    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entity_assets).unwrap();
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+    assert_eq!(frame.rig.manifest.len(), 1);
+    assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
+    assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::StaticFallback);
+    assert_eq!(
+        (frame.texture_atlas_width, frame.texture_atlas_height),
+        (66, 66)
+    );
+    let atlas_pixel = |x: usize, y: usize| {
+        let offset = ((y + 1) * frame.texture_atlas_width as usize + x + 1) * 4;
+        &frame.skins_rgba8[offset..offset + 4]
+    };
+    assert_eq!(atlas_pixel(0, 0), &[0x5a, 0x5a, 0x5a, 255]);
+    assert_eq!(
+        atlas_pixel(20, 48),
+        &[0x5a, 0x5a, 0x5a, 255],
+        "WorldStream legacy authority reaches the canonical local presentation"
+    );
+    assert_eq!(atlas_pixel(0, 32), &[0; 4]);
+
+    stream
+        .submit(
+            2,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(protocol::PlayerSkinGeometry::Slim, 0x6b),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    stream.advance_local_player_animation(client_world::LocalPlayerAnimationTickInput {
+        tick: 3,
+        velocity: [0.4, 0.0, 0.0],
+        on_ground: true,
+        body_yaw: 60.0,
+        head_yaw: 70.0,
+        pitch: 5.0,
+    });
+    let slim = stream.local_player_rig().expect("slim local rig");
+    assert_eq!(slim.geometry_identifier, "geometry.humanoid.customSlim");
+    assert_ne!(RenderEntityRigId(slim.rig.0), wide_rig);
+
+    stream
+        .submit(
+            3,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(
+                            protocol::PlayerSkinGeometry::Custom {
+                                identifier: "geometry.humanoid.custom".into(),
+                                data_sha256: wide_geometry_sha256,
+                            },
+                            0x7c,
+                        ),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(
+        stream.local_player_rig().is_some(),
+        "packet geometry exactly matching the pinned fingerprint is renderable"
+    );
+    let exact_custom = local_player_rig_presentation(
+        &stream.local_player_rig().unwrap(),
+        stream.local_player_profile().unwrap(),
+        LocalPlayerPresentationAuthority {
+            actor_session_id: 7,
+            dimension: 0,
+            runtime_id: 42,
+            pose_generation: 3,
+            position: [0.0, 64.0, 0.0],
+            yaw_degrees: 60.0,
+        },
+    )
+    .expect("exact pinned custom geometry reaches presentation");
+    let exact_custom_batch =
+        select_actor_presentations_for_view(42, true, Some(exact_custom), [], |_| true);
+    let mut exact_custom_scene =
+        ActorRenderScene::with_runtime_entity_assets(&entity_assets).unwrap();
+    let exact_custom_frame =
+        update_actor_rig_scene(&mut exact_custom_scene, 0.5, exact_custom_batch);
+    assert_eq!(exact_custom_frame.rig.manifest.len(), 1);
+    assert!(
+        exact_custom_frame
+            .skins_rgba8
+            .iter()
+            .all(|byte| *byte == 0x7c)
+    );
+
+    let spawn = |runtime_id: u64, unique_id: i64, uuid: [u8; 16]| {
+        protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id,
+            runtime_id,
+            kind: ActorKind::Player {
+                uuid,
+                username: format!("remote-{runtime_id}").into(),
+            },
+            game_mode: Some(ActorGameMode::Survival),
+            position: [2.0, 64.0, 2.0],
+            velocity: [0.2, 0.0, 0.0],
+            pitch: 0.0,
+            yaw: 20.0,
+            head_yaw: 25.0,
+            body_yaw: 20.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+        }))
+    };
+    let roster = |uuid, unique_id, geometry, byte| {
+        protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+            protocol::PlayerListUpdateEvent {
+                entries: Arc::from([protocol::PlayerListEntry::Add {
+                    uuid,
+                    unique_id,
+                    username: format!("remote-{unique_id}").into(),
+                    verified: true,
+                    skin: skin(geometry, byte),
+                }]),
+            },
+        ))
+    };
+
+    stream
+        .submit(
+            4,
+            roster([51; 16], 51, protocol::PlayerSkinGeometry::Wide, 0x51),
+        )
+        .unwrap();
+    stream.submit(5, spawn(51, 51, [51; 16])).unwrap();
+    assert_eq!(
+        stream.actor_rig(51).unwrap().geometry_identifier,
+        "geometry.humanoid.custom"
+    );
+
+    stream.submit(6, spawn(52, 52, [52; 16])).unwrap();
+    assert!(
+        stream.actor_rig(52).is_none(),
+        "spawn before roster is NoDraw"
+    );
+    stream
+        .submit(
+            7,
+            roster([52; 16], 52, protocol::PlayerSkinGeometry::Slim, 0x52),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.actor_rig(52).unwrap().geometry_identifier,
+        "geometry.humanoid.customSlim"
+    );
+    stream.advance_actor_interpolation_ticks(1);
+    let remote = actor_rig_presentation(
+        &stream.actor_rig(52).unwrap(),
+        stream.actor(52).unwrap(),
+        stream.actor_player_profile(52),
+        0.5,
+    )
+    .expect("remote exact profile presentation");
+    assert_eq!(remote.submission.route, ActorRigRoute::StaticFallback);
+    let remote_batch = select_actor_presentations_for_view(42, false, None, [remote], |_| true);
+    let mut remote_scene = ActorRenderScene::with_runtime_entity_assets(&entity_assets).unwrap();
+    let remote_frame = update_actor_rig_scene(&mut remote_scene, 0.5, remote_batch);
+    assert_eq!(remote_frame.rig.manifest.len(), 1);
+    assert_eq!(remote_frame.rig.manifest[0].identity.runtime_id, 52);
+    assert_eq!(
+        remote_frame.rig.manifest[0].route,
+        ActorRigRoute::StaticFallback
+    );
+    assert!(remote_frame.skins_rgba8.iter().all(|byte| *byte == 0x52));
+
+    stream
+        .submit(
+            8,
+            roster([51; 16], 51, protocol::PlayerSkinGeometry::Slim, 0x61),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.actor_rig(51).unwrap().geometry_identifier,
+        "geometry.humanoid.customSlim"
+    );
+    stream
+        .submit(
+            9,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Remove { uuid: [51; 16] }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(stream.actor_rig(51).is_none(), "roster removal removes rig");
+    stream
+        .submit(
+            10,
+            roster(
+                [52; 16],
+                52,
+                protocol::PlayerSkinGeometry::Custom {
+                    identifier: "geometry.humanoid.customSlim".into(),
+                    data_sha256: [0; 32],
+                },
+                0x62,
+            ),
+        )
+        .unwrap();
+    assert!(
+        stream.actor_rig(52).is_none(),
+        "remote custom geometry is NoDraw"
+    );
+    stream
+        .submit(
+            11,
+            roster([52; 16], 52, protocol::PlayerSkinGeometry::Slim, 0x72),
+        )
+        .unwrap();
+    assert!(stream.actor_rig(52).is_some());
+    stream
+        .submit(
+            12,
+            roster([53; 16], 52, protocol::PlayerSkinGeometry::Slim, 0x73),
+        )
+        .unwrap();
+    assert!(
+        stream.actor_rig(52).is_none(),
+        "ambiguous unique-id authority is NoDraw"
+    );
+    stream
+        .submit(
+            13,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Remove { uuid: [53; 16] }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(stream.actor_rig(52).is_some());
+    stream
+        .submit(
+            14,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [52; 16],
+                        unique_id: 52,
+                        username: "remote-52".into(),
+                        verified: true,
+                        skin: protocol::PlayerSkin::Unavailable(
+                            protocol::PlayerSkinUnavailable::UnsupportedPersona,
+                        ),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(
+        stream.actor_rig(52).is_none(),
+        "unavailable appearance authority is NoDraw"
+    );
+    stream
+        .submit(
+            15,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(
+                            protocol::PlayerSkinGeometry::Custom {
+                                identifier: "geometry.humanoid.custom".into(),
+                                data_sha256: [0; 32],
+                            },
+                            0x7d,
+                        ),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(
+        stream.local_player_rig().is_none(),
+        "mismatched packet geometry fingerprint remains NoDraw"
+    );
+}
+
+#[test]
+fn local_player_uses_compiled_geometry_and_authoritative_skin_without_defaulting() {
+    let bones = [model_bone([0.0, 24.0, 0.0]), model_bone([0.0, 12.0, 0.0])];
+    let mut profile = profile(9, 37);
+    profile.unique_id = -9;
+    let presentation = local_player_rig_presentation(
+        &local_rig(&bones),
+        &profile,
+        LocalPlayerPresentationAuthority {
+            actor_session_id: 7,
+            dimension: 0,
+            runtime_id: 42,
+            pose_generation: 12,
+            position: [1.0, 64.0, 2.0],
+            yaw_degrees: 90.0,
+        },
+    )
+    .expect("exact local geometry and skin authority");
+
+    assert_eq!(presentation.submission.route, ActorRigRoute::StaticFallback);
+    assert_eq!(presentation.submission.input.rig, RenderEntityRigId(17));
+    assert!(
+        presentation
+            .texture
+            .unwrap()
+            .rgba8
+            .iter()
+            .all(|byte| *byte == 37)
+    );
+
+    let mut unavailable = profile;
+    unavailable.skin = PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions);
+    assert!(
+        local_player_rig_presentation(
+            &local_rig(&bones),
+            &unavailable,
+            LocalPlayerPresentationAuthority {
+                actor_session_id: 7,
+                dimension: 0,
+                runtime_id: 42,
+                pose_generation: 12,
+                position: [1.0, 64.0, 2.0],
+                yaw_degrees: 90.0,
+            },
+        )
+        .is_none(),
+        "malformed skin authority must not synthesize Steve"
+    );
+}
+
+#[test]
+fn local_and_remote_presentations_reject_skin_rig_geometry_mismatches() {
+    let bones = [model_bone([0.0, 24.0, 0.0])];
+    let mut slim_profile = profile(9, 37);
+    slim_profile.unique_id = -9;
+    let PlayerSkin::Standard(skin) = &mut slim_profile.skin else {
+        unreachable!();
+    };
+    skin.geometry = protocol::PlayerSkinGeometry::Slim;
+    assert!(
+        local_player_rig_presentation(
+            &local_rig(&bones),
+            &slim_profile,
+            LocalPlayerPresentationAuthority {
+                actor_session_id: 7,
+                dimension: 0,
+                runtime_id: 42,
+                pose_generation: 12,
+                position: [1.0, 64.0, 2.0],
+                yaw_degrees: 0.0,
+            },
+        )
+        .is_none()
+    );
+    let remote_actor = actor(9, 11);
+    slim_profile.unique_id = 9;
+    let presentation = actor_rig_presentation(
+        &rig(9, &bones, &bones),
+        &remote_actor,
+        Some(&slim_profile),
+        0.5,
+    )
+    .unwrap();
+    assert_eq!(presentation.submission.route, ActorRigRoute::NoDraw);
 }
 
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
@@ -140,9 +658,14 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
                 [0.0, 0.0, 1.0, 0.0],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route: ActorRigRoute::Compiled,
         },
-        skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
+        texture: Some(render::ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
+        }),
     }
 }
 
@@ -175,11 +698,143 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
     assert_eq!(converted.submission.route, ActorRigRoute::StaticFallback);
     assert!(
         converted
-            .skin_rgba8
+            .texture
             .as_ref()
-            .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
+            .is_some_and(|texture| texture.rgba8.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
+
+    let absent = actor_rig_presentation(&rig(42, &previous, &current), &actor, None, 0.5)
+        .expect("exact lifetime remains attributable without skin authority");
+    assert_eq!(absent.submission.route, ActorRigRoute::NoDraw);
+    assert!(absent.texture.is_none());
+}
+
+#[test]
+fn production_rig_conversion_rejects_spectators_before_selection_capacity() {
+    let bones = [model_bone([0.0; 3])];
+    let mut spectator = actor(1, 1);
+    spectator.resolved_game_mode = Some(ActorGameMode::Spectator);
+    let rejected = actor_rig_presentation(&rig(1, &bones, &bones), &spectator, None, 0.5)
+        .expect("an exact ineligible lifetime publishes an explicit no-draw route");
+    assert_eq!(rejected.submission.route, ActorRigRoute::NoDraw);
+
+    let mut invisible = actor(2, 1);
+    invisible
+        .metadata
+        .insert(0, ActorMetadataValue::Flags(1 << 5));
+    let invisible = actor_rig_presentation(&rig(2, &bones, &bones), &invisible, None, 0.5)
+        .expect("an exact invisible lifetime publishes an explicit no-draw route");
+    assert_eq!(invisible.submission.route, ActorRigRoute::NoDraw);
+
+    let remotes = [rejected, invisible]
+        .into_iter()
+        .chain((3..=MAX_RENDERED_PLAYERS as u64 + 2).map(|id| render_owned(id, 31)))
+        .collect::<Vec<_>>();
+    let batch = select_actor_presentations(999, false, None, remotes);
+
+    assert_eq!(batch.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert!(
+        batch
+            .submissions
+            .iter()
+            .all(|entry| entry.route != ActorRigRoute::NoDraw)
+    );
+    assert!(
+        batch
+            .submissions
+            .iter()
+            .any(|entry| { entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 2 })
+    );
+}
+
+#[test]
+fn compiled_non_player_texture_reaches_the_production_atlas_without_player_fallback() {
+    let bones = [model_bone([0.0; 3])];
+    let mut allay = actor(44, 1);
+    allay.kind = ActorKind::Entity {
+        identifier: "minecraft:allay".into(),
+    };
+    let pixels: Arc<[u8]> = vec![73; 32 * 64 * 4].into();
+    let mut allay_rig = rig(44, &bones, &bones);
+    allay_rig.texture = Some(ActorRigTextureSnapshot {
+        width: 32,
+        height: 64,
+        rgba8: &pixels,
+    });
+    let presentation = actor_rig_presentation(&allay_rig, &allay, None, 0.5)
+        .expect("exact allay lifetime converts");
+    assert_eq!(presentation.submission.route, ActorRigRoute::StaticFallback);
+    assert_eq!(
+        presentation
+            .texture
+            .as_ref()
+            .map(|texture| (texture.width, texture.height)),
+        Some((32, 64))
+    );
+
+    let batch = select_actor_presentations(999, false, None, [presentation]);
+    assert_eq!((batch.atlas.width, batch.atlas.height), (34, 66));
+    assert!(batch.atlas.rgba8.iter().all(|channel| *channel == 73));
+    assert_eq!(
+        batch.submissions[0].texture_region,
+        [1.0 / 34.0, 1.0 / 66.0, 32.0 / 34.0, 64.0 / 66.0]
+    );
+
+    let missing = actor_rig_presentation(&rig(44, &bones, &bones), &allay, None, 0.5)
+        .expect("exact unsupported lifetime remains attributable");
+    assert_eq!(missing.submission.route, ActorRigRoute::NoDraw);
+    assert!(missing.texture.is_none());
+}
+
+#[test]
+fn local_spectator_canonical_route_cannot_fall_back_to_synthetic_avatar() {
+    let bones = [model_bone([0.0; 3])];
+    let mut spectator = actor(7, 1);
+    spectator.resolved_game_mode = Some(ActorGameMode::Spectator);
+    let canonical = actor_rig_presentation(&rig(7, &bones, &bones), &spectator, None, 0.5)
+        .expect("exact spectator identity remains attributable");
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+        .expect("finite synthetic avatar");
+    let selected =
+        local_actor_presentation_for_visibility(7, 7, true, Some(canonical), Some(diagnostic));
+    let batch = select_actor_presentations(7, true, selected, []);
+
+    assert!(batch.submissions.is_empty());
+}
+
+#[test]
+fn start_game_only_local_spectator_cannot_use_the_synthetic_f5_fallback() {
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+        .expect("finite synthetic avatar");
+
+    let selected = local_actor_presentation_for_visibility(7, 7, false, None, Some(diagnostic));
+    let batch = select_actor_presentations(7, true, selected, []);
+
+    assert!(batch.submissions.is_empty());
+}
+
+#[test]
+fn committed_local_mode_authority_updates_the_live_ui_runtime() {
+    let mut ui_runtime = UiRuntime::new(7);
+    ui_runtime.publish_player_game_mode(PlayerGameMode::Survival);
+
+    apply_committed_ui_event(
+        &mut ui_runtime,
+        7,
+        100,
+        CommittedUiEvent::LocalGameMode {
+            sequence: 3,
+            game_mode: PlayerGameMode::Spectator,
+        },
+    )
+    .expect("ordered local mode authority reaches the UI runtime");
+
+    assert_eq!(
+        ui_runtime.player_game_mode(),
+        Some(PlayerGameMode::Spectator)
+    );
+    assert!(!ui_runtime.survival_stats_visible());
 }
 
 #[test]
@@ -246,6 +901,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
     let local = local_actor_presentation_for_visibility(
         7,
         8,
+        true,
         Some(canonical.clone()),
         Some(mismatched_visibility),
     );
@@ -263,6 +919,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
         let local = local_actor_presentation_for_visibility(
             7,
             7,
+            true,
             Some(canonical.clone()),
             Some(matching_visibility.clone()),
         );
@@ -288,7 +945,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
 fn identical_skin_families_share_one_bounded_texture_layer() {
     let batch =
         select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 31)]);
-    assert_eq!(batch.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(batch.atlas.rgba8.len(), 66 * 66 * 4);
     assert!(
         batch
             .submissions
@@ -308,12 +965,37 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
         max_distance: 192.0,
     };
 
-    let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
+    let batch = select_actor_presentations_for_view(7, true, Some(local), [], |_| {
+        let _ = view;
+        false
+    });
     let mut scene = ActorRenderScene::default();
     let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
+}
+
+#[test]
+fn missing_geometry_cannot_starve_a_valid_actor_before_the_app_capacity_gate() {
+    let scene = ActorRenderScene::default();
+    let missing = (0..MAX_RENDERED_PLAYERS as u64).map(|runtime_id| render_owned(runtime_id, 31));
+    let mut valid = render_owned(MAX_RENDERED_PLAYERS as u64 + 1, 47);
+    valid.submission.route = ActorRigRoute::Diagnostic;
+
+    let batch = select_actor_presentations_for_view(
+        999,
+        false,
+        None,
+        missing.chain([valid]),
+        |submission| scene.rig_submission_is_visible(submission, None),
+    );
+
+    assert_eq!(batch.submissions.len(), 1);
+    assert_eq!(
+        batch.submissions[0].input.identity.runtime_id,
+        MAX_RENDERED_PLAYERS as u64 + 1
+    );
 }
 
 #[test]
@@ -376,7 +1058,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         if expected_draws != 0 {
             assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
             assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::Diagnostic);
-            assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+            assert_eq!(frame.skins_rgba8.len(), 66 * 66 * 4);
         }
     }
 

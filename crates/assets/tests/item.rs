@@ -192,6 +192,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
         rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
+        rig_textures: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {
             key: visual_key("minecraft:apple"),
             source: 1,

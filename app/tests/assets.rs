@@ -176,6 +176,7 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
         rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
+        rig_textures: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
     })

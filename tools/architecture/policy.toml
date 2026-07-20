@@ -234,6 +234,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
+literal = "RUST_MCBE_ACTOR_POSE_WITNESS"
+kind = "parsed"
+producer = "app/src/acceptance/markers.rs"
+consumer = "scripts/acceptance/Markers.ps1"
+
+[[markers]]
 literal = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"

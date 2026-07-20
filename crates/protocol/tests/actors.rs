@@ -1,15 +1,16 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorPacketError,
+    ActorPositionOrigin, ActorProperty, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    StandardSkin, WorldEvent, WorldPacketError, into_world_event,
 };
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
-    EntityPropertiesIntsItem, MetadataDictionaryItem, MetadataDictionaryItemKey,
+    EntityPropertiesIntsItem, GameMode, MetadataDictionaryItem, MetadataDictionaryItemKey,
     MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
     MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
     PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
-    PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, Skin, SkinImage,
-    UpdateAttributesPacket, Vec3F,
+    PlayerRecordsType, RemoveEntityPacket, Rotation, SetDefaultGameTypePacket, SetEntityDataPacket,
+    Skin, SkinImage, UpdateAttributesPacket, UpdatePlayerGameTypePacket, Vec3F,
 };
 
 #[test]
@@ -94,6 +95,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
             username: "Alex".into(),
         }
     );
+    assert_eq!(spawn.game_mode, Some(ActorGameMode::Survival));
 
     let Some(WorldEvent::Actor(ActorEvent::Remove(remove))) =
         into_world_event(remove, 1).expect("normalize remove entity")
@@ -147,6 +149,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(absolute.head_yaw, Some(180.0));
     assert_eq!(absolute.on_ground, Some(true));
     assert!(absolute.teleported);
+    assert!(absolute.snap);
 
     let Some(WorldEvent::Actor(ActorEvent::Move(delta))) =
         into_world_event(delta, 0).expect("normalize delta move")
@@ -159,6 +162,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
     assert!(!delta.teleported);
+    assert!(!delta.snap);
 }
 
 #[test]
@@ -318,6 +322,10 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
                     uuid,
                     entity_unique_id: 77,
                     username: "Steve".to_owned(),
+                    skin_data: Skin {
+                        arm_size: "wide".to_owned(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
             )))],
@@ -370,6 +378,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     let classic = PlayerRecordsRecordsItemAdd {
         username: "Classic".to_owned(),
         skin_data: Skin {
+            arm_size: "wide".to_owned(),
             skin_data: SkinImage {
                 width: 64,
                 height: 64,
@@ -420,6 +429,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
             width: 64,
             height: 64,
             rgba8: vec![0x7f; 64 * 64 * 4].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
         })
     );
     let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
@@ -428,6 +438,68 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     assert_eq!(
         skin,
         &PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona)
+    );
+}
+
+#[test]
+fn player_list_retains_exact_legacy_skin_but_rejects_bad_length() {
+    let legacy = vec![0x4a; 64 * 32 * 4];
+    let entry = |data| PlayerRecordsRecordsItemAdd {
+        username: "Legacy".to_owned(),
+        skin_data: Skin {
+            arm_size: "wide".to_owned(),
+            skin_data: SkinImage {
+                width: 64,
+                height: 32,
+                data,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let packet = PlayerListPacket {
+        records: PlayerRecords {
+            type_: PlayerRecordsType::Add,
+            records_count: 2,
+            records: vec![
+                Some(PlayerRecordsRecordsItem::Add(Box::new(entry(
+                    legacy.clone(),
+                )))),
+                Some(PlayerRecordsRecordsItem::Add(Box::new(entry(vec![
+                    0x4a;
+                    64 * 32
+                        * 4
+                        - 1
+                ])))),
+            ],
+            verified: Some(vec![true, true]),
+        },
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
+        into_world_event(packet, 0).expect("normalize legacy player-list skins")
+    else {
+        panic!("expected player-list update")
+    };
+    let PlayerListEntry::Add { skin, .. } = &update.entries[0] else {
+        panic!("expected legacy add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 32,
+            rgba8: legacy.into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
+        })
+    );
+    let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
+        panic!("expected malformed add entry")
+    };
+    assert_eq!(
+        skin,
+        &PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength)
     );
 }
 
@@ -447,4 +519,76 @@ fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
 
     assert!(into_world_event(too_long, 0).is_err());
     assert!(into_world_event(non_finite, 0).is_err());
+}
+
+#[test]
+fn player_game_mode_authority_is_not_silently_dropped() {
+    let packet = UpdatePlayerGameTypePacket {
+        gamemode: GameMode::Spectator,
+        player_unique_id: -9,
+        tick: 27,
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::GameMode(update))) =
+        into_world_event(packet, 2).expect("normalize player game-mode authority")
+    else {
+        panic!("UpdatePlayerGameType must enter the actor FIFO")
+    };
+    assert_eq!(update.unique_id, -9);
+    assert_eq!(update.game_mode, ActorGameMode::Spectator);
+    assert_eq!(update.tick, 27);
+}
+
+#[test]
+fn default_game_mode_authority_is_not_silently_dropped() {
+    let packet = SetDefaultGameTypePacket {
+        gamemode: GameMode::Spectator,
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::DefaultGameMode(update))) =
+        into_world_event(packet, 2).expect("normalize default game-mode authority")
+    else {
+        panic!("SetDefaultGameType must enter the actor FIFO")
+    };
+    assert_eq!(update.game_mode, ActorGameMode::Spectator);
+}
+
+#[test]
+fn negative_player_game_mode_tick_is_rejected() {
+    let packet = UpdatePlayerGameTypePacket {
+        gamemode: GameMode::Creative,
+        player_unique_id: -9,
+        tick: -1,
+    }
+    .into();
+
+    assert_eq!(
+        into_world_event(packet, 2),
+        Err(WorldPacketError::Actor(ActorPacketError::NegativeTick(-1)))
+    );
+}
+
+#[test]
+fn force_move_delta_uses_the_existing_snap_path() {
+    let packet = MoveEntityDeltaPacket {
+        runtime_entity_id: 55,
+        flags: DeltaMoveFlags::HAS_X | DeltaMoveFlags::FORCE_MOVE,
+        x: Some(7.5),
+        ..Default::default()
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::Move(movement))) =
+        into_world_event(packet, 0).expect("normalize forced actor move")
+    else {
+        panic!("expected forced actor move")
+    };
+
+    assert!(
+        movement.snap,
+        "FORCE_MOVE must snap instead of starting three-tick interpolation"
+    );
+    assert!(!movement.teleported, "FORCE_MOVE is not TELEPORT authority");
 }

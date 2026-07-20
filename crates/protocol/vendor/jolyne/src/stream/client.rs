@@ -126,6 +126,8 @@ pub struct ClientHandshakeConfig {
     pub xbl_credentials: Option<XblCredentials>,
     /// Advertise the Bedrock client blob cache only when the caller installed a resolver.
     pub client_cache_enabled: bool,
+    /// Exact decoded skin authority encoded into this session's ClientData JWT.
+    pub advertised_skin: crate::auth::client::AdvertisedSkin,
 }
 
 impl ClientHandshakeConfig {
@@ -139,6 +141,7 @@ impl ClientHandshakeConfig {
             uuid: Uuid::new_v4(),
             xbl_credentials: None,
             client_cache_enabled: false,
+            advertised_skin: crate::auth::client::default_advertised_skin(),
         }
     }
 
@@ -157,6 +160,7 @@ impl ClientHandshakeConfig {
             uuid,
             xbl_credentials: Some(xbl_credentials),
             client_cache_enabled: false,
+            advertised_skin: crate::auth::client::default_advertised_skin(),
         }
     }
 
@@ -344,17 +348,19 @@ impl<T: Transport> BedrockStream<Login, Client, T> {
             tracing::debug!("Got Mojang chain, encoding login request");
 
             // Encode the login request with the Mojang chain
-            crate::auth::client::encode_with_mojang_chain(
+            crate::auth::client::encode_with_mojang_chain_and_skin(
                 &config.identity_key,
                 &config.display_name,
                 config.uuid,
                 &mojang_chain,
+                &config.advertised_skin,
             )?
         } else {
-            crate::auth::client::generate_self_signed_chain(
+            crate::auth::client::generate_self_signed_chain_with_skin(
                 &config.identity_key,
                 &config.display_name,
                 config.uuid,
+                &config.advertised_skin,
             )?
         };
 

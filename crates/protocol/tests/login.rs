@@ -29,7 +29,11 @@ async fn login_reaches_start_game_through_bds() {
         .await
         .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
 
-    let (mut session, game_data) = tokio::time::timeout(
+    let protocol::LoginResult {
+        mut session,
+        game_data,
+        ..
+    } = tokio::time::timeout(
         LOGIN_TIMEOUT,
         LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0"),
     )

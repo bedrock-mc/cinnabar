@@ -22,6 +22,7 @@ fn synthetic_pack() -> TempDir {
           "format_version":"1.10.0",
           "minecraft:client_entity":{"description":{
             "identifier":"minecraft:allay",
+            "materials":{"default":"entity_alphatest"},
             "textures":{"default":"textures/entity/allay/allay"},
             "geometry":{"default":"geometry.allay"},
             "animations":{"idle":"animation.allay.idle","general":"controller.animation.allay.general"},
@@ -59,9 +60,13 @@ fn synthetic_pack() -> TempDir {
     write(
         root,
         "render_controllers/allay.render_controllers.json",
-        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","textures":["Texture.default"]},"controller.render.allay.compat":{"geometry":"Geometry.default","textures":["Texture.default"]}}}"#,
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.allay":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]},"controller.render.allay.compat":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#,
     );
-    write(root, "textures/entity/allay/allay.png", b"not-decoded-yet");
+    let texture_path = root.join("textures/entity/allay/allay.png");
+    std::fs::create_dir_all(texture_path.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(32, 64, image::Rgba([21, 42, 63, 255]))
+        .save(texture_path)
+        .unwrap();
     write(
         root,
         "textures/entity/allay/allay.texture_set.json",
@@ -150,6 +155,17 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
         symbol.kind == EntityAssetKind::Texture
             && symbol.identifier.as_ref() == "textures/entity/allay/allay"
     }));
+    assert_eq!(first.rig_textures.len(), 1);
+    let texture = &first.rig_textures[0];
+    assert_eq!((texture.width, texture.height), (32, 64));
+    assert_eq!(texture.rgba8.len(), 32 * 64 * 4);
+    assert_eq!(&texture.rgba8[..4], &[21, 42, 63, 255]);
+    assert!(
+        first
+            .rig_bindings
+            .iter()
+            .all(|rig| rig.default_texture == Some(0))
+    );
 }
 
 #[test]
@@ -687,6 +703,27 @@ fn compiler_rejects_modified_manifest_and_unsupported_texture_payloads() {
 }
 
 #[test]
+fn compiler_rejects_malformed_and_oversized_selected_entity_textures() {
+    let malformed = synthetic_pack();
+    write(
+        malformed.path(),
+        "textures/entity/allay/allay.png",
+        b"not a raster",
+    );
+    assert!(compile_entity_assets(malformed.path(), MANIFEST).is_err());
+
+    let oversized = synthetic_pack();
+    image::RgbaImage::from_pixel(
+        assets::MAX_ENTITY_RIG_TEXTURE_SIDE as u32 + 1,
+        1,
+        image::Rgba([1, 2, 3, 4]),
+    )
+    .save(oversized.path().join("textures/entity/allay/allay.png"))
+    .unwrap();
+    assert!(compile_entity_assets(oversized.path(), MANIFEST).is_err());
+}
+
+#[test]
 fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     let pack = synthetic_pack();
     let outputs = tempfile::tempdir().unwrap();
@@ -725,7 +762,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
     assert_eq!(decoded.sources().len(), 8);
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
-    assert_eq!(report["schema"], 4);
+    assert_eq!(report["schema"], 5);
     assert_eq!(report["counts"]["sources"], 8);
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
     assert_eq!(report["counts"]["geometries"], 1);
@@ -748,6 +785,8 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         "rig_geometry_candidates",
         "rig_animations",
         "rig_controllers",
+        "rig_textures",
+        "rig_texture_bytes",
         "rig_geometry_selections",
         "item_visuals",
         "item_visual_aliases",
@@ -759,7 +798,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     ] {
         assert!(
             report["counts"][count].is_number(),
-            "missing v4 count {count}"
+            "missing v5 count {count}"
         );
     }
     assert!(report["reference_outcomes"].is_array());

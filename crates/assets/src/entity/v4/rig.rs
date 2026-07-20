@@ -1,11 +1,13 @@
 use crate::AssetError;
+use sha2::{Digest, Sha256};
 
 use super::super::{
     CompiledEntityAssets, EntityAssetKind, effective_geometry_bone_counts, invalid,
 };
 use super::{
     MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
-    MAX_ENTITY_RIG_GEOMETRIES, MolangOp, MolangSymbolKind, index_has_kind, molang_symbol_has_kind,
+    MAX_ENTITY_RIG_GEOMETRIES, MAX_ENTITY_RIG_TEXTURE_BYTES, MAX_ENTITY_RIG_TEXTURE_SIDE,
+    MAX_ENTITY_RIG_TEXTURES, MolangOp, MolangSymbolKind, index_has_kind, molang_symbol_has_kind,
     range_in_bounds, validate_flattened_ranges,
 };
 
@@ -14,8 +16,32 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
         || compiled.rig_geometries.len() > MAX_ENTITY_RIG_GEOMETRIES
         || compiled.rig_animations.len() > MAX_ENTITY_RIG_ANIMATIONS
         || compiled.rig_controllers.len() > MAX_ENTITY_RIG_CONTROLLERS
+        || compiled.rig_textures.len() > MAX_ENTITY_RIG_TEXTURES
     {
         return Err(invalid("entity rig binding count exceeds bound"));
+    }
+    let mut texture_bytes = 0usize;
+    for texture in &compiled.rig_textures {
+        let expected = usize::from(texture.width)
+            .checked_mul(usize::from(texture.height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| invalid("entity rig texture dimensions overflow"))?;
+        texture_bytes = texture_bytes
+            .checked_add(expected)
+            .ok_or_else(|| invalid("entity rig texture budget overflow"))?;
+        if texture.width == 0
+            || texture.height == 0
+            || usize::from(texture.width) > MAX_ENTITY_RIG_TEXTURE_SIDE
+            || usize::from(texture.height) > MAX_ENTITY_RIG_TEXTURE_SIDE
+            || texture.rgba8.len() != expected
+            || texture_bytes > MAX_ENTITY_RIG_TEXTURE_BYTES
+            || !index_has_kind(&compiled.symbols, texture.symbol, EntityAssetKind::Texture)
+            || texture.source as usize >= compiled.sources.len()
+            || compiled.symbols[texture.symbol as usize].source_index != texture.source
+            || Sha256::digest(&texture.rgba8).as_slice() != texture.pixels_sha256
+        {
+            return Err(invalid("invalid entity rig texture payload"));
+        }
     }
     let effective_bone_counts = effective_geometry_bone_counts(&compiled.geometries)?;
     for binding in &compiled.rig_animations {
@@ -46,6 +72,9 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             u32::from(binding.geometry_count),
             compiled.rig_geometries.len(),
         ) || binding.geometry_count == 0
+            || binding
+                .default_texture
+                .is_some_and(|texture| texture as usize >= compiled.rig_textures.len())
         {
             return Err(invalid("entity rig binding index is out of range"));
         }
@@ -68,7 +97,10 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
                     compiled.rig_controllers.len(),
                 )
             {
-                return Err(invalid("entity rig geometry candidate is invalid"));
+                return Err(invalid(format!(
+                    "entity rig geometry candidate is invalid: entity_symbol={}, candidate={}, geometry={}, condition={:?}",
+                    binding.entity_symbol, candidate_index, candidate.geometry, candidate.condition
+                )));
             }
             let geometry_bones = effective_bone_counts[candidate.geometry as usize];
             let animations = &compiled.rig_animations[candidate.first_animation as usize

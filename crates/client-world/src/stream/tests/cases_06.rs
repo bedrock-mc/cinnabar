@@ -76,6 +76,312 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
 }
 
 #[test]
+fn start_game_only_local_mode_update_reaches_hud_and_f5_without_an_actor_spawn() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: -9,
+                game_mode: ActorGameMode::Spectator,
+                tick: 27,
+            })),
+        )
+        .unwrap();
+
+    assert!(
+        stream.actor(42).is_none(),
+        "StartGame-only self has no AddPlayer"
+    );
+    assert!(!stream.local_player_render_eligible());
+    assert_eq!(
+        stream.local_player_game_mode(),
+        Some(PlayerGameMode::Spectator)
+    );
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalGameMode {
+            sequence: 1,
+            game_mode: PlayerGameMode::Spectator,
+        }]
+    );
+}
+
+#[test]
+fn start_game_self_resolves_only_its_exact_player_list_skin_without_add_player() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+    let skin = |value| {
+        PlayerSkin::Standard(StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![value; 64 * 64 * 4].into(),
+            geometry: protocol::PlayerSkinGeometry::Wide,
+        })
+    };
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([
+                    PlayerListEntry::Add {
+                        uuid: [7; 16],
+                        unique_id: 77,
+                        username: "unrelated".into(),
+                        verified: true,
+                        skin: skin(7),
+                    },
+                    PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(9),
+                    },
+                ]),
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.actor(42).is_none(), "self has no AddPlayer");
+    assert_eq!(
+        stream.local_player_profile().map(|profile| &profile.skin),
+        Some(&skin(9))
+    );
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::MissingCompiledRigVariant,
+        "diagnostic stream has exact roster authority but deliberately no entity carrier"
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [10; 16],
+                    unique_id: -9,
+                    username: "duplicate-self".into(),
+                    verified: true,
+                    skin: skin(10),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::AmbiguousPlayerListIdentity
+    );
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: [10; 16] }]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            4,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [9; 16],
+                    unique_id: -9,
+                    username: "self".into(),
+                    verified: true,
+                    skin: PlayerSkin::Unavailable(
+                        protocol::PlayerSkinUnavailable::UnsupportedPersona,
+                    ),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::SkinUnavailable(
+            protocol::PlayerSkinUnavailable::UnsupportedPersona
+        )
+    );
+}
+
+#[test]
+fn local_login_skin_survives_absent_hostile_roster_and_world_resets() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+    stream.set_local_player_appearance_authority(
+        protocol::LocalPlayerAppearanceAuthority::default_advertised(),
+    );
+
+    assert!(stream.local_player_profile().is_none());
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [9; 16],
+                    unique_id: -9,
+                    username: "hostile-self-echo".into(),
+                    verified: true,
+                    skin: PlayerSkin::Standard(StandardSkin {
+                        width: 64,
+                        height: 64,
+                        rgba8: vec![9; 64 * 64 * 4].into(),
+                        geometry: protocol::PlayerSkinGeometry::Custom {
+                            identifier: "geometry.humanoid.custom".into(),
+                            data_sha256: [9; 32],
+                        },
+                    }),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+
+    stream.reset_local_player_animation();
+    // The app's fast-transfer barrier commits only its FIFO slot on the same
+    // WorldStream. Prove that exact operation cannot erase login authority.
+    stream.commit(2).unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+    stream
+        .submit(
+            3,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 80.0, 0.0],
+            }),
+        )
+        .unwrap();
+    assert!(matches!(
+        stream
+            .local_player_skin_authority()
+            .map(|skin| &skin.geometry),
+        Some(protocol::PlayerSkinGeometry::Wide)
+    ));
+}
+
+#[test]
+fn local_fallback_re_resolves_when_default_game_mode_changes() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Fallback,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+                game_mode: ActorGameMode::Spectator,
+            })),
+        )
+        .unwrap();
+
+    assert!(!stream.local_player_render_eligible());
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalGameMode {
+            sequence: 1,
+            game_mode: PlayerGameMode::Spectator,
+        }]
+    );
+}
+
+#[test]
+fn unrelated_player_mode_update_cannot_change_local_authority() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_local_player_game_mode_authority(LocalPlayerGameModeAuthority::new(
+        -9,
+        ActorGameMode::Survival,
+        ActorGameMode::Survival,
+    ));
+
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+                unique_id: 77,
+                game_mode: ActorGameMode::Spectator,
+                tick: 28,
+            })),
+        )
+        .unwrap();
+
+    assert!(stream.local_player_render_eligible());
+    assert_eq!(
+        stream.local_player_game_mode(),
+        Some(PlayerGameMode::Survival)
+    );
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -610,6 +916,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
                 kind: ActorKind::Entity {
                     identifier: "minecraft:bee".into(),
                 },
+                game_mode: None,
                 position: [1.0, 2.0, 3.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -653,6 +960,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                     uuid: [8; 16],
                     username: "Alex".into(),
                 },
+                game_mode: None,
                 position: [1.0, 64.0, 2.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -693,6 +1001,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: None,
             })),
@@ -702,4 +1011,160 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
     assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);
+}
+
+fn actor_commit_witness_stream() -> WorldStream {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_actor_move_witness_enabled(true);
+    stream
+}
+
+fn actor_commit_witness_spawn() -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension: 0,
+        unique_id: 7,
+        runtime_id: 8,
+        kind: ActorKind::Player {
+            uuid: [8; 16],
+            username: "Alex".into(),
+        },
+        game_mode: Some(protocol::ActorGameMode::Survival),
+        position: [1.0, 64.0, 2.0],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+    }))
+}
+
+fn actor_commit_witness_move(x: f32) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id: 8,
+        position: [Some(x), Some(64.0 + PLAYER_NETWORK_OFFSET), Some(2.0)],
+        position_origin: ActorPositionOrigin::NetworkOffset,
+        pitch: Some(5.0),
+        yaw: Some(90.0),
+        head_yaw: Some(100.0),
+        on_ground: Some(true),
+        teleported: false,
+        snap: false,
+        player_mode: None,
+        source_tick: Some(27),
+    }))
+}
+
+#[test]
+fn actor_move_commit_witness_waits_for_the_shared_fifo_gap_to_close() {
+    let mut stream = actor_commit_witness_stream();
+    let session_id = stream.actor_session_id();
+
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert!(stream.take_committed_actor_moves().is_empty());
+
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), 1);
+    let commit = &commits[0];
+    assert_eq!(commit.session_id, session_id);
+    assert_eq!(commit.dimension, 0);
+    assert_eq!(commit.sequence, 2);
+    assert_eq!(commit.movement.runtime_id, 8);
+    assert_eq!(
+        commit.movement.position_origin,
+        ActorPositionOrigin::NetworkOffset
+    );
+    assert_eq!(commit.movement.on_ground, Some(true));
+    assert_eq!(commit.movement.source_tick, Some(27));
+
+    let applied = commit
+        .applied
+        .as_ref()
+        .expect("movement applied after spawn");
+    assert_eq!(applied.lifetime.session_id, session_id);
+    assert_eq!(applied.lifetime.dimension, 0);
+    assert_eq!(applied.lifetime.runtime_id, 8);
+    assert_eq!(applied.lifetime.spawn_revision, 1);
+    assert_eq!(applied.movement_revision, 2);
+    assert_eq!(applied.previous_pose.position, [1.0, 64.0, 2.0]);
+    assert_eq!(applied.current_pose.position, [1.0, 64.0, 2.0]);
+    assert_eq!(applied.received_pose.position, [4.0, 64.0, 2.0]);
+    assert_eq!(applied.interpolation_ticks_remaining, 3);
+    assert_eq!(applied.on_ground, Some(true));
+    assert_eq!(applied.source_tick, Some(27));
+}
+
+#[test]
+fn actor_move_commit_witness_capacity_is_exact_and_counts_rejection() {
+    let mut stream = actor_commit_witness_stream();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+
+    for offset in 0..=super::COMMITTED_ACTOR_MOVE_CAPACITY {
+        let sequence = u64::try_from(offset).unwrap() + 2;
+        stream
+            .submit(sequence, actor_commit_witness_move(sequence as f32))
+            .unwrap();
+    }
+
+    let commits = stream.take_committed_actor_moves();
+    assert_eq!(commits.len(), super::COMMITTED_ACTOR_MOVE_CAPACITY);
+    assert_eq!(commits.first().unwrap().sequence, 2);
+    assert_eq!(
+        commits.last().unwrap().sequence,
+        u64::try_from(super::COMMITTED_ACTOR_MOVE_CAPACITY).unwrap() + 1
+    );
+    assert_eq!(stream.actor_move_commit_dropped_count(), 1);
+}
+
+#[test]
+fn actor_move_commit_witness_resets_on_dimension_and_session_replacement() {
+    let mut stream = actor_commit_witness_stream();
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert_eq!(stream.pending_actor_move_commit_count(), 1);
+
+    stream
+        .submit(
+            3,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 80.0, 0.0],
+            }),
+        )
+        .unwrap();
+    assert_eq!(stream.pending_actor_move_commit_count(), 0);
+    assert_eq!(stream.actor_move_commit_dropped_count(), 0);
+
+    let replacement = actor_commit_witness_stream();
+    assert_eq!(replacement.pending_actor_move_commit_count(), 0);
+    assert_eq!(replacement.actor_move_commit_dropped_count(), 0);
+}
+
+#[test]
+fn actor_move_commit_witness_has_zero_normal_gameplay_retention() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert!(!stream.actor_move_witness_enabled());
+    assert_eq!(stream.pending_actor_move_commit_count(), 0);
+    assert_eq!(stream.actor_move_commit_dropped_count(), 0);
 }

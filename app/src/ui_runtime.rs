@@ -255,6 +255,11 @@ impl UiRuntime {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) const fn player_game_mode(&self) -> Option<PlayerGameMode> {
+        self.player_game_mode
+    }
+
     pub(crate) const fn survival_stats_visible(&self) -> bool {
         match self.player_game_mode {
             Some(game_mode) => game_mode.shows_survival_stats(),

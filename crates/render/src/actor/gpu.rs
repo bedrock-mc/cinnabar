@@ -67,7 +67,7 @@ impl ActorPresentedFrameAck {
         self.is_exact()
             && next.is_exact()
             && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
-            && self.draw_generation < next.draw_generation
+            && self.draw_generation.checked_add(1) == Some(next.draw_generation)
             && self.gpu_completed_at <= next.gpu_completed_at
     }
 }
@@ -289,6 +289,21 @@ mod tests {
             vec![1, 2]
         );
         assert!(acknowledgements[0].forms_consecutive_pair_with(&acknowledgements[1]));
+    }
+
+    #[test]
+    fn adjacent_reservations_do_not_hide_a_draw_generation_gap() {
+        let gate = ActorPresentationGate::default();
+        let first = gate.try_reserve_callback(draw(1)).unwrap();
+        let third = gate.try_reserve_callback(draw(3)).unwrap();
+        let now = Instant::now();
+        gate.publish_reserved(first, now, now);
+        gate.publish_reserved(third, now, now);
+
+        let acknowledgements = gate.drain();
+        assert_eq!(acknowledgements[0].frame_sequence, 1);
+        assert_eq!(acknowledgements[1].frame_sequence, 2);
+        assert!(!acknowledgements[0].forms_consecutive_pair_with(&acknowledgements[1]));
     }
 
     #[test]

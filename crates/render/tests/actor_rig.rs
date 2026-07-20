@@ -53,6 +53,7 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
             [0.0, 0.0, 1.0, 0.0],
         ],
         texture_layer: 0,
+        texture_region: [0.0, 0.0, 1.0, 1.0],
         route: ActorRigRoute::Compiled,
     }
 }
@@ -68,7 +69,30 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 #[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     assert_eq!(size_of::<RenderBoneTransform>(), 32);
-    assert_eq!(size_of::<ActorGpuInstance>(), 72);
+    assert_eq!(size_of::<ActorGpuInstance>(), 88);
+    let instance = ActorGpuInstance {
+        previous_bone_base: 12,
+        current_bone_base: 13,
+        geometry_id: 14,
+        texture_layer: 15,
+        partial_tick: 16.25,
+        reset_generation: 17,
+        texture_region: [18.25, 19.25, 20.25, 21.25],
+        ..Default::default()
+    };
+    let words: [u32; 22] = bytemuck::cast(instance);
+    assert_eq!(&words[12..16], &[12, 13, 14, 15]);
+    assert_eq!(words[16], 16.25_f32.to_bits());
+    assert_eq!(words[17], 17);
+    assert_eq!(
+        &words[18..22],
+        &[
+            18.25_f32.to_bits(),
+            19.25_f32.to_bits(),
+            20.25_f32.to_bits(),
+            21.25_f32.to_bits(),
+        ]
+    );
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
         MAX_ACTOR_BONE_ARENA_BYTES,
@@ -136,6 +160,28 @@ fn culling_precedes_actor_and_bone_arena_reservation() {
     assert_eq!(frame.manifest[0].identity.runtime_id, 999);
     assert_eq!(frame.previous_bones.len(), 2);
     assert_eq!(frame.rejects.actor_capacity, 0);
+}
+
+#[test]
+fn wide_compiled_rig_intersecting_the_frustum_is_not_player_box_culled() {
+    let wide =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [-4.0, -0.5, -0.5], [4.0, 0.5, 0.5], 1)
+            .unwrap();
+    let mut builder = ActorRigFrameBuilder::new([wide]).unwrap();
+    let mut actor = submission(9, 1);
+    actor.input.previous_bones = Arc::from([bone([0.0; 3])]);
+    actor.input.current_bones = Arc::from([bone([0.0; 3])]);
+    actor.world_from_actor[0][3] = 3.0;
+    actor.world_from_actor[1][3] = 0.0;
+    let view = ActorCullView {
+        clip_from_world: Mat4::IDENTITY,
+        camera_position: Vec3::ZERO,
+        max_distance: 192.0,
+    };
+
+    let frame = builder.build(0.5, Some(view), [actor]);
+
+    assert_eq!(frame.instances.len(), 1);
 }
 
 #[test]
@@ -240,7 +286,7 @@ fn multiple_drawable_actors_can_share_one_validated_skin_layer() {
     );
 
     assert_eq!(frame.rig.instances.len(), 2);
-    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(frame.skins_rgba8.len(), 66 * 66 * 4);
     assert!(
         frame
             .rig

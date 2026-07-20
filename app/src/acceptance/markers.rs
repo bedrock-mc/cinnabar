@@ -15,6 +15,7 @@ pub(crate) const FAST_TRANSFER_PACKET_TRACE: &str = "RUST_MCBE_FAST_TRANSFER_PAC
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
     "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
+pub(crate) const ACTOR_POSE_WITNESS: &str = "RUST_MCBE_ACTOR_POSE_WITNESS";
 pub(crate) const MODEL_WITNESS_COMPLETE: &str = "RUST_MCBE_MODEL_WITNESS_COMPLETE";
 pub(crate) const MOVE_PLAYER_INGRESS: &str = "RUST_MCBE_MOVE_PLAYER_INGRESS";
 pub(crate) const MUTATION_COORDINATE: &str = "RUST_MCBE_MUTATION_COORDINATE";
@@ -58,6 +59,7 @@ pub(crate) enum MarkerContract {
 pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
     (ASSETS, MarkerContract::EnvironmentVariable),
+    (ACTOR_POSE_WITNESS, MarkerContract::ParsedEvidence),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
     (FAST_TRANSFER_ACTION, MarkerContract::ParsedEvidence),
@@ -235,7 +237,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 31);
+        assert_eq!(names.len(), 32);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

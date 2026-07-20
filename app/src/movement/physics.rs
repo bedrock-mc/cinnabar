@@ -197,6 +197,7 @@ pub struct PhysicsSampleContext {
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
+    pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
     pub pitch: f32,
     pub yaw: f32,
@@ -442,6 +443,11 @@ impl LocalPhysicsController {
                             state.position.x as f32,
                             state.position.y as f32 + PLAYER_NETWORK_OFFSET,
                             state.position.z as f32,
+                        ],
+                        velocity: [
+                            state.velocity.x as f32,
+                            state.velocity.y as f32,
+                            state.velocity.z as f32,
                         ],
                         move_vector: [-input.strafe as f32, input.forward as f32],
                         pitch: context.pitch,

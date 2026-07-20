@@ -7,8 +7,9 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    BlobCacheStats, ClientBlobCache, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence,
+    Packet, PacketIdTraceSnapshot, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -36,7 +37,8 @@ pub enum NetworkControlEvent {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
-        player_game_mode: PlayerGameMode,
+        local_player_game_mode: LocalPlayerGameModeAuthority,
+        local_player_appearance: Box<protocol::LocalPlayerAppearanceAuthority>,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -301,7 +303,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let protocol::LoginResult {
+                    session,
+                    game_data,
+                    local_appearance,
+                } = match login {
                     Ok(connected) => connected,
                     Err(error) => {
                         let _ = send_control_event_or_cancel(
@@ -319,7 +325,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
-                let player_game_mode = PlayerGameMode::from_game_data(&game_data);
+                let local_player_game_mode =
+                    LocalPlayerGameModeAuthority::from_game_data(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -328,7 +335,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world: bootstrap,
                         environment,
                         inventory,
-                        player_game_mode,
+                        local_player_game_mode,
+                        local_player_appearance: Box::new(local_appearance),
                     },
                 )
                 .await
@@ -931,6 +939,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    snap: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                 }))

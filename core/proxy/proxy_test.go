@@ -223,7 +223,11 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 			XUID:        "must-not-be-copied",
 			TitleID:     "must-not-be-copied",
 		},
-		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		client: login.ClientData{
+			DeviceModel: "client-data-sentinel", SkinData: "skin-rgba-sentinel",
+			SkinImageWidth: 64, SkinImageHeight: 32, ArmSize: "wide",
+			SkinResourcePatch: "resource-patch-sentinel", SkinGeometry: "geometry-sentinel",
+		},
 		protocol: minecraft.DefaultProtocol,
 	}
 
@@ -243,6 +247,7 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
 		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
 	}
+	assertClientAppearancePreserved(t, dialer.ClientData, downstream.client)
 	if dialer.Protocol != downstream.protocol {
 		t.Fatal("Protocol was not preserved")
 	}
@@ -251,7 +256,11 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testing.T) {
 	downstream := dialerTestDownstream{
 		identity: login.IdentityData{Identity: "offline-identity", DisplayName: "Offline Player"},
-		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		client: login.ClientData{
+			DeviceModel: "client-data-sentinel", SkinData: "skin-rgba-sentinel",
+			SkinImageWidth: 64, SkinImageHeight: 32, ArmSize: "wide",
+			SkinResourcePatch: "resource-patch-sentinel", SkinGeometry: "geometry-sentinel",
+		},
 		protocol: minecraft.DefaultProtocol,
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
@@ -269,8 +278,21 @@ func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testi
 	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
 		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
 	}
+	assertClientAppearancePreserved(t, dialer.ClientData, downstream.client)
 	if dialer.Protocol != downstream.protocol {
 		t.Fatal("Protocol was not preserved")
+	}
+}
+
+func assertClientAppearancePreserved(t *testing.T, got, want login.ClientData) {
+	t.Helper()
+	if got.SkinData != want.SkinData ||
+		got.SkinImageWidth != want.SkinImageWidth ||
+		got.SkinImageHeight != want.SkinImageHeight ||
+		got.ArmSize != want.ArmSize ||
+		got.SkinResourcePatch != want.SkinResourcePatch ||
+		got.SkinGeometry != want.SkinGeometry {
+		t.Fatalf("ClientData appearance was not copied verbatim")
 	}
 }
 

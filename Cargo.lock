@@ -473,6 +473,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "asset-compiler",
  "assets",
  "bevy",
  "client-world",

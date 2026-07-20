@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use bytes::Buf;
 use jolyne::error::JolyneError;
@@ -15,7 +15,7 @@ use valentine::protocol::wire;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheReady, BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, Packet,
-    ProtocolError, WorldEvent, into_world_event,
+    PlayerSkin, PlayerSkinUnavailable, ProtocolError, StandardSkin, WorldEvent, into_world_event,
 };
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
@@ -23,12 +23,90 @@ const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 /// Entry point for the offline local-core login sequence.
 pub struct LoginSequence;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPlayerAppearanceAuthority {
+    skin: StandardSkin,
+    arm_size: Arc<str>,
+    resource_patch: Arc<str>,
+    geometry_data: Arc<str>,
+}
+
+impl LocalPlayerAppearanceAuthority {
+    fn from_advertised(
+        advertised: &jolyne::auth::client::AdvertisedSkin,
+    ) -> Result<Self, ProtocolError> {
+        let width = i32::try_from(advertised.width()).map_err(|_| {
+            ProtocolError::InvalidLocalAppearance(PlayerSkinUnavailable::InvalidDimensions)
+        })?;
+        let height = i32::try_from(advertised.height()).map_err(|_| {
+            ProtocolError::InvalidLocalAppearance(PlayerSkinUnavailable::InvalidDimensions)
+        })?;
+        let skin = valentine::bedrock::version::v1_26_30::Skin {
+            skin_resource_pack: advertised.resource_patch().to_owned(),
+            skin_data: valentine::bedrock::version::v1_26_30::SkinImage {
+                width,
+                height,
+                data: advertised.rgba8().to_vec(),
+            },
+            geometry_data: advertised.geometry_data().to_owned(),
+            arm_size: advertised.arm_size().to_owned(),
+            ..Default::default()
+        };
+        let mut retained = 0;
+        let skin = match crate::actor::normalize_player_skin(skin, &mut retained) {
+            PlayerSkin::Standard(skin) => skin,
+            PlayerSkin::Unavailable(reason) => {
+                return Err(ProtocolError::InvalidLocalAppearance(reason));
+            }
+        };
+        Ok(Self {
+            skin,
+            arm_size: Arc::from(advertised.arm_size()),
+            resource_patch: Arc::from(advertised.resource_patch()),
+            geometry_data: Arc::from(advertised.geometry_data()),
+        })
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn default_advertised() -> Self {
+        Self::from_advertised(&jolyne::auth::client::default_advertised_skin())
+            .expect("central advertised skin is valid")
+    }
+
+    #[must_use]
+    pub const fn skin(&self) -> &StandardSkin {
+        &self.skin
+    }
+
+    #[must_use]
+    pub const fn arm_size(&self) -> &Arc<str> {
+        &self.arm_size
+    }
+
+    #[must_use]
+    pub const fn resource_patch(&self) -> &Arc<str> {
+        &self.resource_patch
+    }
+
+    #[must_use]
+    pub const fn geometry_data(&self) -> &Arc<str> {
+        &self.geometry_data
+    }
+}
+
+pub struct LoginResult<T: Transport = SocketTransport> {
+    pub session: PlaySession<T>,
+    pub game_data: GameData,
+    pub local_appearance: LocalPlayerAppearanceAuthority,
+}
+
 impl LoginSequence {
     /// Connects to the Go core and completes the encrypted Bedrock spawn sequence.
     pub async fn connect(
         socket_dir: &Path,
         display_name: &str,
-    ) -> Result<(PlaySession, GameData), ProtocolError> {
+    ) -> Result<LoginResult, ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
@@ -40,7 +118,7 @@ impl LoginSequence {
         socket_dir: &Path,
         display_name: &str,
         cache: ClientBlobCache,
-    ) -> Result<(PlaySession, GameData), ProtocolError> {
+    ) -> Result<LoginResult, ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
@@ -52,7 +130,7 @@ impl LoginSequence {
     pub async fn connect_transport<T: Transport>(
         transport: T,
         display_name: &str,
-    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+    ) -> Result<LoginResult<T>, ProtocolError> {
         Self::connect_transport_inner(transport, display_name, None).await
     }
 
@@ -62,7 +140,7 @@ impl LoginSequence {
         transport: T,
         display_name: &str,
         cache: ClientBlobCache,
-    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+    ) -> Result<LoginResult<T>, ProtocolError> {
         Self::connect_transport_inner(transport, display_name, Some(cache)).await
     }
 
@@ -70,15 +148,21 @@ impl LoginSequence {
         transport: T,
         display_name: &str,
         cache: Option<ClientBlobCache>,
-    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+    ) -> Result<LoginResult<T>, ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
         let config = ClientHandshakeConfig::random(peer_addr, display_name)
             .with_client_cache_enabled(cache.is_some());
+        let local_appearance =
+            LocalPlayerAppearanceAuthority::from_advertised(&config.advertised_skin)?;
         let (stream, game_data) = stream.join(config).await?;
-        Ok((PlaySession::new(stream, cache), game_data))
+        Ok(LoginResult {
+            session: PlaySession::new(stream, cache),
+            game_data,
+            local_appearance,
+        })
     }
 }
 
@@ -533,6 +617,8 @@ fn decode_world_raw_with(
             | McpePacketName::PacketSetEntityData
             | McpePacketName::PacketUpdateAttributes
             | McpePacketName::PacketPlayerList
+            | McpePacketName::PacketUpdatePlayerGameType
+            | McpePacketName::PacketSetDefaultGameType
             | McpePacketName::PacketItemRegistry
             | McpePacketName::PacketMobEquipment
             | McpePacketName::PacketInventoryContent

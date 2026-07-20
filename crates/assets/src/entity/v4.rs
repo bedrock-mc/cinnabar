@@ -32,6 +32,9 @@ pub const MAX_ENTITY_RIG_BINDINGS: usize = 8_192;
 pub const MAX_ENTITY_RIG_GEOMETRIES: usize = 262_144;
 pub const MAX_ENTITY_RIG_ANIMATIONS: usize = 262_144;
 pub const MAX_ENTITY_RIG_CONTROLLERS: usize = 262_144;
+pub const MAX_ENTITY_RIG_TEXTURES: usize = 2_048;
+pub const MAX_ENTITY_RIG_TEXTURE_SIDE: usize = 2_048;
+pub const MAX_ENTITY_RIG_TEXTURE_BYTES: usize = 256 * 1024 * 1024;
 
 #[path = "v4/preflight.rs"]
 mod preflight;
@@ -218,7 +221,19 @@ pub struct EntityRigBinding {
     pub render_controller: u32,
     pub first_geometry: u32,
     pub geometry_count: u16,
+    pub default_texture: Option<u32>,
     pub fallback: EntityRigFallback,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityRigTexture {
+    pub symbol: u32,
+    pub source: u32,
+    pub width: u16,
+    pub height: u16,
+    pub pixels_sha256: [u8; 32],
+    pub rgba8: Box<[u8]>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -267,6 +282,8 @@ pub struct EntityAssetSummary {
     pub rig_geometries: usize,
     pub rig_animations: usize,
     pub rig_controllers: usize,
+    pub rig_textures: usize,
+    pub rig_texture_bytes: usize,
     pub item_visuals: usize,
     pub item_visual_aliases: usize,
     pub block_visuals: usize,
@@ -360,6 +377,11 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
+    pub fn rig_textures(&self) -> &[EntityRigTexture] {
+        &self.rig_textures
+    }
+
+    #[must_use]
     pub fn item_visuals(&self) -> &[ItemVisualDefinition] {
         &self.item_visuals
     }
@@ -391,6 +413,12 @@ impl RuntimeEntityAssets {
             rig_geometries: self.rig_geometries.len(),
             rig_animations: self.rig_animations.len(),
             rig_controllers: self.rig_controllers.len(),
+            rig_textures: self.rig_textures.len(),
+            rig_texture_bytes: self
+                .rig_textures
+                .iter()
+                .map(|texture| texture.rgba8.len())
+                .sum(),
             item_visuals: self.item_visuals.len(),
             item_visual_aliases: self.item_visual_aliases.len(),
             block_visuals: self.block_visual_count as usize,

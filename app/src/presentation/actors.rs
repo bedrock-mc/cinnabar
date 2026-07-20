@@ -1,25 +1,36 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::EntityRigFallback;
-use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin};
+use client_world::{ActorRigSnapshot, ActorSnapshot, LocalPlayerRigSnapshot, PlayerProfile};
+use protocol::{ActorKind, PlayerSkin, PlayerSkinGeometry};
+#[cfg(test)]
+use render::default_actor_skin_rgba8;
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
-    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorSkinPixels, ActorTextureAtlas, ActorTexturePixels, EntityRigId,
+    MAX_RENDERED_PLAYERS, RenderBoneTransform, normalize_actor_skin, pack_actor_textures,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
-    pub(crate) skin_rgba8: Option<Arc<[u8]>>,
+    pub(crate) texture: Option<ActorTexturePixels>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
-    pub(crate) skins_rgba8: Arc<[u8]>,
+    pub(crate) atlas: ActorTextureAtlas,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LocalPlayerPresentationAuthority {
+    pub(crate) actor_session_id: u64,
+    pub(crate) dimension: i32,
+    pub(crate) runtime_id: u64,
+    pub(crate) pose_generation: u64,
+    pub(crate) position: [f32; 3],
+    pub(crate) yaw_degrees: f32,
 }
 
 pub(crate) fn update_actor_rig_scene(
@@ -31,7 +42,7 @@ pub(crate) fn update_actor_rig_scene(
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
     // modes while the render-owned builder still validates every other field.
-    scene.update_rigs(partial_tick, None, batch.submissions, batch.skins_rgba8)
+    scene.update_rigs_with_atlas(partial_tick, None, batch.submissions, batch.atlas)
 }
 
 pub(crate) fn actor_rig_presentation(
@@ -77,7 +88,7 @@ pub(crate) fn actor_rig_presentation(
         return None;
     }
 
-    let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
+    let (route, texture) = actor_route_and_texture(actor, profile, rig);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
             input: ActorRigRenderInput {
@@ -94,12 +105,105 @@ pub(crate) fn actor_rig_presentation(
                 [-sine, 0.0, cosine, position[2]],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route,
         },
-        skin_rgba8,
+        texture,
     })
 }
 
+#[cfg(test)]
+pub(crate) fn local_player_rig_presentation(
+    rig: &LocalPlayerRigSnapshot<'_>,
+    profile: &PlayerProfile,
+    authority: LocalPlayerPresentationAuthority,
+) -> Option<ActorRigPresentation> {
+    let PlayerSkin::Standard(skin) = &profile.skin else {
+        return None;
+    };
+    local_player_skin_rig_presentation(rig, skin, authority)
+}
+
+pub(crate) fn local_player_skin_rig_presentation(
+    rig: &LocalPlayerRigSnapshot<'_>,
+    skin: &protocol::StandardSkin,
+    authority: LocalPlayerPresentationAuthority,
+) -> Option<ActorRigPresentation> {
+    let LocalPlayerPresentationAuthority {
+        actor_session_id,
+        dimension,
+        runtime_id,
+        pose_generation,
+        position,
+        yaw_degrees,
+    } = authority;
+    if actor_session_id == 0
+        || runtime_id == 0
+        || pose_generation == 0
+        || position.iter().any(|value| !value.is_finite())
+        || !yaw_degrees.is_finite()
+        || rig.completed_tick == 0
+        || rig.reset_generation == 0
+        || rig.previous.is_empty()
+        || rig.previous.len() != rig.current.len()
+    {
+        return None;
+    }
+    let route = match rig.fallback {
+        EntityRigFallback::Skip => ActorRigRoute::Compiled,
+        EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
+        EntityRigFallback::Diagnostic => return None,
+    };
+    if !local_skin_geometry_matches_rig(&skin.geometry, rig) {
+        return None;
+    }
+    let rgba8 = normalize_actor_skin(&ActorSkinPixels {
+        width: skin.width,
+        height: skin.height,
+        rgba8: Arc::clone(&skin.rgba8),
+    })?;
+    let previous_bones = convert_bones(rig.previous)?;
+    let current_bones = convert_bones(rig.current)?;
+    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
+    Some(ActorRigPresentation {
+        submission: ActorRigSubmission {
+            input: ActorRigRenderInput {
+                identity: ActorRenderIdentity {
+                    session_id: actor_session_id,
+                    dimension,
+                    runtime_id,
+                    spawn_revision: actor_session_id,
+                    ingress_sequence: pose_generation,
+                    source_tick: None,
+                    movement_revision: pose_generation,
+                    pose_generation,
+                },
+                rig: EntityRigId(rig.rig.0),
+                previous_bones,
+                current_bones,
+                completed_tick: rig.completed_tick,
+                reset_generation: rig.reset_generation,
+            },
+            world_from_actor: [
+                [cosine, 0.0, sine, position[0]],
+                [0.0, 1.0, 0.0, position[1]],
+                [-sine, 0.0, cosine, position[2]],
+            ],
+            texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
+            route,
+        },
+        texture: Some(ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8,
+        }),
+    })
+}
+
+/// Explicit test-only synthetic actor. Production F5 rendering must resolve
+/// both geometry and skin from session authority instead.
+#[cfg(test)]
 pub(crate) fn local_diagnostic_presentation(
     actor_session_id: u64,
     dimension: i32,
@@ -158,33 +262,40 @@ pub(crate) fn local_diagnostic_presentation(
                 [-sine, 0.0, cosine, position[2]],
             ],
             texture_layer: u32::MAX,
+            texture_region: [0.0, 0.0, 1.0, 1.0],
             route: ActorRigRoute::Diagnostic,
         },
-        skin_rgba8: Some(default_actor_skin_rgba8()),
+        texture: Some(ActorTexturePixels {
+            width: 64,
+            height: 64,
+            rgba8: default_actor_skin_rgba8(),
+        }),
     })
 }
 
 pub(crate) fn local_actor_presentation_for_visibility(
     local_runtime_id: u64,
     visibility_runtime_id: u64,
+    local_render_eligible: bool,
     canonical: Option<ActorRigPresentation>,
-    diagnostic: Option<ActorRigPresentation>,
+    local_authority: Option<ActorRigPresentation>,
 ) -> Option<ActorRigPresentation> {
-    if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id {
+    if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id || !local_render_eligible
+    {
         return None;
     }
-    let diagnostic = diagnostic.filter(|presentation| {
+    let local_authority = local_authority.filter(|presentation| {
         presentation.submission.input.identity.runtime_id == local_runtime_id
     })?;
     match canonical {
         Some(mut canonical)
             if canonical.submission.input.identity.runtime_id == local_runtime_id =>
         {
-            canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+            canonical.submission.world_from_actor = local_authority.submission.world_from_actor;
             Some(canonical)
         }
         Some(_) => None,
-        None => Some(diagnostic),
+        None => Some(local_authority),
     }
 }
 
@@ -195,7 +306,7 @@ pub(crate) fn select_actor_presentations(
     local: Option<ActorRigPresentation>,
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
 ) -> ActorPresentationBatch {
-    select_actor_presentations_for_view(local_runtime_id, local_visible, local, remotes, None)
+    select_actor_presentations_for_view(local_runtime_id, local_visible, local, remotes, |_| true)
 }
 
 pub(crate) fn select_actor_presentations_for_view(
@@ -203,7 +314,7 @@ pub(crate) fn select_actor_presentations_for_view(
     local_visible: bool,
     local: Option<ActorRigPresentation>,
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
-    view: Option<ActorCullView>,
+    is_visible: impl Fn(&ActorRigSubmission) -> bool,
 ) -> ActorPresentationBatch {
     let mut latest = BTreeMap::<u64, ActorRigPresentation>::new();
     for remote in remotes {
@@ -223,10 +334,10 @@ pub(crate) fn select_actor_presentations_for_view(
         }
     }
 
-    let local = local_visible
-        .then_some(local)
-        .flatten()
-        .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
+    let local = local_visible.then_some(local).flatten().filter(|local| {
+        local.submission.input.identity.runtime_id == local_runtime_id
+            && local.submission.route != ActorRigRoute::NoDraw
+    });
     let mut selected = Vec::with_capacity(MAX_RENDERED_PLAYERS);
     let mut drawable_count = 0usize;
     if let Some(local) = local {
@@ -235,45 +346,40 @@ pub(crate) fn select_actor_presentations_for_view(
     }
     for remote in latest.into_values() {
         if remote.submission.route == ActorRigRoute::NoDraw {
-            selected.push(remote);
             continue;
         }
-        if drawable_count == MAX_RENDERED_PLAYERS
-            || !actor_rig_submission_is_visible(&remote.submission, view)
-        {
+        if drawable_count == MAX_RENDERED_PLAYERS || !is_visible(&remote.submission) {
             continue;
         }
         drawable_count += 1;
         selected.push(remote);
     }
 
-    let mut skin_families = Vec::<Arc<[u8]>>::new();
     let mut submissions = Vec::with_capacity(selected.len());
-    for mut presentation in selected {
-        let Some(skin) = presentation.skin_rgba8 else {
-            presentation.submission.route = ActorRigRoute::NoDraw;
-            presentation.submission.texture_layer = u32::MAX;
+    let mut textures = Vec::with_capacity(selected.len());
+    for presentation in selected {
+        if let Some(texture) = presentation.texture {
+            textures.push(texture);
             submissions.push(presentation.submission);
-            continue;
-        };
-        let layer = skin_families
-            .iter()
-            .position(|existing| existing.as_ref() == skin.as_ref())
-            .unwrap_or_else(|| {
-                skin_families.push(skin);
-                skin_families.len() - 1
-            });
-        presentation.submission.texture_layer =
-            u32::try_from(layer).expect("actor skin family count is bounded");
-        submissions.push(presentation.submission);
+        }
     }
-    let mut skin_bytes = Vec::new();
-    for skin in skin_families {
-        skin_bytes.extend_from_slice(&skin);
+    let atlas = pack_actor_textures(&textures);
+    if let Some(atlas) = &atlas {
+        for (submission, region) in submissions.iter_mut().zip(atlas.regions.iter()) {
+            submission.texture_layer = 0;
+            submission.texture_region = *region;
+        }
+    } else {
+        submissions.clear();
     }
     ActorPresentationBatch {
         submissions,
-        skins_rgba8: skin_bytes.into(),
+        atlas: atlas.unwrap_or_else(|| ActorTextureAtlas {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([0, 0, 0, 0]),
+            regions: Arc::from([]),
+        }),
     }
 }
 
@@ -304,6 +410,7 @@ fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
+#[cfg(test)]
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = rotation.map(|value| value.to_radians() * 0.5);
     let (sx, cx) = x.sin_cos();
@@ -317,29 +424,84 @@ fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     ]
 }
 
-fn player_route_and_skin(
+fn actor_route_and_texture(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
-    fallback: EntityRigFallback,
-) -> (ActorRigRoute, Option<Arc<[u8]>>) {
-    let ActorKind::Player { .. } = &actor.kind else {
+    rig: &ActorRigSnapshot<'_>,
+) -> (ActorRigRoute, Option<ActorTexturePixels>) {
+    if !actor.is_render_eligible() {
         return (ActorRigRoute::NoDraw, None);
-    };
-    let route = match fallback {
+    }
+    let route = match rig.fallback {
         EntityRigFallback::Skip => ActorRigRoute::Compiled,
         EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
         EntityRigFallback::Diagnostic => ActorRigRoute::Diagnostic,
     };
-    let skin = profile
-        .filter(|profile| profile.unique_id == actor.unique_id)
-        .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
-                width: skin.width,
-                height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
-            }),
-            PlayerSkin::Unavailable(_) => None,
-        })
-        .unwrap_or_else(default_actor_skin_rgba8);
-    (route, Some(skin))
+    match &actor.kind {
+        ActorKind::Player { .. } => {
+            let Some(rgba8) = profile
+                .filter(|profile| profile.unique_id == actor.unique_id)
+                .and_then(|profile| match &profile.skin {
+                    PlayerSkin::Standard(skin)
+                        if skin_geometry_matches_rig(&skin.geometry, rig) =>
+                    {
+                        normalize_actor_skin(&ActorSkinPixels {
+                            width: skin.width,
+                            height: skin.height,
+                            rgba8: Arc::clone(&skin.rgba8),
+                        })
+                    }
+                    PlayerSkin::Standard(_) => None,
+                    PlayerSkin::Unavailable(_) => None,
+                })
+            else {
+                return (ActorRigRoute::NoDraw, None);
+            };
+            (
+                route,
+                Some(ActorTexturePixels {
+                    width: 64,
+                    height: 64,
+                    rgba8,
+                }),
+            )
+        }
+        ActorKind::Entity { .. } => {
+            let texture = rig.texture.map(|texture| ActorTexturePixels {
+                width: u32::from(texture.width),
+                height: u32::from(texture.height),
+                rgba8: Arc::clone(texture.rgba8),
+            });
+            if texture.is_some() {
+                (route, texture)
+            } else {
+                (ActorRigRoute::NoDraw, None)
+            }
+        }
+    }
+}
+
+fn skin_geometry_matches_rig(geometry: &PlayerSkinGeometry, rig: &ActorRigSnapshot<'_>) -> bool {
+    match geometry {
+        PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
+        PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
+        PlayerSkinGeometry::Custom {
+            identifier,
+            data_sha256,
+        } => identifier.as_ref() == rig.geometry_identifier && data_sha256 == &rig.geometry_sha256,
+    }
+}
+
+fn local_skin_geometry_matches_rig(
+    geometry: &PlayerSkinGeometry,
+    rig: &LocalPlayerRigSnapshot<'_>,
+) -> bool {
+    match geometry {
+        PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
+        PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
+        PlayerSkinGeometry::Custom {
+            identifier,
+            data_sha256,
+        } => identifier.as_ref() == rig.geometry_identifier && data_sha256 == &rig.geometry_sha256,
+    }
 }

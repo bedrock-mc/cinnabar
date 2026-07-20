@@ -4,18 +4,96 @@ use anyhow::{Context, Result, ensure};
 #[cfg(test)]
 use bevy::prelude::{App, Update};
 use bevy::prelude::{Local, Res, ResMut, Resource};
-use client_world::WorldStream;
+use client_world::{CommittedActorMove, WorldStream};
 use render::{
-    ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest, PresentedFrameGate,
-    TargetRenderExpectation,
+    ActorPresentedFrameAck, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest,
+    PresentedFrameGate, TargetRenderExpectation,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 use world::SubChunkKey;
 
+use super::markers::ACTOR_POSE_WITNESS;
 use super::teleport::render_view_cohort;
 use crate::runtime::world::ClientWorld;
+
+pub(crate) fn actor_pose_witness_marker(
+    commit: &CommittedActorMove,
+    first: &ActorPresentedFrameAck,
+    second: &ActorPresentedFrameAck,
+    rejected_commits: u64,
+    rejected_frames: u64,
+    stream_dropped_commits: u64,
+) -> String {
+    let applied = commit
+        .applied
+        .as_ref()
+        .expect("matched actor pose witnesses require an applied store pose");
+    format!(
+        "{ACTOR_POSE_WITNESS}={}",
+        serde_json::json!({
+            "session_id": commit.session_id,
+            "dimension": commit.dimension,
+            "sequence": commit.sequence,
+            "runtime_id": commit.movement.runtime_id,
+            "packet": {
+                "position": commit.movement.position,
+                "origin": format!("{:?}", commit.movement.position_origin),
+                "teleported": commit.movement.teleported,
+                "snap": commit.movement.snap,
+                "on_ground": commit.movement.on_ground,
+                "source_tick": commit.movement.source_tick,
+            },
+            "store": {
+                "spawn_revision": applied.lifetime.spawn_revision,
+                "movement_revision": applied.movement_revision,
+                "position": applied.current_pose.position,
+                "previous_position": applied.previous_pose.position,
+                "received_position": applied.received_pose.position,
+                "interpolation_ticks_remaining": applied.interpolation_ticks_remaining,
+                "on_ground": applied.on_ground,
+                "source_tick": applied.source_tick,
+            },
+            "presented": {
+                "first_frame_sequence": first.frame_sequence,
+                "second_frame_sequence": second.frame_sequence,
+                "first_frame_generation": first.frame_generation,
+                "second_frame_generation": second.frame_generation,
+                "first_draw_generation": first.draw_generation,
+                "second_draw_generation": second.draw_generation,
+                "consecutive": first.forms_consecutive_pair_with(second),
+            },
+            "drops": {
+                "rejected_commits": rejected_commits,
+                "rejected_frames": rejected_frames,
+                "stream_dropped_commits": stream_dropped_commits,
+            },
+        })
+    )
+}
+
+/// Correlate a committed store pose with an exact presented actor frame acknowledgement.
+#[must_use]
+pub(crate) fn committed_actor_move_matches_presented_frame(
+    commit: &CommittedActorMove,
+    acknowledgement: &ActorPresentedFrameAck,
+) -> bool {
+    let Some(applied) = commit.applied.as_ref() else {
+        return false;
+    };
+    acknowledgement.frame_sequence != 0
+        && !acknowledgement.manifest.is_empty()
+        && acknowledgement.manifest.iter().any(|entry| {
+            entry.identity.session_id == applied.lifetime.session_id
+                && entry.identity.dimension == applied.lifetime.dimension
+                && entry.identity.runtime_id == applied.lifetime.runtime_id
+                && entry.identity.spawn_revision == applied.lifetime.spawn_revision
+                && entry.identity.ingress_sequence == commit.sequence
+                && entry.identity.movement_revision == applied.movement_revision
+                && entry.identity.source_tick == applied.source_tick
+        })
+}
 
 pub(crate) const MODEL_WITNESS_SCHEMA: &str = "rust-mcbe-model-witness-v1";
 pub(crate) const WITNESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -173,6 +251,100 @@ pub fn poll_model_witness_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_actor_move_correlates_with_exact_presented_frame_manifest() {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        use client_world::{ActorLifetimeId, ActorPose, CommittedActorPose};
+        use protocol::{ActorMoveEvent, ActorPositionOrigin};
+        use render::{ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute, EntityRigId};
+
+        let lifetime = ActorLifetimeId {
+            session_id: 3,
+            dimension: 0,
+            runtime_id: 42,
+            spawn_revision: 1,
+        };
+        let pose = ActorPose {
+            position: [1.0, 64.0, 2.0],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+        };
+        let commit = CommittedActorMove {
+            session_id: 3,
+            dimension: 0,
+            sequence: 9,
+            movement: ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 42,
+                position: [Some(1.0), Some(65.620_01), Some(2.0)],
+                position_origin: ActorPositionOrigin::NetworkOffset,
+                pitch: Some(0.0),
+                yaw: Some(0.0),
+                head_yaw: Some(0.0),
+                on_ground: Some(true),
+                teleported: false,
+                snap: false,
+                player_mode: None,
+                source_tick: Some(120),
+            },
+            applied: Some(CommittedActorPose {
+                lifetime,
+                movement_revision: 9,
+                previous_pose: pose,
+                current_pose: pose,
+                received_pose: pose,
+                interpolation_ticks_remaining: 3,
+                on_ground: Some(true),
+                source_tick: Some(120),
+            }),
+        };
+        let now = Instant::now();
+        let acknowledgement = ActorPresentedFrameAck {
+            frame_sequence: 1,
+            frame_generation: 1,
+            draw_generation: 1,
+            manifest: Arc::from([ActorDrawManifestEntry {
+                identity: ActorRenderIdentity {
+                    session_id: 3,
+                    dimension: 0,
+                    runtime_id: 42,
+                    spawn_revision: 1,
+                    ingress_sequence: 9,
+                    source_tick: Some(120),
+                    movement_revision: 9,
+                    pose_generation: 1,
+                },
+                rig: EntityRigId(0),
+                completed_tick: 0,
+                reset_generation: 0,
+                route: ActorRigRoute::Compiled,
+                instance_index: 0,
+                previous_bone_base: 0,
+                current_bone_base: 0,
+                bone_count: 0,
+            }]),
+            present_returned_at: now,
+            gpu_completed_at: now + Duration::from_millis(1),
+        };
+        assert!(committed_actor_move_matches_presented_frame(
+            &commit,
+            &acknowledgement
+        ));
+
+        let mut mismatched = acknowledgement.clone();
+        let mut entry = mismatched.manifest[0].clone();
+        entry.identity.movement_revision = 8;
+        mismatched.manifest = Arc::from([entry]);
+        assert!(!committed_actor_move_matches_presented_frame(
+            &commit,
+            &mismatched
+        ));
+    }
+
     use std::time::{SystemTime, UNIX_EPOCH};
 
     pub(crate) fn request_json(revision: u64, sub_chunks: &[ModelWitnessSubChunk]) -> Vec<u8> {

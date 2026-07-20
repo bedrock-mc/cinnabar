@@ -28,6 +28,20 @@ impl WorldStream {
             existing_anchor,
         )
     }
+    pub fn set_local_player_game_mode_authority(
+        &mut self,
+        authority: protocol::LocalPlayerGameModeAuthority,
+    ) {
+        self.actors
+            .set_default_game_mode(authority.default_game_mode());
+        self.local_player_game_mode = Some(authority);
+    }
+    pub fn set_local_player_appearance_authority(
+        &mut self,
+        authority: protocol::LocalPlayerAppearanceAuthority,
+    ) {
+        self.local_player_appearance = Some(authority);
+    }
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
@@ -109,6 +123,9 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,
+            committed_actor_moves: VecDeque::new(),
+            actor_move_witness_enabled: false,
+            actor_move_commit_dropped_count: 0,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,
@@ -118,6 +135,8 @@ impl WorldStream {
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
+            local_player_game_mode: None,
+            local_player_appearance: None,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),

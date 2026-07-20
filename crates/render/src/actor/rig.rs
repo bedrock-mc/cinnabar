@@ -96,6 +96,8 @@ pub struct ActorRigSubmission {
     pub input: ActorRigRenderInput,
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
+    /// Normalized atlas offset (xy) and scale (zw) for this actor's texture.
+    pub texture_region: [f32; 4],
     pub route: ActorRigRoute,
 }
 
@@ -109,9 +111,10 @@ pub struct ActorGpuInstance {
     pub texture_layer: u32,
     pub partial_tick: f32,
     pub reset_generation: u32,
+    pub texture_region: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 72);
+const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 88);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -136,6 +139,7 @@ pub struct ActorRigGeometry {
     pub id: EntityRigId,
     pub vertices: Arc<[ActorRigVertex]>,
     pub bone_pivots: Arc<[[f32; 3]]>,
+    bone_radii: Arc<[Option<f32>]>,
 }
 
 impl ActorRigGeometry {
@@ -164,10 +168,18 @@ impl ActorRigGeometry {
         {
             return Err(ActorRigGeometryError::InvalidVertex);
         }
+        let mut bone_radii = vec![None::<f32>; bone_pivots.len()];
+        for vertex in vertices.iter() {
+            let bone = vertex.bone_index as usize;
+            let pivot = Vec3::from_array(bone_pivots[bone]);
+            let radius = (Vec3::from_array(vertex.position) - pivot).length();
+            bone_radii[bone] = Some(bone_radii[bone].map_or(radius, |current| current.max(radius)));
+        }
         Ok(Self {
             id,
             vertices,
             bone_pivots,
+            bone_radii: bone_radii.into(),
         })
     }
 
@@ -347,6 +359,22 @@ impl ActorRigFrameBuilder {
     }
 
     #[must_use]
+    pub fn submission_is_visible(
+        &self,
+        submission: &ActorRigSubmission,
+        view: Option<ActorCullView>,
+    ) -> bool {
+        let geometry_id = match submission.route {
+            ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
+            ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
+            ActorRigRoute::NoDraw => return false,
+        };
+        self.geometries
+            .get(&geometry_id)
+            .is_some_and(|geometry| actor_rig_submission_is_visible(submission, geometry, view))
+    }
+
+    #[must_use]
     pub fn build(
         &mut self,
         partial_tick: f32,
@@ -418,7 +446,31 @@ impl ActorRigFrameBuilder {
                 rejects.invalid_world_transform = rejects.invalid_world_transform.saturating_add(1);
                 continue;
             }
-            if !actor_rig_submission_is_visible(&submission, view) {
+            let [offset_x, offset_y, scale_x, scale_y] = submission.texture_region;
+            if submission
+                .texture_region
+                .iter()
+                .any(|value| !value.is_finite())
+                || offset_x < 0.0
+                || offset_y < 0.0
+                || scale_x < 0.0
+                || scale_y < 0.0
+                || offset_x + scale_x > 1.0
+                || offset_y + scale_y > 1.0
+            {
+                rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
+                continue;
+            }
+            let geometry_id = match submission.route {
+                ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
+                ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
+                ActorRigRoute::NoDraw => unreachable!(),
+            };
+            let Some(geometry) = self.geometries.get(&geometry_id) else {
+                rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
+                continue;
+            };
+            if !actor_rig_submission_is_visible(&submission, geometry, view) {
                 continue;
             }
             if instances.len() == MAX_RENDERED_PLAYERS {
@@ -443,15 +495,6 @@ impl ActorRigFrameBuilder {
                 rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
                 continue;
             }
-            let geometry_id = match submission.route {
-                ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
-                ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
-                ActorRigRoute::NoDraw => unreachable!(),
-            };
-            let Some(geometry) = self.geometries.get(&geometry_id) else {
-                rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
-                continue;
-            };
             if geometry.vertices.iter().any(|vertex| {
                 vertex.bone_index as usize >= previous.len()
                     || vertex.bone_index as usize >= geometry.bone_pivots.len()
@@ -514,6 +557,7 @@ impl ActorRigFrameBuilder {
                 current_bone_base,
                 geometry_id: geometry_index,
                 texture_layer: submission.texture_layer,
+                texture_region: submission.texture_region,
                 partial_tick,
                 reset_generation,
             });
@@ -687,8 +731,9 @@ fn geometry_catalog_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeome
 }
 
 #[must_use]
-pub fn actor_rig_submission_is_visible(
+fn actor_rig_submission_is_visible(
     submission: &ActorRigSubmission,
+    geometry: &ActorRigGeometry,
     view: Option<ActorCullView>,
 ) -> bool {
     let Some(view) = view.filter(|view| {
@@ -699,28 +744,28 @@ pub fn actor_rig_submission_is_visible(
     }) else {
         return true;
     };
-    let feet = Vec3::new(
-        submission.world_from_actor[0][3],
-        submission.world_from_actor[1][3],
-        submission.world_from_actor[2][3],
-    );
-    if (feet + Vec3::Y).distance_squared(view.camera_position)
-        > view.max_distance * view.max_distance
-    {
+    let Some((local_min, local_max)) = animated_local_bounds(submission, geometry) else {
+        return true;
+    };
+    let local_corners = aabb_corners(local_min, local_max);
+    let world_corners =
+        local_corners.map(|point| transform_point(submission.world_from_actor, point));
+    if world_corners.iter().any(|point| !point.is_finite()) {
+        return true;
+    }
+    let world_min = world_corners
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+    let world_max = world_corners
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+    let closest = view.camera_position.clamp(world_min, world_max);
+    if closest.distance_squared(view.camera_position) > view.max_distance * view.max_distance {
         return false;
     }
-    let half_width = 0.5;
-    let corners = [
-        Vec3::new(-half_width, 0.0, -half_width),
-        Vec3::new(half_width, 0.0, -half_width),
-        Vec3::new(-half_width, 2.0, -half_width),
-        Vec3::new(half_width, 2.0, -half_width),
-        Vec3::new(-half_width, 0.0, half_width),
-        Vec3::new(half_width, 0.0, half_width),
-        Vec3::new(-half_width, 2.0, half_width),
-        Vec3::new(half_width, 2.0, half_width),
-    ]
-    .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
+    let corners = world_corners.map(|point| view.clip_from_world * point.extend(1.0));
     !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
         && !outside_clip_plane(&corners, |clip| clip.x > clip.w)
         && !outside_clip_plane(&corners, |clip| clip.y < -clip.w)
@@ -728,6 +773,69 @@ pub fn actor_rig_submission_is_visible(
         && !outside_clip_plane(&corners, |clip| clip.z < 0.0)
         && !outside_clip_plane(&corners, |clip| clip.z > clip.w)
         && !outside_clip_plane(&corners, |clip| clip.w <= 0.0)
+}
+
+fn animated_local_bounds(
+    submission: &ActorRigSubmission,
+    geometry: &ActorRigGeometry,
+) -> Option<(Vec3, Vec3)> {
+    let previous = &submission.input.previous_bones;
+    let current = &submission.input.current_bones;
+    if previous.len() != current.len() || previous.len() < geometry.bone_radii.len() {
+        return None;
+    }
+    let mut minimum = Vec3::splat(f32::INFINITY);
+    let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+    let mut used = false;
+    for (index, radius) in geometry.bone_radii.iter().copied().enumerate() {
+        let Some(radius) = radius else { continue };
+        let endpoints = [previous[index], current[index]];
+        if endpoints.iter().any(|transform| !transform.is_finite()) {
+            return None;
+        }
+        let radius = radius
+            * endpoints
+                .iter()
+                .map(|transform| transform.translation_scale[3].abs())
+                .fold(0.0, f32::max);
+        for transform in endpoints {
+            let center = Vec3::from_slice(&transform.translation_scale[..3]);
+            minimum = minimum.min(center - Vec3::splat(radius));
+            maximum = maximum.max(center + Vec3::splat(radius));
+            used = true;
+        }
+    }
+    used.then_some((minimum, maximum))
+}
+
+fn aabb_corners(minimum: Vec3, maximum: Vec3) -> [Vec3; 8] {
+    [
+        Vec3::new(minimum.x, minimum.y, minimum.z),
+        Vec3::new(maximum.x, minimum.y, minimum.z),
+        Vec3::new(minimum.x, maximum.y, minimum.z),
+        Vec3::new(maximum.x, maximum.y, minimum.z),
+        Vec3::new(minimum.x, minimum.y, maximum.z),
+        Vec3::new(maximum.x, minimum.y, maximum.z),
+        Vec3::new(minimum.x, maximum.y, maximum.z),
+        Vec3::new(maximum.x, maximum.y, maximum.z),
+    ]
+}
+
+fn transform_point(transform: [[f32; 4]; 3], point: Vec3) -> Vec3 {
+    Vec3::new(
+        transform[0][0] * point.x
+            + transform[0][1] * point.y
+            + transform[0][2] * point.z
+            + transform[0][3],
+        transform[1][0] * point.x
+            + transform[1][1] * point.y
+            + transform[1][2] * point.z
+            + transform[1][3],
+        transform[2][0] * point.x
+            + transform[2][1] * point.y
+            + transform[2][2] * point.z
+            + transform[2][3],
+    )
 }
 
 fn outside_clip_plane(corners: &[Vec4; 8], outside: impl Fn(&Vec4) -> bool) -> bool {

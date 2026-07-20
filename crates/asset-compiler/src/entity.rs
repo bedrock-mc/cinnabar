@@ -21,6 +21,7 @@ mod item;
 mod json;
 mod molang;
 mod source;
+mod texture;
 
 use geometry::parse_geometry;
 use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
@@ -52,6 +53,7 @@ struct PendingSymbol {
 #[derive(Clone)]
 struct PendingGeometry {
     identifier: Box<str>,
+    semantic_sha256: [u8; 32],
     inherits: Option<Box<str>>,
     source_path: Box<str>,
     texture_width: Option<u16>,
@@ -80,6 +82,9 @@ pub fn compile_entity_assets_with_report(
     let mut selected = Vec::new();
     collect_family(root, "entity", &["json"], &mut selected)?;
     collect_family(root, "models/entity", &["json"], &mut selected)?;
+    // The official pack keeps the two canonical player arm geometries in this
+    // pinned legacy file rather than under models/entity.
+    collect_optional_file(root, "models/mobs.json", &mut selected)?;
     collect_family(root, "animations", &["json"], &mut selected)?;
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
@@ -209,6 +214,7 @@ pub fn compile_entity_assets_with_report(
                 .ok_or_else(|| invalid("entity geometry references an absent source"))?;
             Ok(EntityGeometry {
                 identifier: geometry.identifier,
+                semantic_sha256: geometry.semantic_sha256,
                 inherits: geometry
                     .inherits
                     .map(|identifier| EntityGeometryInheritance {
@@ -244,7 +250,7 @@ pub fn compile_entity_assets_with_report(
         )?;
     }
     let mut molang_compiler = molang::MolangCompiler::default();
-    let animation = animation::compile(
+    let mut animation = animation::compile(
         root,
         &source_payloads,
         &sources,
@@ -253,6 +259,13 @@ pub fn compile_entity_assets_with_report(
         &mut molang_compiler,
     )?;
     validate_reference_coverage(&symbols, &animation)?;
+    let rig_textures = texture::compile_default_rig_textures(
+        root,
+        &sources,
+        &symbols,
+        &source_payloads,
+        &mut animation.rig_bindings,
+    )?;
     let molang = molang_compiler.finish()?;
     let items = item::compile(root, &source_payloads, &sources)?;
     let reference_outcomes = animation.outcomes;
@@ -278,6 +291,7 @@ pub fn compile_entity_assets_with_report(
         rig_geometries: animation.rig_geometries,
         rig_animations: animation.rig_animations,
         rig_controllers: animation.rig_controllers,
+        rig_textures,
         item_visuals: items.visuals,
         item_visual_aliases: items.aliases,
     };
@@ -538,7 +552,9 @@ fn parse_source(
         return Ok(());
     }
 
-    let value = if relative_path.starts_with("models/entity/") {
+    let is_geometry_source =
+        relative_path.starts_with("models/entity/") || relative_path == "models/mobs.json";
+    let value = if is_geometry_source {
         parse_fully_unique_json(absolute_path, bytes)?
     } else {
         parse_unique_json(absolute_path, bytes)?
@@ -551,7 +567,7 @@ fn parse_source(
             &["format_version", "minecraft:client_entity"],
         )?;
         parse_entity(relative_path, absolute_path, &value, symbols)
-    } else if relative_path.starts_with("models/entity/") {
+    } else if is_geometry_source {
         parse_geometry(
             relative_path,
             absolute_path,

@@ -435,6 +435,7 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let temporary = temporary_directory("make-atmosphere-behavior");
+    let pack_sentinel = temporary.join("resource_pack/blocks.json");
     let world = temporary.join("world.mcbea");
     let block = temporary.join("block.bin");
     let light = temporary.join("light.bin");
@@ -443,81 +444,37 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     let atmosphere = temporary.join("atmosphere.mcbeatm");
     let report = temporary.join("atmosphere.json");
     let invocations = temporary.join("invocations.log");
-    // `$(ASSET_BLOB)` still depends on `$(PACK_SENTINEL)`, so leaving the pack
-    // at its default keeps this dependency-ordering test reaching the real
-    // Mojang fetch on any checkout without a populated `.local` cache. Pin the
-    // pack and stub every upstream producer so the test stays hermetic.
-    let pack = temporary.join("resource_pack");
-    let sentinel = pack.join("blocks.json");
-    let upstream = temporary.join("upstream.log");
-    fs::create_dir_all(&pack).unwrap();
-    fs::write(&sentinel, b"{}").unwrap();
-    for prerequisite in [&block, &light, &biome] {
+    fs::create_dir_all(pack_sentinel.parent().unwrap()).unwrap();
+    for prerequisite in [&pack_sentinel, &block, &light, &biome] {
         fs::write(prerequisite, b"registry").unwrap();
     }
     fs::write(&world, b"world").unwrap();
     fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
-    let baseline = SystemTime::now();
-    for prerequisite in [&block, &light, &biome, &manifest] {
+    let now = SystemTime::now();
+    for prerequisite in [&pack_sentinel, &block, &light, &biome, &manifest] {
         fs::File::options()
             .write(true)
             .open(prerequisite)
             .unwrap()
-            .set_modified(baseline - Duration::from_secs(120))
+            .set_modified(now - Duration::from_secs(120))
             .unwrap();
     }
-    // The stale-manifest scenario below dates the manifest into the future, so
-    // the pack sentinel has to stay newer than every manifest timestamp or make
-    // would reacquire the pack, and the world blob newer than the sentinel or
-    // make would recompile it. Either would leave the atmosphere ordering under
-    // test dependent on an upstream producer.
-    fs::File::options()
-        .write(true)
-        .open(&sentinel)
-        .unwrap()
-        .set_modified(baseline + Duration::from_secs(120))
-        .unwrap();
     fs::File::options()
         .write(true)
         .open(&world)
         .unwrap()
-        .set_modified(baseline + Duration::from_secs(180))
+        .set_modified(now - Duration::from_secs(60))
         .unwrap();
 
-    let producer_script = temporary.join(if cfg!(windows) {
-        "produce-atmosphere.ps1"
-    } else {
-        "produce-atmosphere.sh"
-    });
-    let producer = if cfg!(windows) {
-        fs::write(
-            &producer_script,
-            format!(
-                "Add-Content -LiteralPath '{}' -Value invocation\nSet-Content -LiteralPath '{}' -Value blob\nSet-Content -LiteralPath '{}' -Value report\n",
-                invocations.display(), atmosphere.display(), report.display()
-            ),
-        )
-        .unwrap();
-        format!(
-            "powershell -NoProfile -ExecutionPolicy Bypass -File \"{}\"",
-            make_path(&producer_script)
-        )
-    } else {
-        fs::write(
-            &producer_script,
-            format!(
-                "#!/usr/bin/env bash\nset -euo pipefail\necho invocation >> '{}'\necho blob > '{}'\necho report > '{}'\n",
-                invocations.display(), atmosphere.display(), report.display()
-            ),
-        )
-        .unwrap();
-        format!("bash \"{}\"", make_path(&producer_script))
-    };
+    let producer = format!(
+        "echo invocation >> \"{}\" && echo blob > \"{}\" && echo report > \"{}\"",
+        make_path(&invocations),
+        make_path(&atmosphere),
+        make_path(&report)
+    );
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
-        "VANILLA_FETCH_INPUTS=".to_owned(),
-        format!("PACK_DIR={}", make_path(&pack)),
-        format!("PACK_SENTINEL={}", make_path(&sentinel)),
+        format!("PACK_SENTINEL={}", make_path(&pack_sentinel)),
         format!("ASSET_BLOB={}", make_path(&world)),
         format!("BLOCK_REGISTRY={}", make_path(&block)),
         format!("LIGHT_REGISTRY={}", make_path(&light)),
@@ -526,14 +483,6 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
         format!("ATMOSPHERE_REPORT={}", make_path(&report)),
         format!("ATMOSPHERE_COMPILE={producer}"),
-        format!(
-            "VANILLA_ASSET_FETCH=echo fetch >> \"{}\"",
-            make_path(&upstream)
-        ),
-        format!(
-            "WORLD_ASSET_COMPILE=echo world >> \"{}\"",
-            make_path(&upstream)
-        ),
     ];
 
     run_make_atmosphere(root, &assignments);
@@ -545,12 +494,15 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
     assert!(atmosphere.is_file() && report.is_file());
 
-    fs::File::options()
-        .write(true)
-        .open(&manifest)
-        .unwrap()
-        .set_modified(baseline + Duration::from_secs(60))
-        .unwrap();
+    let stale_atmosphere_time = SystemTime::now() + Duration::from_secs(60);
+    for prerequisite in [&manifest, &pack_sentinel, &world] {
+        fs::File::options()
+            .write(true)
+            .open(prerequisite)
+            .unwrap()
+            .set_modified(stale_atmosphere_time)
+            .unwrap();
+    }
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
     assert!(atmosphere.is_file() && report.is_file());
@@ -569,11 +521,15 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     default_assignments.push("CINNABAR_CLOUDS_PNG=".to_owned());
     run_make_atmosphere(root, &default_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
-
-    assert!(
-        !upstream.exists(),
-        "atmosphere ordering must never reach the vanilla fetch or world compile: {}",
-        fs::read_to_string(&upstream).unwrap_or_default()
+    assert_eq!(
+        fs::read(&pack_sentinel).unwrap(),
+        b"registry",
+        "the atmosphere fixture must never invoke vanilla-pack acquisition"
+    );
+    assert_eq!(
+        fs::read(&world).unwrap(),
+        b"world",
+        "the atmosphere fixture must never rebuild the prebuilt world carrier"
     );
 
     fs::remove_dir_all(temporary).unwrap();
@@ -720,12 +676,18 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
 }
 
 fn run_make_atmosphere(root: &Path, assignments: &[String]) {
-    let output = Command::new("make")
+    let mut command = Command::new("make");
+    command
         .current_dir(root)
         .args(["-f", "Makefile", "-j4", "atmosphere-assets"])
-        .args(assignments)
-        .output()
-        .unwrap();
+        .args(assignments);
+    if let Some(cargo) = std::env::var_os("CARGO") {
+        command.arg(format!(
+            "CARGO={}",
+            bash_command_path(Path::new(&cargo))
+        ));
+    }
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "make atmosphere-assets failed:\nstdout:\n{}\nstderr:\n{}",
@@ -748,6 +710,39 @@ fn run_make_entity(root: &Path, assignments: &[String]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn bash_command_path(path: &Path) -> String {
+    let slash_path = path.to_string_lossy().replace('\\', "/");
+    let bytes = slash_path.as_bytes();
+    let shell_path = if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes[2] == b'/'
+    {
+        format!(
+            "/{}/{}",
+            char::from(bytes[0]).to_ascii_lowercase(),
+            &slash_path[3..]
+        )
+    } else {
+        slash_path
+    };
+    format!("'{}'", shell_path.replace('\'', "'\"'\"'"))
+}
+
+#[test]
+fn bash_command_path_converts_and_quotes_windows_executables() {
+    assert_eq!(
+        bash_command_path(Path::new(
+            r"C:\Users\CI Runner\.cargo\bin\cargo.exe"
+        )),
+        "'/c/Users/CI Runner/.cargo/bin/cargo.exe'"
+    );
+    assert_eq!(
+        bash_command_path(Path::new("/opt/runner's tools/cargo")),
+        "'/opt/runner'\"'\"'s tools/cargo'"
+    );
 }
 
 fn run_make_vanilla_assets(root: &Path, assignments: &[String]) {

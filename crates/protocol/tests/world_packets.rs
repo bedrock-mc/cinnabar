@@ -1,17 +1,18 @@
 use bytes::{Buf, BytesMut};
 use protocol::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent,
-    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    ActorGameMode, BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent,
+    DimensionRange, GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, LocalPlayerGameModeAuthority,
+    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
+    PlayerGameMode, PlayerMovementCorrectionEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
+    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_30::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
     BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
-    CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
+    CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType, GameMode,
     GameRuleI32, GameRuleI32Type, GameRuleI32Value, GameRuleVarint, GameRuleVarintType,
     GameRuleVarintValue, GameRulesChangedPacket, LevelChunkPacket, LevelEventPacket,
     LevelEventPacketEvent, McpePacketData, MovePlayerPacket, MovePlayerPacketMode,
@@ -187,7 +188,10 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         creative_content: None,
     };
     game_data.start_game.dimension = StartGamePacketDimension::Nether;
+    game_data.start_game.entity_id = -77;
     game_data.start_game.runtime_entity_id = 0x1_0000_0001;
+    game_data.start_game.player_gamemode = GameMode::Fallback;
+    game_data.start_game.world_gamemode = GameMode::Spectator;
     game_data.start_game.player_position = Vec3F {
         x: 1.25,
         y: 72.0,
@@ -231,6 +235,11 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             lightning_level: 0.75,
         }
     );
+    let local_mode = LocalPlayerGameModeAuthority::from_game_data(&game_data);
+    assert_eq!(local_mode.unique_id(), -77);
+    assert_eq!(local_mode.raw_game_mode(), ActorGameMode::Fallback);
+    assert_eq!(local_mode.default_game_mode(), ActorGameMode::Spectator);
+    assert_eq!(local_mode.player_game_mode(), PlayerGameMode::Spectator);
 }
 
 #[test]

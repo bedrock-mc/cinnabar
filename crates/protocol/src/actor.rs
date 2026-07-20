@@ -6,10 +6,11 @@ use valentine::{
     bedrock::codec::{BedrockCodec, VarInt},
     bedrock::version::v1_26_30::{
         AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
-        MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
+        GameMode, MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
         MetadataDictionaryItemValueDefault, MoveEntityDeltaPacket, MoveEntityPacket,
         PlayerAttributes, PlayerListPacket, PlayerRecordsRecordsItem, PlayerRecordsType,
-        RemoveEntityPacket, SetEntityDataPacket, UpdateAttributesPacket,
+        RemoveEntityPacket, SetDefaultGameTypePacket, SetEntityDataPacket, UpdateAttributesPacket,
+        UpdatePlayerGameTypePacket,
     },
     protocol::wire,
 };
@@ -27,11 +28,60 @@ pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
 pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
 pub const MAX_STANDARD_SKIN_SIDE: u32 = 256;
 pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_PLAYER_SKIN_GEOMETRY_BYTES: usize = 1_048_576;
+pub const MAX_PLAYER_SKIN_GEOMETRY_DEPTH: usize = 32;
+pub const MAX_PLAYER_SKIN_GEOMETRY_NODES: usize = 16_384;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
     Player { uuid: [u8; 16], username: Arc<str> },
     Entity { identifier: Arc<str> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorGameMode {
+    Survival,
+    Creative,
+    Adventure,
+    SurvivalSpectator,
+    CreativeSpectator,
+    Fallback,
+    Spectator,
+    Unknown(i32),
+}
+
+impl ActorGameMode {
+    #[must_use]
+    pub const fn is_spectator(self) -> bool {
+        matches!(
+            self,
+            Self::SurvivalSpectator | Self::CreativeSpectator | Self::Spectator
+        )
+    }
+
+    #[must_use]
+    pub const fn resolve_fallback(self, default: Self) -> Self {
+        match (self, default) {
+            (Self::Fallback, Self::Fallback | Self::Unknown(_)) => Self::Fallback,
+            (Self::Fallback, resolved) => resolved,
+            (resolved, _) => resolved,
+        }
+    }
+}
+
+impl From<GameMode> for ActorGameMode {
+    fn from(value: GameMode) -> Self {
+        match value {
+            GameMode::Survival => Self::Survival,
+            GameMode::Creative => Self::Creative,
+            GameMode::Adventure => Self::Adventure,
+            GameMode::SurvivalSpectator => Self::SurvivalSpectator,
+            GameMode::CreativeSpectator => Self::CreativeSpectator,
+            GameMode::Fallback => Self::Fallback,
+            GameMode::Spectator => Self::Spectator,
+            GameMode::Unknown(value) => Self::Unknown(value),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +137,7 @@ pub struct ActorSpawnEvent {
     pub unique_id: i64,
     pub runtime_id: u64,
     pub kind: ActorKind,
+    pub game_mode: Option<ActorGameMode>,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -115,7 +166,10 @@ pub struct ActorMoveEvent {
     pub yaw: Option<f32>,
     pub head_yaw: Option<f32>,
     pub on_ground: Option<bool>,
+    /// The packet carries Bedrock's teleport authority.
     pub teleported: bool,
+    /// The retained pose must update without interpolation.
+    pub snap: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<i64>,
 }
@@ -151,6 +205,18 @@ pub struct ActorAttributesUpdateEvent {
     pub tick: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorGameModeUpdateEvent {
+    pub unique_id: i64,
+    pub game_mode: ActorGameMode,
+    pub tick: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultActorGameModeEvent {
+    pub game_mode: ActorGameMode,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlayerListEntry {
     Add {
@@ -170,13 +236,28 @@ pub struct StandardSkin {
     pub width: u32,
     pub height: u32,
     pub rgba8: Arc<[u8]>,
+    pub geometry: PlayerSkinGeometry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerSkinGeometry {
+    Wide,
+    Slim,
+    Custom {
+        identifier: Arc<str>,
+        data_sha256: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSkinUnavailable {
     UnsupportedPersona,
+    UnsupportedAppearance,
     InvalidDimensions,
     InvalidByteLength,
+    InvalidArmSize,
+    InvalidGeometry,
+    GeometryTooLarge,
     RetainedBudgetExceeded,
 }
 
@@ -198,6 +279,8 @@ pub enum ActorEvent {
     Move(ActorMoveEvent),
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
+    GameMode(ActorGameModeUpdateEvent),
+    DefaultGameMode(DefaultActorGameModeEvent),
     PlayerList(PlayerListUpdateEvent),
 }
 
@@ -283,6 +366,7 @@ pub(crate) fn normalize_add_entity(
         kind: ActorKind::Entity {
             identifier: Arc::from(packet.entity_type),
         },
+        game_mode: None,
         position: [packet.position.x, packet.position.y, packet.position.z],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch: packet.pitch,
@@ -325,6 +409,7 @@ pub(crate) fn normalize_add_player(
             uuid: *packet.uuid.as_bytes(),
             username: Arc::from(packet.username),
         },
+        game_mode: Some(packet.gamemode.into()),
         position: [packet.position.x, packet.position.y, packet.position.z],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch: packet.pitch,
@@ -373,6 +458,7 @@ pub(crate) fn normalize_move_entity(
         head_yaw: Some(rotation_degrees("head_yaw", &packet.rotation.head_yaw)?),
         on_ground: Some(packet.flags & 1 != 0),
         teleported: packet.flags & 2 != 0,
+        snap: packet.flags & 2 != 0,
         player_mode: None,
         source_tick: None,
     }))
@@ -421,6 +507,7 @@ pub(crate) fn normalize_move_entity_body(
         head_yaw: Some(head_yaw),
         on_ground: Some(flags & 1 != 0),
         teleported: flags & 2 != 0,
+        snap: flags & 2 != 0,
         player_mode: None,
         source_tick: None,
     }))
@@ -449,9 +536,30 @@ pub(crate) fn normalize_move_entity_delta(
         head_yaw: packet.rot_z.map(byte_rotation_degrees),
         on_ground: Some(packet.flags.contains(DeltaMoveFlags::ON_GROUND)),
         teleported: packet.flags.contains(DeltaMoveFlags::TELEPORT),
+        snap: packet
+            .flags
+            .intersects(DeltaMoveFlags::TELEPORT | DeltaMoveFlags::FORCE_MOVE),
         player_mode: None,
         source_tick: None,
     }))
+}
+
+pub(crate) fn normalize_update_player_game_type(
+    packet: UpdatePlayerGameTypePacket,
+) -> Result<ActorEvent, ActorPacketError> {
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    Ok(ActorEvent::GameMode(ActorGameModeUpdateEvent {
+        unique_id: packet.player_unique_id,
+        game_mode: packet.gamemode.into(),
+        tick,
+    }))
+}
+
+pub(crate) fn normalize_set_default_game_type(packet: SetDefaultGameTypePacket) -> ActorEvent {
+    ActorEvent::DefaultGameMode(DefaultActorGameModeEvent {
+        game_mode: packet.gamemode.into(),
+    })
 }
 
 pub(crate) fn normalize_set_entity_data(
@@ -544,47 +652,10 @@ pub(crate) fn normalize_player_list(
     }))
 }
 
-fn normalize_player_skin(
-    skin: valentine::bedrock::version::v1_26_30::Skin,
-    retained_bytes: &mut usize,
-) -> PlayerSkin {
-    if skin.persona {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
-    }
-    let Ok(width) = u32::try_from(skin.skin_data.width) else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    };
-    let Ok(height) = u32::try_from(skin.skin_data.height) else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    };
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    }
-    let Some(expected_bytes) = usize::try_from(width)
-        .ok()
-        .and_then(|width| usize::try_from(height).ok().map(|height| (width, height)))
-        .and_then(|(width, height)| width.checked_mul(height))
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    };
-    if skin.skin_data.data.len() != expected_bytes {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
-    }
-    let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    };
-    if next_bytes > MAX_PLAYER_LIST_SKIN_BYTES {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    }
-    *retained_bytes = next_bytes;
-    PlayerSkin::Standard(StandardSkin {
-        width,
-        height,
-        rgba8: Arc::from(skin.skin_data.data),
-    })
-}
-
+mod skin;
+pub(crate) use skin::normalize_player_skin;
+#[cfg(test)]
+use skin::normalize_player_skin_geometry;
 fn normalize_entity_attributes(
     attributes: EntityAttributes,
 ) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
@@ -819,4 +890,59 @@ fn validate_finite(field: &'static str, value: f32) -> Result<(), ActorPacketErr
         return Err(ActorPacketError::NonFiniteField { field });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod skin_geometry_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn resource_patch_selects_one_geometry_from_a_multi_geometry_payload() {
+        let slim = serde_json::json!({
+            "description": {"identifier": "geometry.humanoid.customSlim"},
+            "bones": [{"name": "root"}]
+        });
+        let payload = serde_json::json!({
+            "format_version": "1.12.0",
+            "minecraft:geometry": [
+                {"description": {"identifier": "geometry.humanoid.custom"}},
+                slim.clone()
+            ]
+        });
+        let geometry = normalize_player_skin_geometry(
+            "slim",
+            r#"{"geometry":{"default":"geometry.humanoid.customSlim"}}"#,
+            &serde_json::to_string(&payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            geometry,
+            PlayerSkinGeometry::Custom {
+                identifier: "geometry.humanoid.customSlim".into(),
+                data_sha256: Sha256::digest(serde_json::to_vec(&slim).unwrap()).into(),
+            }
+        );
+    }
+
+    #[test]
+    fn resource_patch_arm_mismatch_and_ambiguous_geometry_fail_closed() {
+        let payload = r#"{"minecraft:geometry":[{"description":{"identifier":"geometry.humanoid.custom"}},{"description":{"identifier":"geometry.humanoid.custom"}}]}"#;
+        assert_eq!(
+            normalize_player_skin_geometry(
+                "slim",
+                r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#,
+                payload,
+            ),
+            Err(PlayerSkinUnavailable::InvalidGeometry)
+        );
+        assert_eq!(
+            normalize_player_skin_geometry(
+                "wide",
+                r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#,
+                payload,
+            ),
+            Err(PlayerSkinUnavailable::InvalidGeometry)
+        );
+    }
 }
