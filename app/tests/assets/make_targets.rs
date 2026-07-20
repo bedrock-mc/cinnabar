@@ -423,6 +423,7 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let temporary = temporary_directory("make-atmosphere-behavior");
+    let pack_sentinel = temporary.join("resource_pack/blocks.json");
     let world = temporary.join("world.mcbea");
     let block = temporary.join("block.bin");
     let light = temporary.join("light.bin");
@@ -431,13 +432,14 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     let atmosphere = temporary.join("atmosphere.mcbeatm");
     let report = temporary.join("atmosphere.json");
     let invocations = temporary.join("invocations.log");
-    for prerequisite in [&block, &light, &biome] {
+    fs::create_dir_all(pack_sentinel.parent().unwrap()).unwrap();
+    for prerequisite in [&pack_sentinel, &block, &light, &biome] {
         fs::write(prerequisite, b"registry").unwrap();
     }
     fs::write(&world, b"world").unwrap();
     fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
     let now = SystemTime::now();
-    for prerequisite in [&block, &light, &biome, &manifest] {
+    for prerequisite in [&pack_sentinel, &block, &light, &biome, &manifest] {
         fs::File::options()
             .write(true)
             .open(prerequisite)
@@ -460,6 +462,7 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     );
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
+        format!("PACK_SENTINEL={}", make_path(&pack_sentinel)),
         format!("ASSET_BLOB={}", make_path(&world)),
         format!("BLOCK_REGISTRY={}", make_path(&block)),
         format!("LIGHT_REGISTRY={}", make_path(&light)),
@@ -479,12 +482,15 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
     assert!(atmosphere.is_file() && report.is_file());
 
-    fs::File::options()
-        .write(true)
-        .open(&manifest)
-        .unwrap()
-        .set_modified(SystemTime::now() + Duration::from_secs(60))
-        .unwrap();
+    let stale_atmosphere_time = SystemTime::now() + Duration::from_secs(60);
+    for prerequisite in [&manifest, &pack_sentinel, &world] {
+        fs::File::options()
+            .write(true)
+            .open(prerequisite)
+            .unwrap()
+            .set_modified(stale_atmosphere_time)
+            .unwrap();
+    }
     run_make_atmosphere(root, &assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 3);
     assert!(atmosphere.is_file() && report.is_file());
@@ -503,6 +509,16 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     default_assignments.push("CINNABAR_CLOUDS_PNG=".to_owned());
     run_make_atmosphere(root, &default_assignments);
     assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 5);
+    assert_eq!(
+        fs::read(&pack_sentinel).unwrap(),
+        b"registry",
+        "the atmosphere fixture must never invoke vanilla-pack acquisition"
+    );
+    assert_eq!(
+        fs::read(&world).unwrap(),
+        b"world",
+        "the atmosphere fixture must never rebuild the prebuilt world carrier"
+    );
 
     fs::remove_dir_all(temporary).unwrap();
 }
