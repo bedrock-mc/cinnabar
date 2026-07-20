@@ -53,15 +53,17 @@ section remain open, so no phase checkbox is closed by this delta.
   cell, and the fading selected-item label; Java chat fade (10 s + 1 s) with
   per-line contiguous backdrops.
 - Rawtext and localization: typed documents now resolve instead of dropping —
-  score components read the retained scoreboard (reader sentinel included),
-  selectors degrade to empty counted text (the vanilla server evaluates them
-  before sending), and translation keys resolve through a new provenance-
-  pinned localization carrier compiled from the pack's `texts/en_US.lang`
-  (13,072 entries; `make lang-assets`, required fail-closed at startup like
-  the HUD carrier). Formatting handles the %s/%n families; a key outside the
-  catalog presents verbatim like the vanilla client. Item labels prefer the
-  localized `item./tile.<path>.name` entries with a mechanical title-case
-  fallback. No JSON is ever presented.
+  score components read the retained scoreboard (real player/entity owners
+  through the stream's authoritative id-to-name map, plus the `*` reader
+  sentinel), selectors resolve from retained authority (`@s`, the player
+  list for `@a`) and otherwise degrade to empty counted text, and
+  translation keys resolve through a provenance-pinned localization carrier
+  compiled from the pack's `texts/en_US.lang` (13,072 entries;
+  `make lang-assets`, required fail-closed at startup like the HUD carrier).
+  Formatting handles the %s/%d, positional %N/`%1$s`, and fixed-precision
+  %.Nf families; a key outside the catalog presents verbatim like the
+  vanilla client. Item labels prefer the localized `item./tile.<path>.name`
+  entries with a mechanical title-case fallback. No JSON is ever presented.
 - Scoreboard: per-owner below-name and list lookups with lifecycle coverage
   beside the existing sidebar projection/presentation.
 - Evidence harnesses: a saturated-surface witness pins retained-memory
@@ -73,6 +75,24 @@ section remain open, so no phase checkbox is closed by this delta.
   fetch scripts hash via .NET, and the three oversized modules were split
   under the architecture limits. A replacement green CI run has not yet
   executed; these fixes are unverified on the actual runners.
+- Review-fix round (independent review of `4f57690..48774d8`): semantically
+  odd but well-formed HUD values (inverted/non-finite attribute ranges,
+  negative SetHealth, negative title durations, oversized chat rows, unknown
+  game modes and effect ids) are skipped and counted through the gameplay
+  diagnostics instead of ending the session; game modes never fabricate or
+  discard stats, the world-default mode is retained and `SetDefaultGameType`
+  dispatched; the crosshair centers exactly (no floor) with exact-equality
+  witnesses; bound platform safe-area insets flow through geometry, retained
+  layout, and render clipping with height validated fail-closed; finite
+  effects expire on an estimated 20 tps session clock between packets; the
+  copper tool/armor tier joined the item facts; the localization carrier
+  (v2) pins the exact `texts/en_US.lang` byte identity end to end with a
+  tamper witness; carrier recovery commands name exact custom paths for
+  every failure case; rawtext resolves real player/entity score owners and
+  bounded selectors (`@s`, `@a`) with per-child `with`-document arguments
+  and `%.2f` precision; the mount jump bar, structural attack indicator,
+  held-Tab player-list overlay, notched boss dividers, and the MobEquipment
+  selected-stack echo landed with deterministic witnesses.
 
 ## Remaining gates and deferred work
 
@@ -87,14 +107,11 @@ section remain open, so no phase checkbox is closed by this delta.
   or a dedicated reviewed carrier before the icons can render.
 - [ ] Non-English locales (only the pinned `en_US` table is compiled; locale
   selection is future work).
-- [ ] Mount jump bar activation (riding input does not exist yet; the
-  presentation path and carried strips are gated on a real jump-charge
-  authority) and the attack indicator (Bedrock exposes no attack-cooldown
-  state and the official sample pack carries no indicator art; deliberately
-  not invented).
-- [ ] Below-name and list scoreboard world/tab anchoring (nameplate and
-  player-list surfaces do not exist yet; the store projections and per-owner
-  lookups are ready).
+- [ ] Below-name world anchoring: the tab player-list overlay renders (held
+  PlayerList action), but the actor-nameplate surface does not exist, so
+  below-name scores have projections and per-owner lookups without a
+  world-anchored presentation. Requires world-to-screen projection plumbing
+  from the camera authority.
 - [ ] Native Bedrock and third-party live server acceptance, including live
   chat send/receive and disconnect validation from the stable executable
   paths.
@@ -102,7 +119,7 @@ section remain open, so no phase checkbox is closed by this delta.
   budgets (the deterministic harness bounds structure, not wall clock).
 - [ ] A green replacement CI run covering the architecture and Windows
   acceptance fixes.
-- [ ] Independent review of this branch's complete base..head range.
+- [ ] Independent re-review of the branch after this fix round (the full base..new-head range).
 
 ## Historical references
 

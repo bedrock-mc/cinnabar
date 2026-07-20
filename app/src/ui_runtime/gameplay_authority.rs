@@ -18,6 +18,92 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
+    /// Installs an explicit authoritative game mode. Stats are never
+    /// fabricated or cleared here: attributes remain the only stat authority,
+    /// and visibility is a pure presentation gate on the mode. Production
+    /// bootstrap goes through [`Self::publish_bootstrap_game_modes`]; the
+    /// witnesses drive this directly.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn publish_player_game_mode(&mut self, game_mode: protocol::PlayerGameMode) {
+        self.player_game_mode = Some(game_mode);
+        self.player_mode_from_default = false;
+    }
+
+    /// Installs the StartGame game modes: the resolved player mode, the
+    /// world's default mode, and whether the player is bound to that default
+    /// (StartGame carried the level-default sentinel).
+    pub(crate) fn publish_bootstrap_game_modes(
+        &mut self,
+        player: protocol::PlayerGameMode,
+        world_default: protocol::PlayerGameMode,
+        player_uses_world_default: bool,
+    ) {
+        self.player_game_mode = Some(player);
+        self.world_default_game_mode = Some(world_default);
+        self.player_mode_from_default = player_uses_world_default;
+    }
+
+    pub(super) fn apply_game_mode_update(
+        &mut self,
+        update: protocol::GameModeUpdate,
+    ) -> super::UiApplyOutcome {
+        match update {
+            protocol::GameModeUpdate::Explicit(mode) => {
+                self.player_game_mode = Some(mode);
+                self.player_mode_from_default = false;
+                super::UiApplyOutcome::Applied
+            }
+            protocol::GameModeUpdate::WorldDefault => match self.world_default_game_mode {
+                Some(default) => {
+                    self.player_game_mode = Some(default);
+                    self.player_mode_from_default = true;
+                    super::UiApplyOutcome::Applied
+                }
+                // No retained default to resolve against: keep the current
+                // authoritative mode and count the skip.
+                None => {
+                    self.gameplay_hud.note_odd_hud_packet();
+                    super::UiApplyOutcome::IgnoredByReceiveStore
+                }
+            },
+            protocol::GameModeUpdate::Unknown(_) => {
+                self.gameplay_hud.note_odd_hud_packet();
+                super::UiApplyOutcome::IgnoredByReceiveStore
+            }
+        }
+    }
+
+    pub(super) fn apply_default_game_mode_update(
+        &mut self,
+        update: protocol::GameModeUpdate,
+    ) -> super::UiApplyOutcome {
+        match update {
+            protocol::GameModeUpdate::Explicit(mode) => {
+                self.world_default_game_mode = Some(mode);
+                if self.player_mode_from_default {
+                    self.player_game_mode = Some(mode);
+                }
+                super::UiApplyOutcome::Applied
+            }
+            // A default-of-default or unknown default is odd; keep state.
+            protocol::GameModeUpdate::WorldDefault | protocol::GameModeUpdate::Unknown(_) => {
+                self.gameplay_hud.note_odd_hud_packet();
+                super::UiApplyOutcome::IgnoredByReceiveStore
+            }
+        }
+    }
+
+    pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
+        self.player_game_mode
+    }
+
+    pub(crate) const fn survival_stats_visible(&self) -> bool {
+        match self.player_game_mode {
+            Some(game_mode) => game_mode.shows_survival_stats(),
+            None => true,
+        }
+    }
+
     pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
         // Local selection is client-authoritative in Bedrock: once the player picks a slot
         // (number key / scroll / controller) that prediction wins over the server-echoed

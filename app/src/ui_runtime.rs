@@ -9,6 +9,7 @@ pub mod inventory_router;
 pub(crate) mod item_facts;
 mod platform_clipboard;
 pub mod presentation;
+mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
 
@@ -253,86 +254,6 @@ impl UiRuntime {
 
     pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
         self.inventory_authority = Some(authority);
-    }
-
-    /// Installs an explicit authoritative game mode. Stats are never
-    /// fabricated or cleared here: attributes remain the only stat authority,
-    /// and visibility is a pure presentation gate on the mode.
-    pub(crate) fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
-        self.player_game_mode = Some(game_mode);
-        self.player_mode_from_default = false;
-    }
-
-    /// Installs the StartGame game modes: the resolved player mode, the
-    /// world's default mode, and whether the player is bound to that default
-    /// (StartGame carried the level-default sentinel).
-    pub(crate) fn publish_bootstrap_game_modes(
-        &mut self,
-        player: PlayerGameMode,
-        world_default: PlayerGameMode,
-        player_uses_world_default: bool,
-    ) {
-        self.player_game_mode = Some(player);
-        self.world_default_game_mode = Some(world_default);
-        self.player_mode_from_default = player_uses_world_default;
-    }
-
-    fn apply_game_mode_update(&mut self, update: protocol::GameModeUpdate) -> UiApplyOutcome {
-        match update {
-            protocol::GameModeUpdate::Explicit(mode) => {
-                self.player_game_mode = Some(mode);
-                self.player_mode_from_default = false;
-                UiApplyOutcome::Applied
-            }
-            protocol::GameModeUpdate::WorldDefault => match self.world_default_game_mode {
-                Some(default) => {
-                    self.player_game_mode = Some(default);
-                    self.player_mode_from_default = true;
-                    UiApplyOutcome::Applied
-                }
-                // No retained default to resolve against: keep the current
-                // authoritative mode and count the skip.
-                None => {
-                    self.gameplay_hud.note_odd_hud_packet();
-                    UiApplyOutcome::IgnoredByReceiveStore
-                }
-            },
-            protocol::GameModeUpdate::Unknown(_) => {
-                self.gameplay_hud.note_odd_hud_packet();
-                UiApplyOutcome::IgnoredByReceiveStore
-            }
-        }
-    }
-
-    fn apply_default_game_mode_update(
-        &mut self,
-        update: protocol::GameModeUpdate,
-    ) -> UiApplyOutcome {
-        match update {
-            protocol::GameModeUpdate::Explicit(mode) => {
-                self.world_default_game_mode = Some(mode);
-                if self.player_mode_from_default {
-                    self.player_game_mode = Some(mode);
-                }
-                UiApplyOutcome::Applied
-            }
-            // A default-of-default or unknown default is odd; keep state.
-            protocol::GameModeUpdate::WorldDefault | protocol::GameModeUpdate::Unknown(_) => {
-                self.gameplay_hud.note_odd_hud_packet();
-                UiApplyOutcome::IgnoredByReceiveStore
-            }
-        }
-    }
-
-    pub(crate) const fn player_game_mode(&self) -> Option<PlayerGameMode> {
-        self.player_game_mode
-    }
-
-    pub(crate) const fn survival_stats_visible(&self) -> bool {
-        match self.player_game_mode {
-            Some(game_mode) => game_mode.shows_survival_stats(),
-            None => true,
-        }
     }
 
     /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
@@ -730,96 +651,6 @@ impl UiRuntime {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
         }
-    }
-
-    /// Refreshes the authoritative identities rawtext resolution reads: the
-    /// display names of real score owners and the player-list usernames.
-    /// Bounded by the retained score and player-list caps.
-    pub fn refresh_raw_text_identities(
-        &mut self,
-        mut resolve_owner_name: impl FnMut(i64) -> Option<Arc<str>>,
-        known_player_names: Vec<Arc<str>>,
-    ) {
-        self.score_owner_names = self
-            .scoreboards
-            .score_owner_ids()
-            .into_iter()
-            .filter_map(|unique_id| resolve_owner_name(unique_id).map(|name| (unique_id, name)))
-            .collect();
-        self.known_player_names = known_player_names;
-    }
-
-    /// Rows for the tab player-list overlay: every known player-list
-    /// username paired with its list-objective score, resolved through the
-    /// authoritative owner-name map. Bounded by the player-list cap.
-    pub(crate) fn player_list_overlay_rows(&self) -> Vec<(Arc<str>, Option<i32>)> {
-        let list = self.scoreboards.list();
-        self.known_player_names
-            .iter()
-            .take(protocol::MAX_PLAYER_LIST_RECORDS)
-            .map(|name| {
-                let score = list.as_ref().and_then(|projection| {
-                    projection.rows.iter().find_map(|row| {
-                        let owner_name = match &row.owner {
-                            ui::ScoreOwner::FakePlayer(fake) => Some(Arc::clone(fake)),
-                            ui::ScoreOwner::Player(unique_id)
-                            | ui::ScoreOwner::Entity(unique_id) => {
-                                self.score_owner_names.get(unique_id).cloned()
-                            }
-                            ui::ScoreOwner::None => None,
-                        };
-                        (owner_name.as_deref() == Some(name.as_ref())).then_some(row.score)
-                    })
-                });
-                (Arc::clone(name), score)
-            })
-            .collect()
-    }
-
-    /// Resolves one typed rawtext document against the retained scoreboard
-    /// state, the pinned localization catalog, and the local reader
-    /// identity. Score owners resolve through the authoritative
-    /// id-to-display-name map (with the `*` reader sentinel handled by the
-    /// resolver); selectors resolve only from retained authoritative state
-    /// (`@s`, the player list for `@a`) and otherwise present as empty,
-    /// counted. Nothing ever presents as JSON.
-    fn resolve_raw_text(&self, document: &protocol::RawTextDocument) -> protocol::ResolvedRawText {
-        let catalog = self.lang_catalog.as_deref();
-        let translate =
-            |key: &str| -> Option<Arc<str>> { catalog.and_then(|catalog| catalog.lookup(key)) };
-        let scoreboards = &self.scoreboards;
-        let owner_names = &self.score_owner_names;
-        let score = |owner: &str, objective: &str| {
-            scoreboards.score_for_resolved_owner(objective, owner, |unique_id| {
-                owner_names.get(&unique_id).cloned()
-            })
-        };
-        let reader_name = &self.chat_source_name;
-        let known_player_names = &self.known_player_names;
-        let selector = |selector: &str| -> Option<Arc<str>> {
-            match selector.trim() {
-                "@s" => Some(Arc::clone(reader_name)).filter(|name| !name.is_empty()),
-                "@a" if !known_player_names.is_empty() => {
-                    let mut joined = String::new();
-                    for (index, name) in known_player_names.iter().enumerate() {
-                        if index > 0 {
-                            joined.push_str(", ");
-                        }
-                        joined.push_str(name);
-                    }
-                    Some(Arc::from(joined))
-                }
-                // Position- or entity-dependent selectors need live queries
-                // the retained state cannot answer authoritatively.
-                _ => None,
-            }
-        };
-        document.resolve(&protocol::RawTextResolver {
-            reader_name,
-            translate: &translate,
-            score: &score,
-            selector: &selector,
-        })
     }
 
     pub fn apply(&mut self, envelope: SequencedUiEvent) -> Result<UiApplyOutcome, UiRuntimeError> {
