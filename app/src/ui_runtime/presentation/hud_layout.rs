@@ -43,6 +43,16 @@ pub(crate) struct HudFrame {
     pub offhand_durability: Option<f32>,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
+    /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
+    /// mount jump bar replaces the experience bar for the ride's duration.
+    pub mount_jump: Option<f32>,
+    /// Melee charge in `0.0..=1.0`. Bedrock exposes no attack-cooldown
+    /// state, so the production authority pins this at exactly 1.0 (always
+    /// ready); the reference hides the indicator at full charge, so it
+    /// draws only for sub-full values.
+    pub attack_indicator_charge: Option<f32>,
+    /// Whether the held player-list action keeps the tab overlay open.
+    pub tab_list_open: bool,
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All
@@ -163,6 +173,7 @@ impl<'a> HudLayout<'a> {
 
         if frame.first_person && mode_allows_hotbar {
             self.crosshair()?;
+            self.attack_indicator(frame)?;
         }
         if shows_hotbar {
             self.hotbar(runtime, frame)?;
@@ -179,7 +190,7 @@ impl<'a> HudLayout<'a> {
                 self.hunger_row(runtime, now_tick)?;
             }
             self.air_row(runtime)?;
-            self.experience_bar(runtime)?;
+            self.experience_bar(runtime, frame)?;
         }
         self.effects(runtime, now_tick)?;
         self.boss_bars(runtime)?;
@@ -248,7 +259,7 @@ impl<'a> HudLayout<'a> {
         }
         // Stack counts and durability bars over each occupied slot.
         for slot in 0..9u8 {
-            let Some(stack) = runtime.gameplay_hud().hotbar_stack(slot).cloned() else {
+            let Some(stack) = runtime.presented_hotbar_stack(slot).cloned() else {
                 continue;
             };
             let cell = [left + 3.0 + f32::from(slot) * 20.0, g.gui_height - 19.0];
@@ -563,13 +574,28 @@ impl<'a> HudLayout<'a> {
 
     /// The 182x5 classic experience bar with its clipped progress strip and
     /// the outlined green level number.
-    fn experience_bar(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let Some(xp) = runtime.hud().experience() else {
-            return Ok(());
-        };
+    fn experience_bar(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+    ) -> Result<(), UiPresentationError> {
         let g = self.geometry;
         let left = (g.gui_width - HOTBAR_WIDTH) / 2.0;
         let top = g.gui_height - 29.0;
+        // While riding a jump-capable mount the jump bar replaces the
+        // experience bar and its level text for the ride's duration.
+        if let Some(charge) = frame.mount_jump {
+            self.sprite_gui(HudTextureRole::MountJumpBackground, [left, top], [255; 4])?;
+            let charge = charge.clamp(0.0, 1.0);
+            let filled = (charge * 183.0).floor().clamp(0.0, 182.0);
+            if filled >= 1.0 {
+                self.clipped_strip_gui(HudTextureRole::MountJumpProgress, [left, top], filled)?;
+            }
+            return Ok(());
+        }
+        let Some(xp) = runtime.hud().experience() else {
+            return Ok(());
+        };
         self.sprite_gui(
             HudTextureRole::ExperienceBarBackground182,
             [left, top],
@@ -578,30 +604,11 @@ impl<'a> HudLayout<'a> {
         let progress = xp.progress.clamp(0.0, 1.0);
         let filled = (progress * 183.0).floor().clamp(0.0, 182.0);
         if filled >= 1.0 {
-            let sprite = self
-                .textures
-                .sprite(HudTextureRole::ExperienceBarProgress182);
-            let uv_width = u32::from(sprite.uv[2] - sprite.uv[0]);
-            let clipped = ((filled / 182.0) * uv_width as f32).round() as u32;
-            let uv = [
-                sprite.uv[0],
-                sprite.uv[1],
-                sprite.uv[0] + clipped.min(uv_width) as u16,
-                sprite.uv[3],
-            ];
-            let [x, y] = g.logical([left, top]);
-            let node = UiNode::new(
-                UiNodeId::new(*self.next_id),
-                None,
-                rect(x, y, x + filled * g.scale, y + 5.0 * g.scale)?,
-            )
-            .with_visual(UiVisual::Sprite {
-                texture_page: self.textures.page,
-                uv,
-                color: [255; 4],
-            });
-            self.nodes.push(node);
-            *self.next_id = self.next_id.saturating_add(1);
+            self.clipped_strip_gui(
+                HudTextureRole::ExperienceBarProgress182,
+                [left, top],
+                filled,
+            )?;
         }
         if xp.level > 0 {
             let text = xp.level.to_string();
@@ -735,6 +742,19 @@ impl<'a> HudLayout<'a> {
                     health,
                 )?;
             }
+            // Notched overlays divide the bar into equal segments with dark
+            // 1 GUI px separators over both halves, per the reference.
+            let notches: u32 = match bar.style.overlay {
+                ui::BossOverlay::Progress => 0,
+                ui::BossOverlay::Notched6 => 6,
+                ui::BossOverlay::Notched10 => 10,
+                ui::BossOverlay::Notched12 => 12,
+                ui::BossOverlay::Notched20 => 20,
+            };
+            for notch in 1..notches {
+                let x = left + HOTBAR_WIDTH * notch as f32 / notches as f32;
+                self.solid_gui([x, y], [1.0, 5.0], [0, 0, 0, 255])?;
+            }
             y += 19.0;
         }
         Ok(())
@@ -811,6 +831,62 @@ impl<'a> HudLayout<'a> {
         });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
+        Ok(())
+    }
+
+    /// Left-anchored horizontal clip of a classic 182x5 strip: the sprite's
+    /// UV range and quad both cut at `filled` GUI px.
+    fn clipped_strip_gui(
+        &mut self,
+        role: HudTextureRole,
+        gui: [f32; 2],
+        filled: f32,
+    ) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        let sprite = self.textures.sprite(role);
+        let uv_width = u32::from(sprite.uv[2] - sprite.uv[0]);
+        let clipped = ((filled / 182.0) * uv_width as f32).round() as u32;
+        let uv = [
+            sprite.uv[0],
+            sprite.uv[1],
+            sprite.uv[0] + clipped.min(uv_width) as u16,
+            sprite.uv[3],
+        ];
+        let [x, y] = g.logical(gui);
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + filled * g.scale, y + 5.0 * g.scale)?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: self.textures.page,
+            uv,
+            color: [255; 4],
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
+        Ok(())
+    }
+
+    /// Crosshair-attached melee charge, drawn only below full charge exactly
+    /// like the reference. Geometry and colors are pinned as a bounded
+    /// approximation (16x2 GUI px, 9 px below center) pending the native
+    /// comparison gallery; the production authority never reports sub-full.
+    fn attack_indicator(&mut self, frame: &HudFrame) -> Result<(), UiPresentationError> {
+        let Some(charge) = frame.attack_indicator_charge else {
+            return Ok(());
+        };
+        if charge >= 1.0 {
+            return Ok(());
+        }
+        let g = self.geometry;
+        let left = (g.gui_width - 16.0) / 2.0;
+        let top = g.gui_height / 2.0 + 9.0;
+        self.solid_gui([left, top], [16.0, 2.0], [0, 0, 0, 170])?;
+        let filled = (charge.clamp(0.0, 1.0) * 16.0).floor();
+        if filled >= 1.0 {
+            self.solid_gui([left, top], [filled, 2.0], [255, 255, 255, 255])?;
+        }
         Ok(())
     }
 

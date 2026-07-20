@@ -87,7 +87,7 @@ use crate::{
     ui_runtime::{
         UiRuntime, drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
         gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{UiPresentationRuntime, publish_ui_runtime},
+        presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
 };
 
@@ -208,7 +208,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
+            (observe_mount_jump_input, publish_ui_runtime)
+                .chain()
+                .in_set(ClientFrameSet::UiPublication),
         )
         .add_systems(
             Update,

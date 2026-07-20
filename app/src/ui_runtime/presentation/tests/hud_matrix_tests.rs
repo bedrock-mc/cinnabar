@@ -428,3 +428,121 @@ fn the_renderable_effect_id_gate_matches_the_pinned_icon_table_exactly() {
         );
     }
 }
+
+#[test]
+fn mount_jump_bar_replaces_the_experience_row_while_riding() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    apply_full_stats(&mut runtime, 1);
+
+    let baseline = build(&mut presentation, &runtime, 0);
+
+    // Riding at zero charge draws the empty jump strip only.
+    presentation.hud_frame_mut().mount_jump = Some(0.0);
+    let empty_bar = build(&mut presentation, &runtime, 0);
+    assert_eq!(empty_bar.vertices.len(), baseline.vertices.len() + 4);
+
+    // A half charge adds the clipped progress strip on top.
+    presentation.hud_frame_mut().mount_jump = Some(0.5);
+    let charging = build(&mut presentation, &runtime, 0);
+    assert_eq!(charging.vertices.len(), baseline.vertices.len() + 8);
+}
+
+#[test]
+fn attack_indicator_draws_only_below_full_charge_in_first_person() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    *presentation.hud_frame_mut() = first_person_frame();
+
+    // The production authority reports exactly full: nothing draws.
+    presentation.hud_frame_mut().attack_indicator_charge = Some(1.0);
+    let ready = build(&mut presentation, &runtime, 0);
+
+    // A sub-full charge draws the background and fill bars below center.
+    presentation.hud_frame_mut().attack_indicator_charge = Some(0.5);
+    let charging = build(&mut presentation, &runtime, 0);
+    assert_eq!(charging.vertices.len(), ready.vertices.len() + 8);
+
+    // The indicator is crosshair-attached: never in third person.
+    presentation.hud_frame_mut().first_person = false;
+    let third_person = build(&mut presentation, &runtime, 0);
+    assert!(third_person.vertices.len() < ready.vertices.len());
+}
+
+#[test]
+fn notched_boss_overlays_draw_their_exact_dividers() {
+    use protocol::{
+        BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
+        BossOverlay as ProtocolBossOverlay, BossStyle as ProtocolBossStyle, UiEvent,
+    };
+    let boss = |overlay| {
+        UiEvent::Boss(BossEvent {
+            target_entity_id: 9,
+            player_id: 0,
+            action: ProtocolBossAction::Show,
+            title: std::sync::Arc::from(""),
+            filtered_title: std::sync::Arc::from(""),
+            progress: 1.0,
+            style: ProtocolBossStyle {
+                color: ProtocolBossColor::Red,
+                overlay,
+                darken_sky: None,
+                create_world_fog: None,
+            },
+        })
+    };
+    let build_with = |overlay| {
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(crate::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: boss(overlay),
+            })
+            .unwrap();
+        build(&mut presentation, &runtime, 0).vertices.len()
+    };
+    let progress = build_with(ProtocolBossOverlay::Progress);
+    // N-notch overlays add exactly N-1 divider quads over the bar.
+    assert_eq!(build_with(ProtocolBossOverlay::Notched6), progress + 5 * 4);
+    assert_eq!(build_with(ProtocolBossOverlay::Notched10), progress + 9 * 4);
+    assert_eq!(
+        build_with(ProtocolBossOverlay::Notched12),
+        progress + 11 * 4
+    );
+    assert_eq!(
+        build_with(ProtocolBossOverlay::Notched20),
+        progress + 19 * 4
+    );
+}
+
+#[test]
+fn the_tab_overlay_lists_known_players_with_list_scores_while_held() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.refresh_raw_text_identities(
+        |_| None,
+        vec![std::sync::Arc::from("Alex"), std::sync::Arc::from("Steve")],
+    );
+
+    let closed = build(&mut presentation, &runtime, 0);
+    assert!(closed.vertices.is_empty(), "no overlay while released");
+
+    presentation.hud_frame_mut().tab_list_open = true;
+    let open = build(&mut presentation, &runtime, 0);
+    assert!(
+        !open.vertices.is_empty(),
+        "held player-list action presents the known players"
+    );
+
+    // Releasing the action removes the overlay again.
+    presentation.hud_frame_mut().tab_list_open = false;
+    let released = build(&mut presentation, &runtime, 0);
+    assert!(released.vertices.is_empty());
+}

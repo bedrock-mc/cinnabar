@@ -668,3 +668,99 @@ fn lang_catalog_translates_rawtext_and_localizes_item_names() {
         "Gave Apple * 2 to Hashim / missing.key"
     );
 }
+
+#[test]
+fn mount_jump_charge_ramps_while_held_and_resets_on_release_or_dismount() {
+    let mut runtime = UiRuntime::new(1);
+    // Holding jump without a mount never charges.
+    runtime.set_mount_jump_held(true, 1_000);
+    assert_eq!(runtime.mount_jump_charge(1_250), 0.0);
+
+    runtime.apply_local_mount(1, 1, Some(-9)).unwrap();
+    runtime.set_mount_jump_held(true, 1_000);
+    assert_eq!(runtime.mount_jump_charge(1_000), 0.0);
+    assert_eq!(runtime.mount_jump_charge(1_250), 0.5);
+    assert_eq!(runtime.mount_jump_charge(1_500), 1.0);
+    // The charge saturates at full while held.
+    assert_eq!(runtime.mount_jump_charge(9_000), 1.0);
+
+    // Releasing resets to empty; a fresh hold restarts the ramp.
+    runtime.set_mount_jump_held(false, 2_000);
+    assert_eq!(runtime.mount_jump_charge(2_000), 0.0);
+    runtime.set_mount_jump_held(true, 3_000);
+    assert_eq!(runtime.mount_jump_charge(3_100), 0.2);
+
+    // Dismounting clears the charge even while jump stays held.
+    runtime.apply_local_mount(1, 2, None).unwrap();
+    runtime.set_mount_jump_held(true, 3_200);
+    assert_eq!(runtime.mount_jump_charge(3_300), 0.0);
+}
+
+#[test]
+fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    // No inventory content has arrived: the MobEquipment echo is the
+    // authoritative selected stack, and only for its own slot.
+    assert_eq!(
+        runtime
+            .presented_hotbar_stack(2)
+            .map(|stack| stack.network_id),
+        Some(41)
+    );
+    assert_eq!(runtime.presented_hotbar_stack(1), None);
+}
+
+#[test]
+fn player_list_overlay_rows_pair_names_with_resolved_list_scores() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::Objective(protocol::ObjectiveEvent::Display {
+                display_slot: std::sync::Arc::from("list"),
+                objective_name: std::sync::Arc::from("deaths"),
+                display_name: std::sync::Arc::from("Deaths"),
+                criteria_name: std::sync::Arc::from("dummy"),
+                sort_order: 1,
+            }),
+        ))
+        .unwrap();
+    runtime
+        .apply(envelope(
+            1,
+            2,
+            UiEvent::Score(protocol::ScoreEvent {
+                action: protocol::ScoreAction::Change,
+                entries: vec![protocol::ScoreEntry {
+                    scoreboard_id: 1,
+                    objective_name: std::sync::Arc::from("deaths"),
+                    score: 4,
+                    identity: protocol::ScoreIdentity::Player(42),
+                }]
+                .into(),
+            }),
+        ))
+        .unwrap();
+    runtime.refresh_raw_text_identities(
+        |unique_id| (unique_id == 42).then(|| std::sync::Arc::from("Steve")),
+        vec![std::sync::Arc::from("Alex"), std::sync::Arc::from("Steve")],
+    );
+    let rows = runtime.player_list_overlay_rows();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0.as_ref(), "Alex");
+    assert_eq!(rows[0].1, None);
+    assert_eq!(rows[1].0.as_ref(), "Steve");
+    assert_eq!(rows[1].1, Some(4));
+}

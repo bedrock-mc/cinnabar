@@ -77,6 +77,15 @@ impl ActorStore {
         Some((current.min(maximum), maximum))
     }
 
+    /// Whether the actor with this unique id carries a named attribute, for
+    /// capability gates like the mount jump-strength check.
+    pub(crate) fn actor_has_attribute_by_unique(&self, unique_id: i64, name: &str) -> bool {
+        self.unique_to_runtime
+            .get(&unique_id)
+            .and_then(|runtime_id| self.actors.get(runtime_id))
+            .is_some_and(|actor| actor.attributes.contains_key(name))
+    }
+
     /// Resolves one wire item stack against the retained item registry and
     /// compiled visual routes without mutating any actor state.
     pub(crate) fn canonical_item_stack(

@@ -12,6 +12,11 @@ use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeErro
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
 const MILLIS_PER_SERVER_TICK: u64 = 50;
 
+/// The reference charges the mount jump bar from empty to full over half a
+/// second of held jump input; pinned in milliseconds as a bounded recorded
+/// approximation pending the native comparison gallery.
+const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
+
 impl UiRuntime {
     pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
         // Local selection is client-authoritative in Bedrock: once the player picks a slot
@@ -51,6 +56,17 @@ impl UiRuntime {
         &self.gameplay_hud
     }
 
+    /// The stack presented in one hotbar cell: the authoritative inventory
+    /// mirror when known, otherwise the MobEquipment echo for the selected
+    /// slot — authoritative before any container content has arrived.
+    pub(crate) fn presented_hotbar_stack(&self, slot: u8) -> Option<&protocol::NetworkItemStack> {
+        self.gameplay_hud.hotbar_stack(slot).or_else(|| {
+            (self.selected_hotbar_slot() == Some(slot))
+                .then(|| self.selected_stack())
+                .flatten()
+        })
+    }
+
     /// The estimated authoritative tick at `now_millis`: the last observed
     /// server tick advanced by the local millis elapsed since it was
     /// observed, at the fixed 20 tps wire cadence. This is the presentation
@@ -67,6 +83,29 @@ impl UiRuntime {
     pub(crate) fn expire_gameplay_effects(&mut self, now_millis: u64) {
         let now_tick = self.estimated_server_tick(now_millis);
         self.gameplay_hud.expire_effects(now_tick);
+    }
+
+    /// Observes the held state of the jump action for the mount jump-charge
+    /// ramp. Holding jump while mounted starts the charge clock; releasing
+    /// it, or losing the mount, resets the charge to empty.
+    pub(crate) fn set_mount_jump_held(&mut self, held: bool, now_millis: u64) {
+        if !held || self.gameplay_hud.mount_unique_id().is_none() {
+            self.mount_jump_hold_started_millis = None;
+            return;
+        }
+        if self.mount_jump_hold_started_millis.is_none() {
+            self.mount_jump_hold_started_millis = Some(now_millis);
+        }
+    }
+
+    /// The current jump charge in `0.0..=1.0`: a linear ramp over the pinned
+    /// hold window, zero while jump is not held.
+    pub(crate) fn mount_jump_charge(&self, now_millis: u64) -> f32 {
+        let Some(started) = self.mount_jump_hold_started_millis else {
+            return 0.0;
+        };
+        let elapsed = now_millis.saturating_sub(started);
+        (elapsed as f32 / MOUNT_JUMP_CHARGE_FULL_MILLIS as f32).clamp(0.0, 1.0)
     }
 
     /// Publishes the armor bar derived from the authoritative equipped armor

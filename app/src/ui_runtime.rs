@@ -172,6 +172,9 @@ pub struct UiRuntime {
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
+    /// Local millis at which the held jump began charging the mounted jump
+    /// bar; `None` while jump is released or no mount is ridden.
+    mount_jump_hold_started_millis: Option<u64>,
     /// Startup-loaded localization catalog; survives session replacement
     /// because it is local pinned data, not server state.
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
@@ -231,6 +234,7 @@ impl UiRuntime {
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
+            mount_jump_hold_started_millis: None,
             lang_catalog: None,
         }
     }
@@ -705,6 +709,7 @@ impl UiRuntime {
         self.last_health_drop_millis = None;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;
+        self.mount_jump_hold_started_millis = None;
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {
@@ -742,6 +747,33 @@ impl UiRuntime {
             .filter_map(|unique_id| resolve_owner_name(unique_id).map(|name| (unique_id, name)))
             .collect();
         self.known_player_names = known_player_names;
+    }
+
+    /// Rows for the tab player-list overlay: every known player-list
+    /// username paired with its list-objective score, resolved through the
+    /// authoritative owner-name map. Bounded by the player-list cap.
+    pub(crate) fn player_list_overlay_rows(&self) -> Vec<(Arc<str>, Option<i32>)> {
+        let list = self.scoreboards.list();
+        self.known_player_names
+            .iter()
+            .take(protocol::MAX_PLAYER_LIST_RECORDS)
+            .map(|name| {
+                let score = list.as_ref().and_then(|projection| {
+                    projection.rows.iter().find_map(|row| {
+                        let owner_name = match &row.owner {
+                            ui::ScoreOwner::FakePlayer(fake) => Some(Arc::clone(fake)),
+                            ui::ScoreOwner::Player(unique_id)
+                            | ui::ScoreOwner::Entity(unique_id) => {
+                                self.score_owner_names.get(unique_id).cloned()
+                            }
+                            ui::ScoreOwner::None => None,
+                        };
+                        (owner_name.as_deref() == Some(name.as_ref())).then_some(row.score)
+                    })
+                });
+                (Arc::clone(name), score)
+            })
+            .collect()
     }
 
     /// Resolves one typed rawtext document against the retained scoreboard

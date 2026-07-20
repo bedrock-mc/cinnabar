@@ -18,6 +18,7 @@ pub(super) const SCOREBOARD_TITLE_BACKGROUND_HEIGHT: f32 = 9.0;
 pub(super) const SCOREBOARD_TITLE_WIDTH: f32 = 170.0;
 pub(super) const SCOREBOARD_NAME_WIDTH: f32 = 100.0;
 pub(super) const SCOREBOARD_LIST_OFFSET: f32 = 10.0;
+pub(super) const PLAYER_LIST_TOP_OFFSET: f32 = 10.0;
 pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
@@ -299,6 +300,106 @@ struct PreparedScoreboardRow {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Tab player-list overlay: every known player-list username on its own
+/// row, centered under the top edge over a translucent backdrop, with the
+/// list-objective score right-aligned in yellow. Shown only while the
+/// player-list action is held.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_player_list_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    solid_texture_page: u16,
+    viewport_width: f32,
+    viewport_height: f32,
+    players: &[(Arc<str>, Option<i32>)],
+) -> Result<(), UiPresentationError> {
+    if players.is_empty() {
+        return Ok(());
+    }
+    struct PreparedPlayerRow {
+        name: Arc<ui::TextLayout>,
+        name_width: f32,
+        score: Option<(Arc<ui::TextLayout>, f32)>,
+    }
+    let mut content_width = 0.0f32;
+    let mut rows = Vec::with_capacity(players.len().min(MAX_PRESENTED_PLAYER_LIST_ROWS));
+    for (name, score) in players.iter().take(MAX_PRESENTED_PLAYER_LIST_ROWS) {
+        let name_layout = layouts
+            .layout(TextLayoutRequest {
+                text: bounded_visible_text(name),
+                style: TextStyle::default(),
+                width_64: (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
+                scale: UiScale::default(),
+                font,
+            })
+            .map_err(UiPresentationError::Text)?;
+        let name_width = name_layout.size_64()[0] as f32 / 64.0;
+        let score = score
+            .map(|score| {
+                layouts
+                    .layout(TextLayoutRequest {
+                        text: &score.to_string(),
+                        style: TextStyle::default(),
+                        width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
+                        scale: UiScale::default(),
+                        font,
+                    })
+                    .map(|layout| {
+                        let width = layout.size_64()[0] as f32 / 64.0;
+                        (layout, width)
+                    })
+            })
+            .transpose()
+            .map_err(UiPresentationError::Text)?;
+        let score_width = score.as_ref().map_or(0.0, |(_, width)| *width);
+        content_width = content_width.max(name_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
+        rows.push(PreparedPlayerRow {
+            name: name_layout,
+            name_width,
+            score,
+        });
+    }
+    let width = content_width + SCOREBOARD_HORIZONTAL_PADDING;
+    let height = SCOREBOARD_TEXT_HEIGHT * rows.len() as f32 + 4.0;
+    if width <= 0.0 || viewport_width < width || viewport_height < height {
+        return Ok(());
+    }
+    let left = (viewport_width - width) * 0.5;
+    let top = PLAYER_LIST_TOP_OFFSET;
+    let right = left + width;
+    nodes.push(solid_node(
+        take_node_id(next_id),
+        [left, top, right, top + height],
+        solid_texture_page,
+        [0, 0, 0, 120],
+    )?);
+    for (index, row) in rows.into_iter().enumerate() {
+        let row_top = top + 2.0 + SCOREBOARD_TEXT_HEIGHT * index as f32;
+        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left + 2.0, row_top, right - 2.0, row_bottom],
+            [left + 2.0, row_top, left + 2.0 + row.name_width, row_bottom],
+            row.name,
+            [255; 4],
+        )?;
+        if let Some((score, score_width)) = row.score {
+            append_clipped_text_node(
+                nodes,
+                next_id,
+                [left + 2.0, row_top, right - 2.0, row_bottom],
+                [right - 2.0 - score_width, row_top, right - 2.0, row_bottom],
+                score,
+                [255, 255, 85, 255],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn append_scoreboard_nodes(
     nodes: &mut Vec<UiNode>,
     next_id: &mut u32,

@@ -277,6 +277,22 @@ impl UiPresentationRuntime {
             )?;
         }
 
+        // The tab player-list overlay presents every known player with the
+        // list-objective score while the player-list action is held.
+        if self.hud_frame.tab_list_open {
+            let players = runtime.player_list_overlay_rows();
+            retained_hud::append_player_list_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                self.solid_texture_page,
+                content_width,
+                content_height,
+                &players,
+            )?;
+        }
+
         let chat_focused = runtime.chat_focused();
         let visible_suggestions = if chat_focused {
             visible_suggestion_range(
@@ -582,6 +598,20 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Observes the held HUD inputs — jump for the mount jump-charge ramp and
+/// the player-list action for the tab overlay — before the frame publishes.
+pub(crate) fn observe_mount_jump_input(
+    input: Res<crate::semantic_controls::SemanticInputSnapshot>,
+    mut runtime: ResMut<UiRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
+    time: Res<Time<Real>>,
+) {
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
+    presentation.hud_frame_mut().tab_list_open =
+        input.phase(semantic_input::Action::PlayerList).held;
+}
+
 /// The platform's safe-area insets for the primary surface, in logical px.
 /// Win32 and macOS desktop surfaces carry no display cutouts, so their real
 /// reported inset is zero on every edge; platforms that report cutouts bind
@@ -626,6 +656,7 @@ pub(crate) fn publish_ui_runtime(
         &mut presentation,
         client_world.stream.as_ref(),
         &camera_settings,
+        now_millis,
     );
     if presentation.scoreboard_opacity.is_some() {
         presentation
@@ -654,6 +685,7 @@ pub(crate) fn refresh_hud_frame(
     presentation: &mut UiPresentationRuntime,
     stream: Option<&client_world::WorldStream>,
     camera_settings: &CameraSettingsAuthority,
+    now_millis: u64,
 ) {
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
@@ -682,7 +714,7 @@ pub(crate) fn refresh_hud_frame(
 
     let mut hotbar_durability = [None; 9];
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
-        if let Some(stack) = runtime.gameplay_hud().hotbar_stack(slot as u8) {
+        if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
             let identifier = resolve_identifier(stack);
             *durability = item_facts::durability_fraction(stack, identifier.as_deref());
         }
@@ -696,6 +728,17 @@ pub(crate) fn refresh_hud_frame(
             .map(|identifier| Arc::from(runtime.localized_item_name(&identifier)))
     });
 
+    // The mount jump bar activates while riding a mount whose authoritative
+    // attributes include jump strength; the charge follows the held jump
+    // input's ramp and stays at zero while the input is released.
+    let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
+        stream
+            .filter(|stream| {
+                stream.actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
+            })
+            .map(|_| runtime.mount_jump_charge(now_millis))
+    });
+
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let frame = presentation.hud_frame_mut();
@@ -704,6 +747,11 @@ pub(crate) fn refresh_hud_frame(
     frame.hotbar_durability = hotbar_durability;
     frame.offhand_durability = offhand_durability;
     frame.selected_item_name = selected_item_name;
+    frame.mount_jump = mount_jump;
+    // Bedrock is authoritative for melee readiness and exposes no cooldown
+    // state: the charge is exactly full, which the reference presents as a
+    // hidden indicator. The presentation branch below full stays witnessed.
+    frame.attack_indicator_charge = Some(1.0);
 
     // Odd remote gameplay data is skipped and counted, never fatal; surface
     // each counter change once so live sessions record what was dropped.
