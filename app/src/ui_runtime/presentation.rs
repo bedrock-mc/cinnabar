@@ -426,26 +426,33 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
         }
-        // Java-style unfocused chat: draw a translucent per-line backdrop behind each visible
-        // line. When focused, the unified chat panel above already provides the background, so
-        // these are skipped to avoid double-darkening. Backdrops precede the text nodes so they
-        // render underneath.
-        if !chat_focused {
+        // Java-style unfocused chat: one continuous translucent backdrop spanning all visible
+        // lines. A per-line backdrop would leave transparent stripes in the inter-line spacing;
+        // Java's line backgrounds are contiguous, so cover the whole block in a single rect. When
+        // focused, the unified chat panel above already provides the background, so this is skipped
+        // to avoid double-darkening. The backdrop precedes the text nodes so it renders underneath.
+        if !chat_focused && !visible_chat.is_empty() {
             let backdrop_left = (chat_left - CHAT_LINE_BACKDROP_PAD).max(0.0);
-            for (_, top, bottom) in &visible_chat {
-                nodes.push(
-                    UiNode::new(
-                        UiNodeId::new(next_id),
-                        None,
-                        rect(backdrop_left, *top, chat_right, *bottom)?,
-                    )
-                    .with_visual(UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: CHAT_LINE_BACKDROP_COLOR,
-                    }),
-                );
-                next_id = next_id.saturating_add(1);
-            }
+            let backdrop_top = visible_chat
+                .iter()
+                .map(|(_, top, _)| *top)
+                .fold(f32::INFINITY, f32::min);
+            let backdrop_bottom = visible_chat
+                .iter()
+                .map(|(_, _, bottom)| *bottom)
+                .fold(f32::NEG_INFINITY, f32::max);
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(backdrop_left, backdrop_top, chat_right, backdrop_bottom)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: CHAT_LINE_BACKDROP_COLOR,
+                }),
+            );
+            next_id = next_id.saturating_add(1);
         }
         for (layout, y, bottom) in visible_chat.into_iter().rev() {
             nodes.push(

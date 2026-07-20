@@ -457,35 +457,62 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
 }
 
 #[test]
-fn unfocused_chat_lines_get_a_java_style_translucent_backdrop() {
+fn unfocused_chat_backdrop_is_a_single_contiguous_rect() {
     let font = fixture_font();
     let mut presentation = UiPresentationRuntime::new(font).unwrap();
     let mut runtime = UiRuntime::new(1);
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: chat_event("hello world"),
-        })
-        .unwrap();
+    for (sequence, message) in [(1, "first line"), (2, "second line")] {
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: sequence,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(message),
+            })
+            .unwrap();
+    }
 
-    // Unfocused: a translucent per-line backdrop sits behind the chat line (Java-style).
+    // Unfocused: a single translucent backdrop covers both lines with no inter-line gaps
+    // (per-line backdrops would leave transparent stripes between messages).
     let unfocused = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    let backdrop = bounds_for_color(&unfocused, CHAT_LINE_BACKDROP_COLOR)
-        .expect("unfocused chat line has a Java-style translucent backdrop");
-    // Backdrop is left-anchored just inside the screen edge and has positive width/height.
+    let backdrop_vertices = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == CHAT_LINE_BACKDROP_COLOR)
+        .count();
+    assert_eq!(
+        backdrop_vertices, 4,
+        "the chat backdrop is a single contiguous quad, not one per line"
+    );
+
+    let backdrop = bounds_for_color(&unfocused, CHAT_LINE_BACKDROP_COLOR).unwrap();
+    let text_top = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .map(|vertex| vertex.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let text_bottom = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .map(|vertex| vertex.position[1])
+        .fold(f32::NEG_INFINITY, f32::max);
     assert!(
         backdrop[0] < 12.0,
-        "backdrop starts at/left of the chat text inset"
+        "backdrop starts at/left of the text inset"
     );
-    assert!(backdrop[2] > backdrop[0], "backdrop has positive width");
-    assert!(backdrop[3] > backdrop[1], "backdrop has positive height");
+    assert!(
+        backdrop[1] <= text_top && backdrop[3] >= text_bottom,
+        "backdrop spans every chat line ({}, {}) vs text ({text_top}, {text_bottom})",
+        backdrop[1],
+        backdrop[3]
+    );
 
-    // Focused: the unified chat panel provides the background instead, so the per-line backdrop
+    // Focused: the unified chat panel provides the background instead, so the separate backdrop
     // layer is not added (avoids double-darkening).
     runtime.open_chat();
     let focused = presentation
@@ -493,7 +520,7 @@ fn unfocused_chat_lines_get_a_java_style_translucent_backdrop() {
         .unwrap();
     assert!(
         bounds_for_color(&focused, CHAT_LINE_BACKDROP_COLOR).is_none(),
-        "focused chat should not add the unfocused per-line backdrop"
+        "focused chat should not add the unfocused backdrop"
     );
 }
 
