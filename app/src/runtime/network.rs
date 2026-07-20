@@ -15,8 +15,8 @@ use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorMainWitness, ActorPresentationGate, ActorRenderFrame, ActorRenderScene,
+    ActorRuntimeWitness, ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 #[cfg(test)]
 use render::{ActorRenderSource, ActorSkinPixels};
@@ -24,6 +24,7 @@ use render::{ActorRenderSource, ActorSkinPixels};
 use crate::{
     acceptance::{
         AcceptanceRun,
+        actor_pose::ActorPoseWitnessTracker,
         model_witness::ModelWitnessFileSource,
         mutation::{
             accepted_move_player_ingress_marker, move_player_ingress_marker,
@@ -88,6 +89,9 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     view: Res<'w, LocalViewPose>,
     local_physics: Res<'w, LocalPhysicsController>,
     witness: Res<'w, ActorRuntimeWitness>,
+    acceptance: Res<'w, AcceptanceRun>,
+    presented_frames: Res<'w, ActorPresentationGate>,
+    pose_witness: Local<'s, ActorPoseWitnessTracker>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -267,6 +271,9 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_actor_move_witness_enabled(acceptance.enabled());
+    }
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
@@ -350,6 +357,7 @@ pub(crate) fn receive_network_events(
                     )
                 };
                 stream.set_default_actor_game_mode(default_actor_game_mode);
+                stream.set_actor_move_witness_enabled(acceptance.enabled());
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -761,6 +769,9 @@ pub(crate) fn publish_actor_render_frame(
         view,
         local_physics,
         witness,
+        acceptance,
+        presented_frames,
+        mut pose_witness,
         camera,
     } = presentation;
     let session_id = client_world
@@ -883,6 +894,22 @@ pub(crate) fn publish_actor_render_frame(
         skin_bytes: frame.skins_rgba8.len(),
         rejects: frame.rig.rejects,
     });
+    if !acceptance.enabled() {
+        pose_witness.reset();
+        let _ = presented_frames.drain();
+        return;
+    }
+    let Some(stream) = client_world.stream.as_mut() else {
+        pose_witness.reset();
+        let _ = presented_frames.drain();
+        return;
+    };
+    pose_witness.reconcile_session(stream.actor_session_id(), stream.current_dimension());
+    pose_witness.record_stream_drops(stream.actor_move_commit_dropped_count());
+    pose_witness.admit(stream.take_committed_actor_moves());
+    for marker in pose_witness.observe(presented_frames.drain()) {
+        println!("{marker}");
+    }
 }
 
 pub(crate) mod session;

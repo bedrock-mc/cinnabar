@@ -708,14 +708,16 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
 }
 
 fn actor_commit_witness_stream() -> WorldStream {
-    WorldStream::new(WorldBootstrap {
+    let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
-    })
+    });
+    stream.set_actor_move_witness_enabled(true);
+    stream
 }
 
 fn actor_commit_witness_spawn() -> WorldEvent {
@@ -842,4 +844,21 @@ fn actor_move_commit_witness_resets_on_dimension_and_session_replacement() {
     let replacement = actor_commit_witness_stream();
     assert_eq!(replacement.pending_actor_move_commit_count(), 0);
     assert_eq!(replacement.actor_move_commit_dropped_count(), 0);
+}
+
+#[test]
+fn actor_move_commit_witness_has_zero_normal_gameplay_retention() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.submit(1, actor_commit_witness_spawn()).unwrap();
+    stream.submit(2, actor_commit_witness_move(4.0)).unwrap();
+    assert!(!stream.actor_move_witness_enabled());
+    assert_eq!(stream.pending_actor_move_commit_count(), 0);
+    assert_eq!(stream.actor_move_commit_dropped_count(), 0);
 }

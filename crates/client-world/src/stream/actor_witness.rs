@@ -2,8 +2,8 @@ use protocol::ActorMoveEvent;
 
 use super::*;
 
-/// Maximum committed actor movements retained for one live stream session.
-pub const COMMITTED_ACTOR_MOVE_CAPACITY: usize = 4_096;
+/// Maximum committed actor movements retained by an enabled acceptance witness.
+pub const COMMITTED_ACTOR_MOVE_CAPACITY: usize = 128;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommittedActorPose {
@@ -33,6 +33,9 @@ impl WorldStream {
         movement: ActorMoveEvent,
         result: ActorApplyResult,
     ) {
+        if !self.actor_move_witness_enabled {
+            return;
+        }
         if self.committed_actor_moves.len() == COMMITTED_ACTOR_MOVE_CAPACITY {
             self.actor_move_commit_dropped_count =
                 self.actor_move_commit_dropped_count.saturating_add(1);
@@ -74,6 +77,19 @@ impl WorldStream {
     pub(super) fn reset_committed_actor_moves(&mut self) {
         self.committed_actor_moves.clear();
         self.actor_move_commit_dropped_count = 0;
+    }
+
+    /// Enable the acceptance-only actor movement witness queue.
+    pub fn set_actor_move_witness_enabled(&mut self, enabled: bool) {
+        if self.actor_move_witness_enabled != enabled {
+            self.reset_committed_actor_moves();
+            self.actor_move_witness_enabled = enabled;
+        }
+    }
+
+    #[must_use]
+    pub const fn actor_move_witness_enabled(&self) -> bool {
+        self.actor_move_witness_enabled
     }
 
     pub fn take_committed_actor_moves(&mut self) -> Vec<CommittedActorMove> {

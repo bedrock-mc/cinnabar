@@ -131,6 +131,7 @@ pub struct WorldStream {
     actors: ActorStore,
     actor_session_id: u64,
     committed_actor_moves: VecDeque<CommittedActorMove>,
+    actor_move_witness_enabled: bool,
     actor_move_commit_dropped_count: u64,
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,

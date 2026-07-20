@@ -440,6 +440,31 @@ function ConvertFrom-ModelWitnessCompleteMarker {
     }
 }
 
+function ConvertFrom-ActorPoseWitnessMarker {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
+
+    $prefix = 'RUST_MCBE_ACTOR_POSE_WITNESS='
+    if (-not $Line.StartsWith($prefix, [StringComparison]::Ordinal) -or $Line.Length -gt 16384) {
+        throw "invalid actor pose witness marker"
+    }
+    try {
+        $payload = $Line.Substring($prefix.Length) | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "invalid actor pose witness marker JSON: $($_.Exception.Message)"
+    }
+    $required = @('session_id', 'dimension', 'sequence', 'runtime_id', 'packet', 'store', 'presented', 'drops')
+    if (@($required | Where-Object { -not ($payload.PSObject.Properties.Name -contains $_) }).Count -ne 0 -or
+        [uint64]$payload.session_id -eq 0 -or [uint64]$payload.sequence -eq 0 -or
+        [uint64]$payload.runtime_id -eq 0 -or [uint64]$payload.store.spawn_revision -eq 0 -or
+        [uint64]$payload.store.movement_revision -ne [uint64]$payload.sequence -or
+        -not [bool]$payload.presented.consecutive -or
+        [uint64]$payload.presented.first_frame_sequence + 1 -ne [uint64]$payload.presented.second_frame_sequence) {
+        throw "invalid actor pose witness marker contract"
+    }
+    return $payload
+}
+
 function Assert-StableModelWitnessEvidence {
     param(
         [Parameter(Mandatory = $true)]$Request,

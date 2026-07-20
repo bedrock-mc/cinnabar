@@ -59,6 +59,7 @@ pub(crate) enum MarkerContract {
 pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
     (ASSETS, MarkerContract::EnvironmentVariable),
+    (ACTOR_POSE_WITNESS, MarkerContract::ParsedEvidence),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
     (FAST_TRANSFER_ACTION, MarkerContract::ParsedEvidence),
@@ -236,7 +237,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 31);
+        assert_eq!(names.len(), 32);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

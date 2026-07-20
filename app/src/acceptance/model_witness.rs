@@ -4,8 +4,7 @@ use anyhow::{Context, Result, ensure};
 #[cfg(test)]
 use bevy::prelude::{App, Update};
 use bevy::prelude::{Local, Res, ResMut, Resource};
-use client_world::{ActorSnapshot, CommittedActorMove, WorldStream};
-use protocol::{ActorMoveEvent, ActorPositionOrigin};
+use client_world::{CommittedActorMove, WorldStream};
 use render::{
     ActorPresentedFrameAck, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest,
     PresentedFrameGate, TargetRenderExpectation,
@@ -20,41 +19,56 @@ use super::teleport::render_view_cohort;
 use crate::runtime::world::ClientWorld;
 
 pub(crate) fn actor_pose_witness_marker(
-    sequence: u64,
-    movement: &ActorMoveEvent,
-    actor: Option<&ActorSnapshot>,
+    commit: &CommittedActorMove,
+    first: &ActorPresentedFrameAck,
+    second: &ActorPresentedFrameAck,
+    rejected_commits: u64,
+    rejected_frames: u64,
+    stream_dropped_commits: u64,
 ) -> String {
-    let origin = match movement.position_origin {
-        ActorPositionOrigin::Feet => "feet",
-        ActorPositionOrigin::NetworkOffset => "network_offset",
-    };
-    let store = actor.map(|actor| {
-        serde_json::json!({
-            "unique_id": actor.unique_id,
-            "movement_revision": actor.movement_revision,
-            "applied": actor.movement_revision == sequence,
-            "position": actor.position,
-            "previous_position": actor.previous_pose.position,
-            "received_position": actor.received_pose.position,
-            "interpolation_ticks_remaining": actor.interpolation_ticks_remaining,
-            "on_ground": actor.on_ground,
-            "source_tick": actor.source_tick,
-        })
-    });
+    let applied = commit
+        .applied
+        .as_ref()
+        .expect("matched actor pose witnesses require an applied store pose");
     format!(
         "{ACTOR_POSE_WITNESS}={}",
         serde_json::json!({
-            "sequence": sequence,
-            "runtime_id": movement.runtime_id,
+            "session_id": commit.session_id,
+            "dimension": commit.dimension,
+            "sequence": commit.sequence,
+            "runtime_id": commit.movement.runtime_id,
             "packet": {
-                "position": movement.position,
-                "origin": origin,
-                "teleported": movement.teleported,
-                "snap": movement.snap,
-                "on_ground": movement.on_ground,
-                "source_tick": movement.source_tick,
+                "position": commit.movement.position,
+                "origin": format!("{:?}", commit.movement.position_origin),
+                "teleported": commit.movement.teleported,
+                "snap": commit.movement.snap,
+                "on_ground": commit.movement.on_ground,
+                "source_tick": commit.movement.source_tick,
             },
-            "store": store,
+            "store": {
+                "spawn_revision": applied.lifetime.spawn_revision,
+                "movement_revision": applied.movement_revision,
+                "position": applied.current_pose.position,
+                "previous_position": applied.previous_pose.position,
+                "received_position": applied.received_pose.position,
+                "interpolation_ticks_remaining": applied.interpolation_ticks_remaining,
+                "on_ground": applied.on_ground,
+                "source_tick": applied.source_tick,
+            },
+            "presented": {
+                "first_frame_sequence": first.frame_sequence,
+                "second_frame_sequence": second.frame_sequence,
+                "first_frame_generation": first.frame_generation,
+                "second_frame_generation": second.frame_generation,
+                "first_draw_generation": first.draw_generation,
+                "second_draw_generation": second.draw_generation,
+                "consecutive": first.forms_consecutive_pair_with(second),
+            },
+            "drops": {
+                "rejected_commits": rejected_commits,
+                "rejected_frames": rejected_frames,
+                "stream_dropped_commits": stream_dropped_commits,
+            },
         })
     )
 }
@@ -75,7 +89,9 @@ pub(crate) fn committed_actor_move_matches_presented_frame(
                 && entry.identity.dimension == applied.lifetime.dimension
                 && entry.identity.runtime_id == applied.lifetime.runtime_id
                 && entry.identity.spawn_revision == applied.lifetime.spawn_revision
+                && entry.identity.ingress_sequence == commit.sequence
                 && entry.identity.movement_revision == applied.movement_revision
+                && entry.identity.source_tick == applied.source_tick
         })
 }
 
@@ -237,84 +253,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn actor_pose_witness_pairs_packet_origin_with_applied_store_pose() {
-        use client_world::ActorPose;
-        use protocol::{ActorGameMode, ActorKind};
-
-        let pose = ActorPose {
-            position: [4.0, 63.2, -8.0],
-            pitch: 10.0,
-            yaw: 20.0,
-            head_yaw: 30.0,
-        };
-        let actor = ActorSnapshot {
-            unique_id: -7,
-            runtime_id: 42,
-            spawn_revision: 1,
-            movement_revision: 9,
-            kind: ActorKind::Player {
-                uuid: [7; 16],
-                username: "witness".into(),
-            },
-            game_mode: Some(ActorGameMode::Survival),
-            resolved_game_mode: Some(ActorGameMode::Survival),
-            game_mode_tick: None,
-            position: pose.position,
-            velocity: [0.0; 3],
-            pitch: pose.pitch,
-            yaw: pose.yaw,
-            head_yaw: pose.head_yaw,
-            previous_pose: pose,
-            received_pose: pose,
-            interpolation_ticks_remaining: 0,
-            body_yaw: pose.yaw,
-            on_ground: Some(true),
-            teleported: false,
-            player_mode: None,
-            source_tick: Some(120),
-            metadata: Default::default(),
-            attributes: Default::default(),
-            int_properties: Default::default(),
-            float_properties: Default::default(),
-        };
-        let movement = ActorMoveEvent {
-            dimension: 0,
-            runtime_id: 42,
-            position: [Some(4.0), Some(65.0), Some(-8.0)],
-            position_origin: ActorPositionOrigin::NetworkOffset,
-            pitch: Some(10.0),
-            yaw: Some(20.0),
-            head_yaw: Some(30.0),
-            on_ground: Some(true),
-            teleported: false,
-            snap: true,
-            player_mode: None,
-            source_tick: Some(120),
-        };
-
-        let marker = actor_pose_witness_marker(9, &movement, Some(&actor));
-        let (_, payload) = marker.split_once('=').unwrap();
-        let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
-        assert_eq!(payload["packet"]["origin"], "network_offset");
-        assert_eq!(payload["packet"]["position"][1], 65.0);
-        assert_eq!(payload["packet"]["snap"], true);
-        assert_eq!(payload["packet"]["teleported"], false);
-        assert!((payload["store"]["position"][1].as_f64().unwrap() - 63.2).abs() < 1e-5);
-        assert_eq!(payload["store"]["movement_revision"], 9);
-        assert_eq!(payload["store"]["applied"], true);
-
-        let missing = actor_pose_witness_marker(10, &movement, None);
-        let (_, payload) = missing.split_once('=').unwrap();
-        let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
-        assert!(payload["store"].is_null());
-    }
-
-    #[test]
     fn committed_actor_move_correlates_with_exact_presented_frame_manifest() {
         use std::sync::Arc;
         use std::time::{Duration, Instant};
 
         use client_world::{ActorLifetimeId, ActorPose, CommittedActorPose};
+        use protocol::{ActorMoveEvent, ActorPositionOrigin};
         use render::{ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute, EntityRigId};
 
         let lifetime = ActorLifetimeId {
