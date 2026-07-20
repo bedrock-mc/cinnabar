@@ -96,33 +96,45 @@ func TestGenerateIsDeterministicAndPinned(t *testing.T) {
 	assertDirectoriesEqual(t, firstDir, committedDir)
 }
 
-func TestChunkfixIsIsolatedFromWorkspaceAndCoveredByCI(t *testing.T) {
+// Every generator held outside go.work needs the same two guarantees: the
+// workspace must not pull it back in (which would let MVS upgrade its pinned
+// reference module), and CI must still run its regeneration and provenance
+// tests. This module owns that contract for all such generators because it
+// already carries the workflow-inspection machinery.
+func TestIsolatedGeneratorsStayOutOfWorkspaceAndAreCoveredByCI(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve test source path")
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+	workflow := readFile(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
 
-	usesChunkfix, err := workspaceUsesDirectory(
-		filepath.Join(repoRoot, "go.work"),
-		repoRoot,
-		filepath.Join("tools", "chunkfix"),
-	)
-	if err != nil {
-		t.Fatalf("inspect go.work: %v", err)
-	}
-	if usesChunkfix {
-		t.Fatal("tools/chunkfix must stay outside go.work so its pinned Dragonfly encoder is not upgraded by workspace MVS")
-	}
+	for _, generator := range []struct{ directory, pinned string }{
+		{directory: "tools/chunkfix", pinned: "Dragonfly encoder"},
+		{directory: "tools/bedsimtrace", pinned: "bedsim movement reference"},
+	} {
+		t.Run(generator.directory, func(t *testing.T) {
+			relative := filepath.FromSlash(generator.directory)
+			used, err := workspaceUsesDirectory(
+				filepath.Join(repoRoot, "go.work"),
+				repoRoot,
+				relative,
+			)
+			if err != nil {
+				t.Fatalf("inspect go.work: %v", err)
+			}
+			if used {
+				t.Fatalf("%s must stay outside go.work so its pinned %s is not upgraded by workspace MVS", generator.directory, generator.pinned)
+			}
 
-	covered, err := workflowHasIsolatedChunkfixStep(
-		readFile(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml")),
-	)
-	if err != nil {
-		t.Fatalf("inspect CI workflow: %v", err)
-	}
-	if !covered {
-		t.Fatal("CI must test and vet tools/chunkfix as an isolated module with GOWORK=off")
+			covered, err := workflowHasIsolatedModuleStep(workflow, generator.directory)
+			if err != nil {
+				t.Fatalf("inspect CI workflow: %v", err)
+			}
+			if !covered {
+				t.Fatalf("CI must test and vet %s as an isolated module with GOWORK=off", generator.directory)
+			}
+		})
 	}
 }
 
@@ -267,12 +279,12 @@ jobs:
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := workflowHasIsolatedChunkfixStep([]byte(test.body))
+			got, err := workflowHasIsolatedModuleStep([]byte(test.body), "tools/chunkfix")
 			if err != nil {
 				t.Fatalf("inspect workflow: %v", err)
 			}
 			if got != test.want {
-				t.Fatalf("workflowHasIsolatedChunkfixStep() = %t, want %t", got, test.want)
+				t.Fatalf("workflowHasIsolatedModuleStep() = %t, want %t", got, test.want)
 			}
 		})
 	}
@@ -354,7 +366,7 @@ type workflowStep struct {
 	Run              string            `yaml:"run"`
 }
 
-func workflowHasIsolatedChunkfixStep(data []byte) (bool, error) {
+func workflowHasIsolatedModuleStep(data []byte, directory string) (bool, error) {
 	var workflow workflowDocument
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
 		return false, fmt.Errorf("decode workflow YAML: %w", err)
@@ -364,10 +376,10 @@ func workflowHasIsolatedChunkfixStep(data []byte) (bool, error) {
 		return false, nil
 	}
 	for _, step := range verify.Steps {
-		if step.WorkingDirectory != "tools/chunkfix" || step.Env["GOWORK"] != "off" {
+		if step.WorkingDirectory != directory || step.Env["GOWORK"] != "off" {
 			continue
 		}
-		hasTest, hasVet := chunkfixCommands(step.Run)
+		hasTest, hasVet := isolatedModuleCommands(step.Run)
 		if hasTest && hasVet {
 			return true, nil
 		}
@@ -381,7 +393,7 @@ type shellLiteralState struct {
 	stripHeredocTabs bool
 }
 
-func chunkfixCommands(script string) (hasTest, hasVet bool) {
+func isolatedModuleCommands(script string) (hasTest, hasVet bool) {
 	state := shellLiteralState{}
 	for _, line := range strings.Split(strings.ReplaceAll(script, "\r\n", "\n"), "\n") {
 		if state.heredocDelimiter != "" {

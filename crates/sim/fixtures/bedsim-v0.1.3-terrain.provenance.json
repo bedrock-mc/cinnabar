@@ -5,9 +5,9 @@
   "module_sum": "h1:tWZ7O48DL/SaWIY+0zz0hFln+DXN4vfatqKr8zTHVo8=",
   "generator": "tools/bedsimtrace --terrain",
   "generator_command": "GOWORK=off go run . --terrain",
-  "generator_source_sha256": "6e6cd0ef398e467a6b2673f4913fa2f6e6877fcb143b17da31de05f3a6c2ac3c",
+  "generator_source_sha256": "dbfc1ddd66260d73d66eb8138ab195ff6707f9344614b4221ed94b6b0844d679",
   "go_mod_sha256": "191dda2391d632deef5bfc6b8588e92071c4283f569166a0e76cfdccbd5b4c11",
   "go_sum_sha256": "1ec0ee6c7fa3de354bb0a5e428c14840f7a283d198a87703f75d39006f35b115",
-  "script_sha256": "46e52502e4dd3b6efcabb3553db250ce0c4a1f0dc0872b129f806d7b97cf57c1",
-  "sha256": "d0cfff6a175418351b1752711442b6e9faeb24518065d8046e6dcedb8269ff75"
+  "script_sha256": "47dd701075568ab4829ebf9865d6dd05f0bcf38ba1ab811f6d6382b01fe076d1",
+  "sha256": "d469f2389f5edf906d27b57ef3eda8de4890333ea1bc5139d2b79b6d0c402d42"
 }

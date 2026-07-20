@@ -375,6 +375,30 @@ impl CollisionWorld for VersionedFloor {
     }
 }
 
+/// A versioned floor plus a wall the forward input runs into, so retained
+/// prediction state actually carries a horizontal axis collision.
+pub(super) struct VersionedWall(pub(super) u8);
+
+impl CollisionWorld for VersionedWall {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
+        let wall = Aabb::new(Vec3::new(-64.0, 1.0, -2.0), Vec3::new(64.0, 4.0, -1.5));
+        Ok(CollisionQuery {
+            value: [floor, wall]
+                .into_iter()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+            identity: fixture_world_identity(self.0),
+        })
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        let mut sample = Floor.block_physics(block)?;
+        sample.identity = fixture_world_identity(self.0);
+        Ok(sample)
+    }
+}
+
 struct UnavailableWorld;
 
 impl CollisionWorld for UnavailableWorld {
@@ -386,7 +410,7 @@ impl CollisionWorld for UnavailableWorld {
     }
 }
 
-fn forward_physics_input() -> MovementInput {
+pub(super) fn forward_physics_input() -> MovementInput {
     MovementInput {
         forward: 1.0,
         yaw_degrees: 180.0,

@@ -173,9 +173,17 @@ fn keyboard_usage(key: KeyCode) -> Option<u16> {
         KeyCode::Digit7 => 0x24,
         KeyCode::Digit8 => 0x25,
         KeyCode::Digit9 => 0x26,
+        KeyCode::Enter => 0x28,
         KeyCode::Escape => 0x29,
+        KeyCode::Tab => 0x2b,
         KeyCode::Space => 0x2c,
         KeyCode::F5 => 0x3e,
+        // The UiFocused defaults bind these four HID usages; without them the
+        // arrow keys are dead in every menu.
+        KeyCode::ArrowRight => 0x4f,
+        KeyCode::ArrowLeft => 0x50,
+        KeyCode::ArrowDown => 0x51,
+        KeyCode::ArrowUp => 0x52,
         KeyCode::ControlLeft => 0xe0,
         KeyCode::ShiftLeft => 0xe1,
         KeyCode::AltLeft => 0xe2,
@@ -199,26 +207,143 @@ fn mouse_button_code(button: MouseButton) -> Option<u8> {
     })
 }
 
+/// The exact gamepad buttons this layer translates, and the binding codes they
+/// produce. This is the single source of truth: `gamepad_button_codes` reads it
+/// to build a frame, and the binding-reachability test reads it to prove no
+/// default binding names a code the app cannot emit.
+const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
+    (0, GamepadButton::South),
+    (1, GamepadButton::East),
+    (2, GamepadButton::North),
+    (3, GamepadButton::West),
+    (4, GamepadButton::LeftTrigger),
+    (5, GamepadButton::RightTrigger),
+    (6, GamepadButton::Select),
+    (7, GamepadButton::Start),
+    (8, GamepadButton::LeftThumb),
+    (9, GamepadButton::RightThumb),
+    (11, GamepadButton::DPadUp),
+    (12, GamepadButton::DPadDown),
+    (13, GamepadButton::DPadLeft),
+    (14, GamepadButton::DPadRight),
+];
+
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
-    let mut buttons = [
-        (0, GamepadButton::South),
-        (1, GamepadButton::East),
-        (2, GamepadButton::North),
-        (3, GamepadButton::West),
-        (4, GamepadButton::LeftTrigger),
-        (5, GamepadButton::RightTrigger),
-        (6, GamepadButton::Select),
-        (7, GamepadButton::Start),
-        (8, GamepadButton::LeftThumb),
-        (9, GamepadButton::RightThumb),
-        (11, GamepadButton::DPadUp),
-        (12, GamepadButton::DPadDown),
-        (13, GamepadButton::DPadLeft),
-        (14, GamepadButton::DPadRight),
-    ]
-    .into_iter()
-    .filter_map(|(code, button)| gamepad.pressed(button).then_some(code))
-    .collect::<Vec<_>>();
+    let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
+        .iter()
+        .filter_map(|(code, button)| gamepad.pressed(*button).then_some(*code))
+        .collect::<Vec<_>>();
     buttons.sort_unstable();
     buttons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
+    use bevy::prelude::{KeyCode, MouseButton};
+    use semantic_input::{ControlSettings, PhysicalControl};
+
+    /// Exactly the keys this translation layer claims to support. A default
+    /// binding naming a usage outside this set is dead input: the player
+    /// presses the key, nothing happens, and nothing reports why.
+    const TRANSLATED_KEYS: &[KeyCode] = &[
+        KeyCode::KeyA,
+        KeyCode::KeyD,
+        KeyCode::KeyS,
+        KeyCode::KeyW,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+        KeyCode::Escape,
+        KeyCode::Space,
+        KeyCode::Tab,
+        KeyCode::Enter,
+        KeyCode::ArrowUp,
+        KeyCode::ArrowDown,
+        KeyCode::ArrowLeft,
+        KeyCode::ArrowRight,
+        KeyCode::F5,
+        KeyCode::ControlLeft,
+        KeyCode::ShiftLeft,
+        KeyCode::AltLeft,
+        KeyCode::SuperLeft,
+        KeyCode::ControlRight,
+        KeyCode::ShiftRight,
+        KeyCode::AltRight,
+        KeyCode::SuperRight,
+    ];
+
+    const TRANSLATED_MOUSE_BUTTONS: &[MouseButton] = &[
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ];
+
+    /// Family-level guard: every default binding must name a physical control
+    /// the app can actually emit, so a future binding cannot silently reintroduce
+    /// an unreachable control.
+    ///
+    /// Touch hit IDs are deliberately out of scope: a binding can name a valid
+    /// hit ID that no on-screen region ever assigns, which this cannot see.
+    /// Touch reachability is tracked as an open gap, not proven here.
+    #[test]
+    fn every_default_binding_names_a_control_the_app_can_emit() {
+        let usages = TRANSLATED_KEYS
+            .iter()
+            .filter_map(|key| keyboard_usage(*key))
+            .collect::<Vec<_>>();
+        let buttons = TRANSLATED_MOUSE_BUTTONS
+            .iter()
+            .filter_map(|button| mouse_button_code(*button))
+            .collect::<Vec<_>>();
+        let gamepad = TRANSLATED_GAMEPAD_BUTTONS
+            .iter()
+            .map(|(code, _)| *code)
+            .collect::<Vec<_>>();
+
+        for binding in ControlSettings::default().bindings() {
+            let action = binding.action;
+            match binding.chord.control {
+                PhysicalControl::KeyboardUsage(code) => assert!(
+                    usages.contains(&code),
+                    "{action:?} is bound to keyboard usage {code:#04x}, which keyboard_usage never emits"
+                ),
+                PhysicalControl::MouseButton(button) => assert!(
+                    buttons.contains(&button),
+                    "{action:?} is bound to mouse button {button}, which mouse_button_code never emits"
+                ),
+                PhysicalControl::GamepadButton(button) => assert!(
+                    gamepad.contains(&button),
+                    "{action:?} is bound to gamepad button {button}, which gamepad_button_codes never emits"
+                ),
+                // Axes and touch hit IDs are supplied wholesale by the frame
+                // translation above and by the app-owned touch layout.
+                PhysicalControl::MouseAxis(_)
+                | PhysicalControl::GamepadAxis { .. }
+                | PhysicalControl::TouchControl(_) => {}
+            }
+        }
+    }
+
+    /// Every key this layer translates must produce a distinct HID usage, so a
+    /// mapping typo cannot quietly alias two keys onto one action.
+    #[test]
+    fn translated_keys_map_to_distinct_usages() {
+        let mut usages = TRANSLATED_KEYS
+            .iter()
+            .filter_map(|key| keyboard_usage(*key))
+            .collect::<Vec<_>>();
+        let translated = usages.len();
+        usages.sort_unstable();
+        usages.dedup();
+        assert_eq!(usages.len(), translated);
+    }
 }

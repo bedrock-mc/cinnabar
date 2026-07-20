@@ -80,10 +80,7 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
             "$(VANILLA_SOURCE_MANIFEST)"
         ),
         "$(ATMOSPHERE_REPORT): $(ATMOSPHERE_BLOB)",
-        concat!(
-            "\t@if [ ! -f \"$@\" ] || [ \"$@\" -ot \"$<\" ]; then ",
-            "$(ATMOSPHERE_COMPILE); fi"
-        ),
+        "\t$(RUN_IF_ASSET_REPORT_STALE) || $(ATMOSPHERE_COMPILE)",
         "\t$(ATMOSPHERE_COMPILE)",
         "atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)",
@@ -120,6 +117,21 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
         2,
         "blob and missing-report recovery must use one shared producer command"
     );
+
+    for (report, carrier, compiler) in [
+        ("ATMOSPHERE_REPORT", "ATMOSPHERE_BLOB", "ATMOSPHERE_COMPILE"),
+        ("ENTITY_ASSET_REPORT", "ENTITY_ASSET_BLOB", "ENTITY_ASSET_COMPILE"),
+        ("FONT_ASSET_REPORT", "FONT_ASSET_BLOB", "FONT_ASSET_COMPILE"),
+        ("HUD_ASSET_REPORT", "HUD_ASSET_BLOB", "HUD_ASSET_COMPILE"),
+    ] {
+        let contract = format!(
+            "$({report}): $({carrier})\n\t$(RUN_IF_ASSET_REPORT_STALE) || $({compiler})"
+        );
+        assert!(
+            makefile.contains(&contract),
+            "missing cross-platform report recovery contract: {contract}"
+        );
+    }
 }
 
 #[test]
@@ -523,6 +535,146 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     fs::remove_dir_all(temporary).unwrap();
 }
 
+#[test]
+fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments() {
+    let make_available = Command::new("make")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !make_available {
+        eprintln!("skipping executable report-recovery test: `make` is unavailable");
+        return;
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let temporary = temporary_directory("make-report-fallback");
+    let pack = temporary.join("resource_pack");
+    let sentinel = pack.join("blocks.json");
+    let manifest = temporary.join("vanilla-source.json");
+    let block = temporary.join("block.bin");
+    let light = temporary.join("light.bin");
+    let biome = temporary.join("biome.bin");
+    let world = temporary.join("world.mcbea");
+    let carrier = temporary.join("entities.mcbeent");
+    let report = temporary.join("entities.json");
+    let invocations = temporary.join("invocations.log");
+    let upstream = temporary.join("upstream.log");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(&sentinel, b"{}").unwrap();
+    fs::copy(root.join("assets/vanilla-source.json"), &manifest).unwrap();
+    for (path, contents) in [
+        (&block, b"block".as_slice()),
+        (&light, b"light".as_slice()),
+        (&biome, b"biome".as_slice()),
+        (&world, b"world".as_slice()),
+        (&carrier, b"carrier".as_slice()),
+    ] {
+        fs::write(path, contents).unwrap();
+    }
+
+    let baseline = SystemTime::now();
+    for path in [&manifest, &block, &light, &biome] {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(baseline - Duration::from_secs(180))
+            .unwrap();
+    }
+    for (path, offset) in [(&sentinel, 120), (&world, 60), (&carrier, 0)] {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(baseline - Duration::from_secs(offset))
+            .unwrap();
+    }
+
+    let producer_script = temporary.join(if cfg!(windows) {
+        "produce-entity.ps1"
+    } else {
+        "produce-entity.sh"
+    });
+    let producer = if cfg!(windows) {
+        fs::write(
+            &producer_script,
+            format!(
+                "param([string]$Label, [string]$First, [string]$Second)\nif ($Label -cne 'quoted value' -or $First -cne 'first value' -or $Second -cne 'second value') {{ throw 'compiler arguments changed' }}\nAdd-Content -LiteralPath '{}' -Value \"$Label|$First|$Second\"\nSet-Content -LiteralPath '{}' -Value carrier\nSet-Content -LiteralPath '{}' -Value report\n",
+                invocations.display(), carrier.display(), report.display()
+            ),
+        )
+        .unwrap();
+        format!(
+            "powershell -NoProfile -ExecutionPolicy Bypass -File \"{}\" \"quoted value\" \"first value\" \"second value\"",
+            make_path(&producer_script)
+        )
+    } else {
+        fs::write(
+            &producer_script,
+            format!(
+                "#!/usr/bin/env bash\nset -euo pipefail\n[[ $# == 3 && $1 == 'quoted value' && $2 == 'first value' && $3 == 'second value' ]]\nprintf '%s|%s|%s\\n' \"$1\" \"$2\" \"$3\" >> '{}'\nprintf carrier > '{}'\nprintf report > '{}'\n",
+                invocations.display(), carrier.display(), report.display()
+            ),
+        )
+        .unwrap();
+        format!(
+            "bash \"{}\" \"quoted value\" \"first value\" \"second value\"",
+            make_path(&producer_script)
+        )
+    };
+    let assignments = [
+        "ASSET_COMPILER_INPUTS=".to_owned(),
+        "VANILLA_FETCH_INPUTS=".to_owned(),
+        format!("PACK_DIR={}", make_path(&pack)),
+        format!("PACK_SENTINEL={}", make_path(&sentinel)),
+        format!("VANILLA_SOURCE_MANIFEST={}", make_path(&manifest)),
+        format!("BLOCK_REGISTRY={}", make_path(&block)),
+        format!("LIGHT_REGISTRY={}", make_path(&light)),
+        format!("BIOME_REGISTRY={}", make_path(&biome)),
+        format!("ASSET_BLOB={}", make_path(&world)),
+        format!("ENTITY_ASSET_BLOB={}", make_path(&carrier)),
+        format!("ENTITY_ASSET_REPORT={}", make_path(&report)),
+        format!("ENTITY_ASSET_COMPILE={producer}"),
+        format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&upstream)),
+        format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),
+    ];
+
+    assert!(!report.exists());
+    let missing_output = run_make_entity(root, &assignments);
+    assert!(
+        missing_output.contains("run-if-asset-report-stale"),
+        "missing-report recovery did not execute the freshness helper: {missing_output}"
+    );
+    assert_eq!(
+        fs::read_to_string(&invocations)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["quoted value|first value|second value"]
+    );
+    assert!(carrier.is_file() && report.is_file());
+
+    fs::File::options()
+        .write(true)
+        .open(&report)
+        .unwrap()
+        .set_modified(baseline - Duration::from_secs(300))
+        .unwrap();
+    let stale_output = run_make_entity(root, &assignments);
+    assert!(
+        stale_output.contains("run-if-asset-report-stale"),
+        "stale-report recovery did not execute the freshness helper: {stale_output}"
+    );
+    assert_eq!(fs::read_to_string(&invocations).unwrap().lines().count(), 2);
+    assert!(
+        !upstream.exists(),
+        "report fallback reached an upstream producer: {}",
+        fs::read_to_string(&upstream).unwrap_or_default()
+    );
+
+    fs::remove_dir_all(temporary).unwrap();
+}
+
 fn run_make_atmosphere(root: &Path, assignments: &[String]) {
     let mut command = Command::new("make");
     command
@@ -542,6 +694,22 @@ fn run_make_atmosphere(root: &Path, assignments: &[String]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn run_make_entity(root: &Path, assignments: &[String]) -> String {
+    let output = Command::new("make")
+        .current_dir(root)
+        .args(["-f", "Makefile", "-j4", "entity-assets"])
+        .args(assignments)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "make entity-assets failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn bash_command_path(path: &Path) -> String {

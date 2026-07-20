@@ -79,8 +79,6 @@ pub enum BlobCacheError {
     InvalidLevelChunkCount(i32),
     #[error("packet is not a cached LevelChunk or SubChunk")]
     NotCachedPacket,
-    #[error("cache miss response contains no requested blobs")]
-    EmptyMissResponse,
     #[error("cache miss response contains unsolicited hash {0:#018x}")]
     UnsolicitedBlob(u64),
     #[error("cache miss response hash {claimed:#018x} disagrees with payload hash {actual:#018x}")]
