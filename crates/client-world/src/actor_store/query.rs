@@ -1,6 +1,7 @@
 use super::*;
 use crate::actor_animation::{
-    ActorAnimationStats, ActorRigSnapshot, LocalPlayerAnimationTickInput, LocalPlayerRigSnapshot,
+    ActorAnimationStats, ActorRigSnapshot, LocalPlayerAnimationTickInput, LocalPlayerRigResolution,
+    LocalPlayerRigSnapshot,
 };
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
@@ -19,10 +20,25 @@ impl ActorStore {
     }
 
     pub(crate) fn player_profile_by_unique_id(&self, unique_id: i64) -> Option<&PlayerProfile> {
-        let uuid = self.player_unique_ids.get(&unique_id)?.as_ref()?;
-        self.players
+        self.player_profile_lookup_by_unique_id(unique_id)
+            .ok()
+            .flatten()
+    }
+
+    pub(crate) fn player_profile_lookup_by_unique_id(
+        &self,
+        unique_id: i64,
+    ) -> Result<Option<&PlayerProfile>, ()> {
+        let Some(uuid) = self.player_unique_ids.get(&unique_id) else {
+            return Ok(None);
+        };
+        let Some(uuid) = uuid.as_ref() else {
+            return Err(());
+        };
+        Ok(self
+            .players
             .get(uuid)
-            .filter(|profile| profile.unique_id == unique_id)
+            .filter(|profile| profile.unique_id == unique_id))
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -77,6 +93,12 @@ impl ActorStore {
         geometry: &protocol::PlayerSkinGeometry,
     ) -> Option<LocalPlayerRigSnapshot<'_>> {
         self.animation.local_player(geometry)
+    }
+    pub(crate) fn local_player_rig_resolution(
+        &self,
+        geometry: &protocol::PlayerSkinGeometry,
+    ) -> LocalPlayerRigResolution {
+        self.animation.local_player_resolution(geometry)
     }
     pub(crate) fn advance_local_player_animation(&mut self, input: LocalPlayerAnimationTickInput) {
         self.animation.advance_local_player_tick(input);

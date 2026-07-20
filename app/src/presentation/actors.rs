@@ -476,7 +476,10 @@ fn skin_geometry_matches_rig(geometry: &PlayerSkinGeometry, rig: &ActorRigSnapsh
     match geometry {
         PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
         PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
-        PlayerSkinGeometry::Custom { .. } => false,
+        PlayerSkinGeometry::Custom {
+            identifier,
+            data_sha256,
+        } => identifier.as_ref() == rig.geometry_identifier && data_sha256 == &rig.geometry_sha256,
     }
 }
 
@@ -487,6 +490,9 @@ fn local_skin_geometry_matches_rig(
     match geometry {
         PlayerSkinGeometry::Wide => rig.geometry_identifier == "geometry.humanoid.custom",
         PlayerSkinGeometry::Slim => rig.geometry_identifier == "geometry.humanoid.customSlim",
-        PlayerSkinGeometry::Custom { .. } => false,
+        PlayerSkinGeometry::Custom {
+            identifier,
+            data_sha256,
+        } => identifier.as_ref() == rig.geometry_identifier && data_sha256 == &rig.geometry_sha256,
     }
 }

@@ -114,6 +114,35 @@ impl WorldStream {
         let unique_id = self.local_player_game_mode?.unique_id();
         self.actors.player_profile_by_unique_id(unique_id)
     }
+    pub fn local_player_rig_authority_status(&self) -> LocalPlayerRigAuthorityStatus {
+        let Some(authority) = self.local_player_game_mode else {
+            return LocalPlayerRigAuthorityStatus::MissingStartGameAuthority;
+        };
+        let profile = match self
+            .actors
+            .player_profile_lookup_by_unique_id(authority.unique_id())
+        {
+            Ok(Some(profile)) => profile,
+            Ok(None) => return LocalPlayerRigAuthorityStatus::MissingPlayerListProfile,
+            Err(()) => return LocalPlayerRigAuthorityStatus::AmbiguousPlayerListIdentity,
+        };
+        let skin = match &profile.skin {
+            protocol::PlayerSkin::Standard(skin) => skin,
+            protocol::PlayerSkin::Unavailable(reason) => {
+                return LocalPlayerRigAuthorityStatus::SkinUnavailable(*reason);
+            }
+        };
+        match self.actors.local_player_rig_resolution(&skin.geometry) {
+            LocalPlayerRigResolution::MissingVariant => {
+                LocalPlayerRigAuthorityStatus::MissingCompiledRigVariant
+            }
+            LocalPlayerRigResolution::GeometryFingerprintMismatch => {
+                LocalPlayerRigAuthorityStatus::GeometryFingerprintMismatch
+            }
+            LocalPlayerRigResolution::PoseNotReady => LocalPlayerRigAuthorityStatus::PoseNotReady,
+            LocalPlayerRigResolution::Ready => LocalPlayerRigAuthorityStatus::Ready,
+        }
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }

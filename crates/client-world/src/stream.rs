@@ -37,6 +37,7 @@ use world::{
     solve_light,
 };
 
+use super::actor_animation::LocalPlayerRigResolution;
 use super::actor_animation::{ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot};
 use super::actor_store::{ActorApplyResult, ActorPose, ActorSnapshot, ActorStore, PlayerProfile};
 use super::block_entity_visuals::{
@@ -73,6 +74,56 @@ use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
 use request_queue::RequestQueue;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalPlayerRigAuthorityStatus {
+    MissingStartGameAuthority,
+    MissingPlayerListProfile,
+    AmbiguousPlayerListIdentity,
+    SkinUnavailable(protocol::PlayerSkinUnavailable),
+    MissingCompiledRigVariant,
+    GeometryFingerprintMismatch,
+    PoseNotReady,
+    Ready,
+}
+
+impl LocalPlayerRigAuthorityStatus {
+    pub const fn marker(self) -> &'static str {
+        match self {
+            Self::MissingStartGameAuthority => "missing_start_game_authority",
+            Self::MissingPlayerListProfile => "missing_player_list_profile",
+            Self::AmbiguousPlayerListIdentity => "ambiguous_player_list_identity",
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::UnsupportedPersona) => {
+                "skin_unavailable_persona"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::UnsupportedAppearance) => {
+                "skin_unavailable_appearance"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidDimensions) => {
+                "skin_unavailable_dimensions"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidByteLength) => {
+                "skin_unavailable_byte_length"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidArmSize) => {
+                "skin_unavailable_arm_size"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidGeometry) => {
+                "skin_unavailable_geometry"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::GeometryTooLarge) => {
+                "skin_unavailable_geometry_too_large"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::RetainedBudgetExceeded) => {
+                "skin_unavailable_retained_budget"
+            }
+            Self::MissingCompiledRigVariant => "missing_compiled_rig_variant",
+            Self::GeometryFingerprintMismatch => "geometry_fingerprint_mismatch",
+            Self::PoseNotReady => "pose_not_ready",
+            Self::Ready => "ready",
+        }
+    }
+}
 
 pub use actor_witness::{COMMITTED_ACTOR_MOVE_CAPACITY, CommittedActorMove, CommittedActorPose};
 pub use diagnostics::{

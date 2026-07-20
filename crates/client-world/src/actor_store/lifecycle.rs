@@ -387,16 +387,22 @@ impl ActorStore {
                         PlayerSkin::Standard(skin) => Some(skin.geometry.clone()),
                         PlayerSkin::Unavailable(_) => None,
                     });
-            let desired_identifier = geometry.as_ref().and_then(|geometry| match geometry {
-                protocol::PlayerSkinGeometry::Wide => Some("geometry.humanoid.custom"),
-                protocol::PlayerSkinGeometry::Slim => Some("geometry.humanoid.customSlim"),
-                protocol::PlayerSkinGeometry::Custom { .. } => None,
+            let desired_identity = geometry.as_ref().map(|geometry| match geometry {
+                protocol::PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
+                protocol::PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
+                protocol::PlayerSkinGeometry::Custom {
+                    identifier,
+                    data_sha256,
+                } => (identifier.as_ref(), Some(data_sha256)),
             });
-            if self
-                .animation
-                .get(runtime_id)
-                .map(|rig| rig.geometry_identifier)
-                == desired_identifier
+            let current_matches = self.animation.get(runtime_id).is_some_and(|rig| {
+                desired_identity.is_some_and(|(identifier, expected_sha256)| {
+                    rig.geometry_identifier == identifier
+                        && expected_sha256.is_none_or(|expected| rig.geometry_sha256 == *expected)
+                })
+            });
+            if current_matches
+                || (desired_identity.is_none() && self.animation.get(runtime_id).is_none())
             {
                 continue;
             }

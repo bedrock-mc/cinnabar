@@ -818,6 +818,7 @@ pub(crate) fn publish_actor_render_frame(
         local_rig,
         remotes,
         canonical_local,
+        local_authority_status,
     ) = client_world
         .stream
         .as_ref()
@@ -850,9 +851,20 @@ pub(crate) fn publish_actor_render_frame(
                 stream.local_player_rig(),
                 remotes,
                 canonical_local,
+                stream.local_player_rig_authority_status(),
             )
         })
-        .unwrap_or((0, 0, 0, false, None, None, Vec::new(), None));
+        .unwrap_or((
+            0,
+            0,
+            0,
+            false,
+            None,
+            None,
+            Vec::new(),
+            None,
+            client_world::LocalPlayerRigAuthorityStatus::MissingStartGameAuthority,
+        ));
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -899,6 +911,7 @@ pub(crate) fn publish_actor_render_frame(
         local_visible,
         expected_runtime_id: local_runtime_id,
         visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
+        local_authority: local_authority_status.marker(),
         selected_count,
         local_route: frame
             .rig

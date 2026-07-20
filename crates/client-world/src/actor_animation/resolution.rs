@@ -57,9 +57,12 @@ pub(super) fn resolve_rig_for_skin_geometry(
     geometry: Option<&PlayerSkinGeometry>,
 ) -> Option<ActorRigState> {
     let requested = match geometry {
-        Some(PlayerSkinGeometry::Wide) => Some("geometry.humanoid.custom"),
-        Some(PlayerSkinGeometry::Slim) => Some("geometry.humanoid.customSlim"),
-        Some(PlayerSkinGeometry::Custom { .. }) => return None,
+        Some(PlayerSkinGeometry::Wide) => Some(("geometry.humanoid.custom", None)),
+        Some(PlayerSkinGeometry::Slim) => Some(("geometry.humanoid.customSlim", None)),
+        Some(PlayerSkinGeometry::Custom {
+            identifier,
+            data_sha256,
+        }) => Some((identifier.as_ref(), Some(data_sha256))),
         None => None,
     };
     let state = resolve_rig_for_geometry(assets, actor, completed_tick, requested)?;
@@ -70,7 +73,7 @@ pub(super) fn resolve_rig_for_geometry(
     assets: &RuntimeEntityAssets,
     actor: &ActorSnapshot,
     completed_tick: u64,
-    requested_geometry: Option<&str>,
+    requested_geometry: Option<(&str, Option<&[u8; 32]>)>,
 ) -> Option<ActorRigState> {
     let identifier = match &actor.kind {
         ActorKind::Player { .. } => "minecraft:player",
@@ -104,7 +107,7 @@ pub(super) fn resolve_rig_for_geometry(
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
     };
-    let requested_offset = requested_geometry.map(|identifier| {
+    let requested_offset = requested_geometry.map(|(identifier, expected_sha256)| {
         let mut matches = candidates
             .iter()
             .enumerate()
@@ -112,7 +115,11 @@ pub(super) fn resolve_rig_for_geometry(
                 assets
                     .geometries()
                     .get(candidate.geometry as usize)
-                    .is_some_and(|geometry| geometry.identifier.as_ref() == identifier)
+                    .is_some_and(|geometry| {
+                        geometry.identifier.as_ref() == identifier
+                            && expected_sha256
+                                .is_none_or(|expected| &geometry.semantic_sha256 == expected)
+                    })
                     .then_some(offset)
             });
         let selected = matches.next()?;

@@ -75,6 +75,14 @@ pub struct LocalPlayerRigSnapshot<'a> {
     pub fallback: EntityRigFallback,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LocalPlayerRigResolution {
+    MissingVariant,
+    GeometryFingerprintMismatch,
+    PoseNotReady,
+    Ready,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ActorAnimationStats {
     pub evaluated_molang_ops: u64,
@@ -239,7 +247,7 @@ impl ActorAnimationStore {
                         assets,
                         &local_player_resolution_actor(),
                         1,
-                        Some(identifier),
+                        Some((identifier, None)),
                     )?;
                     state.reset_generation = 1;
                     Some((identifier.into(), state))
@@ -267,11 +275,16 @@ impl ActorAnimationStore {
     }
 
     pub(crate) fn reset_local_player(&mut self) {
+        let mut reset_generation = self.next_reset_generation.max(1);
         for state in self.local_players.values_mut() {
+            state.previous.clone_from(&state.current);
             state.reset_pending = true;
-            state.completed_tick = 0;
+            state.completed_tick = state.completed_tick.max(1);
+            state.reset_generation = reset_generation;
+            reset_generation = reset_generation.saturating_add(1);
             state.history.clear();
         }
+        self.next_reset_generation = reset_generation;
     }
 
     pub(crate) fn advance_local_player_tick(&mut self, input: LocalPlayerAnimationTickInput) {
@@ -473,17 +486,23 @@ impl ActorAnimationStore {
         &self,
         geometry: &PlayerSkinGeometry,
     ) -> Option<LocalPlayerRigSnapshot<'_>> {
-        let identifier = match geometry {
-            PlayerSkinGeometry::Wide => "geometry.humanoid.custom",
-            PlayerSkinGeometry::Slim => "geometry.humanoid.customSlim",
-            PlayerSkinGeometry::Custom { .. } => return None,
+        let (identifier, expected_sha256) = match geometry {
+            PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
+            PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
+            PlayerSkinGeometry::Custom {
+                identifier,
+                data_sha256,
+            } => (identifier.as_ref(), Some(data_sha256)),
         };
         let state = self.local_players.get(identifier)?;
         let compiled_geometry = self.geometry(state)?;
+        if expected_sha256.is_some_and(|expected| &compiled_geometry.semantic_sha256 != expected) {
+            return None;
+        }
         (state.previous.len() == state.current.len() && !state.previous.is_empty()).then_some(
             LocalPlayerRigSnapshot {
                 rig: state.rig,
-                geometry_identifier: identifier,
+                geometry_identifier: compiled_geometry.identifier.as_ref(),
                 geometry_sha256: compiled_geometry.semantic_sha256,
                 previous: &state.previous,
                 current: &state.current,
@@ -492,6 +511,38 @@ impl ActorAnimationStore {
                 fallback: state.fallback,
             },
         )
+    }
+
+    pub(crate) fn local_player_resolution(
+        &self,
+        geometry: &PlayerSkinGeometry,
+    ) -> LocalPlayerRigResolution {
+        let (identifier, expected_sha256) = match geometry {
+            PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
+            PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
+            PlayerSkinGeometry::Custom {
+                identifier,
+                data_sha256,
+            } => (identifier.as_ref(), Some(data_sha256)),
+        };
+        let Some(state) = self.local_players.get(identifier) else {
+            return LocalPlayerRigResolution::MissingVariant;
+        };
+        let Some(compiled_geometry) = self.geometry(state) else {
+            return LocalPlayerRigResolution::MissingVariant;
+        };
+        if expected_sha256.is_some_and(|expected| &compiled_geometry.semantic_sha256 != expected) {
+            return LocalPlayerRigResolution::GeometryFingerprintMismatch;
+        }
+        if state.completed_tick == 0
+            || state.reset_generation == 0
+            || state.previous.is_empty()
+            || state.previous.len() != state.current.len()
+        {
+            LocalPlayerRigResolution::PoseNotReady
+        } else {
+            LocalPlayerRigResolution::Ready
+        }
     }
 
     pub(crate) const fn stats(&self) -> ActorAnimationStats {

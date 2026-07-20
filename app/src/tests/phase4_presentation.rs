@@ -212,6 +212,7 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
         pitch: -10.0,
     });
     let wide_snapshot = stream.local_player_rig().expect("wide local rig");
+    let wide_geometry_sha256 = wide_snapshot.geometry_sha256;
     assert_ne!(
         wide_snapshot.previous, wide_snapshot.current,
         "authoritative movement/view ticks must change the real compiled pose"
@@ -280,7 +281,7 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
                         skin: skin(
                             protocol::PlayerSkinGeometry::Custom {
                                 identifier: "geometry.humanoid.custom".into(),
-                                data_sha256: [0; 32],
+                                data_sha256: wide_geometry_sha256,
                             },
                             0x7c,
                         ),
@@ -290,8 +291,34 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
         )
         .unwrap();
     assert!(
-        stream.local_player_rig().is_none(),
-        "custom geometry is NoDraw"
+        stream.local_player_rig().is_some(),
+        "packet geometry exactly matching the pinned fingerprint is renderable"
+    );
+    let exact_custom = local_player_rig_presentation(
+        &stream.local_player_rig().unwrap(),
+        stream.local_player_profile().unwrap(),
+        LocalPlayerPresentationAuthority {
+            actor_session_id: 7,
+            dimension: 0,
+            runtime_id: 42,
+            pose_generation: 3,
+            position: [0.0, 64.0, 0.0],
+            yaw_degrees: 60.0,
+        },
+    )
+    .expect("exact pinned custom geometry reaches presentation");
+    let exact_custom_batch =
+        select_actor_presentations_for_view(42, true, Some(exact_custom), [], |_| true);
+    let mut exact_custom_scene =
+        ActorRenderScene::with_runtime_entity_assets(&entity_assets).unwrap();
+    let exact_custom_frame =
+        update_actor_rig_scene(&mut exact_custom_scene, 0.5, exact_custom_batch);
+    assert_eq!(exact_custom_frame.rig.manifest.len(), 1);
+    assert!(
+        exact_custom_frame
+            .skins_rgba8
+            .iter()
+            .all(|byte| *byte == 0x7c)
     );
 
     let spawn = |runtime_id: u64, unique_id: i64, uuid: [u8; 16]| {
@@ -466,6 +493,32 @@ fn pinned_carrier_reaches_local_and_remote_render_manifests_with_exact_player_au
         stream.actor_rig(52).is_none(),
         "unavailable appearance authority is NoDraw"
     );
+    stream
+        .submit(
+            15,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [9; 16],
+                        unique_id: -9,
+                        username: "self".into(),
+                        verified: true,
+                        skin: skin(
+                            protocol::PlayerSkinGeometry::Custom {
+                                identifier: "geometry.humanoid.custom".into(),
+                                data_sha256: [0; 32],
+                            },
+                            0x7d,
+                        ),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    assert!(
+        stream.local_player_rig().is_none(),
+        "mismatched packet geometry fingerprint remains NoDraw"
+    );
 }
 
 #[test]
@@ -552,6 +605,63 @@ fn local_and_remote_presentations_reject_skin_rig_geometry_mismatches() {
     )
     .unwrap();
     assert_eq!(presentation.submission.route, ActorRigRoute::NoDraw);
+}
+
+#[test]
+fn exact_pinned_custom_geometry_fingerprint_is_renderable_but_mismatch_is_not() {
+    let bones = [model_bone([0.0, 24.0, 0.0])];
+    let mut custom_profile = profile(9, 37);
+    let PlayerSkin::Standard(skin) = &mut custom_profile.skin else {
+        unreachable!();
+    };
+    skin.geometry = protocol::PlayerSkinGeometry::Custom {
+        identifier: "geometry.humanoid.custom".into(),
+        data_sha256: [0; 32],
+    };
+    assert!(
+        local_player_rig_presentation(
+            &local_rig(&bones),
+            &custom_profile,
+            LocalPlayerPresentationAuthority {
+                actor_session_id: 7,
+                dimension: 0,
+                runtime_id: 42,
+                pose_generation: 12,
+                position: [1.0, 64.0, 2.0],
+                yaw_degrees: 0.0,
+            },
+        )
+        .is_some()
+    );
+    custom_profile.unique_id = 9;
+    let remote = actor_rig_presentation(
+        &rig(9, &bones, &bones),
+        &actor(9, 11),
+        Some(&custom_profile),
+        0.5,
+    )
+    .unwrap();
+    assert_eq!(remote.submission.route, ActorRigRoute::StaticFallback);
+
+    let PlayerSkin::Standard(skin) = &mut custom_profile.skin else {
+        unreachable!();
+    };
+    let protocol::PlayerSkinGeometry::Custom { data_sha256, .. } = &mut skin.geometry else {
+        unreachable!();
+    };
+    *data_sha256 = [1; 32];
+    assert_eq!(
+        actor_rig_presentation(
+            &rig(9, &bones, &bones),
+            &actor(9, 11),
+            Some(&custom_profile),
+            0.5,
+        )
+        .unwrap()
+        .submission
+        .route,
+        ActorRigRoute::NoDraw
+    );
 }
 
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {

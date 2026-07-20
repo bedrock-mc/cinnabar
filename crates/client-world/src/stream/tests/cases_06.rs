@@ -173,6 +173,60 @@ fn start_game_self_resolves_only_its_exact_player_list_skin_without_add_player()
         stream.local_player_profile().map(|profile| &profile.skin),
         Some(&skin(9))
     );
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::MissingCompiledRigVariant,
+        "diagnostic stream has exact roster authority but deliberately no entity carrier"
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [10; 16],
+                    unique_id: -9,
+                    username: "duplicate-self".into(),
+                    verified: true,
+                    skin: skin(10),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::AmbiguousPlayerListIdentity
+    );
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: [10; 16] }]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            4,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Add {
+                    uuid: [9; 16],
+                    unique_id: -9,
+                    username: "self".into(),
+                    verified: true,
+                    skin: PlayerSkin::Unavailable(
+                        protocol::PlayerSkinUnavailable::UnsupportedPersona,
+                    ),
+                }]),
+            })),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.local_player_rig_authority_status(),
+        LocalPlayerRigAuthorityStatus::SkinUnavailable(
+            protocol::PlayerSkinUnavailable::UnsupportedPersona
+        )
+    );
 }
 
 #[test]
