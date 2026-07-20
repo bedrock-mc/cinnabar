@@ -129,7 +129,7 @@ fn empty_scene_and_zero_area_batches_do_not_allocate_or_draw() {
     harness.publish(input).unwrap();
 
     let prepared = harness.prepare().unwrap();
-    assert_eq!(prepared.draw_order(), &[]);
+    assert_eq!(prepared.draw_order(), &[] as &[usize]);
     assert_eq!(harness.stats().draw_calls, 0);
     assert_eq!(harness.stats().uploaded_vertices, 0);
     assert_eq!(harness.stats().uploaded_indices, 0);
@@ -234,9 +234,27 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
         .into();
     let indices = vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11].into();
     let batches = vec![
-        UiRenderBatch::new(0, UiScissor::new(0, 0, 64, 64), 0, 6),
-        UiRenderBatch::new(0, UiScissor::new(4, 5, 20, 21), 6, 6),
-        UiRenderBatch::new(1, UiScissor::new(0, 0, 64, 64), 12, 6),
+        UiRenderBatch::new(
+            0,
+            UiScissor::new(0, 0, 64, 64),
+            0,
+            6,
+            render::UI_BLEND_ALPHA,
+        ),
+        UiRenderBatch::new(
+            0,
+            UiScissor::new(4, 5, 20, 21),
+            6,
+            6,
+            render::UI_BLEND_INVERT,
+        ),
+        UiRenderBatch::new(
+            1,
+            UiScissor::new(0, 0, 64, 64),
+            12,
+            6,
+            render::UI_BLEND_ALPHA,
+        ),
     ]
     .into();
     UiRenderInput {

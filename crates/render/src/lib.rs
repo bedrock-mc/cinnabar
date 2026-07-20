@@ -78,9 +78,9 @@ pub use present_mode::{
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
-    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UiRenderBatch, UiRenderInput, UiRenderReject,
-    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
-    UiRenderTextureArray, UiRenderVertex, UiScissor,
+    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UiRenderBatch,
+    UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats,
+    UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
 pub use ui_render::UiRenderPlugin;
 pub use visibility_diagnostics::{

@@ -20,12 +20,12 @@ use bevy::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor,
             BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor,
-            BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
-            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, Canonical,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
+            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
+            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
             VertexStepMode,
         },
@@ -37,8 +37,8 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::ui::{
-    MAX_UI_INDICES, MAX_UI_VERTICES, UiRenderBatch, UiRenderRejectReason, UiRenderScene,
-    UiRenderStats, UiRenderVertex,
+    MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderRejectReason,
+    UiRenderScene, UiRenderStats, UiRenderVertex,
 };
 #[cfg(test)]
 use crate::ui::{UiRenderInput, UiRenderReject, UiScissor};
@@ -114,6 +114,12 @@ pub(crate) struct UiGpu {
     bind_group: Option<BindGroup>,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
+    /// Specialized pipelines for the frame's view: the shared alpha pipeline
+    /// and the crosshair invert variant. Written by `queue_ui_overlay` (the
+    /// overlay renders through the single primary view) and read by
+    /// `DrawUiBatches` to switch blends between batches.
+    alpha_pipeline: Option<CachedRenderPipelineId>,
+    invert_pipeline: Option<CachedRenderPipelineId>,
 }
 
 fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -152,6 +158,8 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         bind_group: None,
         batches: Arc::from([]),
         accepted_revision: None,
+        alpha_pipeline: None,
+        invert_pipeline: None,
     });
 }
 
@@ -345,14 +353,40 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
     )
 }
 
-pub(crate) fn ui_pipeline_descriptor(
-    bind_group_layout: BindGroupLayoutDescriptor,
-) -> RenderPipelineDescriptor {
+/// The premultiplied-alpha blend state shared by every UI quad except the
+/// crosshair.
+pub(crate) fn ui_alpha_blend_state() -> BlendState {
     let blend = BlendComponent {
         src_factor: BlendFactor::One,
         dst_factor: BlendFactor::OneMinusSrcAlpha,
         operation: BlendOperation::Add,
     };
+    BlendState {
+        color: blend,
+        alpha: blend,
+    }
+}
+
+/// The classic crosshair invert: color = src*(1-dst) + dst*(1-src), so the
+/// white cross reads against any background; alpha passes the source through.
+pub(crate) fn ui_invert_blend_state() -> BlendState {
+    BlendState {
+        color: BlendComponent {
+            src_factor: BlendFactor::OneMinusDst,
+            dst_factor: BlendFactor::OneMinusSrc,
+            operation: BlendOperation::Add,
+        },
+        alpha: BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::Zero,
+            operation: BlendOperation::Add,
+        },
+    }
+}
+
+pub(crate) fn ui_pipeline_descriptor(
+    bind_group_layout: BindGroupLayoutDescriptor,
+) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("shared retained UI overlay pipeline".into()),
         layout: vec![bind_group_layout],
@@ -392,10 +426,7 @@ pub(crate) fn ui_pipeline_descriptor(
             entry_point: Some("ui_fragment".into()),
             targets: vec![Some(ColorTargetState {
                 format: TextureFormat::bevy_default(),
-                blend: Some(BlendState {
-                    color: blend,
-                    alpha: blend,
-                }),
+                blend: Some(ui_alpha_blend_state()),
                 write_mask: ColorWrites::ALL,
             })],
             ..default()
@@ -420,6 +451,7 @@ pub(crate) fn ui_pipeline_descriptor(
 struct UiPipelineKey {
     msaa: Msaa,
     hdr: bool,
+    invert_blend: bool,
 }
 
 impl Specializer<RenderPipeline> for UiPipelineSpecializer {
@@ -431,14 +463,19 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
-        descriptor.fragment.as_mut().unwrap().targets[0]
+        let target = descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
-            .unwrap()
-            .format = if key.hdr {
+            .unwrap();
+        target.format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
         } else {
             TextureFormat::bevy_default()
         };
+        target.blend = Some(if key.invert_blend {
+            ui_invert_blend_state()
+        } else {
+            ui_alpha_blend_state()
+        });
         Ok(key)
     }
 }
@@ -478,7 +515,7 @@ fn prepare_ui_bind_group(
 fn queue_ui_overlay(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<UiPipeline>,
-    gpu: Res<UiGpu>,
+    mut gpu: ResMut<UiGpu>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
@@ -500,10 +537,23 @@ fn queue_ui_overlay(
             UiPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                invert_blend: false,
             },
         ) else {
             continue;
         };
+        let Ok(invert_pipeline_id) = pipeline.variants.specialize(
+            &pipeline_cache,
+            UiPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+                invert_blend: true,
+            },
+        ) else {
+            continue;
+        };
+        gpu.alpha_pipeline = Some(pipeline_id);
+        gpu.invert_pipeline = Some(invert_pipeline_id);
         phase.add(Transparent3d {
             entity: (view_entity, *main_entity),
             pipeline: pipeline_id,
@@ -543,7 +593,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetUiBindGroup<I> {
 struct DrawUiBatches;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
-    type Param = SRes<UiGpu>;
+    type Param = (SRes<UiGpu>, SRes<PipelineCache>);
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -551,16 +601,39 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
+        (gpu, pipeline_cache): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
+        let pipeline_cache = pipeline_cache.into_inner();
         let (Some(vertices), Some(indices)) = (&gpu.vertex_buffer, &gpu.index_buffer) else {
             return RenderCommandResult::Skip;
         };
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        // SetItemPipeline already bound the alpha pipeline; track transitions
+        // so consecutive same-blend batches never rebind.
+        let mut invert_bound = false;
         for batch in gpu.batches.iter() {
+            let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
+            if wants_invert != invert_bound {
+                let id = if wants_invert {
+                    gpu.invert_pipeline
+                } else {
+                    gpu.alpha_pipeline
+                };
+                let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id))
+                else {
+                    // The invert variant is still compiling; skip its batches
+                    // this frame rather than drawing them with the wrong blend.
+                    if wants_invert {
+                        continue;
+                    }
+                    return RenderCommandResult::Skip;
+                };
+                pass.set_render_pipeline(pipeline);
+                invert_bound = wants_invert;
+            }
             let scissor = batch.scissor;
             pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
             pass.draw_indexed(
