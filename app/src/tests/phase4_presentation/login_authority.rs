@@ -44,10 +44,12 @@ fn login_skin_renders_local_manifest_without_player_list() {
     });
 
     assert!(stream.local_player_profile().is_none());
+    let rig = stream
+        .local_player_rig()
+        .expect("login-authority local rig");
+    assert_eq!(rig.geometry_identifier, "geometry.humanoid.custom");
     let local = crate::presentation::actors::local_player_skin_rig_presentation(
-        &stream
-            .local_player_rig()
-            .expect("login-authority local rig"),
+        &rig,
         stream
             .local_player_skin_authority()
             .expect("retained login skin"),
@@ -66,5 +68,27 @@ fn login_skin_renders_local_manifest_without_player_list() {
     let frame = update_actor_rig_scene(&mut scene, 1.0, batch);
     assert_eq!(frame.rig.manifest.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
-    assert!(!frame.skins_rgba8.is_empty());
+    assert_eq!(
+        (frame.texture_atlas_width, frame.texture_atlas_height),
+        (66, 66)
+    );
+    let atlas_pixel = |x: usize, y: usize| {
+        let offset = ((y + 1) * frame.texture_atlas_width as usize + x + 1) * 4;
+        &frame.skins_rgba8[offset..offset + 4]
+    };
+    assert_eq!(atlas_pixel(9, 11), &[42, 54, 72, 255], "left eye");
+    assert_eq!(atlas_pixel(10, 12), &[198, 126, 84, 255], "face");
+    assert_eq!(atlas_pixel(20, 20), &[148, 45, 51, 255], "shirt");
+    assert_eq!(atlas_pixel(20, 52), &[45, 55, 76, 255], "left leg");
+    assert_eq!(atlas_pixel(32, 0), &[0; 4], "transparent outer layer");
+    let geometry_span = frame.rig.geometry_spans[frame.rig.instances[0].geometry_id as usize];
+    let geometry_vertices = &frame.rig.geometry_vertices[geometry_span.first_vertex as usize
+        ..(geometry_span.first_vertex + geometry_span.vertex_count) as usize];
+    assert!(
+        geometry_vertices.iter().any(|vertex| {
+            (vertex.uv[0] - 8.0 / 64.0).abs() < f32::EPSILON
+                && (vertex.uv[1] - 8.0 / 64.0).abs() < f32::EPSILON
+        }),
+        "the production login skin reaches the real wide rig's head-front island"
+    );
 }
