@@ -24,6 +24,42 @@ function ConvertTo-ExtendedLengthPath {
     return "\\?\$fullPath"
 }
 
+function Get-Sha256Hex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # Windows PowerShell 5.1 exports Get-FileHash as a *function* from
+    # Microsoft.PowerShell.Utility.psm1, not as a binary cmdlet, so it is the
+    # only command in this script that needs that script module to auto-load.
+    # A runner where auto-loading does not happen still resolves every cmdlet
+    # from the pre-loaded snap-in, which is why a fetch can download the whole
+    # archive and only then fail with CommandNotFoundException on Get-FileHash.
+    # Hash through the same .NET primitive the cmdlet itself streams over, so
+    # pinned verification keeps identical strength without that dependency.
+    $stream = [System.IO.File]::Open(
+        (ConvertTo-ExtendedLengthPath -Path $Path),
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read
+    )
+    try {
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $hasher.ComputeHash($stream)
+        } finally {
+            $hasher.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    if ($null -eq $digest -or $digest.Length -ne 32) {
+        throw "SHA-256 digest computation failed for $Path"
+    }
+    return [System.BitConverter]::ToString($digest).Replace("-", "").ToLowerInvariant()
+}
+
 function Remove-ExtractionTree {
     param(
         [Parameter(Mandatory = $true)]
@@ -33,6 +69,25 @@ function Remove-ExtractionTree {
     $extendedPath = ConvertTo-ExtendedLengthPath -Path $Path
     if ([System.IO.Directory]::Exists($extendedPath)) {
         [System.IO.Directory]::Delete($extendedPath, $true)
+    }
+}
+
+function Get-Sha256Hex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $stream = [System.IO.File]::OpenRead((ConvertTo-ExtendedLengthPath -Path $Path))
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
     }
 }
 
@@ -284,7 +339,7 @@ New-Item -ItemType Directory -Force -Path $downloadDirectory, $cacheParent | Out
 
 $archiveVerified = $false
 if (Test-Path -LiteralPath $archivePath -PathType Leaf) {
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex -Path $archivePath
     if ($actual -eq $expectedSha256) {
         $archiveVerified = $true
         Write-Output "Using verified archive: $archivePath"
@@ -299,7 +354,7 @@ if (-not $archiveVerified) {
     }
     Write-Output "Downloading $($source.url)"
     Invoke-WebRequest -UseBasicParsing -Uri ([string]$source.url) -OutFile $partialPath
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $partialPath).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex -Path $partialPath
     if ($actual -ne $expectedSha256) {
         Remove-Item -Force -LiteralPath $partialPath
         throw "SHA-256 mismatch: expected $expectedSha256, got $actual"

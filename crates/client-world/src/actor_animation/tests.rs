@@ -16,6 +16,9 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
         kind: ActorKind::Entity {
             identifier: "minecraft:test".into(),
         },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
         position: [0.0; 3],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -37,14 +40,168 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
 }
 
 #[test]
+#[ignore = "requires PINNED_ENTITY_CARRIER built from the pinned official resource pack"]
+fn pinned_carrier_resolves_both_local_player_rigs_and_advances_consecutive_ticks() {
+    let path = std::env::var_os("PINNED_ENTITY_CARRIER")
+        .expect("set PINNED_ENTITY_CARRIER to the ignored compiled carrier");
+    let bytes = std::fs::read(path).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let mut store = ActorAnimationStore::with_assets(assets);
+    assert!(store.local_player(&PlayerSkinGeometry::Wide).is_some());
+    assert!(store.local_player(&PlayerSkinGeometry::Slim).is_some());
+    store.reset_local_player();
+    let reset = store.local_player(&PlayerSkinGeometry::Wide).unwrap();
+    assert_ne!(reset.completed_tick, 0);
+    assert_ne!(reset.reset_generation, 0);
+    assert_eq!(reset.previous, reset.current);
+    store.advance_local_player_tick(LocalPlayerAnimationTickInput {
+        tick: 1,
+        velocity: [0.2, 0.0, 0.0],
+        on_ground: true,
+        body_yaw: 45.0,
+        head_yaw: 45.0,
+        pitch: 0.0,
+    });
+    store.advance_local_player_tick(LocalPlayerAnimationTickInput {
+        tick: 2,
+        velocity: [0.2, 0.0, 0.0],
+        on_ground: true,
+        body_yaw: 45.0,
+        head_yaw: 55.0,
+        pitch: -10.0,
+    });
+    assert_eq!(
+        store
+            .local_player(&PlayerSkinGeometry::Wide)
+            .unwrap()
+            .completed_tick,
+        2
+    );
+    let wide = store.local_player(&PlayerSkinGeometry::Wide).unwrap();
+    assert!(
+        store
+            .local_player(&PlayerSkinGeometry::Custom {
+                identifier: wide.geometry_identifier.into(),
+                data_sha256: wide.geometry_sha256,
+            })
+            .is_some(),
+        "packet geometry proven identical to the pinned rig remains renderable"
+    );
+    assert!(
+        store
+            .local_player(&PlayerSkinGeometry::Custom {
+                identifier: "geometry.humanoid.custom".into(),
+                data_sha256: [0xff; 32],
+            })
+            .is_none(),
+        "unproven packet geometry must fail closed"
+    );
+}
+
+#[test]
+fn local_reset_keeps_a_valid_static_pose_ready_without_a_followup_physics_tick() {
+    let mut store = ActorAnimationStore::diagnostic();
+    let old = BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 1.0, 0.0, 1.0],
+    };
+    let current = BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 2.0, 0.0, 1.0],
+    };
+    store.local_players.insert(
+        "geometry.humanoid.custom".into(),
+        ActorRigState {
+            rig: EntityRigId(1),
+            geometry_binding: 0,
+            bones: vec![],
+            controllers: vec![],
+            previous: vec![old],
+            current: vec![current],
+            reset_generation: 0,
+            reset_pending: false,
+            lifetime_epoch: 1,
+            animation_epoch: 1,
+            completed_tick: 0,
+            fallback: EntityRigFallback::GeometryOnly,
+            texture: None,
+            history: VecDeque::from([ActorTickInput {
+                velocity: [1.0, 0.0, 0.0],
+                on_ground: true,
+                body_yaw: 0.0,
+                head_yaw: 0.0,
+                pitch: 0.0,
+            }]),
+        },
+    );
+
+    store.reset_local_player();
+
+    let state = store.local_players.get("geometry.humanoid.custom").unwrap();
+    assert_eq!(state.previous, state.current);
+    assert_eq!(state.current, vec![current]);
+    assert_eq!(state.completed_tick, 1);
+    assert_ne!(state.reset_generation, 0);
+    assert!(state.reset_pending);
+    assert!(state.history.is_empty());
+}
+
+#[test]
+fn local_view_pose_uses_head_yaw_relative_to_body_and_reaches_head_children() {
+    let bones = [
+        RuntimeBone {
+            name: "root".into(),
+            parent: None,
+            pivot: [0.0; 3],
+            rotation: [0.0; 3],
+        },
+        RuntimeBone {
+            name: "head".into(),
+            parent: Some(0),
+            pivot: [0.0; 3],
+            rotation: [0.0; 3],
+        },
+        RuntimeBone {
+            name: "hat".into(),
+            parent: Some(1),
+            pivot: [0.0; 3],
+            rotation: [0.0; 3],
+        },
+    ];
+    let identity = BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
+    };
+    let mut pose = [identity; 3];
+    apply_view_pose_to_bones(
+        &bones,
+        &mut pose,
+        LocalPlayerAnimationTickInput {
+            tick: 1,
+            velocity: [0.0; 3],
+            on_ground: true,
+            body_yaw: 30.0,
+            head_yaw: 50.0,
+            pitch: -10.0,
+        },
+    );
+    let expected = quat_from_euler([-10.0, 20.0, 0.0]);
+    assert_eq!(pose[0].rotation, identity.rotation);
+    assert_eq!(pose[1].rotation, expected);
+    assert_eq!(pose[2].rotation, expected);
+}
+
+#[test]
 fn child_before_parent_composes_without_reindexing_channels() {
     let bones = [
         RuntimeBone {
+            name: "child".into(),
             parent: Some(1),
             pivot: [0.0, 2.0, 0.0],
             rotation: [0.0; 3],
         },
         RuntimeBone {
+            name: "parent".into(),
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0; 3],
@@ -59,11 +216,13 @@ fn child_before_parent_composes_without_reindexing_channels() {
 fn rotated_parent_uses_child_model_space_pivot_delta() {
     let bones = [
         RuntimeBone {
+            name: "parent".into(),
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 90.0],
         },
         RuntimeBone {
+            name: "child".into(),
             parent: Some(0),
             pivot: [3.0, 0.0, 0.0],
             rotation: [0.0; 3],
@@ -77,6 +236,7 @@ fn rotated_parent_uses_child_model_space_pivot_delta() {
 #[test]
 fn nonuniform_scale_is_rejected_instead_of_silently_truncated() {
     let bones = [RuntimeBone {
+        name: "root".into(),
         parent: None,
         pivot: [0.0; 3],
         rotation: [0.0; 3],

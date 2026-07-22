@@ -345,7 +345,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         session_generation: 1,
         socket_dir,
         display_name: args.display_name.clone(),
-        client_blob_cache: protocol::ClientBlobCache::default(),
     })
     .context("spawn Bedrock network worker")?;
     let present_mode = requested_present_mode(args.no_vsync);

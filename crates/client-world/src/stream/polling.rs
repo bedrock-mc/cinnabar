@@ -223,6 +223,18 @@ impl WorldStream {
     pub const fn local_player_runtime_id(&self) -> u64 {
         self.local_player_runtime_id
     }
+
+    #[must_use]
+    pub fn local_player_render_eligible(&self) -> bool {
+        self.local_player_game_mode
+            .is_none_or(protocol::LocalPlayerGameModeAuthority::is_render_eligible)
+    }
+
+    #[must_use]
+    pub fn local_player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
+        self.local_player_game_mode
+            .map(protocol::LocalPlayerGameModeAuthority::player_game_mode)
+    }
 }
 
 impl WorldStream {

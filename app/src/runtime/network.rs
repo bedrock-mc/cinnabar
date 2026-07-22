@@ -15,8 +15,8 @@ use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorMainWitness, ActorPresentationGate, ActorRenderFrame, ActorRenderScene,
+    ActorRuntimeWitness, ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 #[cfg(test)]
 use render::{ActorRenderSource, ActorSkinPixels};
@@ -24,6 +24,7 @@ use render::{ActorRenderSource, ActorSkinPixels};
 use crate::{
     acceptance::{
         AcceptanceRun,
+        actor_pose::ActorPoseWitnessTracker,
         model_witness::ModelWitnessFileSource,
         mutation::{
             accepted_move_player_ingress_marker, move_player_ingress_marker,
@@ -33,13 +34,15 @@ use crate::{
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
     environment::replace_session,
     local_player::{
-        InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-        LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+        CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation,
+        LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+        LocalViewPose, reset_local_player_session,
     },
     movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
     presentation::actors::{
-        actor_rig_presentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
+        LocalPlayerPresentationAuthority, actor_rig_presentation,
+        local_actor_presentation_for_visibility, select_actor_presentations_for_view,
+        update_actor_rig_scene,
     },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
@@ -84,10 +87,13 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
 pub(crate) struct ActorPresentationState<'w, 's> {
     avatar: Res<'w, LocalAvatarPresentation>,
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
-    settings: Res<'w, CameraSettingsAuthority>,
+    camera_pose: Res<'w, CameraPose>,
     view: Res<'w, LocalViewPose>,
     local_physics: Res<'w, LocalPhysicsController>,
     witness: Res<'w, ActorRuntimeWitness>,
+    acceptance: Res<'w, AcceptanceRun>,
+    presented_frames: Res<'w, ActorPresentationGate>,
+    pose_witness: Local<'s, ActorPoseWitnessTracker>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -112,6 +118,22 @@ pub(crate) fn publish_local_actor_visibility(
         return;
     };
     avatar.publish_view_visibility(perspective, subject_eye, rotation, carrier);
+}
+
+pub(crate) fn publish_local_actor_visibility_from_camera(
+    avatar: &LocalAvatarPresentation,
+    camera: &CameraPose,
+    authoritative_subject_eye: Option<bevy::prelude::Vec3>,
+    rotation: bevy::prelude::Quat,
+    carrier: &mut LocalAvatarVisibilityCarrier,
+) {
+    publish_local_actor_visibility(
+        avatar,
+        camera.perspective(),
+        authoritative_subject_eye,
+        rotation,
+        carrier,
+    );
 }
 
 pub(crate) fn authoritative_local_actor_eye(
@@ -267,6 +289,9 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_actor_move_witness_enabled(acceptance.enabled());
+    }
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
@@ -276,7 +301,8 @@ pub(crate) fn receive_network_events(
                 world: bootstrap,
                 environment,
                 inventory,
-                player_game_mode,
+                local_player_game_mode,
+                local_player_appearance,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -319,7 +345,7 @@ pub(crate) fn receive_network_events(
                     continue;
                 };
                 ui_runtime.publish_inventory_authority(authority);
-                ui_runtime.publish_player_game_mode(player_game_mode);
+                ui_runtime.publish_player_game_mode(local_player_game_mode.player_game_mode());
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
@@ -348,6 +374,9 @@ pub(crate) fn receive_network_events(
                         client_world.pending_surface_spawn,
                     )
                 };
+                stream.set_local_player_game_mode_authority(local_player_game_mode);
+                stream.set_local_player_appearance_authority(*local_player_appearance);
+                stream.set_actor_move_witness_enabled(acceptance.enabled());
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -700,6 +729,7 @@ pub(crate) fn actor_render_source(
         yaw_degrees: actor.yaw,
         head_yaw_degrees: actor.head_yaw,
         teleported: actor.teleported,
+        render_eligible: actor.is_render_eligible(),
         skin,
     }
 }
@@ -735,6 +765,7 @@ pub(crate) fn update_actor_render_scene<'a>(
             yaw_degrees,
             head_yaw_degrees: yaw_degrees,
             teleported: false,
+            render_eligible: true,
             skin: None,
         }
     });
@@ -753,10 +784,13 @@ pub(crate) fn publish_actor_render_frame(
     let ActorPresentationState {
         avatar,
         mut local_visibility,
-        settings,
+        camera_pose,
         view,
         local_physics,
         witness,
+        acceptance,
+        presented_frames,
+        mut pose_witness,
         camera,
     } = presentation;
     let session_id = client_world
@@ -779,9 +813,9 @@ pub(crate) fn publish_actor_render_frame(
             .as_ref()
             .map(|stream| stream.resolved_server_position().position),
     );
-    publish_local_actor_visibility(
+    publish_local_actor_visibility_from_camera(
         &avatar,
-        settings.perspective(),
+        &camera_pose,
         authoritative_subject_eye,
         view.rotation(),
         &mut local_visibility,
@@ -794,7 +828,17 @@ pub(crate) fn publish_actor_render_frame(
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
+    let (
+        local_runtime_id,
+        actor_session_id,
+        dimension,
+        local_render_eligible,
+        local_profile,
+        local_rig,
+        remotes,
+        canonical_local,
+        local_authority_status,
+    ) = client_world
         .stream
         .as_ref()
         .map(|stream| {
@@ -821,35 +865,54 @@ pub(crate) fn publish_actor_render_frame(
                 local_runtime_id,
                 stream.actor_session_id(),
                 stream.current_dimension(),
+                stream.local_player_render_eligible(),
+                stream.local_player_skin_authority(),
+                stream.local_player_rig(),
                 remotes,
                 canonical_local,
+                stream.local_player_rig_authority_status(),
             )
         })
-        .unwrap_or((0, 0, 0, Vec::new(), None));
+        .unwrap_or((
+            0,
+            0,
+            0,
+            false,
+            None,
+            None,
+            Vec::new(),
+            None,
+            client_world::LocalPlayerRigAuthorityStatus::MissingStartGameAuthority,
+        ));
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
             return (false, None);
         }
-        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        let (yaw, _, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
         let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
         let mut position = visibility.eye();
         position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let diagnostic = local_diagnostic_presentation(
-            actor_session_id,
-            dimension,
-            visibility.runtime_id(),
-            visibility.pose_generation(),
-            position.to_array(),
-            yaw_degrees,
-            pitch_degrees,
-        );
+        let local_authority = local_rig.zip(local_profile).and_then(|(rig, skin)| {
+            crate::presentation::actors::local_player_skin_rig_presentation(
+                &rig,
+                skin,
+                LocalPlayerPresentationAuthority {
+                    actor_session_id,
+                    dimension,
+                    runtime_id: visibility.runtime_id(),
+                    pose_generation: visibility.pose_generation(),
+                    position: position.to_array(),
+                    yaw_degrees,
+                },
+            )
+        });
         let local = local_actor_presentation_for_visibility(
             local_runtime_id,
             visibility.runtime_id(),
+            local_render_eligible,
             canonical_local,
-            diagnostic,
+            local_authority,
         );
         (visibility.visible(), local)
     });
@@ -858,7 +921,7 @@ pub(crate) fn publish_actor_render_frame(
         local_visible,
         local,
         remotes,
-        cull_view,
+        |submission| scene.rig_submission_is_visible(submission, cull_view),
     );
     let selected_count = batch.submissions.len();
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
@@ -867,6 +930,7 @@ pub(crate) fn publish_actor_render_frame(
         local_visible,
         expected_runtime_id: local_runtime_id,
         visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
+        local_authority: local_authority_status.marker(),
         selected_count,
         local_route: frame
             .rig
@@ -879,6 +943,22 @@ pub(crate) fn publish_actor_render_frame(
         skin_bytes: frame.skins_rgba8.len(),
         rejects: frame.rig.rejects,
     });
+    if !acceptance.enabled() {
+        pose_witness.reset();
+        let _ = presented_frames.drain();
+        return;
+    }
+    let Some(stream) = client_world.stream.as_mut() else {
+        pose_witness.reset();
+        let _ = presented_frames.drain();
+        return;
+    };
+    pose_witness.reconcile_session(stream.actor_session_id(), stream.current_dimension());
+    pose_witness.record_stream_drops(stream.actor_move_commit_dropped_count());
+    pose_witness.admit(stream.take_committed_actor_moves());
+    for marker in pose_witness.observe(presented_frames.drain()) {
+        println!("{marker}");
+    }
 }
 
 pub(crate) mod session;

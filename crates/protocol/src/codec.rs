@@ -26,6 +26,9 @@ pub enum ProtocolError {
     #[error("client blob cache failed: {0}")]
     BlobCache(#[from] crate::BlobCacheError),
 
+    #[error("invalid locally advertised player appearance: {0:?}")]
+    InvalidLocalAppearance(crate::PlayerSkinUnavailable),
+
     #[error("Bedrock session failed: {0}")]
     Session(#[from] jolyne::error::JolyneError),
 

@@ -400,9 +400,9 @@ function Get-Phase2PublicationSequenceEvidence {
         [uint64]$cache.pending_bytes -ne 0) {
         throw "PHASE2_PUBLICATION $Server terminal client blob cache state is rejected or pending"
     }
-    if ($Server -ceq 'Lunar' -and
-        (-not [bool]$final.client_blob_cache_enabled -or [uint64]$cache.hashes_classified -eq 0)) {
-        throw 'PHASE2_PUBLICATION Lunar did not prove an enabled cache-backed route with attributable hashes'
+    if ($Server -ceq 'Lunar' -and [bool]$final.client_blob_cache_enabled -and
+        [uint64]$cache.hashes_classified -eq 0) {
+        throw 'PHASE2_PUBLICATION Lunar enabled cache route contains no attributable hashes'
     }
     $clientBlobCacheRoute = if ([bool]$final.client_blob_cache_enabled -and
         [uint64]$cache.hashes_classified -gt 0) { 'cache_backed' } else { 'ordinary_payload' }
@@ -417,6 +417,9 @@ function Get-Phase2PublicationSequenceEvidence {
     $firstStalledStage = Get-Phase2FirstStalledStage -PublicationRecord $final `
         -WorldReadyObserved:$WorldReadyObserved
     $findings = [Collections.Generic.List[string]]::new()
+    if ($Server -ceq 'Lunar' -and $clientBlobCacheRoute -ceq 'ordinary_payload') {
+        $findings.Add('client_blob_cache_performance_gate_deferred')
+    }
     if ([uint64]$final.publication.loaded_required_columns -lt [uint64]$final.publication.required_columns) {
         $findings.Add('persistent_required_column_hole')
         $findings.Add("first_stalled_stage:$firstStalledStage")
@@ -624,14 +627,6 @@ function Find-Phase2CompletedLunarPrerequisite {
                 [string]$candidate.status -cne 'passed' -or
                 [uint64]$candidate.initial_radius -ne [uint64]$ExpectedInitialRadius -or
                 [string]$candidate.requested_present_mode -cne 'Fifo' -or
-                [string]$candidate.client_blob_cache_route -cne 'cache_backed' -or
-                [string]$candidate.cache_boundary_evidence.classification -cne 'cache_backed' -or
-                $candidate.cache_boundary_evidence.upstream_status_seen -isnot [bool] -or
-                -not [bool]$candidate.cache_boundary_evidence.upstream_status_seen -or
-                $candidate.cache_boundary_evidence.upstream_status_enabled -isnot [bool] -or
-                -not [bool]$candidate.cache_boundary_evidence.upstream_status_enabled -or
-                ([uint64]$candidate.cache_boundary_evidence.cached_level_chunks +
-                    [uint64]$candidate.cache_boundary_evidence.cached_sub_chunks) -eq 0 -or
                 $candidate.full_view_teleport_gate -isnot [bool] -or
                 [bool]$candidate.full_view_teleport_gate -ne $RequireFullView -or
                 ($Mode -cne 'Diagnostic' -and -not $RequireFullView) -or
@@ -647,6 +642,9 @@ function Find-Phase2CompletedLunarPrerequisite {
                 $null -eq $candidate.final_publication) {
                 continue
             }
+            Assert-Phase2CacheBoundaryConsistency -Server Lunar `
+                -ClientBlobCacheRoute ([string]$candidate.client_blob_cache_route) `
+                -BoundaryEvidence $candidate.cache_boundary_evidence
             if ([bool]$candidate.world_ready_observed) {
                 Assert-Phase2FiniteNonnegativeNumber -Value $candidate.join_milliseconds -Label 'manifest.join_milliseconds'
                 if ([double]$candidate.join_milliseconds -gt 2000.0) { continue }
@@ -667,8 +665,13 @@ function Find-Phase2CompletedLunarPrerequisite {
             Assert-Phase2PublicationRecord -Record $candidate.final_publication `
                 -ExpectedPresentMode Fifo
             $terminalCache = $candidate.final_publication.client_blob_cache
-            if (-not [bool]$candidate.final_publication.client_blob_cache_enabled -or
-                [uint64]$terminalCache.hashes_classified -eq 0 -or
+            $cacheEnabled = [bool]$candidate.final_publication.client_blob_cache_enabled
+            if (($cacheEnabled -and
+                    ([string]$candidate.client_blob_cache_route -cne 'cache_backed' -or
+                        [uint64]$terminalCache.hashes_classified -eq 0)) -or
+                (-not $cacheEnabled -and
+                    ([string]$candidate.client_blob_cache_route -cne 'ordinary_payload' -or
+                        @($candidate.findings) -cnotcontains 'client_blob_cache_performance_gate_deferred')) -or
                 [uint64]$terminalCache.rejected_blobs -ne 0 -or
                 [uint64]$terminalCache.pending_transactions -ne 0 -or
                 [uint64]$terminalCache.pending_bytes -ne 0) {

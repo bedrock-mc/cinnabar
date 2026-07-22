@@ -8,8 +8,8 @@ use assets::{
     EntityControllerTransition, EntityDependency, EntityDependencyKind, EntityDependencyResolution,
     EntityGeometry, EntityGeometryBone, EntityGeometryInheritance, EntityGeometryScalar,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
-    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
-    RuntimeAssets, RuntimeEntityAssets, encode_entity_blob,
+    EntityRigTexture, MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol,
+    MolangSymbolKind, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob,
 };
 use client_world::{
     MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
@@ -21,6 +21,7 @@ use protocol::{
     ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent, WorldBootstrap,
     WorldEvent,
 };
+use sha2::{Digest, Sha256};
 
 fn scalar(value: f32) -> EntityGeometryScalar {
     EntityGeometryScalar::new(value).unwrap()
@@ -94,6 +95,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         symbols,
         geometries: vec![
             EntityGeometry {
+                semantic_sha256: [0; 32],
                 identifier: "geometry.base".into(),
                 inherits: None,
                 source_index: 3,
@@ -113,6 +115,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 .into_boxed_slice(),
             },
             EntityGeometry {
+                semantic_sha256: [0; 32],
                 identifier: "geometry.bee".into(),
                 inherits: Some(EntityGeometryInheritance {
                     identifier: "geometry.base".into(),
@@ -232,6 +235,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             render_controller: 5,
             first_geometry: 0,
             geometry_count: 1,
+            default_texture: None,
             fallback,
         }]
         .into_boxed_slice(),
@@ -250,6 +254,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             controller: 0,
         }]
         .into_boxed_slice(),
+        rig_textures: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
     }
@@ -283,6 +288,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [0.0, 64.0, 0.0],
         velocity,
         pitch: 0.0,
@@ -372,6 +378,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: Some(2),
             })),
@@ -539,6 +546,58 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
 }
 
 #[test]
+fn compiled_entity_texture_is_published_with_the_resolved_rig_lifetime() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    let mut sources = compiled.sources.into_vec();
+    sources.push(EntityAssetSource {
+        path: "textures/entity/bee.png".into(),
+        source_bytes: 128,
+        source_sha256: [0x77; 32],
+    });
+    compiled.sources = sources.into_boxed_slice();
+    let mut symbols = compiled.symbols.into_vec();
+    symbols.push(EntityAssetSymbol {
+        kind: EntityAssetKind::Texture,
+        identifier: "textures/entity/bee".into(),
+        source_index: 5,
+        dependencies: Box::new([]),
+    });
+    compiled.symbols = symbols.into_boxed_slice();
+    let pixels = vec![9_u8; 8 * 4 * 4].into_boxed_slice();
+    compiled.rig_textures = vec![EntityRigTexture {
+        symbol: 6,
+        source: 5,
+        width: 8,
+        height: 4,
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        rgba8: pixels,
+    }]
+    .into_boxed_slice();
+    compiled.rig_bindings[0].default_texture = Some(0);
+
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+    let texture = stream
+        .actor_rig(42)
+        .and_then(|rig| rig.texture)
+        .expect("resolved rig publishes its immutable compiled texture");
+    assert_eq!((texture.width, texture.height), (8, 4));
+    assert_eq!(texture.rgba8.len(), 8 * 4 * 4);
+    assert!(texture.rgba8.iter().all(|byte| *byte == 9));
+
+    stream
+        .submit(
+            2,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 80.0, 0.0],
+            }),
+        )
+        .unwrap();
+    assert!(stream.actor_rig(42).is_none());
+}
+
+#[test]
 fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
@@ -561,6 +620,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                snap: false,
                 player_mode: None,
                 source_tick: Some(2),
             })),
@@ -585,6 +645,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                snap: true,
                 player_mode: None,
                 source_tick: Some(3),
             })),

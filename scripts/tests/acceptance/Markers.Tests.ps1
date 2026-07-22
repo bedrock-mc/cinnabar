@@ -429,3 +429,18 @@ $writer.Dispose()
     Assert-Equal 'stop' $loggedStopCommands[0] 'BDS cleanup logged the wrong command'
 
     $expectedAssetBlobSha256 = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+
+    $actorPosePayload = [ordered]@{
+        session_id = 3; dimension = 0; sequence = 9; runtime_id = 42
+        packet = [ordered]@{ position = @(1.0, 65.62001, 2.0); origin = 'NetworkOffset'; teleported = $false; snap = $false; on_ground = $true; source_tick = 120 }
+        store = [ordered]@{ spawn_revision = 1; movement_revision = 9; position = @(1.0, 64.0, 2.0); previous_position = @(0.0, 64.0, 2.0); received_position = @(1.0, 64.0, 2.0); interpolation_ticks_remaining = 3; on_ground = $true; source_tick = 120 }
+        presented = [ordered]@{ first_frame_sequence = 7; second_frame_sequence = 8; first_frame_generation = 11; second_frame_generation = 12; first_draw_generation = 21; second_draw_generation = 22; consecutive = $true }
+        drops = [ordered]@{ rejected_commits = 0; rejected_frames = 0; stream_dropped_commits = 0 }
+    }
+    $actorPose = ConvertFrom-ActorPoseWitnessMarker -Line ('RUST_MCBE_ACTOR_POSE_WITNESS=' + ($actorPosePayload | ConvertTo-Json -Compress -Depth 5))
+    Assert-Equal 9 ([uint64]$actorPose.sequence) 'actor pose witness parser lost the ingress sequence'
+    Assert-Equal 8 ([uint64]$actorPose.presented.second_frame_sequence) 'actor pose witness parser lost the stable presented frame'
+    Assert-ThrowsLike {
+        $actorPosePayload.presented.second_frame_sequence = 9
+        ConvertFrom-ActorPoseWitnessMarker -Line ('RUST_MCBE_ACTOR_POSE_WITNESS=' + ($actorPosePayload | ConvertTo-Json -Compress -Depth 5))
+    } 'invalid actor pose witness marker contract' 'actor pose witness accepted non-consecutive presented frames'

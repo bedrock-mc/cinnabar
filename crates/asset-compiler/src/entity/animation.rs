@@ -14,6 +14,7 @@ use super::{SourcePayloads, invalid, molang::MolangCompiler};
 mod clip;
 mod environment;
 mod outcome;
+mod rig;
 
 use clip::{
     ClipCompileError, compile_clip_for_geometry, has_string_leaf, looks_like_expression, read_json,
@@ -26,6 +27,7 @@ use environment::{
     selection_for, unique_geometry_indices,
 };
 pub use outcome::{CompileReferenceOutcome, FallbackReason, RejectReason};
+use rig::compile_rigs;
 
 pub(super) struct AnimationPayload {
     pub clips: Box<[EntityAnimationClip]>,
@@ -57,6 +59,7 @@ struct RigInputs<'a> {
     clip_indices: &'a ClipIndices,
     controllers: &'a [PendingController],
     geometry_selections: &'a GeometrySelections,
+    player_slim_condition: u32,
 }
 
 struct ControllerInputs<'a> {
@@ -277,6 +280,9 @@ pub(super) fn compile(
         .iter()
         .flat_map(|controller| controller.states.iter().map(|state| state.name.clone()))
         .collect::<Vec<_>>();
+    // Runtime profile authority selects this candidate explicitly. The normal
+    // conditional resolver must never select it by movement state.
+    let player_slim_condition = molang.compile("query.modified_move_speed < -1.0")?;
     let (rig_payload, rig_names) = compile_rigs(
         root,
         payloads,
@@ -287,6 +293,7 @@ pub(super) fn compile(
             clip_indices: &clip_indices,
             controllers: &pending_controllers,
             geometry_selections: &geometry_selections,
+            player_slim_condition,
         },
     )?;
     names.extend(rig_names.iter().cloned());
@@ -658,6 +665,7 @@ impl PendingRigPayload {
                 render_controller: rig.render_controller,
                 first_geometry,
                 geometry_count: (geometries.len() as u32 - first_geometry) as u16,
+                default_texture: None,
                 fallback: rig.fallback,
             });
         }
@@ -669,223 +677,6 @@ impl PendingRigPayload {
             outcomes: self.outcomes.into_boxed_slice(),
         })
     }
-}
-
-fn compile_rigs(
-    root: &Path,
-    payloads: &SourcePayloads,
-    sources: &[EntityAssetSource],
-    symbols: &[EntityAssetSymbol],
-    geometries: &[EntityGeometry],
-    inputs: RigInputs<'_>,
-) -> Result<(PendingRigPayload, Vec<Box<str>>), AssetError> {
-    let RigInputs {
-        clip_indices,
-        controllers,
-        geometry_selections,
-    } = inputs;
-    let geometry_indices = unique_geometry_indices(geometries);
-    let render_indices = unique_symbol_indices(symbols, EntityAssetKind::RenderController);
-    let animation_symbols = unique_symbol_indices(symbols, EntityAssetKind::Animation);
-    let controller_symbols = unique_symbol_indices(symbols, EntityAssetKind::AnimationController);
-    let controller_names = controllers
-        .iter()
-        .map(|controller| {
-            (
-                symbols[controller.symbol as usize].identifier.as_ref(),
-                controller.owner_entity,
-                controller.geometry,
-            )
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut rigs = Vec::new();
-    let mut outcomes = Vec::new();
-    let mut names = Vec::new();
-    for (entity_symbol, entity) in symbols
-        .iter()
-        .enumerate()
-        .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
-    {
-        let source = &sources[entity.source_index as usize];
-        let value = read_json(root, payloads, source)?;
-        let description = value
-            .get("minecraft:client_entity")
-            .and_then(|value| value.get("description"))
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("client entity description is absent"))?;
-        let Some(geometry_name) = default_geometry(description.get("geometry")) else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::MissingGeometryReference,
-            });
-            continue;
-        };
-        let Some(geometry) = geometry_indices.get(geometry_name) else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::MissingGeometryReference,
-            });
-            continue;
-        };
-        let Some(geometry) = *geometry else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::AmbiguousGeometryReference,
-            });
-            continue;
-        };
-        let Some((render_name, optional_condition)) =
-            first_render_controller(description.get("render_controllers"))
-        else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::MissingRequiredReference,
-            });
-            continue;
-        };
-        let Some(render_controller) = render_indices.get(render_name) else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::MissingRenderControllerReference,
-            });
-            continue;
-        };
-        let Some(render_controller) = *render_controller else {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: RejectReason::AmbiguousRenderControllerReference,
-            });
-            continue;
-        };
-        let mut rejected = false;
-        let mut static_fallback = false;
-        let mut geometry_candidates = vec![(geometry, None)];
-        match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
-            Some(GeometrySelection::Supported(selectable)) => geometry_candidates.extend(
-                selectable
-                    .iter()
-                    .map(|candidate| (candidate.geometry, Some(candidate.condition))),
-            ),
-            Some(GeometrySelection::Unsupported) => static_fallback = true,
-            None => {}
-        }
-        let animation_aliases = parse_aliases(description.get("animations"))?;
-        let controller_aliases = parse_aliases(description.get("animation_controllers"))?;
-        let mut pending_geometries = Vec::new();
-        for (candidate_geometry, condition) in geometry_candidates {
-            let mut animation_bindings: Vec<(Box<str>, u32)> = Vec::new();
-            let mut controller_bindings: Vec<(Box<str>, Box<str>)> = Vec::new();
-            for (name, target) in &animation_aliases {
-                names.push(name.clone());
-                if target.starts_with("controller.animation.") {
-                    if controller_symbols
-                        .get(target.as_ref())
-                        .is_some_and(Option::is_none)
-                    {
-                        rejected = true;
-                    } else if controller_names.contains(&(
-                        target.as_ref(),
-                        entity_symbol as u32,
-                        candidate_geometry,
-                    )) {
-                        controller_bindings.push((name.clone(), target.clone()));
-                    } else {
-                        static_fallback = true;
-                    }
-                } else if animation_symbols
-                    .get(target.as_ref())
-                    .is_some_and(Option::is_none)
-                {
-                    rejected = true;
-                } else if let Some(&clip) = clip_indices.get(&(target.clone(), candidate_geometry))
-                {
-                    animation_bindings.push((name.clone(), clip));
-                } else if animation_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
-                } else {
-                    rejected = true;
-                }
-            }
-            for (name, target) in &controller_aliases {
-                names.push(name.clone());
-                if controller_symbols
-                    .get(target.as_ref())
-                    .is_some_and(Option::is_none)
-                {
-                    rejected = true;
-                } else if controller_names.contains(&(
-                    target.as_ref(),
-                    entity_symbol as u32,
-                    candidate_geometry,
-                )) {
-                    controller_bindings.push((name.clone(), target.clone()));
-                } else if controller_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
-                } else {
-                    rejected = true;
-                }
-            }
-            animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
-            controller_bindings.sort_by(|left, right| left.0.cmp(&right.0));
-            controller_bindings.dedup();
-            pending_geometries.push(PendingRigGeometry {
-                geometry: candidate_geometry,
-                condition,
-                animations: animation_bindings,
-                controllers: controller_bindings,
-            });
-        }
-        if rejected {
-            outcomes.push(CompileReferenceOutcome::RequiredRigRejected {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: if description
-                    .get("animations")
-                    .and_then(Value::as_object)
-                    .is_some_and(|animations| {
-                        animations.values().filter_map(Value::as_str).any(|target| {
-                            animation_symbols.get(target).is_some_and(Option::is_none)
-                                || controller_symbols.get(target).is_some_and(Option::is_none)
-                        })
-                    }) {
-                    RejectReason::AmbiguousAnimationReference
-                } else {
-                    RejectReason::MissingAnimationReference
-                },
-            });
-            continue;
-        }
-        static_fallback |= optional_condition.is_some_and(|expression| {
-            super::molang::MolangCompiler::default()
-                .compile(expression)
-                .is_err()
-        });
-        let fallback = if static_fallback {
-            outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
-                source: entity.source_index,
-                symbol: entity_symbol as u32,
-                reason: FallbackReason::UnsupportedOptionalExpression,
-            });
-            EntityRigFallback::GeometryOnly
-        } else {
-            EntityRigFallback::Skip
-        };
-        let rig_index = rigs.len() as u32;
-        rigs.push(PendingRig {
-            entity_symbol: entity_symbol as u32,
-            render_controller,
-            geometries: pending_geometries,
-            fallback,
-        });
-        outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
-    }
-    Ok((PendingRigPayload { rigs, outcomes }, names))
 }
 
 fn first_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>)> {

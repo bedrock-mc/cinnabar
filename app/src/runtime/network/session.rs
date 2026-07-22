@@ -7,8 +7,9 @@ use std::{
 
 use bevy::prelude::Resource;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    BlobCacheStats, InventoryEvent, LocalPlayerGameModeAuthority, LoginSequence, Packet,
+    PacketIdTraceSnapshot, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -25,8 +26,6 @@ pub struct NetworkConfig {
     pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
-    /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
-    pub client_blob_cache: ClientBlobCache,
 }
 
 #[derive(Debug)]
@@ -36,7 +35,8 @@ pub enum NetworkControlEvent {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
-        player_game_mode: PlayerGameMode,
+        local_player_game_mode: LocalPlayerGameModeAuthority,
+        local_player_appearance: Box<protocol::LocalPlayerAppearanceAuthority>,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -290,18 +290,24 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             };
             runtime.block_on(async move {
                 let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect_with_blob_cache(
-                        &config.socket_dir,
-                        &config.display_name,
-                        config.client_blob_cache.clone(),
-                    ),
+                    // The client blob cache is disabled: Lunar (and gophertunnel
+                    // clients) advertise ClientCacheStatus.Enabled=false, and our
+                    // resolver has unresolved edge cases against a live proxy
+                    // (empty and unsolicited miss responses). Connect without a
+                    // cache so the server streams full chunks. Re-enable once the
+                    // resolver is hardened (tracked upstream).
+                    LoginSequence::connect(&config.socket_dir, &config.display_name),
                     &mut shutdown_rx,
                 )
                 .await
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let protocol::LoginResult {
+                    session,
+                    game_data,
+                    local_appearance,
+                } = match login {
                     Ok(connected) => connected,
                     Err(error) => {
                         let _ = send_control_event_or_cancel(
@@ -319,7 +325,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
-                let player_game_mode = PlayerGameMode::from_game_data(&game_data);
+                let local_player_game_mode =
+                    LocalPlayerGameModeAuthority::from_game_data(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -328,7 +335,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world: bootstrap,
                         environment,
                         inventory,
-                        player_game_mode,
+                        local_player_game_mode,
+                        local_player_appearance: Box::new(local_appearance),
                     },
                 )
                 .await
@@ -931,6 +939,7 @@ impl NetworkSequencer {
                     head_yaw: Some(movement.head_yaw),
                     on_ground: Some(movement.on_ground),
                     teleported: movement.teleported,
+                    snap: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
                 }))

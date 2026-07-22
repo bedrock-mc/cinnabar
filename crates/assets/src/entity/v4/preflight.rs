@@ -11,8 +11,8 @@ use super::{
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
     MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
-    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
-    MAX_MOLANG_OPS,
+    MAX_ENTITY_RIG_TEXTURES, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS,
 };
 
 #[derive(Deserialize)]
@@ -39,6 +39,7 @@ struct EntityCatalogCountProbe {
     rig_geometries: SequenceCount,
     rig_animations: SequenceCount,
     rig_controllers: SequenceCount,
+    rig_textures: SequenceCount,
     item_visuals: SequenceCount,
     item_visual_aliases: SequenceCount,
 }
@@ -137,6 +138,7 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
 #[allow(dead_code)]
 struct GeometryProbe {
     identifier: de::IgnoredAny,
+    semantic_sha256: de::IgnoredAny,
     inherits: de::IgnoredAny,
     source_index: de::IgnoredAny,
     texture_width: de::IgnoredAny,
@@ -237,6 +239,7 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
                 while let Some(geometry) = sequence.next_element::<GeometryProbe>()? {
                     let GeometryProbe {
                         identifier: _,
+                        semantic_sha256: _,
                         inherits: _,
                         source_index: _,
                         texture_width: _,
@@ -286,6 +289,7 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.rig_geometries.0, MAX_ENTITY_RIG_GEOMETRIES),
         (counts.rig_animations.0, MAX_ENTITY_RIG_ANIMATIONS),
         (counts.rig_controllers.0, MAX_ENTITY_RIG_CONTROLLERS),
+        (counts.rig_textures.0, MAX_ENTITY_RIG_TEXTURES),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),
         (counts.item_visual_aliases.0, MAX_ITEM_VISUAL_ALIASES),
     ];

@@ -11,6 +11,9 @@ use valentine::bedrock::version::v1_26_30::{
     SubchunkPacketEntries, Vec3I,
 };
 
+#[path = "blob_cache/miss_response_edges.rs"]
+mod miss_response_edges;
+
 fn limits(entries: usize, bytes: usize) -> BlobCacheLimits {
     BlobCacheLimits {
         max_entries: entries,

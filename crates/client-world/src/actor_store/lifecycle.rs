@@ -75,9 +75,11 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             retained_player_skin_bytes: 0,
+            default_game_mode: ActorGameMode::Survival,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             players: HashMap::new(),
+            player_unique_ids: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
@@ -92,14 +94,24 @@ impl ActorStore {
             self.actions.remove(lifetime);
         }
     }
+    pub(crate) fn set_default_game_mode(&mut self, game_mode: ActorGameMode) {
+        self.default_game_mode = game_mode;
+        for actor in self.actors.values_mut() {
+            actor.resolved_game_mode = actor
+                .game_mode
+                .map(|raw| raw.resolve_fallback(self.default_game_mode));
+        }
+    }
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
         self.dimension = dimension;
         self.latest_sequence = 0;
+        self.default_game_mode = ActorGameMode::Survival;
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.players.clear();
+        self.player_unique_ids.clear();
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
         self.items.clear();
@@ -182,7 +194,7 @@ impl ActorStore {
                     .and_then(|(current, previous)| current.checked_sub(previous))
                     .filter(|ticks| *ticks > 0)
                     .map_or(0.05, |ticks| ticks as f32 * 0.05);
-                let derived_velocity = if movement.teleported {
+                let derived_velocity = if movement.snap {
                     [0.0; 3]
                 } else {
                     std::array::from_fn(|axis| {
@@ -196,7 +208,7 @@ impl ActorStore {
                     [0.0; 3]
                 };
                 actor.received_pose = received;
-                if movement.teleported {
+                if movement.snap {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
@@ -248,6 +260,27 @@ impl ActorStore {
                 } else {
                     ActorApplyResult::Updated
                 }
+            }
+            ActorEvent::GameMode(update) => {
+                let Some(runtime_id) = self.unique_to_runtime.get(&update.unique_id).copied()
+                else {
+                    return ActorApplyResult::MissingActor;
+                };
+                let Some(actor) = self.actors.get_mut(&runtime_id) else {
+                    return ActorApplyResult::MissingActor;
+                };
+                if !matches!(actor.kind, ActorKind::Player { .. }) {
+                    return ActorApplyResult::MissingActor;
+                }
+                actor.game_mode = Some(update.game_mode);
+                actor.resolved_game_mode =
+                    Some(update.game_mode.resolve_fallback(self.default_game_mode));
+                actor.game_mode_tick = Some(update.tick);
+                ActorApplyResult::Updated
+            }
+            ActorEvent::DefaultGameMode(update) => {
+                self.set_default_game_mode(update.game_mode);
+                ActorApplyResult::Updated
             }
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
@@ -318,11 +351,64 @@ impl ActorStore {
                         }
                     }
                 }
+                self.rebuild_player_unique_ids();
+                self.rebind_player_rigs();
                 if capacity_rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
                     ActorApplyResult::Updated
                 }
+            }
+        }
+    }
+
+    fn rebuild_player_unique_ids(&mut self) {
+        self.player_unique_ids.clear();
+        for (uuid, profile) in &self.players {
+            self.player_unique_ids
+                .entry(profile.unique_id)
+                .and_modify(|entry| *entry = None)
+                .or_insert(Some(*uuid));
+        }
+    }
+
+    fn rebind_player_rigs(&mut self) {
+        let runtime_ids = self
+            .actors
+            .iter()
+            .filter_map(|(&runtime_id, actor)| {
+                matches!(actor.kind, ActorKind::Player { .. }).then_some(runtime_id)
+            })
+            .collect::<Vec<_>>();
+        for runtime_id in runtime_ids {
+            let geometry =
+                self.player_profile(runtime_id)
+                    .and_then(|profile| match &profile.skin {
+                        PlayerSkin::Standard(skin) => Some(skin.geometry.clone()),
+                        PlayerSkin::Unavailable(_) => None,
+                    });
+            let desired_identity = geometry.as_ref().map(|geometry| match geometry {
+                protocol::PlayerSkinGeometry::Wide => ("geometry.humanoid.custom", None),
+                protocol::PlayerSkinGeometry::Slim => ("geometry.humanoid.customSlim", None),
+                protocol::PlayerSkinGeometry::Custom {
+                    identifier,
+                    data_sha256,
+                } => (identifier.as_ref(), Some(data_sha256)),
+            });
+            let current_matches = self.animation.get(runtime_id).is_some_and(|rig| {
+                desired_identity.is_some_and(|(identifier, expected_sha256)| {
+                    rig.geometry_identifier == identifier
+                        && expected_sha256.is_none_or(|expected| rig.geometry_sha256 == *expected)
+                })
+            });
+            if current_matches
+                || (desired_identity.is_none() && self.animation.get(runtime_id).is_none())
+            {
+                continue;
+            }
+            if let Some(actor) = self.actors.get(&runtime_id) {
+                self.animation
+                    .insert(self.session_id, self.dimension, actor, geometry.as_ref());
             }
         }
     }
@@ -369,6 +455,7 @@ impl ActorStore {
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
                 teleported: movement.teleported,
+                snap: movement.teleported,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
             }),
@@ -412,12 +499,20 @@ impl ActorStore {
         let runtime_id = spawn.runtime_id;
         let unique_id = spawn.unique_id;
         let held_item = spawn.held_item.clone();
-        self.actors
-            .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
+        self.actors.insert(
+            runtime_id,
+            ActorSnapshot::from_spawn(spawn, sequence, self.default_game_mode),
+        );
         self.unique_to_runtime.insert(unique_id, runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
+            let geometry =
+                self.player_profile(runtime_id)
+                    .and_then(|profile| match &profile.skin {
+                        PlayerSkin::Standard(skin) => Some(skin.geometry.clone()),
+                        PlayerSkin::Unavailable(_) => None,
+                    });
             self.animation
-                .insert(self.session_id, self.dimension, actor);
+                .insert(self.session_id, self.dimension, actor, geometry.as_ref());
             if self.remote_state_excluded_runtime_id != Some(runtime_id) {
                 self.items
                     .insert_spawn(self.lifetime_for(actor), sequence, held_item);

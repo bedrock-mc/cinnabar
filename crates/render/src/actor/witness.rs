@@ -12,6 +12,7 @@ pub struct ActorMainWitness {
     pub local_visible: bool,
     pub expected_runtime_id: u64,
     pub visibility_runtime_id: u64,
+    pub local_authority: &'static str,
     pub selected_count: usize,
     pub local_route: Option<ActorRigRoute>,
     pub frame_instances: usize,
@@ -95,11 +96,12 @@ impl ActorRuntimeWitness {
     pub fn observe_main(&self, observation: ActorMainWitness) {
         if self.changed(|state| &mut state.main, 0, observation) && !cfg!(test) {
             eprintln!(
-                "RUST_MCBE_ACTOR_WITNESS stage=main local_snapshot={} local_visible={} expected_runtime_id={} visibility_runtime_id={} selected_count={} local_route={:?} frame_instances={} frame_manifest={} skin_bytes={} rejects={:?}",
+                "RUST_MCBE_ACTOR_WITNESS stage=main local_snapshot={} local_visible={} expected_runtime_id={} visibility_runtime_id={} local_authority={} selected_count={} local_route={:?} frame_instances={} frame_manifest={} skin_bytes={} rejects={:?}",
                 observation.local_snapshot,
                 observation.local_visible,
                 observation.expected_runtime_id,
                 observation.visibility_runtime_id,
+                observation.local_authority,
                 observation.selected_count,
                 observation.local_route,
                 observation.frame_instances,

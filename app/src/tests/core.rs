@@ -45,6 +45,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         width: 64,
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
+        geometry: protocol::PlayerSkinGeometry::Wide,
     });
     let actor = client_world::ActorSnapshot {
         unique_id: 9,
@@ -55,6 +56,9 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
             uuid: [7; 16],
             username: "remote".into(),
         },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
         position: [10.0, 64.0, -3.0],
         velocity: [0.0; 3],
         pitch: 15.0,

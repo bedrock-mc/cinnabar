@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ActorAttribute, ActorEvent, ActorGameMode, ActorKind, ActorMetadataValue, ActorMoveEvent,
+    ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -18,12 +19,14 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
+const ENTITY_FLAGS_METADATA_KEY: i32 = 0;
 const PLAYER_FLAGS_METADATA_KEY: i32 = 26;
 const NAMETAG_METADATA_KEY: i32 = 4;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: i32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: i32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
+const ENTITY_FLAGS_INVISIBLE: u64 = 1 << 5;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -63,6 +66,12 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    /// Raw per-player game mode retained from AddPlayer or UpdatePlayerGameType.
+    pub game_mode: Option<ActorGameMode>,
+    /// Effective mode after resolving `Fallback` against world authority.
+    pub resolved_game_mode: Option<ActorGameMode>,
+    /// Source tick of the latest UpdatePlayerGameType, when present.
+    pub game_mode_tick: Option<u64>,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -83,7 +92,11 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+    fn from_spawn(
+        spawn: ActorSpawnEvent,
+        spawn_revision: u64,
+        default_game_mode: ActorGameMode,
+    ) -> Self {
         let pose = ActorPose {
             position: spawn.position,
             pitch: spawn.pitch,
@@ -96,6 +109,11 @@ impl ActorSnapshot {
             spawn_revision,
             movement_revision: 0,
             kind: spawn.kind,
+            game_mode: spawn.game_mode,
+            resolved_game_mode: spawn
+                .game_mode
+                .map(|game_mode| game_mode.resolve_fallback(default_game_mode)),
+            game_mode_tick: None,
             position: spawn.position,
             velocity: spawn.velocity,
             pitch: spawn.pitch,
@@ -173,6 +191,23 @@ impl ActorSnapshot {
             |value| matches!(value, ActorMetadataValue::FlagsExtended(flags) if flags & EXTENDED_FLAGS_SLEEPING != 0),
         );
         player_flags || extended_flags
+    }
+
+    #[must_use]
+    pub fn is_render_eligible(&self) -> bool {
+        !self
+            .resolved_game_mode
+            .is_some_and(ActorGameMode::is_spectator)
+            && !self
+                .metadata
+                .get(&ENTITY_FLAGS_METADATA_KEY)
+                .is_some_and(|value| {
+                    matches!(
+                        value,
+                        ActorMetadataValue::Flags(flags)
+                            if flags & ENTITY_FLAGS_INVISIBLE != 0
+                    )
+                })
     }
 
     fn primed_tnt_network_offset(&self) -> f32 {
@@ -268,9 +303,13 @@ pub(crate) struct ActorStore {
     max_players: usize,
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
+    default_game_mode: ActorGameMode,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
+    /// Exact PlayerList identity index. `None` marks a non-unique entity ID so
+    /// callers fail closed instead of choosing an arbitrary roster entry.
+    player_unique_ids: HashMap<i64, Option<[u8; 16]>>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,
@@ -294,7 +333,9 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) => None,
+        ActorEvent::GameMode(_) | ActorEvent::DefaultGameMode(_) | ActorEvent::PlayerList(_) => {
+            None
+        }
     }
 }
 

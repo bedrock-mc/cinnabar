@@ -16,6 +16,7 @@ use self::{
 };
 use crate::metrics::TransparentSortMetricsSnapshot;
 
+pub(crate) mod actor_pose;
 mod exit;
 pub(crate) mod markers;
 pub(crate) mod model_witness;

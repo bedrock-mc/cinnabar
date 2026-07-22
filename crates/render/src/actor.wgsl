@@ -11,24 +11,22 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 18 packed words. Its Rust contract
-// is 72 bytes; a WGSL struct containing vec4 rows would round the array stride
-// to 80 bytes under storage-buffer layout rules.
+// ActorGpuInstance is deliberately read as 22 packed words. Its Rust contract
+// is 88 bytes; packed words avoid WGSL storage-struct padding ambiguity.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
 @group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
-@group(0) @binding(6) var skins: texture_2d_array<f32>;
+@group(0) @binding(6) var skins: texture_2d<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) skin_layer: u32,
-    @location(2) @interpolate(flat) valid: u32,
-    @location(3) world_normal: vec3<f32>,
+    @location(1) @interpolate(flat) valid: u32,
+    @location(2) world_normal: vec3<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -67,16 +65,16 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 18u;
+    let instance_base = instance_index * 22u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
-    let texture_layer = instance_words[instance_base + 15u];
     let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
+    let texture_offset = vec2(word_f32(instance_base + 18u), word_f32(instance_base + 19u));
+    let texture_scale = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let span = geometry_spans[geometry_id];
 
     var out: VertexOutput;
-    out.skin_layer = texture_layer;
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
@@ -97,10 +95,11 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 4u]),
         bitcast<f32>(vertex_words[vertex_base + 5u]),
     );
-    out.uv = vec2(
+    let local_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
+    out.uv = texture_offset + clamp(local_uv, vec2(0.0), vec2(1.0)) * texture_scale;
     let bone_index = vertex_words[vertex_base + 8u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
@@ -135,7 +134,7 @@ fn actor_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, input.uv, i32(input.skin_layer));
+    let color = textureSample(skins, skin_sampler, input.uv);
     if (color.a < 0.1) {
         discard;
     }

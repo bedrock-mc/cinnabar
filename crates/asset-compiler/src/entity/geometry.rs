@@ -7,6 +7,7 @@ use assets::{
     MAX_ENTITY_TEXTURE_DIMENSION,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::{PendingGeometry, PendingSymbol, insert_symbol, invalid};
 
@@ -85,6 +86,7 @@ pub(super) fn parse_geometry(
                 identifier,
                 None,
                 relative_path,
+                geometry,
                 texture_width,
                 texture_height,
                 bones,
@@ -155,6 +157,7 @@ pub(super) fn parse_geometry(
                 identifier,
                 inherits,
                 relative_path,
+                geometry,
                 texture_width,
                 texture_height,
                 bones,
@@ -164,11 +167,16 @@ pub(super) fn parse_geometry(
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one bounded geometry record is assembled here"
+)]
 fn insert_geometry(
     geometries: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
     identifier: &str,
     inherits: Option<&str>,
     source_path: &str,
+    source_geometry: &Value,
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     bones: Box<[EntityGeometryBone]>,
@@ -177,6 +185,11 @@ fn insert_geometry(
     let source_path: Box<str> = source_path.into();
     let geometry = PendingGeometry {
         identifier: identifier.clone(),
+        semantic_sha256: Sha256::digest(
+            serde_json::to_vec(source_geometry)
+                .map_err(|_| invalid("failed to canonicalize entity geometry"))?,
+        )
+        .into(),
         inherits: inherits.map(Into::into),
         source_path: source_path.clone(),
         texture_width,

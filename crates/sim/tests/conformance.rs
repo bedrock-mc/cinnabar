@@ -206,12 +206,16 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
 fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
     let audit = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12).unwrap();
-    assert_eq!(audit.scripts, 27);
-    assert_eq!(audit.observed_steps, 16);
-    assert_eq!(audit.unsupported_scripts, 19);
+    assert_eq!(audit.scripts, 30);
+    assert_eq!(audit.observed_steps, 36);
+    // Only the strata bedsim v0.1.3 genuinely implements are observed. Fluids,
+    // bubble columns, scaffolding, honey, cobweb sensing, the step-correction
+    // divergence, and the unloaded-chunk error contract have no bedsim oracle,
+    // so they stay an explicit coverage ledger rather than a parity claim.
+    assert_eq!(audit.unsupported_scripts, 12);
     assert!(matches!(
         verify_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12),
-        Err(ConformanceError::UnsupportedEvidence { count: 19 })
+        Err(ConformanceError::UnsupportedEvidence { count: 12 })
     ));
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(

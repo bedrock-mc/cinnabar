@@ -14,14 +14,16 @@ mod ui;
 mod world;
 
 pub use actor::{
-    ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEvent, ActorKind,
-    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent,
-    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
-    MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS,
-    MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEvent, ActorGameMode,
+    ActorGameModeUpdateEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPacketError, ActorPositionOrigin, ActorProperty,
+    ActorRemoveEvent, ActorSpawnEvent, DefaultActorGameModeEvent, MAX_ACTOR_ATTRIBUTE_MODIFIERS,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_METADATA_ENTRIES,
+    MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,
+    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
+    MAX_PLAYER_SKIN_GEOMETRY_BYTES, MAX_PLAYER_SKIN_GEOMETRY_DEPTH, MAX_PLAYER_SKIN_GEOMETRY_NODES,
+    MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinGeometry,
+    PlayerSkinUnavailable, StandardSkin,
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
@@ -47,7 +49,9 @@ pub use item::{
     MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
 };
 pub use jolyne::GameData;
-pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
+pub use login::{
+    LocalPlayerAppearanceAuthority, LoginResult, LoginSequence, PacketIdTraceSnapshot, PlaySession,
+};
 pub use movement::{
     PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     player_auth_input,
@@ -75,11 +79,11 @@ pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
     ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
-    LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
-    request_sub_chunk_column, vanilla_dimension_range,
+    LevelChunkEvent, LevelChunkMode, LocalPlayerGameModeAuthority, MAX_BIOME_DEFINITIONS,
+    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
+    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
+    air_network_id, into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };

@@ -8,14 +8,23 @@ use std::{
 
 use assets::{
     AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, HudCatalogError, RuntimeAssets,
-    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, RuntimeHudCatalog,
-    encode_font_catalog,
+    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::metrics::AssetMetrics;
+
+mod diagnostic;
+mod hud;
+
+use diagnostic::{diagnostic_assets, runtime_metrics};
+pub use hud::{
+    HUD_ASSETS_COMPILE_COMMAND, HUD_ASSETS_FILENAME, HUD_ASSETS_REPORT_FILENAME, LoadedHudAssets,
+    hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command, load_hud_assets,
+    require_hud_assets,
+};
 
 pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
@@ -28,9 +37,6 @@ pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
-pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
-pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
-pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -50,7 +56,6 @@ const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -98,74 +103,6 @@ pub struct LoadedFontAssets {
     runtime: Arc<RuntimeFontCatalog>,
     selected_path: PathBuf,
     diagnostic: bool,
-}
-
-pub struct LoadedHudAssets {
-    runtime: Arc<RuntimeHudCatalog>,
-    selected_path: PathBuf,
-}
-
-impl LoadedHudAssets {
-    #[must_use]
-    pub fn runtime(&self) -> &Arc<RuntimeHudCatalog> {
-        &self.runtime
-    }
-
-    #[must_use]
-    pub fn startup_summary(&self) -> String {
-        format!(
-            "loaded pinned official Mojang sample HUD assets from {} (source_manifest_sha256={})",
-            self.selected_path.display(),
-            format_sha256(self.runtime.source_manifest_sha256())
-        )
-    }
-
-    pub fn into_runtime(self) -> Arc<RuntimeHudCatalog> {
-        self.runtime
-    }
-}
-
-#[must_use]
-pub fn hud_assets_missing_notice(path: &Path) -> String {
-    let rebuild_command = hud_assets_rebuild_command(path);
-    let recovery = if rebuild_command == HUD_ASSETS_COMPILE_COMMAND {
-        format!(
-            "Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
-        )
-    } else {
-        format!("Build the carrier at that exact custom location with `{rebuild_command}`.")
-    };
-    format!(
-        "required pinned official Mojang sample HUD carrier was not found at {}; the survival HUD cannot render, so the client will not start. {recovery}",
-        path.display()
-    )
-}
-
-/// Returns a copy-paste recovery command that writes the carrier where startup looked for it.
-#[must_use]
-pub fn hud_assets_rebuild_command(path: &Path) -> String {
-    let default_path = hud_asset_path(Path::new(DEFAULT_ASSET_PATH));
-    if path == default_path {
-        return HUD_ASSETS_COMPILE_COMMAND.to_owned();
-    }
-
-    let report_path = path.with_file_name(HUD_ASSETS_REPORT_FILENAME);
-    format!(
-        "{HUD_ASSETS_COMPILE_COMMAND} HUD_ASSET_BLOB={} HUD_ASSET_REPORT={}",
-        shell_quote_path(path),
-        shell_quote_path(&report_path)
-    )
-}
-
-#[cfg(windows)]
-fn shell_quote_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    format!("'{}'", path.replace('\'', "''"))
-}
-
-#[cfg(not(windows))]
-fn shell_quote_path(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
 }
 
 impl LoadedFontAssets {
@@ -537,91 +474,6 @@ pub fn local_font_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(LOCAL_FONT_ASSETS_FILENAME)
 }
 
-#[must_use]
-pub fn hud_asset_path(world_asset_path: &Path) -> PathBuf {
-    world_asset_path.with_file_name(HUD_ASSETS_FILENAME)
-}
-
-/// Probes for and validates the HUD carrier adjacent to `world_asset_path`.
-///
-/// This low-level API returns `Ok(None)` only to let tooling inspect whether a carrier exists. The
-/// production client must call [`require_hud_assets`] so absence is a fatal, actionable startup
-/// error. A present but malformed, oversized, or stale carrier always fails closed here.
-pub fn load_hud_assets(
-    world_asset_path: &Path,
-) -> Result<Option<LoadedHudAssets>, AssetStartupError> {
-    let path = hud_asset_path(world_asset_path);
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => {
-            return Err(AssetStartupError::HudAssetsRead {
-                path,
-                source,
-                rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-            });
-        }
-    };
-    let length = file
-        .metadata()
-        .map_err(|source| AssetStartupError::HudAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?
-        .len();
-    if length > MAX_HUD_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::HudAssetsTooLarge {
-            path,
-            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_HUD_ASSET_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetStartupError::HudAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?;
-    if bytes.len() as u64 > MAX_HUD_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::HudAssetsTooLarge {
-            path,
-            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let runtime =
-        RuntimeHudCatalog::decode(&bytes).map_err(|source| AssetStartupError::HudAssetsDecode {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?;
-    Ok(Some(LoadedHudAssets {
-        runtime: Arc::new(runtime),
-        selected_path: path,
-    }))
-}
-
-/// Loads the pinned HUD carrier, failing closed when it is absent.
-///
-/// The renderer treats the native survival HUD as required art. A missing carrier is a fatal
-/// startup error rather than a silent degrade: without it the survival HUD would be invisible
-/// with no on-screen indication of why. Malformed or stale carriers already fail through
-/// [`load_hud_assets`]; this wrapper additionally rejects the absent case with the shared
-/// [`hud_assets_missing_notice`] guidance.
-pub fn require_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, AssetStartupError> {
-    load_hud_assets(world_asset_path)?.ok_or_else(|| {
-        let path = hud_asset_path(world_asset_path);
-        AssetStartupError::HudAssetsMissing {
-            notice: hud_assets_missing_notice(&path),
-            rebuild_command: hud_assets_rebuild_command(&path),
-            path,
-        }
-    })
-}
-
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let file = match File::open(&selection.path) {
@@ -952,60 +804,6 @@ fn load_atmosphere_assets(
         identity,
         selected_path: path,
     })
-}
-
-fn diagnostic_assets(
-    selection: AssetSelection,
-    source: VanillaSource,
-    atmosphere: LoadedAtmosphereAssets,
-    entities: LoadedEntityAssets,
-    fonts: LoadedFontAssets,
-) -> LoadedAssets {
-    let runtime = Arc::new(RuntimeAssets::diagnostic());
-    let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
-    let notice = format!(
-        "compiled vanilla assets were not found at {}; using the programmatic diagnostic texture\n\
-         Fetch and compile the local vanilla pack explicitly (the app never downloads it):\n  {FETCH_COMMAND}\n  {COMPILE_COMMAND}",
-        selection.path.display()
-    );
-    LoadedAssets {
-        runtime,
-        atmosphere,
-        entities,
-        fonts,
-        metrics,
-        selected_path: selection.path,
-        kind: LoadedAssetKind::Diagnostic,
-        notice: Some(notice),
-    }
-}
-
-fn runtime_metrics(
-    runtime: &RuntimeAssets,
-    source: VanillaSource,
-    blob_sha256: String,
-) -> AssetMetrics {
-    let pages = runtime.texture_pages();
-    AssetMetrics {
-        source_tag: source.tag,
-        source_sha256: source.sha256,
-        blob_sha256,
-        texture_layers: pages.iter().map(|page| page.texture.layers).sum(),
-        texture_pages: u32::try_from(pages.len()).unwrap_or(u32::MAX),
-        texture_bytes_including_mips: pages
-            .iter()
-            .flat_map(|page| page.texture.mips.iter())
-            .map(|mip| mip.rgba8.len() as u64)
-            .sum(),
-        material_count: u32::try_from(runtime.materials().len()).unwrap_or(u32::MAX),
-        model_template_count: u32::try_from(runtime.model_templates().len()).unwrap_or(u32::MAX),
-        model_quad_count: u32::try_from(runtime.model_quads().len()).unwrap_or(u32::MAX),
-        animation_count: u32::try_from(runtime.animations().len()).unwrap_or(u32::MAX),
-        animation_frame_count: u32::try_from(runtime.animation_frames().len()).unwrap_or(u32::MAX),
-        missing_mapping_count: runtime.missing_count(),
-        diagnostic_quad_count: 0,
-        diagnostic_attribution: Default::default(),
-    }
 }
 
 #[cfg(test)]

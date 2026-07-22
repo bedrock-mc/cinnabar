@@ -1,5 +1,8 @@
 use super::*;
-use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
+use crate::actor_animation::{
+    ActorAnimationStats, ActorRigSnapshot, LocalPlayerAnimationTickInput, LocalPlayerRigResolution,
+    LocalPlayerRigSnapshot,
+};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
@@ -8,9 +11,34 @@ impl ActorStore {
         let ActorKind::Player { uuid, .. } = &actor.kind else {
             return None;
         };
+        if self.player_unique_ids.get(&actor.unique_id)?.as_ref() != Some(uuid) {
+            return None;
+        }
         self.players
             .get(uuid)
             .filter(|profile| profile.unique_id == actor.unique_id)
+    }
+
+    pub(crate) fn player_profile_by_unique_id(&self, unique_id: i64) -> Option<&PlayerProfile> {
+        self.player_profile_lookup_by_unique_id(unique_id)
+            .ok()
+            .flatten()
+    }
+
+    pub(crate) fn player_profile_lookup_by_unique_id(
+        &self,
+        unique_id: i64,
+    ) -> Result<Option<&PlayerProfile>, ()> {
+        let Some(uuid) = self.player_unique_ids.get(&unique_id) else {
+            return Ok(None);
+        };
+        let Some(uuid) = uuid.as_ref() else {
+            return Err(());
+        };
+        Ok(self
+            .players
+            .get(uuid)
+            .filter(|profile| profile.unique_id == unique_id))
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -59,6 +87,24 @@ impl ActorStore {
     }
     pub(crate) fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
         self.animation.snapshots()
+    }
+    pub(crate) fn local_player_rig(
+        &self,
+        geometry: &protocol::PlayerSkinGeometry,
+    ) -> Option<LocalPlayerRigSnapshot<'_>> {
+        self.animation.local_player(geometry)
+    }
+    pub(crate) fn local_player_rig_resolution(
+        &self,
+        geometry: &protocol::PlayerSkinGeometry,
+    ) -> LocalPlayerRigResolution {
+        self.animation.local_player_resolution(geometry)
+    }
+    pub(crate) fn advance_local_player_animation(&mut self, input: LocalPlayerAnimationTickInput) {
+        self.animation.advance_local_player_tick(input);
+    }
+    pub(crate) fn reset_local_player_animation(&mut self) {
+        self.animation.reset_local_player();
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()

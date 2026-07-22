@@ -369,6 +369,10 @@ pub enum CommittedUiEvent {
         server_tick: u64,
         attributes: Arc<[ActorAttribute]>,
     },
+    LocalGameMode {
+        sequence: u64,
+        game_mode: protocol::PlayerGameMode,
+    },
 }
 
 #[cfg(test)]

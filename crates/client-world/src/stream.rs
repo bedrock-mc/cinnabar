@@ -18,11 +18,12 @@ use assets::{
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
-    ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
-    request_sub_chunk_column, vanilla_dimension_range,
+    ActorAttribute, ActorEvent, ActorMoveEvent, ActorPositionOrigin, BiomeDefinitionEvent,
+    BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    DaylightCycleUpdateEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
+    PlayerMovementCorrectionEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -36,14 +37,16 @@ use world::{
     chunk_in_view, solve_light,
 };
 
-use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
+use super::actor_animation::LocalPlayerRigResolution;
+use super::actor_animation::{ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot};
+use super::actor_store::{ActorApplyResult, ActorPose, ActorSnapshot, ActorStore, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
 use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
+mod actor_witness;
 mod block_entities;
 mod cohort;
 mod connectivity;
@@ -72,6 +75,57 @@ use lighting::types::*;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalPlayerRigAuthorityStatus {
+    MissingStartGameAuthority,
+    MissingPlayerListProfile,
+    AmbiguousPlayerListIdentity,
+    SkinUnavailable(protocol::PlayerSkinUnavailable),
+    MissingCompiledRigVariant,
+    GeometryFingerprintMismatch,
+    PoseNotReady,
+    Ready,
+}
+
+impl LocalPlayerRigAuthorityStatus {
+    pub const fn marker(self) -> &'static str {
+        match self {
+            Self::MissingStartGameAuthority => "missing_start_game_authority",
+            Self::MissingPlayerListProfile => "missing_player_list_profile",
+            Self::AmbiguousPlayerListIdentity => "ambiguous_player_list_identity",
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::UnsupportedPersona) => {
+                "skin_unavailable_persona"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::UnsupportedAppearance) => {
+                "skin_unavailable_appearance"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidDimensions) => {
+                "skin_unavailable_dimensions"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidByteLength) => {
+                "skin_unavailable_byte_length"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidArmSize) => {
+                "skin_unavailable_arm_size"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::InvalidGeometry) => {
+                "skin_unavailable_geometry"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::GeometryTooLarge) => {
+                "skin_unavailable_geometry_too_large"
+            }
+            Self::SkinUnavailable(protocol::PlayerSkinUnavailable::RetainedBudgetExceeded) => {
+                "skin_unavailable_retained_budget"
+            }
+            Self::MissingCompiledRigVariant => "missing_compiled_rig_variant",
+            Self::GeometryFingerprintMismatch => "geometry_fingerprint_mismatch",
+            Self::PoseNotReady => "pose_not_ready",
+            Self::Ready => "ready",
+        }
+    }
+}
+
+pub use actor_witness::{COMMITTED_ACTOR_MOVE_CAPACITY, CommittedActorMove, CommittedActorPose};
 pub use diagnostics::{
     BuildProfileIdentity, CohortManifestIdentity, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
     Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
@@ -127,6 +181,9 @@ pub struct WorldStream {
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,
+    committed_actor_moves: VecDeque<CommittedActorMove>,
+    actor_move_witness_enabled: bool,
+    actor_move_commit_dropped_count: u64,
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
@@ -136,6 +193,8 @@ pub struct WorldStream {
     biome_tint_revision: u64,
     current_dimension: i32,
     local_player_runtime_id: u64,
+    local_player_game_mode: Option<protocol::LocalPlayerGameModeAuthority>,
+    local_player_appearance: Option<protocol::LocalPlayerAppearanceAuthority>,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,

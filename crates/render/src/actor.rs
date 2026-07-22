@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use bevy::{
     math::{Mat4, Vec3, Vec4},
@@ -13,6 +13,8 @@ mod geometry;
 pub(crate) mod gpu;
 #[path = "actor/rig.rs"]
 mod rig;
+#[path = "actor/texture.rs"]
+mod texture;
 #[path = "actor/witness.rs"]
 mod witness;
 
@@ -25,7 +27,13 @@ pub use rig::{
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform,
+};
+use texture::normalize_skin;
+pub use texture::{
+    ActorTextureAtlas, ActorTexturePixels, MAX_ACTOR_TEXTURE_ATLAS_BYTES,
+    MAX_ACTOR_TEXTURE_ATLAS_SIDE, default_actor_skin_rgba8, normalize_actor_skin,
+    pack_actor_textures,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -61,6 +69,7 @@ pub struct ActorRenderSource {
     pub yaw_degrees: f32,
     pub head_yaw_degrees: f32,
     pub teleported: bool,
+    pub render_eligible: bool,
     pub skin: Option<ActorSkinPixels>,
 }
 
@@ -100,6 +109,8 @@ pub struct ActorRenderInstance {
 pub struct ActorRenderFrame {
     pub instances: Arc<[ActorRenderInstance]>,
     pub skins_rgba8: Arc<[u8]>,
+    pub texture_atlas_width: u32,
+    pub texture_atlas_height: u32,
     pub instance_revision: u64,
     pub skin_revision: u64,
     pub rig: ActorRigRenderFrame,
@@ -110,6 +121,8 @@ impl Default for ActorRenderFrame {
         Self {
             instances: Arc::from([]),
             skins_rgba8: Arc::from([]),
+            texture_atlas_width: 0,
+            texture_atlas_height: 0,
             instance_revision: 0,
             skin_revision: 0,
             rig: ActorRigRenderFrame::default(),
@@ -188,7 +201,18 @@ impl ActorRenderScene {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = Arc::from([]);
         }
+        self.frame.texture_atlas_width = 0;
+        self.frame.texture_atlas_height = 0;
         self.frame.rig = self.rig_builder.build(0.0, None, []);
+    }
+
+    #[must_use]
+    pub fn rig_submission_is_visible(
+        &self,
+        submission: &ActorRigSubmission,
+        view: Option<ActorCullView>,
+    ) -> bool {
+        self.rig_builder.submission_is_visible(submission, view)
     }
 
     pub fn update(
@@ -212,9 +236,12 @@ impl ActorRenderScene {
         } else {
             0.0
         };
-        let local = local.filter(ActorRenderSource::is_finite);
+        let local = local
+            .filter(|source| source.render_eligible)
+            .filter(ActorRenderSource::is_finite);
         let mut sources = sources
             .into_iter()
+            .filter(|source| source.render_eligible)
             .filter(ActorRenderSource::is_finite)
             .filter(|source| {
                 local
@@ -246,7 +273,8 @@ impl ActorRenderScene {
         let mut skins = Vec::with_capacity(visible.len() * STANDARD_SKIN_BYTES);
         let mut rig_submissions = Vec::with_capacity(visible.len());
         for (source, pose) in visible {
-            let skin_layer = u32::try_from(instances.len()).expect("bounded actor layer count");
+            let skin_layer =
+                u32::try_from(rig_submissions.len()).expect("bounded actor layer count");
             instances.push(ActorRenderInstance {
                 runtime_id: source.runtime_id,
                 position: pose.position,
@@ -300,21 +328,13 @@ impl ActorRenderScene {
                     [-sine, 0.0, cosine, pose.position[2]],
                 ],
                 texture_layer: skin_layer,
+                texture_region: [0.0, 0.0, 1.0, 1.0],
                 route: ActorRigRoute::Diagnostic,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
         }
 
-        if self.frame.instances.as_ref() != instances.as_slice() {
-            self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
-            self.frame.instances = Arc::from(instances);
-        }
-        if self.frame.skins_rgba8.as_ref() != skins.as_slice() {
-            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
-            self.frame.skins_rgba8 = Arc::from(skins);
-        }
-        self.frame.rig = self.rig_builder.build(1.0, None, rig_submissions);
-        &self.frame
+        self.update_rigs_with_skins(1.0, None, rig_submissions, skins.into(), Some(instances))
     }
 
     pub fn update_rigs(
@@ -324,14 +344,88 @@ impl ActorRenderScene {
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
         skins_rgba8: Arc<[u8]>,
     ) -> &ActorRenderFrame {
-        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        self.update_rigs_with_skins(partial_tick, view, submissions, skins_rgba8, None)
+    }
+
+    fn update_rigs_with_skins(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        skins_rgba8: Arc<[u8]>,
+        compatibility_instances: Option<Vec<ActorRenderInstance>>,
+    ) -> &ActorRenderFrame {
         let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
         let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
-        let invalid_skin_layer = rig
-            .instances
+        let mut submissions = submissions.into_iter().collect::<Vec<_>>();
+        if !skin_payload_is_aligned
+            || skin_layer_count == 0
+            || skin_layer_count > MAX_RENDERED_PLAYERS
+        {
+            return self.reject_texture_frame(partial_tick, view, submissions);
+        }
+        let textures = skins_rgba8
+            .chunks_exact(STANDARD_SKIN_BYTES)
+            .map(|rgba8| ActorTexturePixels {
+                width: STANDARD_SKIN_SIDE as u32,
+                height: STANDARD_SKIN_SIDE as u32,
+                rgba8: Arc::from(rgba8),
+            })
+            .collect::<Vec<_>>();
+        let Some(atlas) = pack_actor_textures(&textures) else {
+            return self.reject_texture_frame(partial_tick, view, submissions);
+        };
+        if submissions
             .iter()
-            .any(|instance| instance.texture_layer as usize >= skin_layer_count);
-        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS || invalid_skin_layer
+            .any(|submission| submission.texture_layer as usize >= atlas.regions.len())
+        {
+            return self.reject_texture_frame(partial_tick, view, submissions);
+        }
+        for submission in &mut submissions {
+            submission.texture_region = atlas.regions[submission.texture_layer as usize];
+            submission.texture_layer = 0;
+        }
+        self.update_rigs_with_atlas_inner(
+            partial_tick,
+            view,
+            submissions,
+            atlas,
+            compatibility_instances,
+        )
+    }
+
+    pub fn update_rigs_with_atlas(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        atlas: ActorTextureAtlas,
+    ) -> &ActorRenderFrame {
+        self.update_rigs_with_atlas_inner(partial_tick, view, submissions, atlas, None)
+    }
+
+    fn update_rigs_with_atlas_inner(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        atlas: ActorTextureAtlas,
+        compatibility_instances: Option<Vec<ActorRenderInstance>>,
+    ) -> &ActorRenderFrame {
+        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        let expected = (atlas.width as usize)
+            .checked_mul(atlas.height as usize)
+            .and_then(|pixels| pixels.checked_mul(4));
+        if atlas.width == 0
+            || atlas.height == 0
+            || atlas.width as usize > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+            || atlas.height as usize > MAX_ACTOR_TEXTURE_ATLAS_SIDE
+            || expected != Some(atlas.rgba8.len())
+            || atlas.rgba8.len() > MAX_ACTOR_TEXTURE_ATLAS_BYTES
+            || rig
+                .instances
+                .iter()
+                .any(|instance| instance.texture_layer != 0)
         {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
@@ -347,36 +441,72 @@ impl ActorRenderScene {
             };
             self.frame.instances = Arc::from([]);
             self.frame.skins_rgba8 = Arc::from([]);
+            self.frame.texture_atlas_width = 0;
+            self.frame.texture_atlas_height = 0;
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             return &self.frame;
         }
-        let compatibility_instances = rig
-            .instances
-            .iter()
-            .zip(rig.manifest.iter())
-            .map(|(instance, manifest)| ActorRenderInstance {
-                runtime_id: manifest.identity.runtime_id,
-                position: [
-                    instance.world_from_actor[0][3],
-                    instance.world_from_actor[1][3],
-                    instance.world_from_actor[2][3],
-                ],
-                pitch_radians: 0.0,
-                yaw_radians: 0.0,
-                head_yaw_radians: 0.0,
-                skin_layer: instance.texture_layer,
-            })
-            .collect::<Vec<_>>();
+        let compatibility_instances = compatibility_instances.unwrap_or_else(|| {
+            rig.instances
+                .iter()
+                .zip(rig.manifest.iter())
+                .map(|(instance, manifest)| ActorRenderInstance {
+                    runtime_id: manifest.identity.runtime_id,
+                    position: [
+                        instance.world_from_actor[0][3],
+                        instance.world_from_actor[1][3],
+                        instance.world_from_actor[2][3],
+                    ],
+                    pitch_radians: 0.0,
+                    yaw_radians: 0.0,
+                    head_yaw_radians: 0.0,
+                    skin_layer: instance.texture_layer,
+                })
+                .collect::<Vec<_>>()
+        });
         if self.frame.instances.as_ref() != compatibility_instances.as_slice() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(compatibility_instances);
         }
-        if self.frame.skins_rgba8 != skins_rgba8 {
+        if self.frame.skins_rgba8 != atlas.rgba8
+            || self.frame.texture_atlas_width != atlas.width
+            || self.frame.texture_atlas_height != atlas.height
+        {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
-            self.frame.skins_rgba8 = skins_rgba8;
+            self.frame.skins_rgba8 = atlas.rgba8;
+            self.frame.texture_atlas_width = atlas.width;
+            self.frame.texture_atlas_height = atlas.height;
         }
         self.frame.rig = rig;
+        &self.frame
+    }
+
+    fn reject_texture_frame(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+    ) -> &ActorRenderFrame {
+        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        let rejects = rig.rejects;
+        self.frame.rig = ActorRigRenderFrame {
+            geometry_revision: rig.geometry_revision,
+            geometry_vertices: rig.geometry_vertices,
+            geometry_spans: rig.geometry_spans,
+            frame_generation: rig.frame_generation,
+            rejects: ActorRigRejects {
+                invalid_geometry: rejects.invalid_geometry.saturating_add(1),
+                ..rejects
+            },
+            ..ActorRigRenderFrame::default()
+        };
+        self.frame.instances = Arc::from([]);
+        self.frame.skins_rgba8 = Arc::from([]);
+        self.frame.texture_atlas_width = 0;
+        self.frame.texture_atlas_height = 0;
+        self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
+        self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
         &self.frame
     }
 
@@ -447,62 +577,6 @@ fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
         cx * cy * sz - sx * sy * cz,
         cx * cy * cz + sx * sy * sz,
     ]
-}
-
-fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
-    skin.and_then(normalize_actor_skin)
-        .unwrap_or_else(default_actor_skin_rgba8)
-        .to_vec()
-}
-
-#[must_use]
-pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
-    static DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
-    Arc::clone(DEFAULT_SKIN.get_or_init(|| generated_default_skin().into()))
-}
-
-#[must_use]
-pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
-    if skin.width != skin.height || !matches!(skin.width, 64 | 128 | 256) {
-        return None;
-    }
-    let side = usize::try_from(skin.width).expect("bounded standard skin side");
-    if skin.rgba8.len() != side * side * 4 {
-        return None;
-    }
-    if side == STANDARD_SKIN_SIDE {
-        return Some(Arc::clone(&skin.rgba8));
-    }
-    let mut normalized = vec![0; STANDARD_SKIN_BYTES];
-    for y in 0..STANDARD_SKIN_SIDE {
-        for x in 0..STANDARD_SKIN_SIDE {
-            let source_x = x * side / STANDARD_SKIN_SIDE;
-            let source_y = y * side / STANDARD_SKIN_SIDE;
-            let source = (source_y * side + source_x) * 4;
-            let target = (y * STANDARD_SKIN_SIDE + x) * 4;
-            normalized[target..target + 4].copy_from_slice(&skin.rgba8[source..source + 4]);
-        }
-    }
-    Some(normalized.into())
-}
-
-fn generated_default_skin() -> Vec<u8> {
-    let skin_tone = [198, 134, 91, 255];
-    let mut rgba8 = skin_tone.repeat(STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE);
-    fill_rect(&mut rgba8, 16, 16, 24, 16, [42, 91, 99, 255]);
-    fill_rect(&mut rgba8, 0, 16, 16, 16, [47, 54, 67, 255]);
-    fill_rect(&mut rgba8, 16, 48, 16, 16, [47, 54, 67, 255]);
-    fill_rect(&mut rgba8, 8, 8, 8, 8, [112, 72, 48, 255]);
-    rgba8
-}
-
-fn fill_rect(rgba8: &mut [u8], x: usize, y: usize, width: usize, height: usize, color: [u8; 4]) {
-    for py in y..y + height {
-        for px in x..x + width {
-            let offset = (py * STANDARD_SKIN_SIDE + px) * 4;
-            rgba8[offset..offset + 4].copy_from_slice(&color);
-        }
-    }
 }
 
 #[repr(C)]
@@ -643,6 +717,7 @@ mod tests {
             yaw_degrees,
             head_yaw_degrees: yaw_degrees,
             teleported: false,
+            render_eligible: true,
             skin: None,
         }
     }
@@ -773,6 +848,42 @@ mod tests {
     }
 
     #[test]
+    fn render_ineligible_actor_is_rejected_when_camera_is_inside_its_aabb() {
+        let mut hidden = source(7, 0.0, 0.0);
+        hidden.render_eligible = false;
+        let mut scene = ActorRenderScene::default();
+
+        let frame = scene.update(1.0, Some(broad_view(192.0)), [hidden, source(8, 0.0, 0.0)]);
+
+        assert_eq!(
+            frame
+                .instances
+                .iter()
+                .map(|actor| actor.runtime_id)
+                .collect::<Vec<_>>(),
+            vec![8]
+        );
+    }
+
+    #[test]
+    fn render_ineligible_actors_do_not_consume_the_visible_actor_cap() {
+        let mut sources = (0..u64::try_from(MAX_RENDERED_PLAYERS).unwrap())
+            .map(|id| {
+                let mut actor = source(id, 0.0, 0.0);
+                actor.render_eligible = false;
+                actor
+            })
+            .collect::<Vec<_>>();
+        sources.push(source(999, 0.0, 0.0));
+        let mut scene = ActorRenderScene::default();
+
+        let frame = scene.update(1.0, Some(broad_view(192.0)), sources);
+
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(frame.instances[0].runtime_id, 999);
+    }
+
+    #[test]
     fn scene_reset_clears_the_published_frame() {
         let mut scene = ActorRenderScene::default();
         scene.update(1.0, None, [source(7, 10.0, 0.0)]);
@@ -820,12 +931,12 @@ mod tests {
         let frame = scene.update(1.0, None, [first, second]);
 
         assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
-        assert_eq!(frame.skins_rgba8.len(), 2 * 64 * 64 * 4);
+        assert_eq!(frame.skins_rgba8.len(), 2 * 66 * 66 * 4);
         assert_eq!(
             DEFAULT_SKIN_PROVENANCE,
             "locally generated Cinnabar Default skin"
         );
-        let default = &frame.skins_rgba8[64 * 64 * 4..];
+        let default = &frame.skins_rgba8;
         assert!(
             default
                 .chunks_exact(4)

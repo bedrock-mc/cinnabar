@@ -16,18 +16,19 @@ pub use v4::{
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding, EntityRigTexture,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
     MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_ENTITY_RIG_TEXTURE_BYTES, MAX_ENTITY_RIG_TEXTURE_SIDE, MAX_ENTITY_RIG_TEXTURES,
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
     MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 4;
+pub const ENTITY_BLOB_VERSION: u32 = 6;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -180,6 +181,8 @@ pub struct EntityGeometryBone {
 #[serde(deny_unknown_fields)]
 pub struct EntityGeometry {
     pub identifier: Box<str>,
+    /// Hash of the canonical, selected source geometry object.
+    pub semantic_sha256: [u8; 32],
     pub inherits: Option<EntityGeometryInheritance>,
     pub source_index: u32,
     pub texture_width: u16,
@@ -217,6 +220,7 @@ pub struct CompiledEntityAssets {
     pub rig_geometries: Box<[EntityRigGeometryBinding]>,
     pub rig_animations: Box<[EntityRigAnimationBinding]>,
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
+    pub rig_textures: Box<[EntityRigTexture]>,
     pub item_visuals: Box<[ItemVisualDefinition]>,
     pub item_visual_aliases: Box<[ItemVisualAlias]>,
 }
@@ -244,6 +248,7 @@ struct EntityCatalogPayload {
     rig_geometries: Box<[EntityRigGeometryBinding]>,
     rig_animations: Box<[EntityRigAnimationBinding]>,
     rig_controllers: Box<[EntityRigControllerBinding]>,
+    rig_textures: Box<[EntityRigTexture]>,
     item_visuals: Box<[ItemVisualDefinition]>,
     item_visual_aliases: Box<[ItemVisualAlias]>,
 }
@@ -271,6 +276,7 @@ pub struct RuntimeEntityAssets {
     rig_geometries: Arc<[EntityRigGeometryBinding]>,
     rig_animations: Arc<[EntityRigAnimationBinding]>,
     rig_controllers: Arc<[EntityRigControllerBinding]>,
+    rig_textures: Arc<[EntityRigTexture]>,
     item_visuals: Arc<[ItemVisualDefinition]>,
     item_visual_aliases: Arc<[ItemVisualAlias]>,
 }
@@ -278,10 +284,10 @@ pub struct RuntimeEntityAssets {
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEENT4 blob"));
+            return Err(invalid("truncated MCBEENT6 blob"));
         }
         if bytes[..8] != ENTITY_BLOB_MAGIC || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION {
-            return Err(invalid("unsupported MCBEENT4 header"));
+            return Err(invalid("unsupported MCBEENT6 header"));
         }
         let source_count = u32_at(bytes, 12)? as usize;
         let symbol_count = u32_at(bytes, 16)? as usize;
@@ -300,26 +306,26 @@ impl RuntimeEntityAssets {
             || rig_binding_count > MAX_ENTITY_RIG_BINDINGS
             || item_visual_count > crate::item::MAX_ITEM_VISUALS
         {
-            return Err(invalid("MCBEENT4 header counts exceed bounds"));
+            return Err(invalid("MCBEENT6 header counts exceed bounds"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 24)?;
         let payload_bytes = usize::try_from(u64::from_le_bytes(array_at(bytes, 56)?))
-            .map_err(|_| invalid("MCBEENT4 payload size exceeds platform"))?;
+            .map_err(|_| invalid("MCBEENT6 payload size exceeds platform"))?;
         if payload_bytes > MAX_ENTITY_CATALOG_BYTES
             || bytes.len()
                 != HEADER_BYTES
                     .checked_add(payload_bytes)
                     .and_then(|length| length.checked_add(HASH_BYTES))
-                    .ok_or_else(|| invalid("MCBEENT4 length overflow"))?
+                    .ok_or_else(|| invalid("MCBEENT6 length overflow"))?
         {
-            return Err(invalid("noncanonical MCBEENT4 section layout"));
+            return Err(invalid("noncanonical MCBEENT6 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
         if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT4 envelope hash mismatch"));
+            return Err(invalid("MCBEENT6 envelope hash mismatch"));
         }
         let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
-            .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
+            .map_err(|_| invalid("invalid MCBEENT6 catalog count preflight"))?;
         if payload_counts
             != [
                 source_count,
@@ -331,15 +337,15 @@ impl RuntimeEntityAssets {
                 item_visual_count,
             ]
         {
-            return Err(invalid("MCBEENT4 catalog counts do not match header"));
+            return Err(invalid("MCBEENT6 catalog counts do not match header"));
         }
         let payload: EntityCatalogPayload =
             serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid MCBEENT4 catalog payload"))?;
+                .map_err(|_| invalid("invalid MCBEENT6 catalog payload"))?;
         let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize MCBEENT4 catalog payload"))?;
+            .map_err(|_| invalid("failed to canonicalize MCBEENT6 catalog payload"))?;
         if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical MCBEENT4 catalog encoding"));
+            return Err(invalid("noncanonical MCBEENT6 catalog encoding"));
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
@@ -363,6 +369,7 @@ impl RuntimeEntityAssets {
             rig_geometries: payload.rig_geometries,
             rig_animations: payload.rig_animations,
             rig_controllers: payload.rig_controllers,
+            rig_textures: payload.rig_textures,
             item_visuals: payload.item_visuals,
             item_visual_aliases: payload.item_visual_aliases,
         };
@@ -389,6 +396,7 @@ impl RuntimeEntityAssets {
             rig_geometries: Arc::from(compiled.rig_geometries),
             rig_animations: Arc::from(compiled.rig_animations),
             rig_controllers: Arc::from(compiled.rig_controllers),
+            rig_textures: Arc::from(compiled.rig_textures),
             item_visuals: Arc::from(compiled.item_visuals),
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
         })
@@ -845,7 +853,10 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
 fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
     let matches = match kind {
         EntityAssetKind::Entity => path.starts_with("entity/") && path.ends_with(".json"),
-        EntityAssetKind::Geometry => path.starts_with("models/entity/") && path.ends_with(".json"),
+        EntityAssetKind::Geometry => {
+            (path.starts_with("models/entity/") && path.ends_with(".json"))
+                || path == "models/mobs.json"
+        }
         EntityAssetKind::Animation => path.starts_with("animations/") && path.ends_with(".json"),
         EntityAssetKind::AnimationController => {
             path.starts_with("animation_controllers/") && path.ends_with(".json")
@@ -902,7 +913,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     bytes
         .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated MCBEENT4 field"))?
+        .ok_or_else(|| invalid("truncated MCBEENT6 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEENT4 field"))
+        .map_err(|_| invalid("invalid MCBEENT6 field"))
 }
