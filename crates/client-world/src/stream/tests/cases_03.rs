@@ -478,12 +478,14 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         },
     ] {
         let mut stream = stream_at_origin();
-        let tracked_before = stream.tracked_columns();
-        let deadlines_before = stream.sub_chunk_deadlines.clone();
         stream.submit(1, WorldEvent::MovePlayer(movement)).unwrap();
+        // None of these moves is a disjoint local teleport, so none provisionally
+        // rebases the publisher: the publisher center, armed local resets, and
+        // rebase flag are all left untouched. Chunk-grid retention recenters on
+        // the local player independently and is covered by its own tests.
         assert_eq!(stream.publisher_center, Some([0, 70, 0]));
-        assert_eq!(stream.tracked_columns(), tracked_before);
-        assert_eq!(stream.sub_chunk_deadlines, deadlines_before);
+        assert_eq!(stream.local_resets_armed, 0);
+        assert!(!stream.provisional_publisher_rebase);
     }
 }
 
