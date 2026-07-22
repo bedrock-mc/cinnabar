@@ -1,3 +1,5 @@
+Development is paused until August 1st i need to lock in
+
 # Cinnabar
 
 Cinnabar is a greenfield Minecraft Bedrock client. The Rust workspace owns the client,
