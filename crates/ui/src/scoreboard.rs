@@ -256,6 +256,76 @@ impl ScoreboardStore {
         self.projection(DisplaySlot::BelowName)
     }
 
+    /// The single below-name score for one entity, the way a nameplate
+    /// presents it: the owner's value under the below-name objective, with the
+    /// objective display name as the suffix label. `None` when no below-name
+    /// objective is displayed or the owner has no score in it.
+    pub fn below_name_for_owner(&self, owner: &ScoreOwner) -> Option<(i32, Arc<str>)> {
+        let objective_name = self.slots.get(&DisplaySlot::BelowName)?;
+        let objective = self.objectives.get(objective_name)?;
+        let score = objective
+            .scores
+            .values()
+            .find(|score| &score.owner == owner)?;
+        Some((score.score, Arc::clone(&objective.display_name)))
+    }
+
+    /// Resolves a rawtext score component: the value a named owner holds in an
+    /// objective, independent of display slots. Only fake-player rows carry a
+    /// display name inside the store; entity/player rows require the actor
+    /// authority a caller may layer on top.
+    pub fn score_for_named_owner(&self, objective: &str, owner_name: &str) -> Option<i32> {
+        self.score_for_resolved_owner(objective, owner_name, |_| None)
+    }
+
+    /// The score whose owner presents as `owner_name`: fake players match
+    /// their literal name, and real player/entity owners match through the
+    /// caller's authoritative id-to-display-name resolution.
+    pub fn score_for_resolved_owner(
+        &self,
+        objective: &str,
+        owner_name: &str,
+        mut resolve_owner_name: impl FnMut(i64) -> Option<Arc<str>>,
+    ) -> Option<i32> {
+        let objective = self.objectives.get(objective)?;
+        objective
+            .scores
+            .values()
+            .find(|score| match &score.owner {
+                ScoreOwner::FakePlayer(name) => name.as_ref() == owner_name,
+                ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => {
+                    resolve_owner_name(*unique_id).is_some_and(|name| name.as_ref() == owner_name)
+                }
+                ScoreOwner::None => false,
+            })
+            .map(|score| score.score)
+    }
+
+    /// Unique ids of every retained real player/entity score owner, for the
+    /// caller to refresh its bounded id-to-name authority.
+    pub fn score_owner_ids(&self) -> BTreeSet<i64> {
+        self.objectives
+            .values()
+            .flat_map(|objective| objective.scores.values())
+            .filter_map(|score| match &score.owner {
+                ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => Some(*unique_id),
+                ScoreOwner::FakePlayer(_) | ScoreOwner::None => None,
+            })
+            .collect()
+    }
+
+    /// The list-slot score for one player entry, as the player list presents
+    /// it beside each name.
+    pub fn list_score_for_owner(&self, owner: &ScoreOwner) -> Option<i32> {
+        let objective_name = self.slots.get(&DisplaySlot::List)?;
+        let objective = self.objectives.get(objective_name)?;
+        objective
+            .scores
+            .values()
+            .find(|score| &score.owner == owner)
+            .map(|score| score.score)
+    }
+
     pub fn projection(&self, slot: DisplaySlot) -> Option<ScoreboardProjection> {
         self.projection_bounded(slot, MAX_SCORES, |_| true)
     }
@@ -611,7 +681,6 @@ pub struct BossBarView {
     pub filtered_title: Arc<str>,
     pub health: f32,
     pub style: BossStyle,
-    pub registered_players: Arc<[i64]>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -669,14 +738,17 @@ impl BossBarStore {
                 filtered_title: Arc::clone(&bar.filtered_title),
                 health: bar.health,
                 style: bar.style,
-                registered_players: bar
-                    .registered_players
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .into(),
             })
             .collect()
+    }
+
+    /// The registered player memberships of one bar, materialized on demand;
+    /// the per-frame presentation view deliberately excludes this list.
+    pub fn registered_players(&self, target_entity_id: i64) -> Vec<i64> {
+        self.bars
+            .get(&target_entity_id)
+            .map(|bar| bar.registered_players.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     pub fn apply(

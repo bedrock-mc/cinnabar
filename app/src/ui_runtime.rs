@@ -1,10 +1,15 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod gameplay_authority;
+pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
 pub mod inventory_router;
+pub(crate) mod item_facts;
+mod platform_clipboard;
 pub mod presentation;
+mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
 
@@ -37,6 +42,7 @@ use ui::{
     RetainedUiSequenceError, ScoreboardStore, TitleDurations, Toast, UiAction,
 };
 
+use self::gameplay_hud::GameplayHudState;
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
@@ -45,30 +51,7 @@ const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
 const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
 
-#[derive(Default)]
-pub(crate) struct PlatformClipboard;
-
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum PlatformClipboardError {
-    #[error("platform clipboard failed: {0}")]
-    Platform(#[from] arboard::Error),
-    #[error("clipboard text exceeds the {maximum}-byte chat insertion bound")]
-    TooLong { maximum: usize },
-}
-
-impl ChatClipboard for PlatformClipboard {
-    type Error = PlatformClipboardError;
-
-    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Result<Option<Arc<str>>, Self::Error> {
-        let text = arboard::Clipboard::new()?.get_text()?;
-        if text.len() > maximum_bytes {
-            return Err(PlatformClipboardError::TooLong {
-                maximum: maximum_bytes,
-            });
-        }
-        Ok(Some(Arc::from(text)))
-    }
-}
+pub(crate) use platform_clipboard::PlatformClipboard;
 
 #[derive(Clone, Debug)]
 pub struct SequencedUiEvent {
@@ -127,9 +110,6 @@ pub enum UiRuntimeError {
     InventoryQueueFull { maximum: usize },
     NonMonotonicLocalTime { previous: u64, actual: u64 },
     NonMonotonicServerTick { previous: u64, actual: u64 },
-    InvalidTitleDurations,
-    InvalidHealth(i32),
-    InvalidLocalAttribute { field: &'static str },
     ChatRejected(ChatApplyResult),
     ChatAutocomplete(ChatAutocompleteError),
     ChatAutocompleteCatalog(ChatAutocompleteCatalogError),
@@ -159,6 +139,9 @@ pub struct UiRuntime {
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
     last_server_tick: Option<u64>,
+    /// Local millis at which `last_server_tick` was observed, anchoring the
+    /// estimated session clock between packets.
+    last_tick_observed_millis: Option<u64>,
     chat_focused: bool,
     hud: HudStore,
     chat: ChatStore,
@@ -178,10 +161,30 @@ pub struct UiRuntime {
     pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
     inventory_authority: Option<InventoryAuthority>,
     player_game_mode: Option<PlayerGameMode>,
+    world_default_game_mode: Option<PlayerGameMode>,
+    player_mode_from_default: bool,
     last_inventory_sequence: Option<u64>,
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
+    local_selected_slot: Option<u8>,
+    server_selected_slot: Option<u8>,
+    gameplay_hud: GameplayHudState,
+    last_health_drop_millis: Option<u64>,
+    last_selected_identity_change_millis: Option<u64>,
+    last_selected_identity: Option<(i32, u32)>,
+    /// Local millis at which the held jump began charging the mounted jump
+    /// bar; `None` while jump is released or no mount is ridden.
+    mount_jump_hold_started_millis: Option<u64>,
+    /// Startup-loaded localization catalog; survives session replacement
+    /// because it is local pinned data, not server state.
+    lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
+    /// Authoritative display names of real player/entity score owners,
+    /// refreshed from the world stream before committed events apply.
+    score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
+    /// Sorted usernames on the authoritative player list, the retained
+    /// answer for the `@a` selector.
+    known_player_names: Vec<Arc<str>>,
 }
 
 impl UiRuntime {
@@ -192,7 +195,10 @@ impl UiRuntime {
             last_block_crack_sequence: None,
             last_local_millis: None,
             last_server_tick: None,
+            last_tick_observed_millis: None,
             chat_focused: false,
+            score_owner_names: std::collections::BTreeMap::new(),
+            known_player_names: Vec::new(),
             hud: HudStore::default(),
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
@@ -217,10 +223,20 @@ impl UiRuntime {
             pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
             inventory_authority: None,
             player_game_mode: None,
+            world_default_game_mode: None,
+            player_mode_from_default: false,
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
+            local_selected_slot: None,
+            server_selected_slot: None,
+            gameplay_hud: GameplayHudState::default(),
+            last_health_drop_millis: None,
+            last_selected_identity_change_millis: None,
+            last_selected_identity: None,
+            mount_jump_hold_started_millis: None,
+            lang_catalog: None,
         }
     }
 
@@ -240,37 +256,16 @@ impl UiRuntime {
         self.inventory_authority = Some(authority);
     }
 
-    pub(crate) fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
-        self.player_game_mode = Some(game_mode);
-        if game_mode.shows_survival_stats() {
-            self.hud.set_stats(
-                BoundedStat::new(20, 20),
-                BoundedStat::new(20, 20),
-                self.hud.armor(),
-                self.hud.air(),
-            );
-        } else {
-            self.hud
-                .set_stats(None, None, self.hud.armor(), self.hud.air());
-        }
+    /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
+    /// immediately, ahead of any server confirmation.
+    pub(crate) fn set_local_selected_slot(&mut self, slot: u8) {
+        self.local_selected_slot = Some(slot);
     }
 
-    pub(crate) const fn survival_stats_visible(&self) -> bool {
-        match self.player_game_mode {
-            Some(game_mode) => game_mode.shows_survival_stats(),
-            None => true,
-        }
-    }
-
-    pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
-        self.local_selected_equipment
-            .as_ref()
-            .map(|equipment| equipment.event.selected_slot)
-            .or_else(|| {
-                self.player_game_mode
-                    .filter(|game_mode| game_mode.shows_hotbar())
-                    .map(|_| 0)
-            })
+    /// The local player's StartGame-assigned runtime id, once known — required to address the
+    /// local player in outbound packets such as the hotbar-selection `MobEquipment`.
+    pub(crate) fn local_runtime_id(&self) -> Option<u64> {
+        self.equipment_router.local_runtime_id()
     }
 
     pub(crate) fn enqueue_inventory_event(
@@ -335,6 +330,11 @@ impl UiRuntime {
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) {
+        // Left-hand (offhand window) echoes carry the offhand stack; they must
+        // not clobber the retained main-hand slot echo.
+        if self.gameplay_hud.apply_offhand_equipment(&event) {
+            return;
+        }
         self.local_selected_equipment = Some(SequencedLocalEquipment {
             session_id: self.session_id,
             fifo_sequence,
@@ -596,7 +596,10 @@ impl UiRuntime {
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;
         self.last_server_tick = None;
+        self.last_tick_observed_millis = None;
         self.chat_focused = false;
+        self.score_owner_names.clear();
+        self.known_player_names.clear();
         self.hud.clear();
         self.chat.clear();
         self.scoreboards.clear();
@@ -615,10 +618,19 @@ impl UiRuntime {
         self.pending_block_cracks.clear();
         self.inventory_authority = None;
         self.player_game_mode = None;
+        self.world_default_game_mode = None;
+        self.player_mode_from_default = false;
         self.last_inventory_sequence = None;
         self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
+        self.local_selected_slot = None;
+        self.server_selected_slot = None;
+        self.gameplay_hud.clear();
+        self.last_health_drop_millis = None;
+        self.last_selected_identity_change_millis = None;
+        self.last_selected_identity = None;
+        self.mount_jump_hold_started_millis = None;
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {
@@ -657,18 +669,28 @@ impl UiRuntime {
                 self.apply_command_output(event, envelope.fifo_sequence, event_millis)?
             }
             UiEvent::RawText(event) if event.document.has_unresolved_components() => {
-                UiApplyOutcome::IgnoredUnresolvedRawText
+                // Score/selector/translation components resolve against the
+                // retained authoritative state; every degradation is counted
+                // and presented per the vanilla rules, never as JSON.
+                let resolved = self.resolve_raw_text(&event.document);
+                let mut text = event.text;
+                text.message = Arc::from(resolved.text);
+                self.apply_text(text, envelope.fifo_sequence, event_millis)?
             }
             UiEvent::RawText(event) => {
                 self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
             }
-            UiEvent::Title(event)
+            UiEvent::Title(mut event)
                 if event
                     .document
                     .as_ref()
                     .is_some_and(|document| document.has_unresolved_components()) =>
             {
-                UiApplyOutcome::IgnoredUnresolvedRawText
+                let document = event.document.clone().expect("guard checked the document");
+                let resolved = self.resolve_raw_text(&document);
+                event.text = Arc::from(resolved.text);
+                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
+                UiApplyOutcome::Applied
             }
             UiEvent::Title(event) => {
                 self.apply_title(event, envelope.fifo_sequence, event_millis)?;
@@ -699,12 +721,15 @@ impl UiRuntime {
                     .apply(envelope.fifo_sequence, scoreboard_adapter::boss(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
+            UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
+            UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
             UiEvent::Form(_) => UiApplyOutcome::IgnoredByReceiveStore,
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
         if let Some(server_tick) = envelope.server_tick {
             self.last_server_tick = Some(server_tick);
+            self.last_tick_observed_millis = Some(envelope.local_millis);
         }
         Ok(outcome)
     }
@@ -768,43 +793,6 @@ impl UiRuntime {
         }
         self.last_block_crack_sequence = Some(envelope.fifo_sequence);
         self.pending_block_cracks.push_back(envelope);
-        Ok(())
-    }
-
-    pub fn apply_local_attributes(
-        &mut self,
-        envelope: SequencedLocalAttributes,
-    ) -> Result<(), UiRuntimeError> {
-        self.validate_identity(
-            envelope.session_id,
-            envelope.fifo_sequence,
-            envelope.local_millis,
-            Some(envelope.server_tick),
-        )?;
-        let mut health = self.hud.health();
-        let mut hunger = self.hud.hunger();
-        for attribute in envelope.attributes.iter() {
-            match attribute.name.as_ref() {
-                "minecraft:health" => {
-                    health = Some(
-                        hud_adapter::attribute_stat(attribute)
-                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "health" })?,
-                    );
-                }
-                "minecraft:player.hunger" => {
-                    hunger = Some(
-                        hud_adapter::attribute_stat(attribute)
-                            .ok_or(UiRuntimeError::InvalidLocalAttribute { field: "hunger" })?,
-                    );
-                }
-                _ => {}
-            }
-        }
-        self.hud
-            .set_stats(health, hunger, self.hud.armor(), self.hud.air());
-        self.last_fifo_sequence = Some(envelope.fifo_sequence);
-        self.last_local_millis = Some(envelope.local_millis);
-        self.last_server_tick = Some(envelope.server_tick);
         Ok(())
     }
 
@@ -876,6 +864,12 @@ impl UiRuntime {
             parameters: event.parameters,
         }) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
+            // An oversized server row is odd data, not a wire fault: skip the
+            // whole row, count it, keep the session alive.
+            ChatApplyResult::RejectedTooLarge => {
+                self.gameplay_hud.note_oversized_chat_row();
+                Ok(UiApplyOutcome::IgnoredByReceiveStore)
+            }
             result => Err(UiRuntimeError::ChatRejected(result)),
         }
     }
@@ -900,6 +894,10 @@ impl UiRuntime {
             .collect();
         match self.chat.push_batch(messages) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
+            ChatApplyResult::RejectedTooLarge => {
+                self.gameplay_hud.note_oversized_chat_row();
+                Ok(UiApplyOutcome::IgnoredByReceiveStore)
+            }
             result => Err(UiRuntimeError::ChatRejected(result)),
         }
     }
@@ -925,13 +923,16 @@ impl UiRuntime {
                     .set_actionbar(event.text, fifo_sequence, event_millis);
             }
             TitleAction::SetDurations => {
-                let durations = TitleDurations::from_wire(
+                // Negative tick counts are semantically odd but well-formed:
+                // keep the previous durations and count the skip.
+                match TitleDurations::from_wire(
                     event.fade_in_ticks,
                     event.stay_ticks,
                     event.fade_out_ticks,
-                )
-                .ok_or(UiRuntimeError::InvalidTitleDurations)?;
-                self.hud.set_durations(durations);
+                ) {
+                    Some(durations) => self.hud.set_durations(durations),
+                    None => self.gameplay_hud.note_odd_hud_packet(),
+                }
             }
         }
         Ok(())
@@ -953,10 +954,15 @@ impl UiRuntime {
                 });
             }
             HudEvent::Health { health } => {
-                let health =
-                    u16::try_from(health).map_err(|_| UiRuntimeError::InvalidHealth(health))?;
-                let maximum = health.max(20);
-                self.hud.set_health(BoundedStat::new(health, maximum));
+                // A negative or overflowing SetHealth is semantically odd but
+                // well-formed wire: skip it, count it, keep the session alive.
+                match u16::try_from(health) {
+                    Ok(health) => {
+                        let maximum = health.max(20);
+                        self.hud.set_health(BoundedStat::new(health, maximum));
+                    }
+                    Err(_) => self.gameplay_hud.note_odd_hud_packet(),
+                }
             }
             HudEvent::PlayerStatus(status) => {
                 self.hud

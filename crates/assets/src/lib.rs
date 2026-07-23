@@ -9,7 +9,9 @@ mod environment_settings;
 mod error;
 mod font;
 mod hud;
+mod icon;
 mod item;
+mod lang;
 mod light_registry;
 mod model;
 mod physics_registry;
@@ -76,11 +78,21 @@ pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
 };
+pub use icon::{
+    ICON_CARRIER_MAGIC, ICON_CARRIER_VERSION, IconEntry, IconSprite, MAX_ICON_CARRIER_BYTES,
+    MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog,
+    encode_icon_catalog,
+};
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
     ItemStackIdentity, ItemStackIdentityError, ItemTextureReference, ItemVisualAlias,
     ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute,
     MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
+};
+pub use lang::{
+    LANG_CARRIER_MAGIC, LANG_CARRIER_VERSION, LangCatalogError, LangEntry, MAX_LANG_CARRIER_BYTES,
+    MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, RuntimeLangCatalog,
+    VANILLA_EN_US_LANG_SHA256, encode_lang_catalog,
 };
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{

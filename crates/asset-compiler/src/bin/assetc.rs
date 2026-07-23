@@ -7,8 +7,7 @@ use std::{
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
     OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
-    compile_fonts, compile_hud_assets, compile_outline_font, compile_pack_with_biomes,
-    inspect_animation_inventory,
+    compile_fonts, compile_outline_font, compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
@@ -21,8 +20,14 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
+#[path = "assetc/icon_command.rs"]
+mod icon_command;
+#[path = "assetc/lang_command.rs"]
+mod lang_command;
 
-use hud_command::{HudAssetCounts, HudAssetsReport};
+use hud_command::compile_hud_assets_command;
+use icon_command::compile_icon_assets_command;
+use lang_command::compile_lang_assets_command;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -86,6 +91,30 @@ enum Command {
         report: PathBuf,
     },
     HudAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile the pinned pack's sprite-routed item icons into the bounded
+    /// icon carrier.
+    IconAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile the pinned pack's en_US language table into the bounded
+    /// localization carrier.
+    LangAssets {
         #[arg(long)]
         pack: PathBuf,
         #[arg(long)]
@@ -289,6 +318,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
+        Command::IconAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_icon_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::LangAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_lang_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
         Command::OutlineFontAssets {
             font,
             source_manifest,
@@ -398,50 +443,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-    Ok(())
-}
-
-fn compile_hud_assets_command(
-    pack: &Path,
-    source_manifest: &Path,
-    out: &Path,
-    report: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let canonical_pack = fs::canonicalize(pack).map_err(|source| AssetError::Io {
-        path: pack.to_path_buf(),
-        source,
-    })?;
-    let manifest_bytes = read_bounded_with_limit(
-        source_manifest,
-        MAX_SOURCE_MANIFEST_BYTES,
-        "HUD source manifest",
-    )?;
-    let compiled = compile_hud_assets(&canonical_pack, &manifest_bytes)?;
-    let report_data = HudAssetsReport {
-        schema: 1,
-        canonical_pack_path: canonical_pack
-            .to_string_lossy()
-            .into_owned()
-            .into_boxed_str(),
-        source_manifest_sha256: hex(&compiled.report.source_manifest_sha256).into_boxed_str(),
-        carrier_sha256: hex(&compiled.report.carrier_sha256).into_boxed_str(),
-        counts: HudAssetCounts {
-            textures: compiled.report.textures,
-            source_bytes: compiled.report.source_bytes,
-            decoded_bytes: compiled.report.decoded_bytes,
-        },
-    };
-    let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
-    report_bytes.push(b'\n');
-    validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
-    println!(
-        "compiled {} pinned official Mojang sample HUD textures to {} and {}",
-        report_data.counts.textures,
-        out.display(),
-        report.display()
-    );
     Ok(())
 }
 

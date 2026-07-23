@@ -3,7 +3,7 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    CorrectPlayerMovePredictionPacketPredictionType, GameMode, GameRuleI32, GameRuleI32Type,
+    CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
     GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
     McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
     SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
@@ -11,25 +11,26 @@ use valentine::bedrock::version::v1_26_30::{
 };
 
 use crate::{
-    ActorEvent, ActorPacketError, EquipmentEvent, InventoryEvent, InventoryPacketError,
-    ItemActorEvent, ItemPacketError, Packet,
+    ActorEffectEvent, ActorEvent, ActorLinkEvent, ActorPacketError, ArmorEquipmentEvent,
+    EquipmentEvent, InventoryEvent, InventoryPacketError, ItemActorEvent, ItemPacketError, Packet,
     actor::{
-        normalize_add_entity, normalize_add_player, normalize_move_entity,
+        normalize_add_entity, normalize_add_player, normalize_mob_effect, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
-        normalize_set_entity_data, normalize_update_attributes,
+        normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
     },
     inventory::{
-        normalize_container_close, normalize_container_data, normalize_container_open,
-        normalize_content, normalize_hotbar, normalize_response, normalize_slot,
+        normalize_armor_equipment, normalize_container_close, normalize_container_data,
+        normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+        normalize_slot,
     },
     item::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
     },
     ui::{
-        BlockCrackEvent, UiEvent, UiPacketError, normalize_block_crack, normalize_boss,
-        normalize_display_objective, normalize_form, normalize_health, normalize_player_status,
-        normalize_remove_objective, normalize_score, normalize_soft_enum, normalize_text,
-        normalize_title, normalize_toast,
+        BlockCrackEvent, GameModeEvent, UiEvent, UiPacketError, normalize_block_crack,
+        normalize_boss, normalize_display_objective, normalize_form, normalize_health,
+        normalize_player_status, normalize_remove_objective, normalize_score, normalize_soft_enum,
+        normalize_text, normalize_title, normalize_toast,
     },
 };
 
@@ -54,77 +55,14 @@ pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
 pub const MAX_BIOME_NAME_BYTES: usize = 256;
 
-/// StartGame's local-player game mode reduced to the HUD distinctions Cinnabar owns.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum PlayerGameMode {
-    Survival,
-    Creative,
-    Adventure,
-    Spectator,
-    Unknown,
-}
-
-impl PlayerGameMode {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let start_game = &game_data.start_game;
-        Self::from_game_modes(start_game.player_gamemode, start_game.world_gamemode)
-    }
-
-    fn from_game_modes(player: GameMode, world: GameMode) -> Self {
-        let effective = if player == GameMode::Fallback {
-            world
-        } else {
-            player
-        };
-        match effective {
-            GameMode::Survival => Self::Survival,
-            GameMode::Creative => Self::Creative,
-            GameMode::Adventure => Self::Adventure,
-            GameMode::SurvivalSpectator | GameMode::CreativeSpectator | GameMode::Spectator => {
-                Self::Spectator
-            }
-            GameMode::Fallback | GameMode::Unknown(_) => Self::Unknown,
-        }
-    }
-
-    #[must_use]
-    pub const fn shows_hotbar(self) -> bool {
-        matches!(self, Self::Survival | Self::Creative | Self::Adventure)
-    }
-
-    #[must_use]
-    pub const fn shows_survival_stats(self) -> bool {
-        matches!(self, Self::Survival | Self::Adventure)
-    }
-}
-
-#[cfg(test)]
-mod player_game_mode_tests {
-    use super::{GameMode, PlayerGameMode};
-
-    #[test]
-    fn start_game_fallback_uses_the_authoritative_world_mode() {
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Creative),
-            PlayerGameMode::Creative
-        );
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Fallback, GameMode::Survival),
-            PlayerGameMode::Survival
-        );
-        assert_eq!(
-            PlayerGameMode::from_game_modes(GameMode::Unknown(77), GameMode::Creative),
-            PlayerGameMode::Unknown
-        );
-    }
-}
-
 /// StartGame data reduced to the fields required by the renderer and world streamer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorldBootstrap {
     pub dimension: i32,
     pub local_player_runtime_id: u64,
+    /// StartGame's unique (persistent) local-player entity id, required to
+    /// recognize the local rider in SetActorLink events.
+    pub local_player_unique_id: i64,
     pub player_position: [f32; 3],
     pub world_spawn_position: [i32; 3],
     pub air_network_id: u32,
@@ -143,6 +81,7 @@ impl WorldBootstrap {
                 StartGamePacketDimension::Unknown(value) => value,
             },
             local_player_runtime_id: start_game.runtime_entity_id as u64,
+            local_player_unique_id: start_game.entity_id,
             player_position: [
                 start_game.player_position.x,
                 start_game.player_position.y,
@@ -469,9 +408,13 @@ pub enum WorldEvent {
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
     Actor(ActorEvent),
+    ActorEffect(ActorEffectEvent),
+    ActorLink(ActorLinkEvent),
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),
+    // Boxed: five item stacks would otherwise dominate every WorldEvent.
+    ArmorEquipment(Box<ArmorEquipmentEvent>),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
 }
@@ -598,6 +541,25 @@ pub fn into_world_event(
         }
         McpePacketData::PacketMobEquipment(packet) => {
             WorldEvent::Equipment(normalize_equipment(*packet)?)
+        }
+        McpePacketData::PacketMobArmorEquipment(packet) => {
+            WorldEvent::ArmorEquipment(Box::new(normalize_armor_equipment(*packet)?))
+        }
+        McpePacketData::PacketMobEffect(packet) => {
+            WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
+        }
+        McpePacketData::PacketSetEntityLink(packet) => {
+            WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))
+        }
+        McpePacketData::PacketSetPlayerGameType(packet) => {
+            WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
+                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
+            }))
+        }
+        McpePacketData::PacketSetDefaultGameType(packet) => {
+            WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
+                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
+            }))
         }
         McpePacketData::PacketInventoryContent(packet) => {
             WorldEvent::Inventory(normalize_content(*packet)?)
@@ -962,3 +924,7 @@ fn checked_sub_chunk_position(
     }
     Ok(position)
 }
+
+mod game_mode;
+
+pub use game_mode::PlayerGameMode;

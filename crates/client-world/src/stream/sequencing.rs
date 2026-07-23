@@ -453,6 +453,13 @@ impl WorldStream {
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
+                // A dimension change always dismounts; the mount actor does not follow.
+                if self.local_mount_unique_id.take().is_some() {
+                    self.push_committed_ui(CommittedUiEvent::LocalMount {
+                        sequence,
+                        ridden_unique_id: None,
+                    });
+                }
                 let resolved = resolve_server_position(
                     change.position,
                     self.resolved_server_position.position,
@@ -565,7 +572,63 @@ impl WorldStream {
                         attributes: Arc::clone(&update.attributes),
                     });
                 }
+                if let ActorEvent::Metadata(update) = &event
+                    && update.runtime_id == self.local_player_runtime_id
+                    && update.dimension == self.current_dimension
+                {
+                    self.push_committed_ui(CommittedUiEvent::LocalMetadata {
+                        sequence,
+                        server_tick: update.tick,
+                        metadata: Arc::clone(&update.metadata),
+                    });
+                }
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
+            }
+            WorldEvent::ActorEffect(event) => {
+                let sequence = sequence.expect("sequenced effect events commit through submit");
+                if event.actor_runtime_id == self.local_player_runtime_id
+                    && event.dimension == self.current_dimension
+                {
+                    self.push_committed_ui(CommittedUiEvent::LocalEffect { sequence, event });
+                }
+                // Remote actors' effects have no owned presentation surface yet;
+                // the event is committed and dropped rather than retained.
+            }
+            WorldEvent::ArmorEquipment(event) => {
+                let sequence = sequence.expect("sequenced armor events commit through submit");
+                if event.actor_runtime_id == self.local_player_runtime_id {
+                    self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
+                }
+                // Remote actors' armor is not rendered yet; commit and drop.
+            }
+            WorldEvent::ActorLink(event) => {
+                let sequence = sequence.expect("sequenced link events commit through submit");
+                if event.rider_unique_id == self.local_player_unique_id {
+                    let next = match event.link_type {
+                        protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger => {
+                            Some(event.ridden_unique_id)
+                        }
+                        protocol::ActorLinkType::Remove => {
+                            // Only a removal of the current pair dismounts; a
+                            // stale removal for another actor is ignored.
+                            if self.local_mount_unique_id == Some(event.ridden_unique_id) {
+                                None
+                            } else {
+                                self.local_mount_unique_id
+                            }
+                        }
+                        // An unknown link verb is skipped rather than guessed.
+                        protocol::ActorLinkType::Unknown(_) => self.local_mount_unique_id,
+                    };
+                    if next != self.local_mount_unique_id {
+                        self.local_mount_unique_id = next;
+                        self.push_committed_ui(CommittedUiEvent::LocalMount {
+                            sequence,
+                            ridden_unique_id: next,
+                        });
+                    }
+                }
+                // Links between remote actors are not modeled yet; commit and drop.
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");

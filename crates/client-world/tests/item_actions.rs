@@ -119,6 +119,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
 fn stream() -> WorldStream {
     WorldStream::new_with_asset_sets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0, 64.0, 0.0],

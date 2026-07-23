@@ -156,12 +156,22 @@ pub struct HudViewNode {
     pub text: Arc<str>,
 }
 
+/// Local player experience state for the HUD XP bar: an integer level and the 0.0..=1.0 progress
+/// toward the next level.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HudExperience {
+    pub level: u32,
+    pub progress: f32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HudStore {
     health: Option<BoundedStat>,
     hunger: Option<BoundedStat>,
     armor: Option<BoundedStat>,
     air: Option<BoundedStat>,
+    absorption: Option<BoundedStat>,
+    experience: Option<HudExperience>,
     title: Option<TimedText>,
     subtitle: Option<TimedText>,
     actionbar: Option<TimedText>,
@@ -186,6 +196,32 @@ impl HudStore {
 
     pub const fn air(&self) -> Option<BoundedStat> {
         self.air
+    }
+
+    pub const fn absorption(&self) -> Option<BoundedStat> {
+        self.absorption
+    }
+
+    pub fn set_air(&mut self, air: Option<BoundedStat>) {
+        self.air = air;
+    }
+
+    pub fn set_absorption(&mut self, absorption: Option<BoundedStat>) {
+        self.absorption = absorption;
+    }
+
+    pub const fn experience(&self) -> Option<HudExperience> {
+        self.experience
+    }
+
+    /// Sets the local player's experience bar state, clamping progress to 0.0..=1.0.
+    pub fn set_experience(&mut self, level: u32, progress: f32) {
+        let progress = if progress.is_finite() {
+            progress.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.experience = Some(HudExperience { level, progress });
     }
 
     pub const fn title(&self) -> Option<&TimedText> {

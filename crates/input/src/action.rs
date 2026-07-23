@@ -38,10 +38,12 @@ pub enum Action {
     UiCancel,
     UiTabNext,
     UiTabPrevious,
+    /// Holds the gameplay player-list overlay open (Java Tab behavior).
+    PlayerList,
 }
 
 impl Action {
-    pub const COUNT: usize = 35;
+    pub const COUNT: usize = 36;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
         Self::MoveForward,
@@ -79,6 +81,7 @@ impl Action {
         Self::UiCancel,
         Self::UiTabNext,
         Self::UiTabPrevious,
+        Self::PlayerList,
     ];
 
     pub(crate) const fn is_ui_preview(self) -> bool {

@@ -12,7 +12,9 @@ use thiserror::Error;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_SOURCE_BYTES: usize = 2 * 1024 * 1024;
-const MAX_PROVENANCE_SOURCES: usize = 64;
+const MAX_PROVENANCE_SOURCES: usize = 128;
+// The classic icons sheet is 256x256; every other reviewed source is smaller.
+const MAX_SOURCE_IMAGE_SIDE: u32 = 256;
 const PINNED_TAG: &str = "v1.26.30.32-preview";
 const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
 const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
@@ -61,6 +63,9 @@ struct SourceRecord {
     sha256: Box<str>,
     width: Option<u32>,
     height: Option<u32>,
+    /// Pinned `[x, y, width, height]` region for roles carried as a crop of a
+    /// larger reviewed sheet. `width`/`height` describe the cropped texture.
+    crop: Option<[u32; 4]>,
 }
 
 #[derive(Debug, Error)]
@@ -110,6 +115,7 @@ pub fn compile_hud_assets(
     validate_manifest_contract(&manifest)?;
 
     let mut verified = BTreeMap::<Box<str>, Vec<u8>>::new();
+    let mut seen_regions = BTreeMap::<(Box<str>, Option<[u32; 4]>), ()>::new();
     let mut total_source_bytes = 0usize;
     for source in &manifest.sources {
         let path = root.join(source.path.as_ref());
@@ -118,6 +124,29 @@ pub fn compile_hud_assets(
                 path: path.into_boxed_path(),
                 maximum: MAX_SOURCE_BYTES,
             });
+        }
+        if seen_regions
+            .insert((source.path.clone(), source.crop), ())
+            .is_some()
+        {
+            return Err(HudCompileError::SourceManifestIdentity {
+                detail: format!("duplicate source region {}", source.path).into_boxed_str(),
+            });
+        }
+        let expected_hash = decode_sha256(&source.sha256).ok_or_else(|| {
+            HudCompileError::SourceManifestIdentity {
+                detail: format!("invalid SHA-256 for {}", source.path).into_boxed_str(),
+            }
+        })?;
+        if let Some(bytes) = verified.get(source.path.as_ref()) {
+            // A sheet cropped by several roles repeats its path; every record
+            // must pin identical file bytes.
+            if bytes.len() != source.bytes || Sha256::digest(bytes).as_slice() != expected_hash {
+                return Err(HudCompileError::SourceIdentity {
+                    path: path.into_boxed_path(),
+                });
+            }
+            continue;
         }
         let bytes = fs::read(&path).map_err(|source| HudCompileError::SourceRead {
             path: path.clone().into_boxed_path(),
@@ -130,21 +159,12 @@ pub fn compile_hud_assets(
                 path: path.clone().into_boxed_path(),
                 maximum: MAX_TOTAL_SOURCE_BYTES,
             })?;
-        let expected_hash = decode_sha256(&source.sha256).ok_or_else(|| {
-            HudCompileError::SourceManifestIdentity {
-                detail: format!("invalid SHA-256 for {}", source.path).into_boxed_str(),
-            }
-        })?;
         if bytes.len() != source.bytes || Sha256::digest(&bytes).as_slice() != expected_hash {
             return Err(HudCompileError::SourceIdentity {
                 path: path.into_boxed_path(),
             });
         }
-        if verified.insert(source.path.clone(), bytes).is_some() {
-            return Err(HudCompileError::SourceManifestIdentity {
-                detail: format!("duplicate source path {}", source.path).into_boxed_str(),
-            });
-        }
+        verified.insert(source.path.clone(), bytes);
     }
 
     let mut textures = Vec::with_capacity(HudTextureRole::ALL.len());
@@ -159,8 +179,8 @@ pub fn compile_hud_assets(
         let mut reader = ImageReader::with_format(std::io::Cursor::new(source), ImageFormat::Png);
         let mut limits = Limits::default();
         limits.max_alloc = Some(MAX_HUD_TEXTURE_BYTES as u64);
-        limits.max_image_width = Some(64);
-        limits.max_image_height = Some(64);
+        limits.max_image_width = Some(MAX_SOURCE_IMAGE_SIDE);
+        limits.max_image_height = Some(MAX_SOURCE_IMAGE_SIDE);
         reader.limits(limits);
         let image = reader
             .decode()
@@ -168,13 +188,44 @@ pub fn compile_hud_assets(
                 path: path.clone().into_boxed_path(),
                 detail: error.to_string().into_boxed_str(),
             })?;
-        let rgba8 = image.into_rgba8();
-        let (width, height) = rgba8.dimensions();
+        let decoded = image.into_rgba8();
         let record = manifest
             .sources
             .iter()
-            .find(|record| record.path.as_ref() == role.source_path())
-            .expect("verified role source must retain its manifest record");
+            .find(|record| {
+                record.path.as_ref() == role.source_path() && record.crop == role.source_crop()
+            })
+            .ok_or_else(|| HudCompileError::SourceManifestIdentity {
+                detail: format!("missing reviewed region for {}", role.source_path())
+                    .into_boxed_str(),
+            })?;
+        let (rgba8, width, height) = if let Some([x, y, crop_width, crop_height]) =
+            role.source_crop()
+        {
+            let (sheet_width, sheet_height) = decoded.dimensions();
+            let in_bounds = x
+                .checked_add(crop_width)
+                .is_some_and(|right| right <= sheet_width)
+                && y.checked_add(crop_height)
+                    .is_some_and(|bottom| bottom <= sheet_height);
+            if !in_bounds || crop_width == 0 || crop_height == 0 {
+                return Err(HudCompileError::TextureDecode {
+                    path: path.clone().into_boxed_path(),
+                    detail: "pinned crop region is outside the reviewed sheet".into(),
+                });
+            }
+            let mut cropped = Vec::with_capacity(crop_width as usize * crop_height as usize * 4);
+            for row in y..y + crop_height {
+                let row_start = ((row as usize * sheet_width as usize) + x as usize) * 4;
+                cropped.extend_from_slice(
+                    &decoded.as_raw()[row_start..row_start + crop_width as usize * 4],
+                );
+            }
+            (cropped.into_boxed_slice(), crop_width, crop_height)
+        } else {
+            let (width, height) = decoded.dimensions();
+            (decoded.into_raw().into_boxed_slice(), width, height)
+        };
         if record.width != Some(width)
             || record.height != Some(height)
             || [width, height] != role.expected_size()
@@ -183,7 +234,6 @@ pub fn compile_hud_assets(
                 path: path.into_boxed_path(),
             });
         }
-        let rgba8 = rgba8.into_raw().into_boxed_slice();
         decoded_bytes = decoded_bytes.checked_add(rgba8.len()).ok_or_else(|| {
             HudCompileError::TextureDecode {
                 path: path.clone().into_boxed_path(),

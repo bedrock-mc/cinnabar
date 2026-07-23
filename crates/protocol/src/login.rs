@@ -535,6 +535,11 @@ fn decode_world_raw_with(
             | McpePacketName::PacketPlayerList
             | McpePacketName::PacketItemRegistry
             | McpePacketName::PacketMobEquipment
+            | McpePacketName::PacketMobArmorEquipment
+            | McpePacketName::PacketMobEffect
+            | McpePacketName::PacketSetEntityLink
+            | McpePacketName::PacketSetPlayerGameType
+            | McpePacketName::PacketSetDefaultGameType
             | McpePacketName::PacketInventoryContent
             | McpePacketName::PacketInventorySlot
             | McpePacketName::PacketPlayerHotbar

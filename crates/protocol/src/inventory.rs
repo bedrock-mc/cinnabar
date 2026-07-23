@@ -11,12 +11,13 @@ use valentine::bedrock::{
         ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
         ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemNewStackId,
         ItemStackResponsePacket, ItemStackResponsesItemStatus, ItemV4, ItemV4NetIdVariantType,
-        McpePacketName, PlayerHotbarPacket, WindowId, WindowIdVarint, WindowType,
+        McpePacketName, MobArmorEquipmentPacket, PlayerHotbarPacket, WindowId, WindowIdVarint,
+        WindowType,
     },
 };
 use valentine::protocol::wire;
 
-use crate::item::NetworkItemStack;
+use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
@@ -148,6 +149,8 @@ pub enum InventoryEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InventoryPacketError {
+    #[error("armor equipment actor runtime ID {0} is invalid")]
+    InvalidArmorRuntimeId(i64),
     #[error("inventory slot {0} is outside 0..{MAX_CONTAINER_SLOTS}")]
     InvalidSlot(i32),
     #[error("selected hotbar slot {0} is outside 0..9")]
@@ -635,6 +638,25 @@ fn checked_slot(slot: i32) -> Result<u16, InventoryPacketError> {
         return Err(InventoryPacketError::InvalidSlot(slot));
     }
     Ok(converted)
+}
+
+pub(crate) fn normalize_armor_equipment(
+    packet: MobArmorEquipmentPacket,
+) -> Result<ArmorEquipmentEvent, InventoryPacketError> {
+    let actor_runtime_id = u64::try_from(packet.runtime_entity_id)
+        .ok()
+        .filter(|id| *id != 0)
+        .ok_or(InventoryPacketError::InvalidArmorRuntimeId(
+            packet.runtime_entity_id,
+        ))?;
+    Ok(ArmorEquipmentEvent {
+        actor_runtime_id,
+        helmet: normalize_item_v4(packet.helmet)?,
+        chestplate: normalize_item_v4(packet.chestplate)?,
+        leggings: normalize_item_v4(packet.leggings)?,
+        boots: normalize_item_v4(packet.boots)?,
+        body: normalize_item_v4(packet.body)?,
+    })
 }
 
 fn normalize_item_v4(item: ItemV4) -> Result<NetworkItemStack, InventoryPacketError> {

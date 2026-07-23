@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -53,6 +54,7 @@ fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
 #[test]
 fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -108,6 +110,7 @@ fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
 #[test]
 fn live_biome_resolution_commits_in_fifo_with_exact_raw_id_lookup() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -153,6 +156,7 @@ fn live_biome_resolution_commits_in_fifo_with_exact_raw_id_lookup() {
 #[test]
 fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -197,6 +201,7 @@ fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
 #[test]
 fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -251,6 +256,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
 #[test]
 fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -374,6 +380,7 @@ fn network_mode_and_runtime_assets_are_selected_once_per_stream() {
     let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
     let stream = WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -399,6 +406,7 @@ fn world_stream_classifier_uses_runtime_registry_air_for_each_network_mode() {
     for (hashes, expected_air) in [(false, 2), (true, 0xdbf4_4120)] {
         let stream = WorldStream::new_with_assets(
             WorldBootstrap {
+                local_player_unique_id: 1,
                 dimension: 0,
                 local_player_runtime_id: 1,
                 player_position: [0.0; 3],
@@ -467,6 +475,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
 fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattening() {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -533,6 +542,7 @@ fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattenin
 fn camera_environment_context_exposes_palette_biome_and_effective_block_radius() {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],

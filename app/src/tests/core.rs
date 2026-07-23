@@ -410,6 +410,7 @@ pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
 #[test]
 fn client_world_publication_contract_crosses_the_app_boundary() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -500,6 +501,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
 
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -564,6 +566,7 @@ fn equal_numeric_revisions_from_different_streams_replace_the_active_table() {
     ) -> WorldStream {
         let mut stream = WorldStream::new_with_assets(
             WorldBootstrap {
+                local_player_unique_id: 1,
                 dimension: 0,
                 local_player_runtime_id: 1,
                 player_position: [0.0; 3],

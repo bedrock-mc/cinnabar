@@ -21,6 +21,18 @@ impl UiNodeId {
     }
 }
 
+/// Fixed-function blend selection for a drawn quad.
+///
+/// `Invert` is the classic crosshair blend — src*(1-dst) + dst*(1-src) — so a
+/// white sprite reads against any background. Quads with different blends
+/// never share a draw batch.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum UiBlendMode {
+    #[default]
+    Alpha,
+    Invert,
+}
+
 #[derive(Clone, Debug, Default)]
 pub enum UiVisual {
     #[default]
@@ -33,6 +45,11 @@ pub enum UiVisual {
         texture_page: u16,
         uv: [u16; 4],
         color: [u8; 4],
+    },
+    /// A sprite drawn with the invert blend instead of alpha compositing.
+    InvertedSprite {
+        texture_page: u16,
+        uv: [u16; 4],
     },
     Text {
         layout: Arc<TextLayout>,
@@ -183,6 +200,7 @@ pub struct UiVertex {
 pub struct UiDrawBatch {
     pub texture_page: u16,
     pub clip: UiRect,
+    pub blend: UiBlendMode,
     pub index_range: Range<u32>,
 }
 
@@ -587,7 +605,9 @@ impl UiTree {
         let quads = self.nodes.values().try_fold(0usize, |total, node| {
             let count = match &node.visual {
                 UiVisual::None => 0,
-                UiVisual::Solid { .. } | UiVisual::Sprite { .. } => 1,
+                UiVisual::Solid { .. }
+                | UiVisual::Sprite { .. }
+                | UiVisual::InvertedSprite { .. } => 1,
                 UiVisual::Text { layout, .. } => layout.glyphs().len(),
             };
             total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
@@ -723,6 +743,7 @@ fn emit_visual(
                 *texture_page,
                 *color,
                 0,
+                UiBlendMode::Alpha,
                 clip,
                 vertices,
                 indices,
@@ -748,6 +769,29 @@ fn emit_visual(
                 *texture_page,
                 *color,
                 0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
+        UiVisual::InvertedSprite { texture_page, uv } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                [255; 4],
+                0,
+                UiBlendMode::Invert,
                 clip,
                 vertices,
                 indices,
@@ -787,6 +831,7 @@ fn emit_visual(
                     glyph.page,
                     glyph_color,
                     style_flags,
+                    UiBlendMode::Alpha,
                     clip,
                     vertices,
                     indices,
@@ -805,6 +850,7 @@ fn emit_quad(
     texture_page: u16,
     color: [u8; 4],
     style_flags: u8,
+    blend: UiBlendMode,
     clip: UiRect,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -854,6 +900,7 @@ fn emit_quad(
     if let Some(batch) = batches.last_mut()
         && batch.texture_page == texture_page
         && batch.clip == clip
+        && batch.blend == blend
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -872,6 +919,7 @@ fn emit_quad(
     batches.push(UiDrawBatch {
         texture_page,
         clip,
+        blend,
         index_range: start..end,
     });
     Ok(())

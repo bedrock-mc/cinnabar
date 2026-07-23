@@ -37,6 +37,8 @@ pub enum NetworkControlEvent {
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
         player_game_mode: PlayerGameMode,
+        world_default_game_mode: PlayerGameMode,
+        player_game_mode_uses_world_default: bool,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -320,6 +322,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
+                let world_default_game_mode =
+                    PlayerGameMode::world_default_from_game_data(&game_data);
+                let player_game_mode_uses_world_default =
+                    PlayerGameMode::bootstrap_uses_world_default(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -329,6 +335,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         environment,
                         inventory,
                         player_game_mode,
+                        world_default_game_mode,
+                        player_game_mode_uses_world_default,
                     },
                 )
                 .await

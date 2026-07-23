@@ -369,6 +369,29 @@ pub enum CommittedUiEvent {
         server_tick: u64,
         attributes: Arc<[ActorAttribute]>,
     },
+    /// Local-player SetEntityData entries (air supply, freezing strength, ...).
+    LocalMetadata {
+        sequence: u64,
+        server_tick: u64,
+        metadata: Arc<[protocol::ActorMetadata]>,
+    },
+    /// A MobEffect change addressed to the local player.
+    LocalEffect {
+        sequence: u64,
+        event: protocol::ActorEffectEvent,
+    },
+    /// Local-player MobArmorEquipment stacks. Boxed so the five item stacks
+    /// do not dominate every committed UI event.
+    LocalArmor {
+        sequence: u64,
+        event: Box<protocol::ArmorEquipmentEvent>,
+    },
+    /// The local player's authoritative mount after a SetActorLink change.
+    /// `None` means the player is no longer riding anything.
+    LocalMount {
+        sequence: u64,
+        ridden_unique_id: Option<i64>,
+    },
 }
 
 #[cfg(test)]

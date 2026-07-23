@@ -32,6 +32,7 @@ fn publisher_radius_classifier_is_policy_not_universal_wire_geometry() {
 #[test]
 fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -85,6 +86,7 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
 #[test]
 fn provisional_publisher_epoch_overflow_clears_retained_destination_membership() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -134,6 +136,7 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
 #[test]
 fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_scope() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -197,6 +200,7 @@ fn raw_128_epoch_requires_all_177_announced_columns() {
 
     let new_stream = || {
         WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -263,6 +267,7 @@ fn later_outer_announcement_expands_the_same_epoch_and_invalidates_old_identity(
     const CENTER: [i32; 3] = [0, 64, 0];
     let target = super::ViewCohort::from_publisher(0, CENTER, 128);
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -335,6 +340,7 @@ fn later_outer_announcement_expands_the_same_epoch_and_invalidates_old_identity(
 #[test]
 fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -391,6 +397,7 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
     assert_eq!(changed_dimension.required_columns, 0);
 
     let other_session = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -405,6 +412,7 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
 fn required_epoch_reports_stable_only_after_stream_work_drains() {
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 128);
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -428,6 +436,7 @@ fn required_epoch_reports_stable_only_after_stream_work_drains() {
 #[test]
 fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -479,6 +488,7 @@ fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
 #[test]
 fn publisher_epoch_overflow_fails_closed_without_reusing_an_identity() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

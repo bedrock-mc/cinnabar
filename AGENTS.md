@@ -325,6 +325,10 @@ unless the request authorizes changes.
 - Do not push or describe any UI, HUD, text, graphics, shader, or rendering change as ready without a real rendered-frame visual acceptance pass on the target platform, resolution, and DPI/scale. Unit tests, snapshots, draw-list checks, GPU adapter tests, lint, and code review are necessary but are not substitutes for seeing the final output.
 - The visual pass must explicitly check legibility, geometry, clipping, depth/layering, scaling, colors, and the relevant live input/focus behavior. Record the tested platform and visible result. If the target-platform pass cannot be performed, keep the change local and state that it is not cleared to push.
 
+## Protocol and vanilla-behavior sources
+
+Establish protocol/vanilla facts from authority, never memory (see the Implementation contract). Primary: a real vanilla-client packet capture plus a BDS test — what the official client sends/receives and what BDS accepts. Secondary, when a capture is impractical and cross-checked against each other: gophertunnel, Dragonfly, PocketMine-MP, Geyser, and PowerNukkitX. EndstoneMC devtools dumps BDS's internal registries/recipes to JSON (items, blocks, recipes, creative groups, biomes), useful for the pinned data registries. Cite the source when a value comes from one; let a real capture break ties.
+
 ## Strict vanilla Bedrock compliance
 
 - The default product target is version-matched vanilla Bedrock parity, not merely a functional approximation. This applies to player-facing UI/HUD, rendering, controls, camera, movement and physics, animation, interaction/combat, inventory, audio, protocol behavior, timing, and server-authoritative reconciliation.

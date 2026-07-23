@@ -206,7 +206,7 @@ impl ItemStateStore {
         self.pending.len()
     }
 
-    fn canonicalize(&self, stack: &NetworkItemStack) -> Option<CanonicalItemStack> {
+    pub(crate) fn canonicalize(&self, stack: &NetworkItemStack) -> Option<CanonicalItemStack> {
         let digest: [u8; 32] = Sha256::digest(stack.extra_data.as_ref()).into();
         if digest != stack.nbt_digest {
             return None;

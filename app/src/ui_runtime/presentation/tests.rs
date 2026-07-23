@@ -14,20 +14,51 @@ use ui::BoundedStat;
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod hud_matrix_tests;
 mod retained_hud_tests;
+mod safe_area_tests;
 
 #[test]
-fn start_game_survival_authority_presents_standard_stats_and_empty_hotbar_immediately() {
+fn start_game_survival_presents_the_hotbar_and_waits_for_attribute_authority() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
 
+    // No attributes yet: only the empty hotbar renders; stat rows are never
+    // fabricated ahead of the server's own values.
     let input = presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert_eq!(input.vertices.len(), 52 * 4);
-    assert_eq!(input.indices.len(), 52 * 6);
+    assert_eq!(input.vertices.len(), 12 * 4);
     assert_eq!(input.batches.len(), 1);
+
+    // The login attribute batch fills the rows to the authoritative values.
+    let attribute = |name: &str| protocol::ActorAttribute {
+        name: std::sync::Arc::from(name),
+        min: 0.0,
+        max: 20.0,
+        current: 20.0,
+        default: None,
+        modifiers: std::sync::Arc::from([]),
+    };
+    runtime
+        .apply_local_attributes(crate::ui_runtime::SequencedLocalAttributes {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 10,
+            server_tick: 1,
+            attributes: vec![
+                attribute("minecraft:health"),
+                attribute("minecraft:player.hunger"),
+            ]
+            .into(),
+        })
+        .unwrap();
+    let with_stats = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert_eq!(with_stats.vertices.len(), 52 * 4);
+    assert_eq!(with_stats.indices.len(), 52 * 6);
 }
 
 #[test]
@@ -131,7 +162,12 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
     );
     let selected = &active.vertices[11 * 4..12 * 4];
     let (top, bottom) = vertical_bounds(selected);
-    assert_eq!([top, bottom], [645.0, 717.0]);
+    // Java geometry at GUI scale 3 (auto for 1280x720): the hotbar sits flush
+    // at the bottom edge and the 24-tall selection frame overhangs it by one
+    // GUI px on both sides, so the frame's bottom extends one GUI px (3
+    // physical px) past the viewport and is clipped by the scissor exactly as
+    // in the reference.
+    assert_eq!([top, bottom], [651.0, 723.0]);
     let left = selected
         .iter()
         .map(|vertex| vertex.position[0])
@@ -140,11 +176,11 @@ fn selected_hotbar_slot_uses_local_authority_and_exact_pack_sprite_geometry() {
         .iter()
         .map(|vertex| vertex.position[0])
         .fold(f32::NEG_INFINITY, f32::max);
-    assert_eq!([left, right], [361.0, 433.0]);
+    assert_eq!([left, right], [364.0, 436.0]);
 }
 
 #[test]
-fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
+fn hotbar_renders_at_the_java_minimum_and_fails_closed_below_it() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.retain_local_selected_equipment(
@@ -159,31 +195,81 @@ fn fixed_scale_hotbar_fails_closed_before_it_can_overflow_a_narrow_viewport() {
         },
     );
 
-    let input = presentation
+    // 320 physical px is the smallest width the reference lays out at GUI
+    // scale 1; the 182-wide hotbar fits and renders.
+    let narrow = presentation
         .build(&runtime, 0, [320, 720], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    assert_eq!(narrow.vertices.len(), 12 * 4);
+
+    // Below the fixed hotbar width the layout fails closed to no HUD rather
+    // than overflowing the viewport.
+    let tiny = presentation
+        .build(&runtime, 0, [180, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(tiny.vertices.is_empty());
+    assert!(tiny.indices.is_empty());
+    assert!(tiny.batches.is_empty());
 }
 
 #[test]
-fn nonstandard_health_maximum_fails_closed_until_vanilla_row_authority_is_owned() {
+fn survival_experience_bar_and_level_render_above_the_hotbar() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let baseline = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap()
+        .vertices
+        .len();
+
+    // Level 7, 40% progress: two stretched bar tiles (empty + filled) plus the level glyphs.
+    runtime.hud.set_experience(7, 0.4);
+    let with_xp = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
+        .unwrap();
+    assert!(
+        with_xp.vertices.len() > baseline,
+        "the XP bar and level add HUD geometry"
+    );
+    assert!(
+        bounds_for_color(&with_xp, [128, 255, 32, 255]).is_some(),
+        "the green XP level number renders"
+    );
+}
+
+#[test]
+fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    // 30/30 half-hearts: fifteen hearts across two rows (ten plus five).
     runtime.hud.set_health(BoundedStat::new(30, 30));
 
     let input = presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    // Fifteen containers plus fifteen full hearts across two rows; no hotbar
+    // renders because no slot authority exists in this fixture.
+    assert_eq!(input.vertices.len(), 30 * 4);
+
+    // The second row sits one row height above the first.
+    let edges: std::collections::BTreeSet<i64> = input
+        .vertices
+        .iter()
+        .map(|vertex| vertex.position[1] as i64)
+        .collect();
+    assert_eq!(
+        edges.len(),
+        4,
+        "two heart rows, each with top and bottom edges"
+    );
 }
 
 #[test]
-fn hotbar_remains_bottom_centered_across_inner_viewport_sizes() {
-    for physical_size in [[1280, 720], [2560, 1344]] {
+fn hotbar_stays_bottom_centered_and_tracks_the_java_auto_scale() {
+    // Auto GUI scale: 1280x720 -> 3, 2560x1344 -> 5; the hotbar's physical
+    // width is 182 GUI px times the scale regardless of DPI.
+    for (physical_size, expected_scale) in [([1280u32, 720u32], 3.0f32), ([2560, 1344], 5.0)] {
         let mut presentation =
             UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
         let mut runtime = UiRuntime::new(1);
@@ -211,8 +297,8 @@ fn hotbar_remains_bottom_centered_across_inner_viewport_sizes() {
             .iter()
             .map(|vertex| vertex.position[0])
             .fold(f32::NEG_INFINITY, f32::max);
-        assert!(((right - left) - 546.0).abs() <= 0.001);
-        assert!((((left + right) * 0.5) - physical_size[0] as f32 * 0.5).abs() <= 0.001);
+        assert!(((right - left) - 182.0 * expected_scale).abs() <= 0.01);
+        assert!((((left + right) * 0.5) - physical_size[0] as f32 * 0.5).abs() <= 0.01);
     }
 }
 
@@ -405,12 +491,19 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
     let active = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
+    // Filter to the white chat text vertices so the Java-style translucent per-line backdrops
+    // (separate solid quads) do not shift the per-message vertex ranges this assertion relies on.
+    let text: Vec<_> = active
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .collect();
     let first_vertex_count = first.chars().count() * 4;
-    let first_bottom = active.vertices[..first_vertex_count]
+    let first_bottom = text[..first_vertex_count]
         .iter()
         .map(|vertex| vertex.position[1])
         .fold(f32::NEG_INFINITY, f32::max);
-    let second_top = active.vertices[first_vertex_count..]
+    let second_top = text[first_vertex_count..]
         .iter()
         .map(|vertex| vertex.position[1])
         .fold(f32::INFINITY, f32::min);
@@ -418,6 +511,134 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
     assert!(
         first_bottom <= second_top,
         "wrapped chat rows overlap: first bottom {first_bottom}, second top {second_top}"
+    );
+}
+
+#[test]
+fn unfocused_chat_rows_fade_with_contiguous_per_line_backdrops() {
+    let font = fixture_font();
+    let mut presentation = UiPresentationRuntime::new(font).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    for (sequence, message) in [(1, "first line"), (2, "second line")] {
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: sequence,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(message),
+            })
+            .unwrap();
+    }
+
+    // Fresh rows: one full-strength backdrop per line, stretched across the
+    // inter-line spacing so the block reads as one contiguous panel.
+    let unfocused = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let backdrop_vertices = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == CHAT_LINE_BACKDROP_COLOR)
+        .count();
+    assert_eq!(backdrop_vertices, 8, "one backdrop quad per visible line");
+    let backdrop = bounds_for_color(&unfocused, CHAT_LINE_BACKDROP_COLOR).unwrap();
+    let text_top = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .map(|vertex| vertex.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let text_bottom = unfocused
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .map(|vertex| vertex.position[1])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        backdrop[0] < 12.0,
+        "backdrop starts at/left of the text inset"
+    );
+    assert!(
+        backdrop[1] <= text_top && backdrop[3] >= text_bottom,
+        "backdrop union spans every chat line ({}, {}) vs text ({text_top}, {text_bottom})",
+        backdrop[1],
+        backdrop[3]
+    );
+    // Contiguity: every backdrop rect's top touches the rect above (or the
+    // union top), so no transparent stripes remain between lines.
+    let mut spans: Vec<(f32, f32)> = unfocused
+        .vertices
+        .chunks(4)
+        .filter(|quad| {
+            quad.iter()
+                .all(|vertex| vertex.color == CHAT_LINE_BACKDROP_COLOR)
+        })
+        .map(|quad| {
+            let top = quad
+                .iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::INFINITY, f32::min);
+            let bottom = quad
+                .iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            (top, bottom)
+        })
+        .collect();
+    spans.sort_by(|left, right| left.0.total_cmp(&right.0));
+    for pair in spans.windows(2) {
+        assert!(
+            pair[1].0 <= pair[0].1,
+            "adjacent backdrops must touch: {pair:?}"
+        );
+    }
+
+    // Ten and a half seconds in, the rows are mid-fade: the text and backdrop
+    // alphas scale together (255 -> 127 and 128 -> 63 at half fade).
+    let fading = presentation
+        .build(&runtime, 10_500, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        fading
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [255, 255, 255, 127])
+    );
+    assert!(
+        fading
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [0, 0, 0, 63])
+    );
+
+    // Past the fade window the rows and their backdrops disappear entirely.
+    let expired = presentation
+        .build(&runtime, 11_100, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        !expired
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color[3] > 0 && vertex.color[0] == 255 && vertex.color[1] == 255)
+    );
+    assert!(bounds_for_color(&expired, CHAT_LINE_BACKDROP_COLOR).is_none());
+
+    // Focus reopens the full history at full strength, with the unified panel
+    // instead of the per-line backdrops.
+    runtime.open_chat();
+    let focused = presentation
+        .build(&runtime, 11_100, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        focused
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [255, 255, 255, 255])
+    );
+    assert!(
+        bounds_for_color(&focused, CHAT_LINE_BACKDROP_COLOR).is_none(),
+        "focused chat should not add the unfocused backdrop"
     );
 }
 
@@ -585,7 +806,7 @@ fn oversized_latest_chat_message_keeps_a_bounded_visible_portion() {
 
 #[test]
 fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
-    let font = fixture_font_with_page_count(MAX_UI_TEXTURE_LAYERS as usize);
+    let font = fixture_font_with_page_count(render::MAX_UI_TEXTURE_LAYERS as usize);
     assert!(matches!(
         UiPresentationRuntime::new(font),
         Err(UiPresentationError::InvalidFontTexture)
@@ -779,7 +1000,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
-fn fixture_font() -> Arc<RuntimeFontCatalog> {
+pub(crate) fn fixture_font() -> Arc<RuntimeFontCatalog> {
     let pixels = vec![255; 16 * 24 * 4].into_boxed_slice();
     let page = FontTexturePage {
         source_path: "font/page.png".into(),
@@ -802,7 +1023,7 @@ fn fixture_font() -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
-fn fixture_hud() -> Arc<RuntimeHudCatalog> {
+pub(crate) fn fixture_hud() -> Arc<RuntimeHudCatalog> {
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| {

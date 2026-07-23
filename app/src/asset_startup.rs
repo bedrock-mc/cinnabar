@@ -8,8 +8,7 @@ use std::{
 
 use assets::{
     AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, HudCatalogError, RuntimeAssets,
-    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, RuntimeHudCatalog,
-    encode_font_catalog,
+    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -100,73 +99,29 @@ pub struct LoadedFontAssets {
     diagnostic: bool,
 }
 
-pub struct LoadedHudAssets {
-    runtime: Arc<RuntimeHudCatalog>,
-    selected_path: PathBuf,
-}
+mod hud_carrier;
+mod icon_carrier;
+mod lang_carrier;
 
-impl LoadedHudAssets {
-    #[must_use]
-    pub fn runtime(&self) -> &Arc<RuntimeHudCatalog> {
-        &self.runtime
-    }
-
-    #[must_use]
-    pub fn startup_summary(&self) -> String {
-        format!(
-            "loaded pinned official Mojang sample HUD assets from {} (source_manifest_sha256={})",
-            self.selected_path.display(),
-            format_sha256(self.runtime.source_manifest_sha256())
-        )
-    }
-
-    pub fn into_runtime(self) -> Arc<RuntimeHudCatalog> {
-        self.runtime
-    }
-}
-
+pub use hud_carrier::{
+    LoadedHudAssets, hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command,
+    load_hud_assets, require_hud_assets,
+};
+/// The embedded canonical `vanilla-source.json`, exposed so callers can bind
+/// carrier provenance to the same identity startup itself validates against.
 #[must_use]
-pub fn hud_assets_missing_notice(path: &Path) -> String {
-    let rebuild_command = hud_assets_rebuild_command(path);
-    let recovery = if rebuild_command == HUD_ASSETS_COMPILE_COMMAND {
-        format!(
-            "Build only this carrier with `{HUD_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`."
-        )
-    } else {
-        format!("Build the carrier at that exact custom location with `{rebuild_command}`.")
-    };
-    format!(
-        "required pinned official Mojang sample HUD carrier was not found at {}; the survival HUD cannot render, so the client will not start. {recovery}",
-        path.display()
-    )
+pub fn vanilla_source_manifest_json() -> &'static str {
+    VANILLA_SOURCE_JSON
 }
 
-/// Returns a copy-paste recovery command that writes the carrier where startup looked for it.
-#[must_use]
-pub fn hud_assets_rebuild_command(path: &Path) -> String {
-    let default_path = hud_asset_path(Path::new(DEFAULT_ASSET_PATH));
-    if path == default_path {
-        return HUD_ASSETS_COMPILE_COMMAND.to_owned();
-    }
-
-    let report_path = path.with_file_name(HUD_ASSETS_REPORT_FILENAME);
-    format!(
-        "{HUD_ASSETS_COMPILE_COMMAND} HUD_ASSET_BLOB={} HUD_ASSET_REPORT={}",
-        shell_quote_path(path),
-        shell_quote_path(&report_path)
-    )
-}
-
-#[cfg(windows)]
-fn shell_quote_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    format!("'{}'", path.replace('\'', "''"))
-}
-
-#[cfg(not(windows))]
-fn shell_quote_path(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
-}
+pub use icon_carrier::{
+    ICON_ASSETS_COMPILE_COMMAND, LoadedIconAssets, icon_asset_path, icon_assets_rebuild_command,
+    require_icon_assets,
+};
+pub use lang_carrier::{
+    LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
+    require_lang_assets,
+};
 
 impl LoadedFontAssets {
     #[must_use]
@@ -418,7 +373,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: io::Error,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -427,7 +382,7 @@ pub enum AssetStartupError {
     HudAssetsTooLarge {
         path: PathBuf,
         max_bytes: u64,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -437,11 +392,117 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: HudCatalogError,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error("{notice}")]
     HudAssetsMissing {
+        path: PathBuf,
+        rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: assets::LangCatalogError,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from texts/en_US.lang bytes {carrier} but the checkout pins {pinned}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsSourceProvenance {
+        path: PathBuf,
+        carrier: String,
+        pinned: String,
+        rebuild_command: String,
+    },
+
+    #[error("{notice}")]
+    LangAssetsMissing {
+        path: PathBuf,
+        rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} exceeds the {max_bytes}-byte startup limit
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: assets::AssetError,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error("{notice}")]
+    IconAssetsMissing {
         path: PathBuf,
         rebuild_command: String,
         notice: String,
@@ -535,91 +596,6 @@ pub fn font_asset_path(world_asset_path: &Path) -> PathBuf {
 #[must_use]
 pub fn local_font_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(LOCAL_FONT_ASSETS_FILENAME)
-}
-
-#[must_use]
-pub fn hud_asset_path(world_asset_path: &Path) -> PathBuf {
-    world_asset_path.with_file_name(HUD_ASSETS_FILENAME)
-}
-
-/// Probes for and validates the HUD carrier adjacent to `world_asset_path`.
-///
-/// This low-level API returns `Ok(None)` only to let tooling inspect whether a carrier exists. The
-/// production client must call [`require_hud_assets`] so absence is a fatal, actionable startup
-/// error. A present but malformed, oversized, or stale carrier always fails closed here.
-pub fn load_hud_assets(
-    world_asset_path: &Path,
-) -> Result<Option<LoadedHudAssets>, AssetStartupError> {
-    let path = hud_asset_path(world_asset_path);
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => {
-            return Err(AssetStartupError::HudAssetsRead {
-                path,
-                source,
-                rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-            });
-        }
-    };
-    let length = file
-        .metadata()
-        .map_err(|source| AssetStartupError::HudAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?
-        .len();
-    if length > MAX_HUD_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::HudAssetsTooLarge {
-            path,
-            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_HUD_ASSET_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetStartupError::HudAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?;
-    if bytes.len() as u64 > MAX_HUD_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::HudAssetsTooLarge {
-            path,
-            max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let runtime =
-        RuntimeHudCatalog::decode(&bytes).map_err(|source| AssetStartupError::HudAssetsDecode {
-            path: path.clone(),
-            source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
-        })?;
-    Ok(Some(LoadedHudAssets {
-        runtime: Arc::new(runtime),
-        selected_path: path,
-    }))
-}
-
-/// Loads the pinned HUD carrier, failing closed when it is absent.
-///
-/// The renderer treats the native survival HUD as required art. A missing carrier is a fatal
-/// startup error rather than a silent degrade: without it the survival HUD would be invisible
-/// with no on-screen indication of why. Malformed or stale carriers already fail through
-/// [`load_hud_assets`]; this wrapper additionally rejects the absent case with the shared
-/// [`hud_assets_missing_notice`] guidance.
-pub fn require_hud_assets(world_asset_path: &Path) -> Result<LoadedHudAssets, AssetStartupError> {
-    load_hud_assets(world_asset_path)?.ok_or_else(|| {
-        let path = hud_asset_path(world_asset_path);
-        AssetStartupError::HudAssetsMissing {
-            notice: hud_assets_missing_notice(&path),
-            rebuild_command: hud_assets_rebuild_command(&path),
-            path,
-        }
-    })
 }
 
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
@@ -877,7 +853,21 @@ fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartu
     })
 }
 
-fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
+/// Quotes a path for copy-paste into the platform shell running `make`.
+#[cfg(windows)]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    format!("'{}'", path.replace('\'', "''"))
+}
+
+#[cfg(not(windows))]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+/// SHA-256 of the manifest with line endings canonicalized to LF, matching
+/// the compiler-side identity regardless of checkout autocrlf.
+pub fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
     let source = source.as_bytes();
     if !source.contains(&b'\r') {
         return Sha256::digest(source).into();

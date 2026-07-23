@@ -170,7 +170,7 @@ fn production_sidebar_resolves_player_entity_and_fake_rows_from_owned_actor_auth
 }
 
 #[test]
-fn boss_presentation_fails_closed_entirely_without_exact_title_shadow_authority() {
+fn boss_bars_render_titled_tinted_tracks_and_replacement_updates_them() {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -188,16 +188,96 @@ fn boss_presentation_fails_closed_entirely_without_exact_title_shadow_authority(
             ),
         })
         .unwrap();
-
     assert_eq!(runtime.boss_bars().stacked().len(), 1);
 
+    // Spectator mode isolates the boss surface from hotbar/stat sprites.
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Spectator);
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(input.vertices.is_empty());
-    assert!(input.indices.is_empty());
-    assert!(input.batches.is_empty());
+    // One 182-wide track, its purple-tinted fill, and the title glyphs.
+    let purple = input
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [170, 0, 170, 255])
+        .count();
+    assert_eq!(purple, 4, "the half-health fill is tinted by boss color");
+    assert!(!input.indices.is_empty());
+
+    // A second bar for another entity stacks below the first.
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 2,
+            local_millis: 0,
+            server_tick: None,
+            event: boss_event(
+                ProtocolBossAction::Show,
+                8,
+                "Other",
+                1.0,
+                ProtocolBossColor::Red,
+                ProtocolBossOverlay::Progress,
+            ),
+        })
+        .unwrap();
+    let stacked = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let red = stacked
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [255, 85, 85, 255])
+        .count();
+    assert_eq!(red, 4, "the second bar renders with its own tint");
+    assert!(stacked.vertices.len() > input.vertices.len());
+
+    // Health/style replacement on the same entity updates the fill in place.
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 3,
+            local_millis: 0,
+            server_tick: None,
+            event: boss_event(
+                ProtocolBossAction::SetProgress,
+                7,
+                "",
+                0.0,
+                ProtocolBossColor::Purple,
+                ProtocolBossOverlay::Notched10,
+            ),
+        })
+        .unwrap();
+    let drained = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let purple_after = drained
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.color == [170, 0, 170, 255])
+        .count();
+    assert_eq!(purple_after, 0, "an emptied bar draws no fill");
+
+    // Hide removes the first bar's track while the second remains.
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 4,
+            local_millis: 0,
+            server_tick: None,
+            event: boss_event(
+                ProtocolBossAction::Hide,
+                7,
+                "",
+                0.0,
+                ProtocolBossColor::Purple,
+                ProtocolBossOverlay::Notched10,
+            ),
+        })
+        .unwrap();
+    assert_eq!(runtime.boss_bars().stacked().len(), 1);
 }
 
 fn install_mixed_scoreboard_slot(

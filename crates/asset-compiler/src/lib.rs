@@ -5,7 +5,9 @@ mod compiler;
 mod entity;
 mod font;
 mod hud;
+mod icon;
 mod image;
+mod lang;
 mod pack;
 
 pub use animation::AnimationInventory;
@@ -24,6 +26,8 @@ pub use font::{
     compile_outline_font,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
+pub use icon::{CompiledIconCarrier, IconCompileReport, compile_icon_assets};
+pub use lang::{CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets};
 pub use pack::{
     BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
     TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,

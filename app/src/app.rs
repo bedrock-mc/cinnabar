@@ -87,7 +87,7 @@ use crate::{
     ui_runtime::{
         UiRuntime, drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
         gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{UiPresentationRuntime, publish_ui_runtime},
+        presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
 };
 
@@ -202,7 +202,15 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            publish_ui_runtime.in_set(ClientFrameSet::UiPublication),
+            crate::hotbar::select_hotbar_slot
+                .after(ClientFrameSet::SemanticFinalize)
+                .before(ClientFrameSet::UiPublication),
+        )
+        .add_systems(
+            Update,
+            (observe_mount_jump_input, publish_ui_runtime)
+                .chain()
+                .in_set(ClientFrameSet::UiPublication),
         )
         .add_systems(
             Update,
@@ -299,12 +307,22 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
+    let lang_assets = crate::asset_startup::require_lang_assets(
+        &loaded_assets.selected_path,
+        crate::asset_startup::vanilla_source_manifest_json(),
+    )
+    .context("load pinned official Mojang sample localization carrier")?;
+    eprintln!("{}", lang_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
-    let ui_presentation = UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
-        .context("prepare bounded font and HUD texture array for UI rendering")?;
-    eprintln!(
-        "scoreboard sidebar background remains hidden until native #objective_background_opacity and #scoreboard_objective_background_opacity authority is supplied"
-    );
+    let mut ui_presentation =
+        UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
+            .context("prepare bounded font and HUD texture array for UI rendering")?;
+    // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
+    // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
+    // server publishes a sidebar objective.
+    ui_presentation.enable_scoreboard_background();
+    ui_presentation.set_gui_scale_preference(args.gui_scale);
+    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
@@ -400,7 +418,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             Arc::clone(&runtime_assets),
             entity_runtime,
         ))
-        .insert_resource(UiRuntime::new(0))
+        .insert_resource({
+            let mut ui_runtime = UiRuntime::new(0);
+            ui_runtime.set_lang_catalog(lang_assets.into_runtime());
+            ui_runtime
+        })
         .insert_resource(ui_presentation)
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())

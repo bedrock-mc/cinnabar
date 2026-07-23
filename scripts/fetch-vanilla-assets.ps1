@@ -36,6 +36,29 @@ function Remove-ExtractionTree {
     }
 }
 
+function Get-FileSha256Hex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # Hash through .NET instead of Get-FileHash: CI shells can hand this script a
+    # PowerShell whose Microsoft.PowerShell.Utility module fails to auto-load, and
+    # under Set-StrictMode that unresolved cmdlet aborts the whole fetch.
+    $stream = [System.IO.File]::OpenRead([System.IO.Path]::GetFullPath($Path))
+    try {
+        $algorithm = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $algorithm.ComputeHash($stream)
+        } finally {
+            $algorithm.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    return ([System.BitConverter]::ToString($digest) -replace "-", "").ToLowerInvariant()
+}
+
 function Expand-ZipArchiveBounded {
     param(
         [Parameter(Mandatory = $true)]
@@ -284,7 +307,7 @@ New-Item -ItemType Directory -Force -Path $downloadDirectory, $cacheParent | Out
 
 $archiveVerified = $false
 if (Test-Path -LiteralPath $archivePath -PathType Leaf) {
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
+    $actual = Get-FileSha256Hex -Path $archivePath
     if ($actual -eq $expectedSha256) {
         $archiveVerified = $true
         Write-Output "Using verified archive: $archivePath"
@@ -299,7 +322,7 @@ if (-not $archiveVerified) {
     }
     Write-Output "Downloading $($source.url)"
     Invoke-WebRequest -UseBasicParsing -Uri ([string]$source.url) -OutFile $partialPath
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $partialPath).Hash.ToLowerInvariant()
+    $actual = Get-FileSha256Hex -Path $partialPath
     if ($actual -ne $expectedSha256) {
         Remove-Item -Force -LiteralPath $partialPath
         throw "SHA-256 mismatch: expected $expectedSha256, got $actual"
