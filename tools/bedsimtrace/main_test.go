@@ -112,10 +112,10 @@ func TestTerrainScriptsCoverEveryTaskThreeStratum(t *testing.T) {
 	want := []string{
 		"flat_walk", "diagonal", "sprint_jump", "slab_step", "stair_step",
 		"sneak_north", "sneak_south", "sneak_east", "sneak_west", "head_collision",
-		"ladder_ascend", "ladder_descend", "ladder_hold", "water_enter", "water_swim",
-		"water_exit", "lava", "cobweb", "slime_bounce", "slime_sneak",
-		"bed_bounce", "soul_sand", "honey", "scaffolding", "bubble_up",
-		"bubble_down", "unloaded_boundary",
+		"ladder_ascend", "ladder_descend", "ladder_hold", "ladder_wall_climb", "water_enter",
+		"water_swim", "water_exit", "lava", "cobweb", "slime_bounce",
+		"slime_sneak", "slime_walk", "bed_bounce", "bed_sneak", "soul_sand",
+		"honey", "scaffolding", "bubble_up", "bubble_down", "unloaded_boundary",
 	}
 	got := terrainScriptNames()
 	if len(got) != len(want) {
