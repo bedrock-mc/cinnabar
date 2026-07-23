@@ -40,6 +40,8 @@ HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
 HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
 LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
+ICON_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeico
+ICON_ASSET_REPORT ?= .local/assets/compiled/icon-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -58,6 +60,7 @@ FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- out
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lang-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANG_ASSET_BLOB)" --report "$(LANG_ASSET_REPORT)"
+ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
@@ -66,7 +69,7 @@ else
 VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
 endif
 
-.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -93,7 +96,7 @@ help:
 
 vanilla-assets: $(PACK_SENTINEL)
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
@@ -110,6 +113,8 @@ hud-assets-local:
 	$(HUD_ASSET_COMPILE)
 
 lang-assets: $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)
+
+icon-assets: $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT)
 
 $(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)
 ifeq ($(OS),Windows_NT)
@@ -159,6 +164,12 @@ $(HUD_ASSET_REPORT): $(HUD_ASSET_BLOB)
 
 $(LANG_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
 	$(LANG_ASSET_COMPILE)
+
+$(ICON_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+	$(ICON_ASSET_COMPILE)
+
+$(ICON_ASSET_REPORT): $(ICON_ASSET_BLOB)
+	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(ICON_ASSET_COMPILE); fi
 
 $(LANG_ASSET_REPORT): $(LANG_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(LANG_ASSET_COMPILE); fi

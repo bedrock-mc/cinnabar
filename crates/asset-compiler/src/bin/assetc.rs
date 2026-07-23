@@ -20,10 +20,13 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
+#[path = "assetc/icon_command.rs"]
+mod icon_command;
 #[path = "assetc/lang_command.rs"]
 mod lang_command;
 
 use hud_command::compile_hud_assets_command;
+use icon_command::compile_icon_assets_command;
 use lang_command::compile_lang_assets_command;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
@@ -88,6 +91,18 @@ enum Command {
         report: PathBuf,
     },
     HudAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile the pinned pack's sprite-routed item icons into the bounded
+    /// icon carrier.
+    IconAssets {
         #[arg(long)]
         pack: PathBuf,
         #[arg(long)]
@@ -302,6 +317,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::IconAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_icon_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::LangAssets {
             pack,

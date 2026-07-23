@@ -100,6 +100,7 @@ pub struct LoadedFontAssets {
 }
 
 mod hud_carrier;
+mod icon_carrier;
 mod lang_carrier;
 
 pub use hud_carrier::{
@@ -113,6 +114,10 @@ pub fn vanilla_source_manifest_json() -> &'static str {
     VANILLA_SOURCE_JSON
 }
 
+pub use icon_carrier::{
+    ICON_ASSETS_COMPILE_COMMAND, LoadedIconAssets, icon_asset_path, icon_assets_rebuild_command,
+    require_icon_assets,
+};
 pub use lang_carrier::{
     LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
     require_lang_assets,
@@ -448,6 +453,56 @@ pub enum AssetStartupError {
 
     #[error("{notice}")]
     LangAssetsMissing {
+        path: PathBuf,
+        rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} exceeds the {max_bytes}-byte startup limit
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: assets::AssetError,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error("{notice}")]
+    IconAssetsMissing {
         path: PathBuf,
         rebuild_command: String,
         notice: String,
