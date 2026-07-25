@@ -23,7 +23,7 @@ pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
-pub const FONT_ASSETS_FILENAME: &str = "ui-inter-v1.mcbefont";
+pub const FONT_ASSETS_FILENAME: &str = "ui-monocraft-v1.mcbefont";
 pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
@@ -183,7 +183,7 @@ impl LoadedFontAssets {
     pub fn startup_summary(&self) -> String {
         if self.diagnostic {
             return format!(
-                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Inter carrier with: {}",
+                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Monocraft carrier with: {}",
                 self.selected_path.display(),
                 FONT_ASSETS_COMPILE_COMMAND
             );

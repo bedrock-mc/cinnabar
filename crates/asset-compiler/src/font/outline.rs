@@ -85,7 +85,7 @@ pub fn compile_outline_font(
     let source_sha256 = Sha256::digest(source_bytes).into();
     let pixels_sha256 = Sha256::digest(&rgba8).into();
     let page = FontTexturePage {
-        source_path: format!("font/inter-{}px.png", config.pixel_height).into_boxed_str(),
+        source_path: format!("font/monocraft-{}px.png", config.pixel_height).into_boxed_str(),
         source_bytes: u32::try_from(source_bytes.len()).map_err(|_| {
             FontCompileError::SourceTooLarge {
                 path: source_path.to_path_buf(),
@@ -124,7 +124,7 @@ fn validate_config(
 ) -> Result<(), FontCompileError> {
     if source_bytes.is_empty() || source_bytes.len() as u64 > MAX_FONT_SOURCE_BYTES {
         return Err(FontCompileError::SourceTooLarge {
-            path: "font/Inter.ttf".into(),
+            path: "font/Monocraft.ttf".into(),
         });
     }
     if source_manifest_sha256 == [0; 32]

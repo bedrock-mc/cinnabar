@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 #[test]
 fn invalid_outline_font_fails_closed() {
     let error = compile_outline_font(
-        Path::new("font/Inter.ttf"),
+        Path::new("font/Monocraft.ttf"),
         b"not a font",
         [0x42; 32],
         OutlineFontConfig::default(),
@@ -24,7 +24,7 @@ fn outline_font_config_rejects_unbounded_or_incomplete_ranges() {
     };
     assert!(matches!(
         compile_outline_font(
-            Path::new("font/Inter.ttf"),
+            Path::new("font/Monocraft.ttf"),
             b"not a font",
             [0x42; 32],
             missing_replacement,
@@ -38,7 +38,7 @@ fn outline_font_config_rejects_unbounded_or_incomplete_ranges() {
     };
     assert!(matches!(
         compile_outline_font(
-            Path::new("font/Inter.ttf"),
+            Path::new("font/Monocraft.ttf"),
             b"not a font",
             [0x42; 32],
             oversized,
@@ -99,15 +99,15 @@ fn outline_font_cli_rejects_bytes_outside_the_manifest_pin_before_rasterization(
 }
 
 #[test]
-fn tracked_inter_license_is_the_exact_pinned_upstream_file() {
+fn tracked_monocraft_license_is_the_exact_pinned_upstream_file() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let path = root.join("assets/licenses/Inter-OFL-1.1.txt");
+    let path = root.join("assets/licenses/Monocraft-OFL-1.1.txt");
     let bytes = fs::read(path).unwrap();
 
     assert_eq!(bytes.len(), 4_377);
     assert_eq!(
         format!("{:x}", Sha256::digest(bytes)),
-        "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"
+        "f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1"
     );
     let attributes = fs::read_to_string(root.join(".gitattributes"))
         .unwrap()
@@ -115,7 +115,7 @@ fn tracked_inter_license_is_the_exact_pinned_upstream_file() {
     assert!(
         attributes.lines().any(|line| {
             line == concat!(
-                "assets/licenses/Inter-OFL-1.1.txt text eol=lf ",
+                "assets/licenses/Monocraft-OFL-1.1.txt text eol=lf ",
                 "whitespace=-blank-at-eol"
             )
         }),

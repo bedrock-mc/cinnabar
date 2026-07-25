@@ -201,9 +201,9 @@ malformed or ambiguous bubble direction fails closed.
 
 ## UI font assets
 
-`make client` automatically downloads the pinned OFL-1.1 Inter source and license,
+`make client` automatically downloads the pinned OFL-1.1 Monocraft source and license,
 verifies their exact sizes and SHA-256 hashes, rasterizes a deterministic 32-pixel
-UI atlas, and builds the ignored `ui-inter-v1.mcbefont` carrier. The source cache
+UI atlas, and builds the ignored `ui-monocraft-v1.mcbefont` carrier. The source cache
 stays below `.local/assets/ui-font/`; neither the outline font nor generated carrier
 is committed. Run the font step alone with:
 
@@ -212,7 +212,7 @@ make font-assets
 ```
 
 An owned, reviewed local Bedrock bitmap-font pack can take precedence over the
-generated Inter carrier without downloading or redistributing Mojangles:
+generated Monocraft carrier without downloading or redistributing Mojangles:
 
 ```text
 make font-assets-local FONT_PACK_DIR=/path/to/reviewed/resource_pack
@@ -221,7 +221,7 @@ make font-assets-local FONT_PACK_DIR=/path/to/reviewed/resource_pack
 The local pack must contain the bounded `font/catalog.json` descriptor and referenced
 PNG pages expected by the compiler. This command writes the distinct ignored
 `vanilla-v1.mcbefont` carrier; startup prefers that validated local carrier while
-leaving `ui-inter-v1.mcbefont` intact as the fallback. Normal builds never fetch
+leaving `ui-monocraft-v1.mcbefont` intact as the fallback. Normal builds never fetch
 Mojangles or another unlicensed Minecraft font mirror.
 
 ## Vanilla HUD sprites
@@ -283,7 +283,7 @@ The pin also verifies the same official sample release's `manifest.json`,
 layout implementation.
 
 The base Mojangles bitmap font is not present in this sample pack, so this does
-not change the open-licensed Inter default or the optional local bitmap-font
+not change the open-licensed Monocraft default or the optional local bitmap-font
 override described above. The HUD carrier is required at production startup:
 if it is absent, the error names the exact path and the client exits instead of
 silently hiding authoritative survival stats or substituting guessed art.
