@@ -6,9 +6,9 @@ use std::{
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
-    compile_fonts, compile_hud_assets, compile_outline_font, compile_pack_with_biomes,
-    inspect_animation_inventory,
+    GlyphAdvances, OutlineFontConfig, compile_atmosphere_assets_with_options,
+    compile_entity_assets_with_report, compile_fonts, compile_hud_assets, compile_outline_font,
+    compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
@@ -496,6 +496,18 @@ fn compile_outline_font_assets_command(
     let atlas_side = required_u32(raster, "atlas_side")?;
     let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
         .ok_or("font replacement_codepoint is not a Unicode scalar")?;
+    // Absent means keep the outline font's own advances, so an older manifest
+    // still compiles to the same monospace metrics it always did.
+    let advances = match raster.get("proportional_advance_gap_px") {
+        None => GlyphAdvances::Source,
+        Some(_) => GlyphAdvances::InkPlusGap {
+            gap_px: required_u32(raster, "proportional_advance_gap_px")?,
+            blank_advance_px: match raster.get("blank_advance_px") {
+                None => None,
+                Some(_) => Some(required_u32(raster, "blank_advance_px")?),
+            },
+        },
+    };
     let expected_font_size = source
         .get("font_size_bytes")
         .and_then(serde_json::Value::as_u64)
@@ -525,6 +537,7 @@ fn compile_outline_font_assets_command(
             pixel_height,
             atlas_side,
             replacement_codepoint: replacement,
+            advances,
         },
     )?;
     write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)

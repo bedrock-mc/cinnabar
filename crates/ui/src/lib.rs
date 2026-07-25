@@ -24,8 +24,8 @@ pub use hud::{
     MAX_TOASTS, TimedText, TitleDurations, Toast,
 };
 pub use model::{
-    FocusState, FocusTransition, UiDrawBatch, UiDrawList, UiError, UiFrame, UiNode, UiNodeId,
-    UiTree, UiVertex, UiVisual,
+    FocusState, FocusTransition, TextShadow, UiDrawBatch, UiDrawList, UiError, UiFrame, UiNode,
+    UiNodeId, UiTree, UiVertex, UiVisual,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,

@@ -4,8 +4,8 @@ use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_cat
 use sha2::{Digest, Sha256};
 pub use ui::{
     BedrockColor, PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextStyle, UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId, UiPoint,
-    UiRect, UiScale, UiTree, UiVertex, UiVisual,
+    TextShadow, TextStyle, UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId,
+    UiPoint, UiRect, UiScale, UiTree, UiVertex, UiVisual,
 };
 
 #[test]
@@ -237,6 +237,7 @@ fn cached_text_layout_emits_glyph_quads_by_texture_page() {
         UiNode::new(node(1), None, rect(4.0, 8.0, 100.0, 40.0)).with_visual(UiVisual::Text {
             layout,
             color: [255, 255, 255, 255],
+            shadow: TextShadow::None,
         }),
     ])
     .unwrap();
@@ -409,6 +410,8 @@ fn text_layout() -> Arc<TextLayout> {
             text: "AB",
             style: TextStyle::default(),
             width_64: 128,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
         })
@@ -429,3 +432,50 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {
 
 #[allow(dead_code)]
 fn _assert_public_draw_contract(_: UiDrawList, _: UiVertex) {}
+
+#[test]
+fn text_shadow_draws_a_darkened_offset_pass_before_the_glyph_pass() {
+    let layout = text_layout();
+    let glyphs = layout.glyphs().len();
+    let unshadowed = draw_list(UiVisual::Text {
+        layout: Arc::clone(&layout),
+        color: [255, 255, 255, 255],
+        shadow: TextShadow::None,
+    });
+    // One design pixel at the layout's scale.
+    let shadowed = draw_list(UiVisual::Text {
+        layout: Arc::clone(&layout),
+        color: [200, 100, 60, 255],
+        shadow: TextShadow::Offset64(2 * 64),
+    });
+
+    assert_eq!(unshadowed.vertices.len(), glyphs * 4);
+    assert_eq!(shadowed.vertices.len(), glyphs * 8);
+
+    // The shadow pass comes first, each channel quartered, alpha preserved.
+    assert_eq!(
+        shadowed.vertices[0].color,
+        [200 >> 2, 100 >> 2, 60 >> 2, 255]
+    );
+    assert_eq!(shadowed.vertices[glyphs * 4].color, [200, 100, 60, 255]);
+
+    // ...and it sits exactly one design pixel down-right of the glyph itself.
+    let shadow_origin = shadowed.vertices[0].position;
+    let glyph_origin = shadowed.vertices[glyphs * 4].position;
+    assert_eq!(shadow_origin[0] - glyph_origin[0], 2.0);
+    assert_eq!(shadow_origin[1] - glyph_origin[1], 2.0);
+}
+
+fn draw_list(visual: UiVisual) -> UiDrawList {
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(4.0, 8.0, 100.0, 40.0)).with_visual(visual),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 200.0, 100.0),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+    tree.build_draw_list().unwrap()
+}

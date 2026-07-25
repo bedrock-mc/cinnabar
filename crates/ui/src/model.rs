@@ -37,7 +37,22 @@ pub enum UiVisual {
     Text {
         layout: Arc<TextLayout>,
         color: [u8; 4],
+        /// Draws the whole run once offset down-right in a darkened copy of
+        /// each glyph's colour before drawing the run itself, the way Mojang's
+        /// client shadows HUD and chat text. This is a property of the draw
+        /// rather than of a span: a `§` colour code changes the hue, never
+        /// whether the run is shadowed.
+        shadow: TextShadow,
     },
+}
+
+/// A Java-style 1-design-pixel drop shadow.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextShadow {
+    #[default]
+    None,
+    /// Offset in unscaled 1/64 pixels, applied on both axes.
+    Offset64(u32),
 }
 
 #[derive(Clone, Debug)]
@@ -588,7 +603,17 @@ impl UiTree {
             let count = match &node.visual {
                 UiVisual::None => 0,
                 UiVisual::Solid { .. } | UiVisual::Sprite { .. } => 1,
-                UiVisual::Text { layout, .. } => layout.glyphs().len(),
+                UiVisual::Text { layout, shadow, .. } => {
+                    let passes = match shadow {
+                        TextShadow::None => 1,
+                        TextShadow::Offset64(_) => 2,
+                    };
+                    layout
+                        .glyphs()
+                        .len()
+                        .checked_mul(passes)
+                        .ok_or(UiError::DrawIndexOverflow)?
+                }
             };
             total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
         })?;
@@ -754,44 +779,65 @@ fn emit_visual(
                 batches,
             )
         }
-        UiVisual::Text { layout, color } => {
-            for glyph in layout.glyphs() {
-                let glyph_bounds = UiRect::new(
-                    UiPoint::new(
-                        bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0,
-                        bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0,
+        UiVisual::Text {
+            layout,
+            color,
+            shadow,
+        } => {
+            // Mojang's client draws the entire shadowed run before the run
+            // itself, so an overlapping glyph never casts a shadow over an
+            // already-drawn neighbour.
+            let shadow_pass = match shadow {
+                TextShadow::None => None,
+                TextShadow::Offset64(offset_64) => Some((
+                    f32::from(layout.key().scale_1024) / 1_024.0 * *offset_64 as f32 / 64.0,
+                    true,
+                )),
+            };
+            for (offset, shadowed) in shadow_pass.into_iter().chain(std::iter::once((0.0, false))) {
+                for glyph in layout.glyphs() {
+                    let glyph_bounds = UiRect::new(
+                        UiPoint::new(
+                            bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0 + offset,
+                            bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0 + offset,
+                        )
+                        .map_err(|_| UiError::DrawIndexOverflow)?,
+                        UiPoint::new(
+                            bounds.min().x() + glyph.bounds_64[2] as f32 / 64.0 + offset,
+                            bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0 + offset,
+                        )
+                        .map_err(|_| UiError::DrawIndexOverflow)?,
                     )
-                    .map_err(|_| UiError::DrawIndexOverflow)?,
-                    UiPoint::new(
-                        bounds.min().x() + glyph.bounds_64[2] as f32 / 64.0,
-                        bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0,
-                    )
-                    .map_err(|_| UiError::DrawIndexOverflow)?,
-                )
-                .map_err(|_| UiError::DrawIndexOverflow)?;
-                if is_empty(glyph_bounds) {
-                    continue;
+                    .map_err(|_| UiError::DrawIndexOverflow)?;
+                    if is_empty(glyph_bounds) {
+                        continue;
+                    }
+                    let glyph_color = style_color(glyph.style.color, *color);
+                    let glyph_color = if shadowed {
+                        shadow_color(glyph_color)
+                    } else {
+                        glyph_color
+                    };
+                    let style_flags = u8::from(glyph.style.obfuscated)
+                        | (u8::from(glyph.style.bold) << 1)
+                        | (u8::from(glyph.style.italic) << 2);
+                    emit_quad(
+                        glyph_bounds,
+                        [
+                            [glyph.uv[0], glyph.uv[1]],
+                            [glyph.uv[2], glyph.uv[1]],
+                            [glyph.uv[2], glyph.uv[3]],
+                            [glyph.uv[0], glyph.uv[3]],
+                        ],
+                        glyph.page,
+                        glyph_color,
+                        style_flags,
+                        clip,
+                        vertices,
+                        indices,
+                        batches,
+                    )?;
                 }
-                let glyph_color = style_color(glyph.style.color, *color);
-                let style_flags = u8::from(glyph.style.obfuscated)
-                    | (u8::from(glyph.style.bold) << 1)
-                    | (u8::from(glyph.style.italic) << 2);
-                emit_quad(
-                    glyph_bounds,
-                    [
-                        [glyph.uv[0], glyph.uv[1]],
-                        [glyph.uv[2], glyph.uv[1]],
-                        [glyph.uv[2], glyph.uv[3]],
-                        [glyph.uv[0], glyph.uv[3]],
-                    ],
-                    glyph.page,
-                    glyph_color,
-                    style_flags,
-                    clip,
-                    vertices,
-                    indices,
-                    batches,
-                )?;
             }
             Ok(())
         }
@@ -875,6 +921,11 @@ fn emit_quad(
         index_range: start..end,
     });
     Ok(())
+}
+
+/// Mojang's shadow colour: each channel quartered, alpha preserved.
+fn shadow_color(color: [u8; 4]) -> [u8; 4] {
+    [color[0] >> 2, color[1] >> 2, color[2] >> 2, color[3]]
 }
 
 fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {

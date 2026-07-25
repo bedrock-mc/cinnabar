@@ -8,9 +8,11 @@
   "commit": "e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9",
   "artifact_policy": "local-source-cache",
   "rasterization": {
-    "pixel_height": 32,
-    "atlas_side": 2048,
-    "replacement_codepoint": 65533
+    "pixel_height": 18,
+    "atlas_side": 1024,
+    "replacement_codepoint": 65533,
+    "proportional_advance_gap_px": 2,
+    "blank_advance_px": 8
   },
   "font_file": "Monocraft.ttf",
   "font_url": "https://raw.githubusercontent.com/IdreesInc/Monocraft/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9/dist/Monocraft-ttf/Monocraft.ttf",
