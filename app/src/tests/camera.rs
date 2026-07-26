@@ -1038,6 +1038,62 @@ fn app_semantic_runtime_preserves_keyboard_controller_touch_equivalence() {
 }
 
 #[test]
+fn semantic_controller_activity_ignores_drift_without_refiring_held_buttons() {
+    let mut runtime = SemanticInputRuntime::default();
+    let controller_frame = |drift| DeviceFrame {
+        controllers: vec![
+            ControllerFrame {
+                device_id: 7,
+                buttons: vec![0],
+                ..ControllerFrame::default()
+            },
+            ControllerFrame {
+                device_id: 8,
+                axes: [drift, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            },
+        ],
+        ..DeviceFrame::default()
+    };
+
+    let controller_owned = runtime.route_and_finalize(controller_frame(0.0)).unwrap();
+    assert_eq!(
+        controller_owned.input_mode,
+        semantic_input::InputMode::GamePad
+    );
+    assert!(controller_owned.phases[Action::Jump as usize].pressed);
+    assert!(controller_owned.phases[Action::Jump as usize].held);
+
+    let keyboard = KeyboardMouseFrame {
+        keys: vec![0x1a],
+        ..KeyboardMouseFrame::default()
+    };
+    let mut keyboard_frame = controller_frame(0.0);
+    keyboard_frame.keyboard_mouse = Some(keyboard.clone());
+    let keyboard_owned = runtime.route_and_finalize(keyboard_frame).unwrap();
+    assert_eq!(
+        keyboard_owned.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
+    assert_eq!(keyboard_owned.movement, [0.0, 1.0]);
+
+    let mut sub_deadzone_drift = controller_frame(0.05);
+    sub_deadzone_drift.keyboard_mouse = Some(keyboard.clone());
+    let drift = runtime.route_and_finalize(sub_deadzone_drift).unwrap();
+    assert_eq!(drift.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(drift.movement, [0.0, 1.0]);
+    assert!(!drift.phases[Action::Jump as usize].pressed);
+
+    let mut crossed_deadzone = controller_frame(0.2);
+    crossed_deadzone.keyboard_mouse = Some(keyboard);
+    let crossing = runtime.route_and_finalize(crossed_deadzone).unwrap();
+    assert_eq!(crossing.input_mode, semantic_input::InputMode::GamePad);
+    assert!(crossing.movement[0] > 0.0);
+    assert!(!crossing.phases[Action::Jump as usize].pressed);
+    assert!(crossing.phases[Action::Jump as usize].held);
+}
+
+#[test]
 fn semantic_runtime_wires_context_bindings_authority_and_release_at_finalize() {
     let mut runtime = SemanticInputRuntime::default();
     let held_jump = DeviceFrame {
@@ -1141,6 +1197,43 @@ fn semantic_authority_tracks_ui_settings_session_and_dimension_transitions_in_pr
 }
 
 #[test]
+fn pending_mouse_motion_cannot_cross_session_authority_in_production_order() {
+    let mut runtime = SemanticInputRuntime::default();
+    let authority = |session_generation| SemanticInputAuthorityFrame {
+        context: InputContext::Gameplay,
+        controls_generation: 1,
+        controls: ControlSettings::default(),
+        session_generation: NonZeroU64::new(session_generation).unwrap(),
+        dimension: 0,
+    };
+
+    runtime.route_device_frame(DeviceFrame::default()).unwrap();
+    runtime.synchronize_authority(authority(1)).unwrap();
+    assert_eq!(
+        runtime.finalize_routed_input().unwrap().look_delta,
+        [0.0, 0.0]
+    );
+
+    runtime
+        .route_device_frame(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                mouse_motion: [8.0, -4.0],
+                ..KeyboardMouseFrame::default()
+            }),
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    runtime.synchronize_authority(authority(2)).unwrap();
+    let transitioned = runtime.finalize_routed_input().unwrap();
+
+    assert_eq!(transitioned.look_delta, [0.0, 0.0]);
+    assert_eq!(
+        transitioned.authority_generation,
+        NonZeroU64::new(2).unwrap()
+    );
+}
+
+#[test]
 fn semantic_runtime_synthesizes_controller_disconnect_and_releases_stale_touch_targets() {
     let mut runtime = SemanticInputRuntime::default();
     let held_controller_jump = DeviceFrame {
@@ -1179,5 +1272,7 @@ fn semantic_runtime_synthesizes_controller_disconnect_and_releases_stale_touch_t
     assert!(physical_source.contains("ResMut<'w, SemanticTouchTargets>"));
     assert!(physical_source.contains("retain_active_contacts"));
     let touch_source = include_str!("../ui_runtime/gameplay_touch.rs");
-    assert!(touch_source.contains("targets.set("));
+    assert!(touch_source.contains("PRODUCTION_TOUCH_LAYOUT_AVAILABLE: bool = false"));
+    assert!(touch_source.contains("targets.release_all()"));
+    assert!(!touch_source.contains("targets.set("));
 }
