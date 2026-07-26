@@ -1,15 +1,19 @@
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
 
 use bevy::prelude::Resource;
+#[cfg(test)]
+use protocol::PlayerInputMode;
 use protocol::{
-    Packet, PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
-    player_auth_input,
+    Packet, PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, player_auth_input,
 };
 
 mod authority;
+mod encoding;
 mod evidence;
 mod physics;
+mod runtime_system;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
+use encoding::{input_flags, normalize_move_vector, subtract};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 use physics::PhysicsCorrectionConfirmation;
@@ -18,109 +22,11 @@ pub use physics::{
     PhysicsCollisionRegistries, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
     PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
 };
+pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 use tokio::sync::watch;
 
-use bevy::{
-    log::debug,
-    prelude::{EulerRot, Local, Res, ResMut, Time, Vec3},
-    time::Real,
-};
-use semantic_input::Action;
-
-use crate::{
-    acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
-    runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
-};
-
 pub const OUTBOX_CAPACITY: usize = 32;
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn advance_local_physics(
-    time: Res<Time<Real>>,
-    input: Res<SemanticInputSnapshot>,
-    auto_fly: Res<AutoFly>,
-    client_world: Res<ClientWorld>,
-    collisions: Res<PhysicsCollisionRegistries>,
-    acceptance: Res<AcceptanceRun>,
-    mut physics: ResMut<LocalPhysicsController>,
-    mut movement_ticker: ResMut<MovementTicker>,
-    mut view: ResMut<LocalViewPose>,
-    mut previous_blocker: Local<Option<String>>,
-) {
-    if acceptance.deadline_reached(Instant::now()) {
-        movement_ticker.begin_terminal_drain();
-    }
-    if auto_fly.enabled() || !physics.is_active() {
-        return;
-    }
-    if !movement_ticker.accepting_physics_admissions() {
-        return;
-    }
-    let Some(stream) = client_world.stream.as_ref() else {
-        return;
-    };
-    let semantic = input.snapshot();
-    let active = semantic.is_some();
-    let input_mode = semantic.map_or(PlayerInputMode::Mouse, |snapshot| {
-        match snapshot.input_mode {
-            semantic_input::InputMode::KeyboardMouse => PlayerInputMode::Mouse,
-            semantic_input::InputMode::GamePad => PlayerInputMode::GamePad,
-            semantic_input::InputMode::Touch => PlayerInputMode::Touch,
-        }
-    });
-    let movement = input.movement();
-    let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
-    let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
-    let input = physics_movement_input(
-        movement,
-        yaw,
-        active,
-        input.phase(Action::Jump).held,
-        input.phase(Action::Sneak).held,
-        input.phase(Action::Sprint).held,
-    );
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-    );
-    let frame = physics.advance_with_context(
-        time.delta(),
-        input,
-        PhysicsSampleContext {
-            pitch: -bevy_pitch.to_degrees(),
-            head_yaw: yaw,
-            camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
-            input_mode,
-        },
-        &world,
-    );
-    let blocker = frame.blocked.as_ref().map(ToString::to_string);
-    if blocker != *previous_blocker {
-        if let Some(blocker) = blocker.as_deref() {
-            debug!(%blocker, "local physics is waiting for authoritative collision data");
-        }
-        *previous_blocker = blocker;
-    }
-    if frame.dropped_ticks != 0 && movement_ticker.physics_is_authorized() {
-        movement_ticker.record_physics_fault(PhysicsAuthorityFault::PhysicsTickOverflow {
-            dropped: frame.dropped_ticks,
-        });
-        physics.deactivate();
-        return;
-    }
-    for sample in frame.samples {
-        if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
-            debug!(?fault, "candidate Physics movement authority failed closed");
-            physics.deactivate();
-            return;
-        }
-    }
-    if let Some(position) = physics.render_eye_position() {
-        view.set_eye_translation(Vec3::from_array(position));
-    }
-}
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
@@ -295,6 +201,7 @@ impl MovementTicker {
 
     pub fn reset(
         &mut self,
+
         session_generation: u64,
         initial_server_tick: u64,
         initial_position: [f32; 3],
@@ -895,6 +802,7 @@ impl MovementTicker {
                 for pending in &mut self.pending_sends {
                     let _ = replay_sample(&mut pending.sample)?;
                 }
+
                 self.position_authority_changed();
                 for pending in &mut self.pending_sends {
                     pending.retry_after_cancellation =
@@ -1014,64 +922,6 @@ pub(crate) fn flush_player_auth_inputs<E>(
     Ok(sent)
 }
 
-fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
-    let mut flags = PlayerInputFlags::NONE;
-    if sample.move_vector[1] > 0.0 {
-        flags |= PlayerInputFlags::UP;
-    } else if sample.move_vector[1] < 0.0 {
-        flags |= PlayerInputFlags::DOWN;
-    }
-    if sample.move_vector[0] < 0.0 {
-        flags |= PlayerInputFlags::LEFT;
-    } else if sample.move_vector[0] > 0.0 {
-        flags |= PlayerInputFlags::RIGHT;
-    }
-
-    if sample.jumping {
-        flags |= PlayerInputFlags::JUMP_DOWN
-            | PlayerInputFlags::JUMPING
-            | PlayerInputFlags::JUMP_CURRENT_RAW;
-        if !previous.jumping {
-            flags |= PlayerInputFlags::START_JUMPING | PlayerInputFlags::JUMP_PRESSED_RAW;
-        }
-    } else if previous.jumping {
-        flags |= PlayerInputFlags::JUMP_RELEASED_RAW;
-    }
-
-    if sample.sneaking {
-        flags |= PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN;
-        if !previous.sneaking {
-            flags |= PlayerInputFlags::START_SNEAKING | PlayerInputFlags::SNEAK_PRESSED_RAW;
-        }
-    } else if previous.sneaking {
-        flags |= PlayerInputFlags::STOP_SNEAKING | PlayerInputFlags::SNEAK_RELEASED_RAW;
-    }
-
-    if sample.sprinting {
-        flags |= PlayerInputFlags::SPRINT_DOWN | PlayerInputFlags::SPRINTING;
-        if !previous.sprinting {
-            flags |= PlayerInputFlags::START_SPRINTING;
-        }
-    } else if previous.sprinting {
-        flags |= PlayerInputFlags::STOP_SPRINTING;
-    }
-    flags
-}
-
-fn subtract(lhs: [f32; 3], rhs: [f32; 3]) -> [f32; 3] {
-    [lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]]
-}
-
-fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let length_squared = vector[0].mul_add(vector[0], vector[1] * vector[1]);
-    if length_squared > 1.0 {
-        let inverse_length = length_squared.sqrt().recip();
-        [vector[0] * inverse_length, vector[1] * inverse_length]
-    } else {
-        vector
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1095,6 +945,7 @@ mod tests {
                 sprinting: false,
                 input_mode: PlayerInputMode::Mouse,
                 grounded_before_tick: false,
+
                 grounded_after_tick: false,
                 jump_repeated: false,
                 world_identity: WorldCollisionIdentity::new(
