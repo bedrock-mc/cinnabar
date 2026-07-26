@@ -862,6 +862,9 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         miss_response_semantic_shape = stats.miss_response_semantic_shape,
         miss_response_cache_pressure = stats.miss_response_cache_pressure,
         miss_response_byte_pressure = stats.miss_response_byte_pressure,
+        resync_queued = stats.resync_queued,
+        resync_queue_full_drops = stats.resync_queue_full_drops,
+        resync_emitted = stats.resync_emitted,
         retired_cached_transactions = stats.retired_cached_transactions,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
@@ -891,6 +894,9 @@ fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheS
             miss_response_semantic_shape = current.miss_response_semantic_shape,
             miss_response_cache_pressure = current.miss_response_cache_pressure,
             miss_response_byte_pressure = current.miss_response_byte_pressure,
+            resync_queued = current.resync_queued,
+            resync_queue_full_drops = current.resync_queue_full_drops,
+            resync_emitted = current.resync_emitted,
             "skipped semantically invalid client blob-cache packet"
         );
     }

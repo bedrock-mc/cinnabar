@@ -82,6 +82,20 @@ impl WorldStream {
         self.transport_pending_requests = self.transport_pending_requests.saturating_sub(1);
         self.stats.phase2_stages.requests_sent =
             self.stats.phase2_stages.requests_sent.saturating_add(1);
+        let cache_resync = (0..count).any(|offset| {
+            let y = base_sub_chunk_y.saturating_add(offset as i32);
+            self.requested_sub_chunks
+                .get(&chunk)
+                .and_then(|column| column.get(&y))
+                .is_some_and(|pending| pending.cache_resync)
+        });
+        if cache_resync {
+            self.stats.phase2_stages.resync_requests_sent = self
+                .stats
+                .phase2_stages
+                .resync_requests_sent
+                .saturating_add(1);
+        }
         let deadline = sent_at
             .checked_add(SUB_CHUNK_RESPONSE_TIMEOUT)
             .unwrap_or(sent_at);
@@ -149,6 +163,7 @@ impl WorldStream {
         base_sub_chunk_y: i32,
         count: usize,
         sequence: Option<u64>,
+        cache_resync: bool,
     ) {
         self.request_collision_failures.remove(&key);
         if count == 0 {
@@ -186,7 +201,10 @@ impl WorldStream {
                     .map(|offset| {
                         (
                             base_sub_chunk_y.saturating_add(offset as i32),
-                            PendingSubChunk::default(),
+                            PendingSubChunk {
+                                cache_resync,
+                                ..Default::default()
+                            },
                         )
                     })
                     .collect::<PendingSubChunkColumn>();

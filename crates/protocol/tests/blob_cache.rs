@@ -203,6 +203,44 @@ fn refused_cached_level_chunk_queues_a_bounded_column_resync() {
 }
 
 #[test]
+fn resync_queue_lifecycle_counts_queued_full_drops_and_emission() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    resolver
+        .accept_cached_packet(cached_request_level(
+            29,
+            client_blob_hash(b"resync-lifecycle-head"),
+        ))
+        .expect("unresolved transaction fills the bounded FIFO");
+
+    resolver
+        .accept_cached_packet(cached_request_level(
+            30,
+            client_blob_hash(b"resync-lifecycle-first"),
+        ))
+        .expect("first pressure skip queues recovery");
+    resolver
+        .accept_cached_packet(cached_request_level(
+            31,
+            client_blob_hash(b"resync-lifecycle-second"),
+        ))
+        .expect("second pressure skip is bounded when recovery queue is full");
+
+    assert_eq!(resolver.stats().resync_queued, 1);
+    assert_eq!(resolver.stats().resync_queue_full_drops, 1);
+    assert_eq!(resolver.stats().resync_emitted, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent { x: 30, .. }
+        )))
+    ));
+    assert_eq!(resolver.stats().resync_emitted, 1);
+    assert!(resolver.pop_ready().is_none());
+}
+
+#[test]
 fn bedrock_blob_ids_are_seed_zero_xxhash64() {
     assert_eq!(client_blob_hash(b""), 0xef46_db37_51d8_e999);
     assert_eq!(client_blob_hash(b"hello"), 0x26c7_827d_889f_6da3);

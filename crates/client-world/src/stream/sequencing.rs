@@ -410,7 +410,7 @@ impl WorldStream {
                     .requested_sub_chunks
                     .unwrap_or(range.sub_chunk_count)
                     .min(range.sub_chunk_count);
-                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence, true);
             }
             WorldEvent::BlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
@@ -682,7 +682,7 @@ impl WorldStream {
         }
         self.store.commit_chunk_block_entities(key, block_entities);
         self.refresh_block_entity_visuals_for_chunk(key);
-        self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+        self.enqueue_request(key, range.base_sub_chunk_y, count, sequence, false);
         if has_authoritative_upper_air {
             let first_air_y = range
                 .base_sub_chunk_y

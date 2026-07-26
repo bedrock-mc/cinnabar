@@ -6,6 +6,7 @@ pub(super) struct PendingSubChunk {
     pub(super) pending_transport_attempts: u8,
     pub(super) confirmed_attempts: u8,
     pub(super) response_deadline: Option<Instant>,
+    pub(super) cache_resync: bool,
 }
 
 pub(super) type PendingSubChunkColumn = BTreeMap<i32, PendingSubChunk>;

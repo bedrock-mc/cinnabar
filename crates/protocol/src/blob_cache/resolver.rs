@@ -777,12 +777,15 @@ impl BlobCacheResolver {
     fn queue_chunk_resync(&mut self, recovery: ChunkResyncEvent) -> Result<(), BlobCacheError> {
         let recovery_limit = self.cache.limits.max_pending_transactions.max(1);
         if self.recovery_ready.len() >= recovery_limit {
+            self.stats.resync_queue_full_drops =
+                self.stats.resync_queue_full_drops.saturating_add(1);
             return Ok(());
         }
         self.recovery_ready
             .try_reserve(1)
             .map_err(|_| BlobCacheError::ByteCountOverflow)?;
         self.recovery_ready.push_back(recovery);
+        self.stats.resync_queued = self.stats.resync_queued.saturating_add(1);
         Ok(())
     }
 
@@ -795,9 +798,14 @@ impl BlobCacheResolver {
                 .expect("retained ready accounting cannot overflow after a pop");
             return Some(ready.value);
         }
-        self.recovery_ready
-            .pop_front()
-            .map(|recovery| BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery)))
+        let recovery = self.recovery_ready.pop_front()?;
+        if self.recovery_ready.is_empty() {
+            self.recovery_ready = VecDeque::new();
+        }
+        self.stats.resync_emitted = self.stats.resync_emitted.saturating_add(1);
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            recovery,
+        )))
     }
 
     fn drain_ready(&mut self) -> Result<(), BlobCacheError> {
