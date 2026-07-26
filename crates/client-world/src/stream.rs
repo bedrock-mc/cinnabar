@@ -33,7 +33,7 @@ use world::{
     LightProperties as SolverLightProperties, LightReadAccess, LightSolveError, LightSolveOutput,
     LightStore, LightStoreSnapshot, LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood,
     MutationError, PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight,
-    solve_light,
+    chunk_in_view, solve_light,
 };
 
 use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
@@ -200,6 +200,8 @@ pub struct WorldStream {
     source_columns: BTreeSet<ChunkKey>,
     source_capture_sequence: Option<u64>,
     chunk_radius: Option<i32>,
+    last_retention_center: Option<ChunkKey>,
+    last_retention_radius: Option<i32>,
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
     stats: WorldStreamStats,

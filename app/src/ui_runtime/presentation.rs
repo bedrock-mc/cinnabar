@@ -12,8 +12,8 @@ use render::{
 };
 use sha2::{Digest, Sha256};
 use ui::{
-    DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode,
-    UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
+    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -37,9 +37,88 @@ const MAX_PRESENTED_CHAT_ROWS: usize = 8;
 const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
-const CHAT_TEXT_SCALE: f32 = 0.5;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
+
+// The compiled Monocraft atlas is rasterized at 18 px/em (see
+// `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
+// a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
+// tall, 14 of them above the baseline, and the widest advance is 12. That makes
+// `UiScale` 1 already equal to Mojang's GUI scale 2, and only whole numbers of
+// physical pixels per texel keep every design pixel on a pixel boundary.
+const FONT_DESIGN_PIXEL_TEXELS: u32 = 2;
+const FONT_ASCENT_TEXELS: u32 = 14;
+const FONT_INK_TEXELS: u32 = 16;
+/// Mojang pitches chat one design pixel below the font's ink height -- 9 px for
+/// an 8 px font. The same ratio against Monocraft's 16 texels gives 18.
+const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS) * 64;
+/// Distance from the top of a line box down to the baseline, so glyphs sit
+/// inside the box instead of hanging above its origin.
+const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
+/// Mojang offsets the shadow by exactly one design pixel on both axes.
+const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
+/// Mojang's automatic GUI scale stops before a logical axis falls under
+/// 320x240. Doubling those bounds accounts for Monocraft's doubled grid.
+const MIN_SAFE_WIDTH: f32 = 640.0;
+const MIN_SAFE_HEIGHT: f32 = 480.0;
+
+/// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
+/// single frame cannot mix scales or line pitches.
+#[derive(Clone, Copy)]
+pub(super) struct TextMetrics {
+    scale: UiScale,
+    line_height_64: u32,
+    baseline_64: u32,
+    shadow: TextShadow,
+}
+
+impl TextMetrics {
+    /// Picks the largest whole number of physical pixels per atlas texel that
+    /// still leaves Mojang's minimum safe area, then divides out the DPI so the
+    /// product stays whole. Choosing the integer on the *physical* side is what
+    /// keeps a fractional-DPI display (Windows at 150%) landing every design
+    /// pixel on a whole pixel instead of resampling the atlas.
+    fn for_viewport(physical_size: [u32; 2], dpi_scale: DpiScale) -> Self {
+        let dpi = dpi_scale.get();
+        let width = physical_size[0] as f32;
+        let height = physical_size[1] as f32;
+        let mut texel_pixels = 1.0_f32;
+        while (texel_pixels + 1.0) / dpi <= UiScale::MAX
+            && width / (texel_pixels + 1.0) >= MIN_SAFE_WIDTH
+            && height / (texel_pixels + 1.0) >= MIN_SAFE_HEIGHT
+        {
+            texel_pixels += 1.0;
+        }
+        let scale = (texel_pixels / dpi).clamp(UiScale::MIN, UiScale::MAX);
+        Self {
+            scale: UiScale::new(scale).expect("the clamped scale is inside the UiScale range"),
+            line_height_64: TEXT_LINE_HEIGHT_64,
+            baseline_64: TEXT_BASELINE_64,
+            shadow: TextShadow::Offset64(TEXT_SHADOW_OFFSET_64),
+        }
+    }
+
+    fn request<'a>(
+        &self,
+        text: &'a str,
+        width_64: u32,
+        font: &'a RuntimeFontCatalog,
+    ) -> TextLayoutRequest<'a> {
+        TextLayoutRequest {
+            text,
+            style: TextStyle::default(),
+            width_64,
+            line_height_64: self.line_height_64,
+            baseline_64: self.baseline_64,
+            scale: self.scale,
+            font,
+        }
+    }
+
+    pub(super) const fn shadow(&self) -> TextShadow {
+        self.shadow
+    }
+}
 
 #[derive(Debug)]
 pub enum UiPresentationError {
@@ -120,6 +199,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
+        let metrics = TextMetrics::for_viewport(physical_size, dpi_scale);
         let responsive_survival_geometry = self
             .hud_textures
             .as_ref()
@@ -168,13 +248,7 @@ impl UiPresentationRuntime {
             let text = bounded_visible_text(&node.text);
             let layout = self
                 .layouts
-                .layout(TextLayoutRequest {
-                    text,
-                    style: TextStyle::default(),
-                    width_64: wrap_width,
-                    scale: UiScale::default(),
-                    font: &self.font,
-                })
+                .layout(metrics.request(text, wrap_width, &self.font))
                 .map_err(UiPresentationError::Text)?;
             let [x, y] = hud_position(node.role, nodes.len(), logical_width, logical_height);
             nodes.push(
@@ -191,6 +265,7 @@ impl UiPresentationRuntime {
                 .with_visual(UiVisual::Text {
                     layout,
                     color: [255; 4],
+                    shadow: metrics.shadow(),
                 }),
             );
             next_id = next_id.saturating_add(1);
@@ -206,6 +281,7 @@ impl UiPresentationRuntime {
                 &mut next_id,
                 &mut self.layouts,
                 &self.font,
+                metrics,
                 self.solid_texture_page,
                 logical_width,
                 logical_height,
@@ -234,13 +310,7 @@ impl UiPresentationRuntime {
             visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
             editor_layout = Some(
                 self.layouts
-                    .layout(TextLayoutRequest {
-                        text: bounded_visible_text(&visible),
-                        style: TextStyle::default(),
-                        width_64: wrap_width,
-                        scale: chat_text_scale(),
-                        font: &self.font,
-                    })
+                    .layout(metrics.request(bounded_visible_text(&visible), wrap_width, &self.font))
                     .map_err(UiPresentationError::Text)?,
             );
 
@@ -257,13 +327,7 @@ impl UiPresentationRuntime {
                 visible.push_str(suggestion);
                 let layout = self
                     .layouts
-                    .layout(TextLayoutRequest {
-                        text: bounded_visible_text(&visible),
-                        style: TextStyle::default(),
-                        width_64: wrap_width,
-                        scale: chat_text_scale(),
-                        font: &self.font,
-                    })
+                    .layout(metrics.request(bounded_visible_text(&visible), wrap_width, &self.font))
                     .map_err(UiPresentationError::Text)?;
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
             }
@@ -305,13 +369,7 @@ impl UiPresentationRuntime {
             let text = bounded_visible_text(&node.text);
             let layout = self
                 .layouts
-                .layout(TextLayoutRequest {
-                    text,
-                    style: TextStyle::default(),
-                    width_64: wrap_width,
-                    scale: chat_text_scale(),
-                    font: &self.font,
-                })
+                .layout(metrics.request(text, wrap_width, &self.font))
                 .map_err(UiPresentationError::Text)?;
             let layout_height = layout.size_64()[1] as f32 / 64.0;
             if layout_height > chat_cursor - chat_region_top {
@@ -330,13 +388,11 @@ impl UiPresentationRuntime {
                         let middle = low + (high - low) / 2;
                         let candidate = self
                             .layouts
-                            .layout(TextLayoutRequest {
-                                text: &text[..boundaries[middle]],
-                                style: TextStyle::default(),
-                                width_64: wrap_width,
-                                scale: chat_text_scale(),
-                                font: &self.font,
-                            })
+                            .layout(metrics.request(
+                                &text[..boundaries[middle]],
+                                wrap_width,
+                                &self.font,
+                            ))
                             .map_err(UiPresentationError::Text)?;
                         let candidate_height = candidate.size_64()[1] as f32 / 64.0;
                         if candidate_height <= available_height {
@@ -354,7 +410,9 @@ impl UiPresentationRuntime {
             }
             let y = chat_cursor - layout_height;
             visible_chat.push((layout, y, chat_cursor));
-            chat_cursor = (y - 4.0).max(chat_region_top);
+            // No extra gap: the line pitch already carries the one design pixel
+            // Mojang leaves between chat rows, so adding more double-spaces them.
+            chat_cursor = y.max(chat_region_top);
         }
         if chat_focused {
             let panel_left = 8.0_f32.min(logical_width);
@@ -392,6 +450,7 @@ impl UiPresentationRuntime {
                 .with_visual(UiVisual::Text {
                     layout,
                     color: [255; 4],
+                    shadow: metrics.shadow(),
                 }),
             );
             next_id = next_id.saturating_add(1);
@@ -408,6 +467,7 @@ impl UiPresentationRuntime {
                 .with_visual(UiVisual::Text {
                     layout,
                     color: [255; 4],
+                    shadow: metrics.shadow(),
                 }),
             );
             next_id = next_id.saturating_add(1);
@@ -422,6 +482,7 @@ impl UiPresentationRuntime {
                     .with_visual(UiVisual::Text {
                         layout: Arc::clone(layout),
                         color: *color,
+                        shadow: metrics.shadow(),
                     }),
                 );
                 next_id = next_id.saturating_add(1);
@@ -758,10 +819,6 @@ fn bounded_visible_text(value: &str) -> &str {
         end -= 1;
     }
     &value[..end]
-}
-
-fn chat_text_scale() -> UiScale {
-    UiScale::new(CHAT_TEXT_SCALE).expect("the reviewed compact chat scale is valid")
 }
 
 fn hud_position(role: HudViewRole, ordinal: usize, width: f32, height: f32) -> [f32; 2] {

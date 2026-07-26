@@ -953,7 +953,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
     assert_eq!(ENTITY_ASSETS_FILENAME, "vanilla-v1.mcbeent");
     assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
-    assert_eq!(FONT_ASSETS_FILENAME, "ui-inter-v1.mcbefont");
+    assert_eq!(FONT_ASSETS_FILENAME, "ui-monocraft-v1.mcbefont");
     assert_eq!(FONT_ASSETS_COMPILE_COMMAND, "make font-assets");
     assert_eq!(LOCAL_FONT_ASSETS_FILENAME, "vanilla-v1.mcbefont");
     assert_eq!(
@@ -970,7 +970,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     );
     assert_eq!(
         font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
-        PathBuf::from(".local/assets/compiled/ui-inter-v1.mcbefont")
+        PathBuf::from(".local/assets/compiled/ui-monocraft-v1.mcbefont")
     );
     assert_eq!(
         local_font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
@@ -1099,7 +1099,7 @@ fn missing_font_carrier_uses_the_bounded_builtin_diagnostic_font() {
 }
 
 #[test]
-fn explicit_local_font_carrier_takes_precedence_without_replacing_inter() {
+fn explicit_local_font_carrier_takes_precedence_without_replacing_monocraft() {
     let directory = temporary_directory("local-font-precedence");
     let path = directory.join("custom-world.mcbea");
     fs::write(&path, synthetic_blob()).unwrap();
@@ -1109,8 +1109,8 @@ fn explicit_local_font_carrier_takes_precedence_without_replacing_inter() {
     )
     .unwrap();
     fs::write(entity_asset_path(&path), synthetic_entity_blob(0x7e)).unwrap();
-    let inter_path = font_asset_path(&path);
-    fs::write(&inter_path, synthetic_font_blob(0x7f)).unwrap();
+    let monocraft_path = font_asset_path(&path);
+    fs::write(&monocraft_path, synthetic_font_blob(0x7f)).unwrap();
     let local_path = path.with_file_name("vanilla-v1.mcbefont");
     fs::write(
         &local_path,
@@ -1121,8 +1121,8 @@ fn explicit_local_font_carrier_takes_precedence_without_replacing_inter() {
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     assert_eq!(loaded.fonts.selected_path(), local_path);
     assert!(
-        inter_path.is_file(),
-        "the Inter fallback must remain intact"
+        monocraft_path.is_file(),
+        "the Monocraft fallback must remain intact"
     );
     fs::remove_dir_all(directory).unwrap();
 }

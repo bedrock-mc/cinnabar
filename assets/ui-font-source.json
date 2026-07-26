@@ -1,23 +1,25 @@
 {
   "schema": 1,
-  "family": "Inter",
+  "family": "Monocraft",
   "style": "Regular",
   "license": "OFL-1.1",
-  "repository": "https://github.com/google/fonts",
-  "upstream_repository": "https://github.com/rsms/inter",
-  "commit": "389b770410cc0b7c21c85673bfa2077420fe7f65",
+  "repository": "https://github.com/IdreesInc/Monocraft",
+  "upstream_repository": "https://github.com/IdreesInc/Monocraft",
+  "commit": "e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9",
   "artifact_policy": "local-source-cache",
   "rasterization": {
-    "pixel_height": 32,
-    "atlas_side": 2048,
-    "replacement_codepoint": 65533
+    "pixel_height": 18,
+    "atlas_side": 1024,
+    "replacement_codepoint": 65533,
+    "proportional_advance_gap_px": 2,
+    "blank_advance_px": 8
   },
-  "font_file": "Inter.ttf",
-  "font_url": "https://raw.githubusercontent.com/google/fonts/389b770410cc0b7c21c85673bfa2077420fe7f65/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
-  "font_size_bytes": 876576,
-  "font_sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
-  "license_file": "OFL.txt",
-  "license_url": "https://raw.githubusercontent.com/google/fonts/389b770410cc0b7c21c85673bfa2077420fe7f65/ofl/inter/OFL.txt",
+  "font_file": "Monocraft.ttf",
+  "font_url": "https://raw.githubusercontent.com/IdreesInc/Monocraft/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9/dist/Monocraft-ttf/Monocraft.ttf",
+  "font_size_bytes": 210192,
+  "font_sha256": "262e31822e0a75be567b02320bfa092143d871e8a273e529d1c5ab0c04cd215f",
+  "license_file": "LICENSE",
+  "license_url": "https://raw.githubusercontent.com/IdreesInc/Monocraft/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9/LICENSE",
   "license_size_bytes": 4377,
-  "license_sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"
+  "license_sha256": "f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1"
 }

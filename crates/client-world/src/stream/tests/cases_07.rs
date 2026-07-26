@@ -177,8 +177,13 @@ fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_
         .unwrap();
 
     assert_eq!(stream.required_columns, BTreeSet::from([active]));
+    // The publisher-clamped publication cohort keeps only the destination-scope
+    // column, but chunk-grid retention is independent of the publisher: the
+    // vanilla client's grid still retains both loaded columns because
+    // publisher_only sits within the confirmed radius plus the grid slack of the
+    // player's chunk.
     assert!(stream.tracked_columns().contains(&active));
-    assert!(!stream.tracked_columns().contains(&publisher_only));
+    assert!(stream.tracked_columns().contains(&publisher_only));
 }
 
 #[test]

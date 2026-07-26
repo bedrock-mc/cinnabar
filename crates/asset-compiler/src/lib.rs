@@ -20,8 +20,8 @@ pub use entity::{
     compile_entity_assets, compile_entity_assets_with_report,
 };
 pub use font::{
-    CompiledFontCarrier, FontCompileError, FontCompileReport, OutlineFontConfig, compile_fonts,
-    compile_outline_font,
+    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
+    compile_fonts, compile_outline_font,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use pack::{

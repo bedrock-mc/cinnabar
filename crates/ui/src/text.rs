@@ -93,6 +93,8 @@ pub struct TextLayoutKey {
     pub content_sha256: [u8; 32],
     pub style: TextStyle,
     pub width_64: u32,
+    pub line_height_64: u32,
+    pub baseline_64: u32,
     pub scale_1024: u16,
     pub font_identity: [u8; 32],
 }
@@ -144,18 +146,56 @@ pub struct TextLayoutRequest<'a> {
     pub text: &'a str,
     pub style: TextStyle,
     pub width_64: u32,
+    /// Baseline-to-baseline pitch in unscaled 1/64 pixels, multiplied by
+    /// `scale` during layout.
+    ///
+    /// This is a property of the text block, not of the font atlas: Mojang's
+    /// client hardcodes a 9-pixel chat pitch against an 8-pixel font rather
+    /// than deriving one from glyph metrics. Deriving it from the atlas made
+    /// the tallest glyph anywhere in the catalog inflate every line's pitch.
+    pub line_height_64: u32,
+    /// Distance from the top of a line box down to the baseline, in unscaled
+    /// 1/64 pixels.
+    ///
+    /// Glyph bearings are measured from the baseline and point upwards, so
+    /// without this the baseline sits on the line box's own origin: every glyph
+    /// hangs above the box while `line_height_64` extends below it, and a
+    /// single-line layout reports nearly twice the height it occupies. Callers
+    /// stacking one layout per row then space those rows by that inflated
+    /// height.
+    pub baseline_64: u32,
     pub scale: UiScale,
     pub font: &'a CompiledFontCatalog,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum TextError {
-    TextBytesExceeded { actual: usize, limit: usize },
-    SpanLimitExceeded { actual: usize, limit: usize },
-    GlyphLimitExceeded { actual: usize, limit: usize },
-    WrapLineLimitExceeded { actual: usize, limit: usize },
-    VisualWidthExceeded { actual_64: u64, limit_64: u64 },
+    TextBytesExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    SpanLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    GlyphLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    WrapLineLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    VisualWidthExceeded {
+        actual_64: u64,
+        limit_64: u64,
+    },
     ZeroWrapWidth,
+    ZeroLineHeight,
+    BaselineOutsideLine {
+        baseline_64: u32,
+        line_height_64: u32,
+    },
     MissingReplacementGlyph,
     FixedPointOverflow,
     CacheCounterOverflow,
@@ -196,6 +236,14 @@ impl fmt::Display for TextError {
                 "glyph visual width {actual_64}/64 exceeds wrap width {limit_64}/64"
             ),
             Self::ZeroWrapWidth => formatter.write_str("text wrap width must be nonzero"),
+            Self::ZeroLineHeight => formatter.write_str("text line height must be nonzero"),
+            Self::BaselineOutsideLine {
+                baseline_64,
+                line_height_64,
+            } => write!(
+                formatter,
+                "text baseline {baseline_64}/64 falls outside line height {line_height_64}/64"
+            ),
             Self::MissingReplacementGlyph => {
                 formatter.write_str("font has no replacement glyph for a missing codepoint")
             }
@@ -398,6 +446,15 @@ impl TextLayoutCache {
         if request.width_64 == 0 {
             return Err(TextError::ZeroWrapWidth);
         }
+        if request.line_height_64 == 0 {
+            return Err(TextError::ZeroLineHeight);
+        }
+        if request.baseline_64 > request.line_height_64 {
+            return Err(TextError::BaselineOutsideLine {
+                baseline_64: request.baseline_64,
+                line_height_64: request.line_height_64,
+            });
+        }
         if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
             return Err(TextError::TextBytesExceeded {
                 actual: request.text.len(),
@@ -495,6 +552,8 @@ fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
         content_sha256: Sha256::digest(request.text.as_bytes()).into(),
         style: request.style,
         width_64: request.width_64,
+        line_height_64: request.line_height_64,
+        baseline_64: request.baseline_64,
         scale_1024: (request.scale.get() * SCALE_DENOMINATOR as f32).round() as u16,
         font_identity: request.font.identity().carrier_sha256,
     }
@@ -528,7 +587,8 @@ fn build_layout(
     }
 
     let scale_1024 = i64::from(key.scale_1024);
-    let line_height_64 = font_line_height_64(request.font, scale_1024)?;
+    let line_height_64 = scale_metric(i64::from(request.line_height_64), scale_1024)?;
+    let baseline_64 = scale_metric(i64::from(request.baseline_64), scale_1024)?;
     let mut glyphs = Vec::with_capacity(glyph_count);
     let mut line = 0usize;
     let mut line_start = 0usize;
@@ -561,6 +621,7 @@ fn build_layout(
                 x_64,
                 line,
                 line_height_64,
+                baseline_64,
                 scale_1024,
                 line_min_64,
                 line_max_64,
@@ -583,6 +644,7 @@ fn build_layout(
                     x_64,
                     line,
                     line_height_64,
+                    baseline_64,
                     scale_1024,
                     line_min_64,
                     line_max_64,
@@ -652,12 +714,13 @@ fn line_candidate(
     x_64: i64,
     line: usize,
     line_height_64: i64,
+    baseline_64: i64,
     scale_1024: i64,
     line_min_64: i64,
     line_max_64: i64,
     advance_64: i64,
 ) -> Result<LineCandidate, TextError> {
-    let bounds_64 = glyph_bounds(metrics, x_64, line, line_height_64, scale_1024)?;
+    let bounds_64 = glyph_bounds(metrics, x_64, line, line_height_64, baseline_64, scale_1024)?;
     let pen_end_64 = x_64
         .checked_add(advance_64)
         .ok_or(TextError::FixedPointOverflow)?;
@@ -748,27 +811,12 @@ fn resolve_glyph(
         .ok_or(TextError::MissingReplacementGlyph)
 }
 
-fn font_line_height_64(font: &CompiledFontCatalog, scale_1024: i64) -> Result<i64, TextError> {
-    let pixels = font
-        .glyphs()
-        .iter()
-        .map(|glyph| i64::from(glyph.uv[3].saturating_sub(glyph.uv[1])))
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    scale_metric(
-        pixels
-            .checked_mul(FIXED_POINT_DENOMINATOR)
-            .ok_or(TextError::FixedPointOverflow)?,
-        scale_1024,
-    )
-}
-
 fn glyph_bounds(
     metrics: GlyphMetrics,
     x_64: i64,
     line: usize,
     line_height_64: i64,
+    baseline_64: i64,
     scale_1024: i64,
 ) -> Result<[i32; 4], TextError> {
     let bearing_x_64 = scale_metric(
@@ -802,8 +850,11 @@ fn glyph_bounds(
     let left = x_64
         .checked_add(bearing_x_64)
         .ok_or(TextError::FixedPointOverflow)?;
+    // Bearings point up from the baseline, so the baseline offset is what puts
+    // the glyph inside the line box rather than above its origin.
     let top = line_y_64
-        .checked_add(bearing_y_64)
+        .checked_add(baseline_64)
+        .and_then(|top| top.checked_add(bearing_y_64))
         .ok_or(TextError::FixedPointOverflow)?;
     let right = left
         .checked_add(width_64)

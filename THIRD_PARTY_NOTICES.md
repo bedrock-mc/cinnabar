@@ -6,15 +6,15 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
-## Inter
+## Monocraft
 
-- Source: https://github.com/rsms/inter
-- Distribution: https://github.com/google/fonts/tree/389b770410cc0b7c21c85673bfa2077420fe7f65/ofl/inter
-- Commit: `389b770410cc0b7c21c85673bfa2077420fe7f65`
+- Source: https://github.com/IdreesInc/Monocraft
+- Commit: `e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9`
 - License: OFL-1.1
+- Copyright: Copyright (c) 2022, Idrees Hassan
 - Upstream license SHA-256:
-  `5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57`
-- Full license: `assets/licenses/Inter-OFL-1.1.txt`
+  `f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1`
+- Full license: `assets/licenses/Monocraft-OFL-1.1.txt`
 
 ## PMMP BedrockData
 

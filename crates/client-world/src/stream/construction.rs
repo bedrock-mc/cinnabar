@@ -186,6 +186,8 @@ impl WorldStream {
             source_columns: BTreeSet::new(),
             source_capture_sequence: None,
             chunk_radius: None,
+            last_retention_center: None,
+            last_retention_radius: None,
             resolved_server_position,
             latest_movement_correction_tick: None,
             stats: WorldStreamStats::default(),

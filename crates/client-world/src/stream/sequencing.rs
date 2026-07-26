@@ -400,7 +400,7 @@ impl WorldStream {
                     return;
                 }
                 self.chunk_radius = Some(radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
-                self.evict_outside_active_radius();
+                self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {
                 let consumes_local_reset = self.provisional_publisher_rebase;
@@ -435,7 +435,6 @@ impl WorldStream {
                         self.committed_view_cohort = None;
                         self.provisional_publisher_rebase = false;
                         self.required_columns.clear();
-                        self.evict_outside_active_radius();
                         return;
                     };
                     self.publisher_epoch = next_epoch;
@@ -445,7 +444,6 @@ impl WorldStream {
                     self.local_resets_consumed = self.local_resets_consumed.saturating_add(1);
                 }
                 self.provisional_publisher_rebase = false;
-                self.evict_outside_active_radius();
             }
             WorldEvent::ChangeDimension(change) => {
                 self.evict_all_resident();
@@ -477,6 +475,8 @@ impl WorldStream {
                 self.local_reset_dispatch_active = false;
                 self.local_reset_dispatch_classes = [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE];
                 self.required_columns.clear();
+                self.last_retention_center = None;
+                self.last_retention_radius = None;
                 self.push_committed_control(CommittedControlEvent::ChangeDimension {
                     change,
                     resolved,
@@ -507,6 +507,7 @@ impl WorldStream {
                 if movement.mode.is_teleport() {
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                 }
+                self.reevaluate_chunk_retention();
                 self.push_committed_control(CommittedControlEvent::MovePlayer {
                     sequence,
                     movement,
@@ -530,6 +531,7 @@ impl WorldStream {
                     self.resolved_server_position.surface_anchor,
                 );
                 self.resolved_server_position = resolved;
+                self.reevaluate_chunk_retention();
                 self.push_committed_control(CommittedControlEvent::PlayerMovementCorrection {
                     sequence,
                     correction,
