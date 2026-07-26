@@ -133,7 +133,7 @@ fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
             .into(),
         )
         .expect("old unresolved transaction");
-    resolver.arm_fast_transfer_rotation();
+    resolver.arm_fast_transfer_reset();
 
     let session = BedrockSession { shield_item_id: 0 };
     let malformed = raw_packet(McpePacketName::PacketLevelChunk, &[0xff]);
@@ -142,7 +142,7 @@ fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
 
     let ordinary: crate::Packet = SetTimePacket { time: 7 }.into();
     assert!(
-        !rotate_blob_cache_for_decoded_candidate(&mut resolver, &ordinary)
+        !reset_blob_cache_for_decoded_candidate(&mut resolver, &ordinary)
             .expect("ordinary decoded packet is not a candidate")
     );
     assert_eq!(resolver.stats().pending_transactions, 1);
@@ -154,12 +154,12 @@ fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
     }
     .into();
     assert!(
-        rotate_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
+        reset_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
             .expect("successfully decoded candidate consumes the arm")
     );
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert!(
-        !rotate_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
+        !reset_blob_cache_for_decoded_candidate(&mut resolver, &candidate)
             .expect("arm is one-shot")
     );
 }

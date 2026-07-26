@@ -50,7 +50,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
     assert_eq!(
         resolver.stats.pending_bytes,
         resolver
-            .retained_pending_bytes()
+            .retained_cached_bytes()
             .expect("exact retained bytes")
     );
 
@@ -58,7 +58,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
 
     assert_eq!(resolver.pending.capacity(), 0);
     assert!(resolver.ready.is_empty());
-    assert_eq!(resolver.authorized_misses.capacity(), 0);
+    assert_eq!(resolver.pending_by_hash.capacity(), 0);
     assert_eq!(resolver.stats.pending_bytes, 0);
 }
 
@@ -68,9 +68,6 @@ fn classify_and_pin_is_one_cache_operation() {
         max_entries: 1,
         max_total_bytes: 8,
         max_blob_bytes: 8,
-        max_hashes_per_packet: 4,
-        max_pending_transactions: 2,
-        max_pending_bytes: 32,
     };
     let cache = ClientBlobCache::with_limits(limits);
     let hit = cache.insert(b"hit").expect("seed hit");

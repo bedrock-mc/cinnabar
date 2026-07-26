@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -9,31 +9,31 @@ use valentine::bedrock::version::v1_26_30::{
     SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
 };
 
-use crate::{ChunkResyncEvent, Packet, WorldEvent};
+use crate::{Packet, WorldEvent};
 
 mod resolver;
-pub use resolver::BlobCacheReady;
+pub use resolver::{BlobCacheReady, BlobCacheStatus};
 
 pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 4_096;
 pub const MAX_CLIENT_BLOB_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_096;
-/// Measured headroom from local BDS 1.26.32.2 joins: `FreeCameraSilence` peaked at 1,194 pending
-/// transactions / 1,312,332 bytes, and `CandidatePhysics` at 845 / 788,212 bytes. The old 256
-/// transaction cap was about 4.7x smaller than the measured 1,194-transaction high-water mark.
-/// These measurements cover local BDS only; busier remote servers have not yet been measured.
-/// The 2,048 cap leaves local-join headroom, while the independent 64 MiB ceiling remains binding.
-pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
-pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
+/// Mojang's cache design limits each `ClientCacheBlobStatusPacket` to 4,095 IDs:
+/// <https://gist.github.com/Tomcc/4be79d3eafcd158c5059abd4ab2e8d35>.
+pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_095;
+/// Mojang documents 1–8 concurrent cache transactions per connection, and Dragonfly enforces
+/// the same maximum in `server/session/session.go` (`maxChunkTransactions = 8`):
+/// <https://gist.github.com/Tomcc/4be79d3eafcd158c5059abd4ab2e8d35>,
+/// <https://github.com/df-mc/dragonfly/blob/v0.11.0/server/session/session.go#L500-L507>.
+///
+/// Transaction concurrency is server-controlled. This constant records the protocol contract
+/// and sizes client-side indexes; a semantically odd server that exceeds it remains non-fatal.
+pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlobCacheLimits {
     pub max_entries: usize,
     pub max_total_bytes: usize,
     pub max_blob_bytes: usize,
-    pub max_hashes_per_packet: usize,
-    pub max_pending_transactions: usize,
-    pub max_pending_bytes: usize,
 }
 
 impl Default for BlobCacheLimits {
@@ -42,9 +42,6 @@ impl Default for BlobCacheLimits {
             max_entries: MAX_CLIENT_BLOB_CACHE_ENTRIES,
             max_total_bytes: MAX_CLIENT_BLOB_CACHE_BYTES,
             max_blob_bytes: MAX_CLIENT_BLOB_BYTES,
-            max_hashes_per_packet: MAX_CLIENT_BLOB_HASHES_PER_PACKET,
-            max_pending_transactions: MAX_CLIENT_BLOB_PENDING_TRANSACTIONS,
-            max_pending_bytes: MAX_CLIENT_BLOB_PENDING_BYTES,
         }
     }
 }
@@ -65,38 +62,20 @@ pub struct BlobCacheStats {
     pub skipped_cached_packets: u64,
     pub skipped_miss_responses: u64,
     pub empty_miss_responses: u64,
-    pub cached_packet_transaction_pressure: u64,
-    pub cached_packet_byte_pressure: u64,
     pub cached_packet_semantic_shape: u64,
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
-    pub miss_response_semantic_shape: u64,
     pub miss_response_cache_pressure: u64,
-    pub miss_response_byte_pressure: u64,
-    pub resync_queued: u64,
-    pub resync_queue_full_drops: u64,
-    pub resync_emitted: u64,
-    pub retired_cached_transactions: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BlobCacheError {
-    #[error("packet contains {count} blob hashes, maximum is {max}")]
-    TooManyHashes { count: usize, max: usize },
     #[error("blob contains {bytes} bytes, maximum is {max}")]
     BlobTooLarge { bytes: usize, max: usize },
     #[error("blob cache cannot admit {bytes} bytes within {entries} entries")]
     CacheCapacity { bytes: usize, entries: usize },
-    #[error("pending blob-cache transaction count exceeds {max}")]
-    TooManyPendingTransactions { max: usize },
-    #[error("pending blob-cache bytes would exceed {max}")]
-    TooManyPendingBytes { max: usize },
-    #[error("immediate-ready lane count would exceed {max}; caller must retry after draining")]
-    ImmediateReadyCountPressure { max: usize },
-    #[error("immediate-ready lane bytes would exceed {max}; caller must retry after draining")]
-    ImmediateReadyBytePressure { max: usize },
     #[error("cached LevelChunk hash count {actual} does not match expected {expected}")]
     InvalidLevelChunkHashCount { actual: usize, expected: usize },
     #[error("cached LevelChunk has invalid sub-chunk count {0}")]
@@ -269,13 +248,7 @@ struct ReadyTransaction {
 struct ImmediateReady {
     value: BlobCacheReady,
     columns: Vec<ColumnKey>,
-    accounted_bytes: usize,
     sequence: u64,
-}
-
-#[derive(Debug)]
-struct ReadyRecovery {
-    event: ChunkResyncEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -294,11 +267,7 @@ pub struct BlobCacheResolver {
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,
-    column_barriers: HashMap<ColumnKey, BTreeSet<u64>>,
-    recovery_ready: VecDeque<ReadyRecovery>,
-    authorized_misses: Vec<(u64, usize)>,
-    retired_authorized_misses: Vec<(u64, usize)>,
-    fast_transfer_rotation_armed: bool,
+    fast_transfer_reset_armed: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,
 }

@@ -940,7 +940,6 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
     let stats = semantic_session.blob_cache_stats();
     assert_eq!(stats.skipped_miss_responses, 1);
     assert_eq!(stats.rejected_blobs, 1);
-    assert_eq!(stats.retired_cached_transactions, 0);
     assert_eq!(stats.pending_transactions, 1);
     assert_eq!(semantic_session.decode_error_count(), 0);
 }

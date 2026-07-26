@@ -132,7 +132,7 @@ impl NetworkSession for TraceOrderingFailSession {
         self.calls.lock().unwrap().push("cancel");
     }
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
         self.calls.lock().unwrap().push("rotate");
     }
 }
@@ -235,7 +235,7 @@ impl NetworkSession for QueuedInboundSession {
         0
     }
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
         self.rotations.fetch_add(1, Ordering::SeqCst);
     }
 }

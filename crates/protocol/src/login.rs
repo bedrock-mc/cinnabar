@@ -296,9 +296,9 @@ impl<T: Transport> PlaySession<T> {
 
     /// Arms a one-shot selective transaction rotation for the next raw
     /// LevelChunk/SubChunk candidate. Verified blobs and ready work survive.
-    pub fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+    pub fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
         if let Some(resolver) = self.blob_cache.as_mut() {
-            resolver.arm_fast_transfer_rotation();
+            resolver.arm_fast_transfer_reset();
         }
     }
 
@@ -368,7 +368,7 @@ impl<T: Transport> PlaySession<T> {
                     Ok(packet) => packet,
                     Err(error) => return Err(self.fail_session(error)),
                 };
-                rotate_blob_cache_for_decoded_candidate(
+                reset_blob_cache_for_decoded_candidate(
                     self.blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver"),
@@ -396,9 +396,11 @@ impl<T: Transport> PlaySession<T> {
                         Ok(status) => status,
                         Err(error) => return Err(error.into()),
                     };
-                    if let Err(error) = self.send(status.into()).await {
-                        self.reset_blob_cache_pending();
-                        return Err(error);
+                    for status_packet in status.into_packets() {
+                        if let Err(error) = self.send(status_packet.into()).await {
+                            self.reset_blob_cache_pending();
+                            return Err(error);
+                        }
                     }
                     continue;
                 }
@@ -452,7 +454,7 @@ impl<T: Transport> PlaySession<T> {
     }
 }
 
-fn rotate_blob_cache_for_decoded_candidate(
+fn reset_blob_cache_for_decoded_candidate(
     resolver: &mut BlobCacheResolver,
     packet: &Packet,
 ) -> Result<bool, crate::BlobCacheError> {
@@ -460,7 +462,7 @@ fn rotate_blob_cache_for_decoded_candidate(
         &packet.data,
         McpePacketData::PacketLevelChunk(_) | McpePacketData::PacketSubchunk(_)
     ) {
-        resolver.rotate_pending_for_fast_transfer_candidate()
+        resolver.reset_pending_for_fast_transfer_candidate()
     } else {
         Ok(false)
     }

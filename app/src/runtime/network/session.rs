@@ -455,7 +455,7 @@ trait NetworkSession: Send {
 
     fn cancel_packet_id_trace(&mut self) {}
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {}
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {}
 
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
         None
@@ -499,8 +499,8 @@ impl NetworkSession for protocol::PlaySession {
         protocol::PlaySession::cancel_packet_id_trace(self);
     }
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
-        protocol::PlaySession::rotate_blob_cache_pending_for_fast_transfer(self);
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
+        protocol::PlaySession::arm_blob_cache_reset_for_fast_transfer(self);
     }
 
     fn drain_packet_id_trace(&mut self) -> Option<PacketIdTraceSnapshot> {
@@ -628,7 +628,7 @@ async fn run_network_pump<S: NetworkSession>(
                         }
                         PhysicsSendOutcome::Sent(Ok(())) => {
                             if trace_armed {
-                                session.rotate_blob_cache_pending_for_fast_transfer();
+                                session.arm_blob_cache_reset_for_fast_transfer();
                             }
                             if let Some(identity) = physics
                                 && !send_control_event_or_cancel(
@@ -854,18 +854,10 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         skipped_cached_packets = stats.skipped_cached_packets,
         skipped_miss_responses = stats.skipped_miss_responses,
         empty_miss_responses = stats.empty_miss_responses,
-        cached_packet_transaction_pressure = stats.cached_packet_transaction_pressure,
-        cached_packet_byte_pressure = stats.cached_packet_byte_pressure,
         cached_packet_semantic_shape = stats.cached_packet_semantic_shape,
         miss_response_unsolicited = stats.miss_response_unsolicited,
         miss_response_integrity_rejection = stats.miss_response_integrity_rejection,
-        miss_response_semantic_shape = stats.miss_response_semantic_shape,
         miss_response_cache_pressure = stats.miss_response_cache_pressure,
-        miss_response_byte_pressure = stats.miss_response_byte_pressure,
-        resync_queued = stats.resync_queued,
-        resync_queue_full_drops = stats.resync_queue_full_drops,
-        resync_emitted = stats.resync_emitted,
-        retired_cached_transactions = stats.retired_cached_transactions,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
         "client blob cache counters"
@@ -886,17 +878,10 @@ fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheS
             target: "bedrock_client::blob_cache",
             skipped_cached_packets = current.skipped_cached_packets,
             skipped_miss_responses = current.skipped_miss_responses,
-            cached_packet_transaction_pressure = current.cached_packet_transaction_pressure,
-            cached_packet_byte_pressure = current.cached_packet_byte_pressure,
             cached_packet_semantic_shape = current.cached_packet_semantic_shape,
             miss_response_unsolicited = current.miss_response_unsolicited,
             miss_response_integrity_rejection = current.miss_response_integrity_rejection,
-            miss_response_semantic_shape = current.miss_response_semantic_shape,
             miss_response_cache_pressure = current.miss_response_cache_pressure,
-            miss_response_byte_pressure = current.miss_response_byte_pressure,
-            resync_queued = current.resync_queued,
-            resync_queue_full_drops = current.resync_queue_full_drops,
-            resync_emitted = current.resync_emitted,
             "skipped semantically invalid client blob-cache packet"
         );
     }

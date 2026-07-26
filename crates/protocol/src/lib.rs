@@ -25,9 +25,9 @@ pub use actor::{
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
-    ClientBlobCache, MAX_CLIENT_BLOB_BYTES, MAX_CLIENT_BLOB_CACHE_BYTES,
+    BlobCacheStatus, ClientBlobCache, MAX_CLIENT_BLOB_BYTES, MAX_CLIENT_BLOB_CACHE_BYTES,
     MAX_CLIENT_BLOB_CACHE_ENTRIES, MAX_CLIENT_BLOB_HASHES_PER_PACKET,
-    MAX_CLIENT_BLOB_PENDING_BYTES, MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, client_blob_hash,
+    MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use inventory::{
