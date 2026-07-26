@@ -507,14 +507,14 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
     let active = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    // Filter to the white chat text vertices so the Java-style translucent per-line backdrops
-    // and their shadow passes do not shift the per-message vertex ranges this assertion relies on.
+    // Exclude only the Java-style translucent per-line backdrops so both text
+    // passes, including each glyph's shadow, retain their per-message ranges.
     let text: Vec<_> = active
         .vertices
         .iter()
-        .filter(|vertex| vertex.color == [255, 255, 255, 255])
+        .filter(|vertex| vertex.color != CHAT_LINE_BACKDROP_COLOR)
         .collect();
-    let first_vertex_count = first.chars().count() * 4;
+    let first_vertex_count = first.chars().count() * 4 * TEXT_PASSES;
     let first_bottom = text[..first_vertex_count]
         .iter()
         .map(|vertex| vertex.position[1])
