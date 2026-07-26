@@ -63,6 +63,14 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)
     }
 
+    pub(super) fn retained_reconstructed_bytes(&self) -> Result<usize, BlobCacheError> {
+        self.ready.values().try_fold(0usize, |total, ready| {
+            total
+                .checked_add(ready.accounted_bytes)
+                .ok_or(BlobCacheError::ByteCountOverflow)
+        })
+    }
+
     pub(super) fn refresh_pending_accounting(&mut self) -> Result<(), BlobCacheError> {
         if self.pending.is_empty() {
             self.pending = HashMap::new();

@@ -289,8 +289,21 @@ impl BlobCacheResolver {
             }
             return Ok(self.classify_status(&packet, recovery, false));
         }
-        let status = self.classify_status(&packet, None, true);
-        let missing = status.missing.clone();
+        let mut status = self.classify_status(&packet, None, true);
+        let staged_bytes = status.staged_bytes();
+        if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION {
+            self.cache.unpin_all(&unique_hashes);
+            self.record_staged_skip();
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            let recovery = pending_packet_recovery(&packet);
+            if recovery.is_some() {
+                self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            }
+            status.set_recovery(recovery);
+            return Ok(status);
+        }
+        let missing = status.missing().to_vec();
         let columns = pending_packet_columns(&packet);
         let sequence = self.take_ready_sequence()?;
         self.pending.insert(
@@ -300,6 +313,7 @@ impl BlobCacheResolver {
                 hashes,
                 unique_hashes,
                 unresolved_hashes: missing.len(),
+                staged_bytes,
                 columns: columns.clone(),
                 accounted_bytes,
             },
@@ -384,6 +398,41 @@ impl BlobCacheResolver {
             }
             positions.insert(blob.hash, unique.len());
             unique.push((blob.hash, blob.payload));
+        }
+
+        let mut staged_additions = HashMap::<u64, usize>::new();
+        for (hash, payload) in &unique {
+            let Some(transactions) = self.pending_by_hash.get(hash) else {
+                continue;
+            };
+            for sequence in transactions {
+                let addition = staged_additions.entry(*sequence).or_default();
+                *addition = addition.saturating_add(payload.len());
+            }
+        }
+        let staged_excess = staged_additions
+            .iter()
+            .filter_map(|(sequence, addition)| {
+                self.pending
+                    .get(sequence)
+                    .filter(|transaction| {
+                        transaction.staged_bytes.saturating_add(*addition)
+                            > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
+                    })
+                    .map(|_| *sequence)
+            })
+            .collect::<Vec<_>>();
+        for sequence in staged_excess {
+            self.record_staged_skip();
+            self.abandon_pending_transaction(sequence);
+        }
+        for (sequence, addition) in staged_additions {
+            if let Some(transaction) = self.pending.get_mut(&sequence) {
+                transaction.staged_bytes = transaction.staged_bytes.saturating_add(addition);
+                debug_assert!(
+                    transaction.staged_bytes <= MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
+                );
+            }
         }
 
         let evictions = {
@@ -566,6 +615,15 @@ impl BlobCacheResolver {
             let ready_bytes = ready_value_accounted_bytes(&packet)?;
             (packet, ready_bytes)
         };
+        if self
+            .retained_reconstructed_bytes()?
+            .checked_add(ready_bytes)
+            .map_or(true, |bytes| bytes > MAX_CLIENT_BLOB_READY_BYTES)
+        {
+            self.record_ready_skip();
+            self.abandon_pending_transaction(sequence);
+            return self.refresh_pending_accounting();
+        }
         let transaction = self
             .remove_pending_transaction(sequence)
             .expect("resolved transaction remains pending");
@@ -683,12 +741,24 @@ impl BlobCacheResolver {
         self.stats.hits = self
             .stats
             .hits
-            .saturating_add(u64::try_from(status.have.len()).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(status.have().len()).unwrap_or(u64::MAX));
         self.stats.misses = self
             .stats
             .misses
-            .saturating_add(u64::try_from(status.missing.len()).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(status.missing().len()).unwrap_or(u64::MAX));
         status
+    }
+
+    fn record_staged_skip(&mut self) {
+        self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+        self.stats.cached_packet_staged_pressure =
+            self.stats.cached_packet_staged_pressure.saturating_add(1);
+    }
+
+    fn record_ready_skip(&mut self) {
+        self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+        self.stats.cached_packet_ready_pressure =
+            self.stats.cached_packet_ready_pressure.saturating_add(1);
     }
 
     fn record_reconstruction_skip(&mut self) {

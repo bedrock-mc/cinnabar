@@ -42,11 +42,13 @@ pub const MAX_CLIENT_BLOB_ORDINARY_READY_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES: usize = 32 * 1024 * 1024;
 /// Cinnabar's maximum pinned cache payload retained for one unresolved transaction.
 ///
-/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit.
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. Unique cached blob
+/// payloads are charged on initial classification and as solicited misses arrive.
 pub const MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION: usize = 32 * 1024 * 1024;
 /// Cinnabar's maximum aggregate accounted bytes across retained reconstructed outputs.
 ///
-/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit.
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. Accounted bytes include
+/// reconstructed payload capacities and their decoded packet containers.
 pub const MAX_CLIENT_BLOB_READY_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +90,8 @@ pub struct BlobCacheStats {
     pub cached_packet_semantic_shape: u64,
     pub cached_packet_transaction_pressure: u64,
     pub cached_packet_reconstruction_pressure: u64,
+    pub cached_packet_staged_pressure: u64,
+    pub cached_packet_ready_pressure: u64,
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
@@ -204,18 +208,20 @@ impl ClientBlobCache {
         Some(entry.payload.clone())
     }
 
-    fn classify(&self, hashes: &[u64], pin: bool) -> (Vec<u64>, Vec<u64>) {
+    fn classify(&self, hashes: &[u64], pin: bool) -> (Vec<u64>, Vec<u64>, usize) {
         let mut store = self.lock();
         let mut have = Vec::new();
         let mut missing = Vec::new();
+        let mut staged_bytes = 0usize;
         for &hash in hashes {
-            if store.entries.contains_key(&hash) {
+            if let Some(payload_len) = store.entries.get(&hash).map(|entry| entry.payload.len()) {
                 store.clock = store.clock.saturating_add(1);
                 let clock = store.clock;
                 if let Some(entry) = store.entries.get_mut(&hash) {
                     entry.last_used = clock;
                 }
                 have.push(hash);
+                staged_bytes = staged_bytes.saturating_add(payload_len);
             } else {
                 missing.push(hash);
             }
@@ -223,7 +229,7 @@ impl ClientBlobCache {
                 *store.pins.entry(hash).or_default() += 1;
             }
         }
-        (have, missing)
+        (have, missing, staged_bytes)
     }
 
     fn unpin_all(&self, hashes: &[u64]) {
@@ -259,6 +265,7 @@ struct PendingTransaction {
     hashes: Vec<u64>,
     unique_hashes: Vec<u64>,
     unresolved_hashes: usize,
+    staged_bytes: usize,
     columns: Vec<ColumnKey>,
     accounted_bytes: usize,
 }

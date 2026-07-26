@@ -8,10 +8,7 @@ fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
         protocol::MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION,
         32 * 1024 * 1024
     );
-    assert_eq!(
-        protocol::MAX_CLIENT_BLOB_READY_BYTES,
-        32 * 1024 * 1024
-    );
+    assert_eq!(protocol::MAX_CLIENT_BLOB_READY_BYTES, 32 * 1024 * 1024);
     assert_eq!(
         ClientBlobCache::default().limits(),
         BlobCacheLimits {
@@ -50,7 +47,7 @@ fn staged_pinned_bytes_are_bounded_before_every_miss_resolves_and_released_on_sk
             .into(),
         )
         .expect("transaction is initially admitted");
-    assert_eq!(status.missing, hashes);
+    assert_eq!(status.missing(), hashes);
 
     for (hash, payload) in [(hashes[0], first), (hashes[1], second)] {
         resolver
@@ -79,7 +76,9 @@ fn staged_pinned_bytes_are_bounded_before_every_miss_resolves_and_released_on_sk
         )))
     ));
 
-    cache.insert(b"replacement").expect("exercise cache trimming");
+    cache
+        .insert(b"replacement")
+        .expect("exercise cache trimming");
     assert!(
         !cache.contains(hashes[0]) && !cache.contains(hashes[1]),
         "abandonment must release every pin so later cache pressure can evict staged blobs"
@@ -408,7 +407,7 @@ fn observed_server_maximum_is_accepted_and_safety_excess_recovers_without_growth
         let status = resolver
             .accept_cached_packet(cached_request_level(index as i32, index + 1))
             .expect("transactions through the Cinnabar safety bound remain accepted");
-        assert_eq!(status.missing, vec![index + 1]);
+        assert_eq!(status.missing(), [index + 1]);
     }
     let retained_at_limit = resolver.stats().pending_bytes;
 
@@ -416,8 +415,8 @@ fn observed_server_maximum_is_accepted_and_safety_excess_recovers_without_growth
         .accept_cached_packet(cached_request_level(999, 999))
         .expect("Cinnabar safety-bound excess stays non-fatal");
 
-    assert_eq!(excess.missing, vec![999]);
-    assert!(excess.have.is_empty());
+    assert_eq!(excess.missing(), [999]);
+    assert!(excess.have().is_empty());
     assert_eq!(
         excess.classified_hashes(),
         1,
@@ -450,8 +449,8 @@ fn completed_cached_transactions_share_the_same_safety_bound() {
         .accept_cached_packet(cached_request_level(99, hash))
         .expect("ready-lane excess stays non-fatal");
 
-    assert!(excess.missing.is_empty());
-    assert_eq!(excess.have, vec![hash]);
+    assert!(excess.missing().is_empty());
+    assert_eq!(excess.have(), [hash]);
     assert_eq!(
         excess.classified_hashes(),
         1,
@@ -487,8 +486,8 @@ fn reconstruction_cost_is_bounded_before_duplicate_blob_copies_are_allocated() {
         )
         .expect("reconstruction safety excess stays non-fatal");
 
-    assert!(status.missing.is_empty());
-    assert_eq!(status.have, vec![hash]);
+    assert!(status.missing().is_empty());
+    assert_eq!(status.have(), [hash]);
     assert_eq!(
         status.classified_hashes(),
         1,

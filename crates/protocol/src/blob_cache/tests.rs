@@ -72,10 +72,11 @@ fn classify_and_pin_is_one_cache_operation() {
     let hit = cache.insert(b"hit").expect("seed hit");
     let miss = client_blob_hash(b"miss");
 
-    let (have, missing) = cache.classify(&[hit, miss], true);
+    let (have, missing, staged_bytes) = cache.classify(&[hit, miss], true);
 
     assert_eq!(have, vec![hit]);
     assert_eq!(missing, vec![miss]);
+    assert_eq!(staged_bytes, 3);
     let new = cache
         .insert(b"new")
         .expect("cache pressure never refuses an insert");

@@ -218,7 +218,7 @@ fn concurrent_classification_pins_every_reported_hit_atomically() {
         });
         let (mut resolver, status) = resolver_thread.join().expect("resolver thread");
         let _ = insert_thread.join().expect("insert thread");
-        if status.have.contains(&a) {
+        if status.have().contains(&a) {
             assert!(cache.contains(a), "a reported hit must remain pinned");
         }
         resolver.reset_pending();
@@ -241,8 +241,8 @@ fn cached_inline_level_chunk_classifies_unique_hashes_and_reconstructs_wire_orde
             b"tail",
         ))
         .expect("accept cached level chunk");
-    assert_eq!(status.have, vec![first_hash]);
-    assert_eq!(status.missing, vec![missing_hash]);
+    assert_eq!(status.have(), [first_hash]);
+    assert_eq!(status.missing(), [missing_hash]);
     assert!(resolver.pop_ready().is_none());
 
     resolver
@@ -291,7 +291,7 @@ fn request_mode_level_chunk_reconstructs_biome_before_uncached_tail() {
     .into();
 
     let status = resolver.accept_cached_packet(packet).expect("cached biome");
-    assert_eq!(status.have, vec![hash]);
+    assert_eq!(status.have(), [hash]);
     let packet = pop_packet(&mut resolver, "hit resolves immediately");
     let McpePacketData::PacketLevelChunk(packet) = packet.data else {
         panic!("expected level chunk")
@@ -310,8 +310,8 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     let status = resolver
         .accept_cached_packet(cached_subchunk(hash, nbt_tail))
         .expect("accept cached subchunk");
-    assert_eq!(status.missing, vec![hash]);
-    assert!(status.have.is_empty());
+    assert_eq!(status.missing(), [hash]);
+    assert!(status.have().is_empty());
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
@@ -362,7 +362,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
     let b_status = resolver
         .accept_cached_packet(cached_level_at(5, vec![bh, bh, bh], b"B"))
         .expect("hit B");
-    assert_eq!(b_status.have, vec![bh]);
+    assert_eq!(b_status.have(), [bh]);
     let ordinary = pop_packet(&mut resolver, "ordinary packet is immediately ready");
     let b_packet = pop_packet(&mut resolver, "later cached hit is ready");
     assert!(matches!(
@@ -459,8 +459,8 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
     let status = resolver
         .accept_cached_packet(cached_level(vec![ah, ch, ah], b""))
         .expect("pin a while c is missing");
-    assert_eq!(status.have, vec![ah]);
-    assert_eq!(status.missing, vec![ch]);
+    assert_eq!(status.have(), [ah]);
+    assert_eq!(status.missing(), [ch]);
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
@@ -512,8 +512,8 @@ fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
         let status = resolver
             .accept_cached_packet(packet)
             .expect("semantic shape must recover without disconnecting");
-        assert_eq!(status.have, vec![hit]);
-        assert_eq!(status.missing, vec![miss]);
+        assert_eq!(status.have(), [hit]);
+        assert_eq!(status.missing(), [miss]);
         assert_eq!(
             status.classified_hashes(),
             2,
@@ -834,7 +834,7 @@ fn distinct_transactions_publish_out_of_order() {
         let status = resolver
             .accept_cached_packet(cached_request_level(*x, *hash))
             .expect("sample transaction is below the Cinnabar safety bound");
-        assert_eq!(status.missing, vec![*hash]);
+        assert_eq!(status.missing(), [*hash]);
     }
     assert_eq!(resolver.stats().pending_transactions, 8);
     assert!(resolver.stats().pending_bytes > 0);
@@ -881,7 +881,7 @@ fn one_response_resolves_every_transaction_waiting_for_the_same_blob() {
         let status = resolver
             .accept_cached_packet(cached_request_level(x, hash))
             .expect("authorize shared miss");
-        assert_eq!(status.missing, vec![hash]);
+        assert_eq!(status.missing(), [hash]);
     }
 
     let response = || ClientCacheMissResponsePacket {

@@ -125,6 +125,10 @@ A packet with an empty `mMissingIds` list and a populated `mFoundIds` list is
 the normal vanilla shape for a chunk that is a full cache hit. A compliant
 server must handle this packet.
 
+Cinnabar now matches both status shapes: it emits no status packet when both
+classified sets are empty, while a have-only classification still emits one
+packet with an empty missing list.
+
 At capacity, missing IDs can consume the entire 4,095-entry budget and defer
 found-ID acknowledgements; leftovers remain queued for the next 5 ms drain.
 Vanilla BDS accepts this. `ServerNetworkHandler::handle` (RVA `0x09c851e0`)
@@ -305,6 +309,26 @@ above 32 MiB is abandoned non-fatally with truthful hit/miss classification and
 the existing LevelChunk resync or scheduler-owned SubChunk recovery. The check
 runs both for immediately ready cache hits and after the last miss response, so
 unknown blob sizes cannot bypass it.
+
+Cinnabar separately caps staged pinned blob payload at 32 MiB per unresolved
+transaction. Vanilla has no corresponding limit. Cinnabar charges each unique
+cached referenced blob on initial classification and each newly supplied
+solicited miss before admitting that response to the cache. Crossing the
+ceiling abandons the transaction non-fatally, releases every transaction pin,
+and routes the affected LevelChunk or SubChunk through its existing recovery
+path. Before this bound, a transaction with any missing reference bypassed the
+final reconstruction projection while successive miss responses accumulated
+pinned cache entries that trimming could not evict.
+
+Cinnabar also caps aggregate accounted bytes across retained reconstructed
+outputs at 32 MiB. Vanilla has no corresponding limit. The accounting includes
+reconstructed payload vector capacities and their decoded packet containers.
+If retaining the newly completed output would cross the ceiling, Cinnabar keeps
+already retained outputs intact and abandons only the new transaction
+non-fatally through the existing recovery path, so world data is not silently
+dropped. Before this bound, the 256-retained-transaction ceiling constrained
+only the number of ready outputs and allowed their aggregate payload memory to
+grow far beyond one transaction's 32 MiB reconstruction ceiling.
 
 Cinnabar's cache is byte-bounded only, admits blobs without an entry-count or
 per-blob maximum, and uses a 100 MiB trigger, 80 MiB floor, and LRU last-touch

@@ -11,10 +11,11 @@ use super::*;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCacheStatus {
-    pub missing: Vec<u64>,
-    pub have: Vec<u64>,
+    missing: Vec<u64>,
+    have: Vec<u64>,
     pub recovery: Option<ChunkResyncEvent>,
     classified_hashes: usize,
+    staged_bytes: usize,
     _classified: ClassifiedStatus,
 }
 
@@ -29,7 +30,7 @@ impl BlobCacheStatus {
         pin: bool,
     ) -> Self {
         let referenced_hashes = stable_unique(&packet.referenced_blob_hashes());
-        let (have, missing) = cache.classify(&referenced_hashes, pin);
+        let (have, missing, staged_bytes) = cache.classify(&referenced_hashes, pin);
         let classified_hashes = have.len() + missing.len();
         debug_assert_eq!(classified_hashes, referenced_hashes.len());
         Self {
@@ -37,14 +38,35 @@ impl BlobCacheStatus {
             have,
             recovery,
             classified_hashes,
+            staged_bytes,
             _classified: ClassifiedStatus,
         }
+    }
+
+    /// Unique referenced hashes absent from the cache when classification completed.
+    #[must_use]
+    pub fn missing(&self) -> &[u64] {
+        &self.missing
+    }
+
+    /// Unique referenced hashes present in the cache when classification completed.
+    #[must_use]
+    pub fn have(&self) -> &[u64] {
+        &self.have
     }
 
     /// Number of unique referenced hashes partitioned into `missing` and `have`.
     #[must_use]
     pub const fn classified_hashes(&self) -> usize {
         self.classified_hashes
+    }
+
+    pub(super) const fn staged_bytes(&self) -> usize {
+        self.staged_bytes
+    }
+
+    pub(super) fn set_recovery(&mut self, recovery: Option<ChunkResyncEvent>) {
+        self.recovery = recovery;
     }
 
     #[must_use]
@@ -70,9 +92,6 @@ impl BlobCacheStatus {
                 }
             }
             packets.push(packet);
-        }
-        if packets.is_empty() {
-            packets.push(ClientCacheBlobStatusPacket::default());
         }
         packets
     }
