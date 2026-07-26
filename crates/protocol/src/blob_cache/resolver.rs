@@ -27,14 +27,25 @@ impl BlobCacheReady {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCacheStatus {
     pub missing: Vec<u64>,
     pub have: Vec<u64>,
     pub recovery: Option<ChunkResyncEvent>,
+    classified_hashes: usize,
+    _classified: ClassifiedStatus,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClassifiedStatus;
+
 impl BlobCacheStatus {
+    /// Number of unique referenced hashes partitioned into `missing` and `have`.
+    #[must_use]
+    pub const fn classified_hashes(&self) -> usize {
+        self.classified_hashes
+    }
+
     #[must_use]
     pub fn take_recovery(&mut self) -> Option<ChunkResyncEvent> {
         self.recovery.take()
@@ -158,10 +169,7 @@ impl BlobCacheResolver {
                 if recovery.is_some() {
                     self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
                 }
-                Ok(BlobCacheStatus {
-                    recovery,
-                    ..BlobCacheStatus::default()
-                })
+                Ok(self.classify_status(&skipped_packet, recovery, false))
             }
             Err(error) => {
                 self.reset_pending();
@@ -301,6 +309,18 @@ impl BlobCacheResolver {
                     .and_then(|hash_bytes| bytes.checked_add(hash_bytes))
             })
             .ok_or(BlobCacheError::ByteCountOverflow)?;
+        if projected_reconstruction_bytes(&self.cache, &packet, &hashes)?
+            .is_some_and(|bytes| bytes > MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES)
+        {
+            self.record_reconstruction_skip();
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            let recovery = pending_packet_recovery(&packet);
+            if recovery.is_some() {
+                self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            }
+            return Ok(self.classify_status(&packet, recovery, false));
+        }
         if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
             || !self.recovery_ready.is_empty()
         {
@@ -311,13 +331,14 @@ impl BlobCacheResolver {
                 .saturating_add(1);
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
-            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
-            return Ok(BlobCacheStatus {
-                recovery: pending_packet_recovery(&packet),
-                ..BlobCacheStatus::default()
-            });
+            let recovery = pending_packet_recovery(&packet);
+            if recovery.is_some() {
+                self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            }
+            return Ok(self.classify_status(&packet, recovery, false));
         }
-        let (have, missing) = self.cache.classify_and_pin(&unique_hashes);
+        let status = self.classify_status(&packet, None, true);
+        let missing = status.missing.clone();
         let columns = pending_packet_columns(&packet);
         let sequence = self.take_ready_sequence()?;
         self.pending.insert(
@@ -339,27 +360,11 @@ impl BlobCacheResolver {
                 .insert(sequence);
         }
         self.refresh_pending_accounting()?;
-        self.stats.hashes_classified = self
-            .stats
-            .hashes_classified
-            .saturating_add(u64::try_from(have.len() + missing.len()).unwrap_or(u64::MAX));
-        self.stats.hits = self
-            .stats
-            .hits
-            .saturating_add(u64::try_from(have.len()).unwrap_or(u64::MAX));
-        self.stats.misses = self
-            .stats
-            .misses
-            .saturating_add(u64::try_from(missing.len()).unwrap_or(u64::MAX));
         if missing.is_empty() {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
         }
-        Ok(BlobCacheStatus {
-            missing,
-            have,
-            recovery: None,
-        })
+        Ok(status)
     }
 
     pub fn accept_miss_response(
@@ -587,6 +592,19 @@ impl BlobCacheResolver {
     }
 
     fn move_pending_to_ready(&mut self, sequence: u64) -> Result<(), BlobCacheError> {
+        let projected_bytes = {
+            let transaction = self
+                .pending
+                .get(&sequence)
+                .expect("resolved index references a pending transaction");
+            projected_reconstruction_bytes(&self.cache, &transaction.packet, &transaction.hashes)?
+                .expect("a resolved transaction has every referenced blob")
+        };
+        if projected_bytes > MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES {
+            self.record_reconstruction_skip();
+            self.abandon_pending_transaction(sequence);
+            return self.refresh_pending_accounting();
+        }
         let (packet, ready_bytes) = {
             let transaction = self
                 .pending
@@ -694,6 +712,49 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)?;
         Ok(sequence)
     }
+
+    /// The only constructor for `BlobCacheStatus`: extracts the complete reference set from the
+    /// actual cached packet and partitions every unique hash. The private construction marker
+    /// prevents callers and future skip paths from fabricating an unclassified status with a
+    /// struct literal or `Default`.
+    fn classify_status<T: ReferencedBlobHashes>(
+        &mut self,
+        packet: &T,
+        recovery: Option<ChunkResyncEvent>,
+        pin: bool,
+    ) -> BlobCacheStatus {
+        let referenced_hashes = stable_unique(&packet.referenced_blob_hashes());
+        let (have, missing) = self.cache.classify(&referenced_hashes, pin);
+        let classified_hashes = have.len() + missing.len();
+        debug_assert_eq!(classified_hashes, referenced_hashes.len());
+        self.stats.hashes_classified = self
+            .stats
+            .hashes_classified
+            .saturating_add(u64::try_from(classified_hashes).unwrap_or(u64::MAX));
+        self.stats.hits = self
+            .stats
+            .hits
+            .saturating_add(u64::try_from(have.len()).unwrap_or(u64::MAX));
+        self.stats.misses = self
+            .stats
+            .misses
+            .saturating_add(u64::try_from(missing.len()).unwrap_or(u64::MAX));
+        BlobCacheStatus {
+            missing,
+            have,
+            recovery,
+            classified_hashes,
+            _classified: ClassifiedStatus,
+        }
+    }
+
+    fn record_reconstruction_skip(&mut self) {
+        self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+        self.stats.cached_packet_reconstruction_pressure = self
+            .stats
+            .cached_packet_reconstruction_pressure
+            .saturating_add(1);
+    }
 }
 
 impl Drop for BlobCacheResolver {
@@ -729,6 +790,89 @@ fn pending_packet_recovery(packet: &PendingPacket) -> Option<ChunkResyncEvent> {
         // See `chunk_recovery`: the world scheduler still owns the original SubChunk request and
         // retries it when no normalized response arrives.
         PendingPacket::SubChunk(_) => None,
+    }
+}
+
+trait ReferencedBlobHashes {
+    fn referenced_blob_hashes(&self) -> Vec<u64>;
+}
+
+impl ReferencedBlobHashes for Packet {
+    fn referenced_blob_hashes(&self) -> Vec<u64> {
+        match &self.data {
+            McpePacketData::PacketLevelChunk(packet) => packet
+                .blobs
+                .as_ref()
+                .map_or_else(Vec::new, |blobs| blobs.hashes.clone()),
+            McpePacketData::PacketSubchunk(packet) => {
+                subchunk_referenced_blob_hashes(&packet.entries)
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+impl ReferencedBlobHashes for PendingPacket {
+    fn referenced_blob_hashes(&self) -> Vec<u64> {
+        match self {
+            Self::LevelChunk(packet) => packet
+                .blobs
+                .as_ref()
+                .map_or_else(Vec::new, |blobs| blobs.hashes.clone()),
+            Self::SubChunk(packet) => subchunk_referenced_blob_hashes(&packet.entries),
+        }
+    }
+}
+
+fn subchunk_referenced_blob_hashes(entries: &SubchunkPacketEntries) -> Vec<u64> {
+    let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = entries else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter(|entry| entry.result == SubChunkEntryWithCachingItemResult::Success)
+        .map(|entry| entry.blob_id)
+        .collect()
+}
+
+fn projected_reconstruction_bytes(
+    cache: &ClientBlobCache,
+    packet: &PendingPacket,
+    hashes: &[u64],
+) -> Result<Option<usize>, BlobCacheError> {
+    let store = cache.lock();
+    match packet {
+        PendingPacket::LevelChunk(packet) => {
+            let mut bytes = packet.payload.len();
+            for hash in hashes {
+                let Some(entry) = store.entries.get(hash) else {
+                    return Ok(None);
+                };
+                bytes = bytes
+                    .checked_add(entry.payload.len())
+                    .ok_or(BlobCacheError::ByteCountOverflow)?;
+            }
+            Ok(Some(bytes))
+        }
+        PendingPacket::SubChunk(packet) => {
+            let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+                return Err(BlobCacheError::NotCachedPacket);
+            };
+            let mut bytes = 0_usize;
+            for entry in entries {
+                if entry.result != SubChunkEntryWithCachingItemResult::Success {
+                    continue;
+                }
+                let Some(blob) = store.entries.get(&entry.blob_id) else {
+                    return Ok(None);
+                };
+                bytes = bytes
+                    .checked_add(blob.payload.len())
+                    .and_then(|bytes| bytes.checked_add(entry.payload.as_ref().map_or(0, Vec::len)))
+                    .ok_or(BlobCacheError::ByteCountOverflow)?;
+            }
+            Ok(Some(bytes))
+        }
     }
 }
 

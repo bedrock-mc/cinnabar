@@ -277,9 +277,12 @@ fn observed_server_maximum_is_accepted_and_safety_excess_recovers_without_growth
         .accept_cached_packet(cached_request_level(999, 999))
         .expect("Cinnabar safety-bound excess stays non-fatal");
 
-    assert!(
-        excess.missing.is_empty() && excess.have.is_empty(),
-        "discarded cached work must not solicit a response"
+    assert_eq!(excess.missing, vec![999]);
+    assert!(excess.have.is_empty());
+    assert_eq!(
+        excess.classified_hashes(),
+        1,
+        "the transaction-pressure skip path must classify every reference"
     );
     assert_eq!(
         excess.recovery.map(|recovery| recovery.x),
@@ -308,10 +311,65 @@ fn completed_cached_transactions_share_the_same_safety_bound() {
         .accept_cached_packet(cached_request_level(99, hash))
         .expect("ready-lane excess stays non-fatal");
 
-    assert!(excess.missing.is_empty() && excess.have.is_empty());
+    assert!(excess.missing.is_empty());
+    assert_eq!(excess.have, vec![hash]);
+    assert_eq!(
+        excess.classified_hashes(),
+        1,
+        "the ready-transaction pressure path must classify every reference"
+    );
     assert!(excess.recovery.is_some());
     assert_eq!(resolver.stats().retained_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_bytes, retained_at_limit);
+}
+
+#[test]
+fn reconstruction_cost_is_bounded_before_duplicate_blob_copies_are_allocated() {
+    let blob_len = protocol::MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES / 2 + 1;
+    let blob = vec![0x5a; blob_len];
+    let cache = ClientBlobCache::default();
+    let hash = cache.insert(&blob).expect("seed a large cached blob");
+    let mut resolver = BlobCacheResolver::new(cache);
+
+    let status = resolver
+        .accept_cached_packet(
+            LevelChunkPacket {
+                x: 17,
+                z: -4,
+                dimension: 0,
+                sub_chunk_count: 1,
+                blobs: Some(LevelChunkPacketBlobs {
+                    hashes: vec![hash, hash],
+                }),
+                payload: vec![0x7f],
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("reconstruction safety excess stays non-fatal");
+
+    assert!(status.missing.is_empty());
+    assert_eq!(status.have, vec![hash]);
+    assert_eq!(
+        status.classified_hashes(),
+        1,
+        "the reconstruction skip path must still classify every unique reference"
+    );
+    assert_eq!(
+        status
+            .recovery
+            .as_ref()
+            .map(|recovery| (recovery.x, recovery.z)),
+        Some((17, -4))
+    );
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().retained_cached_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().reconstructed_level_chunks, 0);
+    assert!(
+        resolver.pop_ready().is_none(),
+        "the projected payload must be rejected before a ready allocation is retained"
+    );
 }
 
 #[test]

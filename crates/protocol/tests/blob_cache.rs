@@ -1,6 +1,6 @@
 use protocol::{
     BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver,
-    BlobCacheStatus, BlockUpdateEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
+    BlockUpdateEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
 use valentine::bedrock::version::v1_26_30::{
@@ -477,7 +477,7 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
 }
 
 #[test]
-fn semantic_shape_skips_do_not_solicit_blobs_for_discarded_packets() {
+fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
     let cache = ClientBlobCache::with_limits(limits(16));
     let hit = cache.insert(b"hit").expect("seed semantic-shape hit");
     let miss = client_blob_hash(b"miss");
@@ -512,10 +512,12 @@ fn semantic_shape_skips_do_not_solicit_blobs_for_discarded_packets() {
         let status = resolver
             .accept_cached_packet(packet)
             .expect("semantic shape must recover without disconnecting");
-        assert!(status.have.is_empty());
-        assert!(
-            status.missing.is_empty(),
-            "discarded semantic-shape packets must not solicit blobs"
+        assert_eq!(status.have, vec![hit]);
+        assert_eq!(status.missing, vec![miss]);
+        assert_eq!(
+            status.classified_hashes(),
+            2,
+            "every referenced hash must be classified on every skip path"
         );
         assert_eq!(status.recovery.map(|recovery| recovery.x), Some(4));
         assert_eq!(resolver.stats().pending_transactions, 0);
@@ -648,12 +650,22 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
 #[test]
 fn blob_status_splits_at_4095_ids_without_omission_or_reclassification() {
     let missing = (0..4_096_u64).collect::<Vec<_>>();
-    let packets = BlobCacheStatus {
-        missing: missing.clone(),
-        have: vec![u64::MAX],
-        recovery: None,
-    }
-    .into_packets();
+    let cache = ClientBlobCache::default();
+    let hit = cache.insert(b"split-hit").expect("seed split hit");
+    let mut hashes = missing.clone();
+    hashes.push(hit);
+    let mut resolver = BlobCacheResolver::new(cache);
+    let status = resolver
+        .accept_cached_packet(
+            LevelChunkPacket {
+                sub_chunk_count: 4_096,
+                blobs: Some(LevelChunkPacketBlobs { hashes }),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("classify every referenced hash through the only status-producing path");
+    let packets = status.into_packets();
 
     assert_eq!(packets.len(), 2);
     assert!(
@@ -673,7 +685,7 @@ fn blob_status_splits_at_4095_ids_without_omission_or_reclassification() {
             .iter()
             .flat_map(|packet| packet.have.iter().copied())
             .collect::<Vec<_>>(),
-        vec![u64::MAX]
+        vec![hit]
     );
 }
 

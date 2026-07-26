@@ -286,6 +286,26 @@ maximum of 200; excess cached work is abandoned non-fatally and routed through
 the existing chunk-resync recovery path instead of allowing remotely
 controlled resolver growth.
 
+Cinnabar also applies two bounds to the resolver's ordinary ready lane: 64
+events and 32 MiB of accounted retained bytes. Neither is a vanilla limit. The
+byte ceiling is twice Cinnabar's separate 16 MiB decoded-batch/deferred-raw-data
+ceiling, leaving room for decoded container overhead. The event ceiling bounds
+container and ordering metadata even when events have tiny or zero accounted
+payloads. The session receive loop normally stops intake and drains retained
+ordinary work before either direct-resolver ceiling is reached; a direct caller
+at the ceiling receives explicit backpressure without dropping already
+retained events.
+
+Cinnabar limits one cached packet's reconstructed output payloads to 32 MiB.
+Vanilla has no corresponding reconstruction limit. Before allocating output,
+Cinnabar adds the uncached LevelChunk tail or successful SubChunk tails to the
+known cached-blob length for every reference. Duplicate references are charged
+once per occurrence because reconstruction copies every occurrence. A sum
+above 32 MiB is abandoned non-fatally with truthful hit/miss classification and
+the existing LevelChunk resync or scheduler-owned SubChunk recovery. The check
+runs both for immediately ready cache hits and after the last miss response, so
+unknown blob sizes cannot bypass it.
+
 Cinnabar's cache is byte-bounded only, admits blobs without an entry-count or
 per-blob maximum, and uses a 100 MiB trigger, 80 MiB floor, and LRU last-touch
 ordering. Its current in-memory implementation trims synchronously and uses

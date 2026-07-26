@@ -33,6 +33,13 @@ pub const MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS: usize = 64;
 /// The transport retains at most 16 MiB of deferred raw packet data. Two frames of headroom cover
 /// decoded container allocation overhead without coupling ordinary traffic to cache limits.
 pub const MAX_CLIENT_BLOB_ORDINARY_READY_BYTES: usize = 32 * 1024 * 1024;
+/// Cinnabar's maximum aggregate payload bytes allocated while reconstructing one cached packet.
+///
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. It matches the
+/// independently bounded 32 MiB ordinary-ready byte lane so one remotely controlled cached packet
+/// cannot allocate more payload memory than that entire lane. Every blob reference contributes its
+/// payload length, including duplicate references, because reconstruction copies each occurrence.
+pub const MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlobCacheLimits {
@@ -72,6 +79,7 @@ pub struct BlobCacheStats {
     pub empty_miss_responses: u64,
     pub cached_packet_semantic_shape: u64,
     pub cached_packet_transaction_pressure: u64,
+    pub cached_packet_reconstruction_pressure: u64,
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
@@ -188,7 +196,7 @@ impl ClientBlobCache {
         Some(entry.payload.clone())
     }
 
-    fn classify_and_pin(&self, hashes: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    fn classify(&self, hashes: &[u64], pin: bool) -> (Vec<u64>, Vec<u64>) {
         let mut store = self.lock();
         let mut have = Vec::new();
         let mut missing = Vec::new();
@@ -203,7 +211,9 @@ impl ClientBlobCache {
             } else {
                 missing.push(hash);
             }
-            *store.pins.entry(hash).or_default() += 1;
+            if pin {
+                *store.pins.entry(hash).or_default() += 1;
+            }
         }
         (have, missing)
     }
