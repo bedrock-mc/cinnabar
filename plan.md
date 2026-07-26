@@ -99,7 +99,7 @@ Phase status at this audit:
 | Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
 | Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
-| Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live and performance acceptance remain open. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
+| Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
 | Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, distinct per-frame render interpolation, and the bounded MCBEENT3 geometry/bone/cube carrier are complete. Runtime rig consumption, animations/Molang, persona/custom rendering, legacy/outer skin layers, and remaining entity families are still open |
 
 Nine other patch-unique branch heads were audited as superseded/reimplemented and were
@@ -1682,17 +1682,22 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     a separate reviewed change.
   - The network lifecycle emits one bootstrap per `NetworkHandle`; same-handle session
     replacement remains a known uncovered lifecycle.
-  - Two acceptance-harness inconsistencies remain open and were deliberately not fixed in this
-    integration: the `CandidatePhysics` manifest requires a touch witness while production
-    touch is disabled, so a candidate run cannot currently reach a passing verdict; and
-    `Phase3Launcher.ps1` has no Zeno target even though `docs/agents/live-testing.md` designates
-    `zenomc.org:19197` for low-population server-authority checks.
-  - The owner has deprioritized touch parity, so touch parity must not gate Phase 3 acceptance.
+  - Follow-up harness correction: by owner decision touch parity is deprioritized and does
+    not gate Phase 3 acceptance. `CandidatePhysics` requires keyboard/mouse and gamepad
+    witnesses, while its manifest and final evidence name Touch as `Deferred`, attribute the
+    deferral to the owner decision, and leave touch parity open rather than treating it as
+    observed or satisfied.
+  - `Phase3Launcher.ps1` now supports authenticated `Zeno` runs at
+    `zenomc.org:19197`, following the same candidate/free-camera scenario and five-minute
+    minimum used by the other external targets. Zeno is the low-population official-BDS
+    server-authority target for movement rejection and correction checks.
   - Pre-existing, out-of-scope observation: adding `--all-features` to Clippy fails in the
     vendored `crates/protocol/vendor/jolyne` crate because optional dependencies are not
     vendored. This work did not cause that failure, and CI does not use `--all-features`.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
+  Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
+  not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
 
 ## Phase 4 — Entities and other players
 

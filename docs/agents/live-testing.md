@@ -24,6 +24,23 @@ live run, do not change firewall policy, and do not automate UAC or security-con
 dialogs. If a genuinely new listening executable is required, explain why and wait
 until the user is at the PC.
 
+## Remote movement test targets
+
+Use these user-designated Bedrock endpoints for Phase 3 movement and session
+acceptance:
+
+- Zeqa: `zeqa.net:19132`.
+- Lifeboat: `play.lbsg.net:19132`. After joining, `/transfer sm3` exercises a
+  deeper transfer/session path.
+- Zeno external BDS: `zenomc.org:19197`. This is the low-population
+  server-authority target for observing official-BDS movement rejection and
+  correction behavior without depending on other players.
+
+Treat these as compatibility and server-authority targets, not as substitutes
+for a version-matched native Bedrock parity comparison. Record the resolved
+endpoint, server-reported version, scenario, duration, and exact client build in
+each acceptance artifact.
+
 ## Visual acceptance
 
 A UI, HUD, text, graphics, shader, or rendering change is not ready to push or
