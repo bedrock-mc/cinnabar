@@ -2,6 +2,10 @@ Development is paused until August 1st i need to lock in
 
 # Cinnabar
 
+> Cinnabar is an independent, unofficial client compatible with Minecraft:
+> Bedrock Edition. It is not approved by or associated with Mojang or Microsoft.
+> Minecraft is a trademark of Microsoft Corporation.
+
 Cinnabar is a greenfield Minecraft Bedrock client. The Rust workspace owns the client,
 world model, and rendering, while the Go core will own upstream networking and identity.
 
