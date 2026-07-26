@@ -204,6 +204,7 @@ struct PendingPhysicsSend {
     identity: PhysicsSendIdentity,
     sample: QueuedPhysicsSample,
     evidence: PhysicsTickEvidence,
+    retry_after_cancellation: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -499,6 +500,7 @@ impl MovementTicker {
             identity,
             sample,
             evidence,
+            retry_after_cancellation: false,
         });
     }
 
@@ -582,7 +584,14 @@ impl MovementTicker {
             });
             return true;
         }
-        self.pending_sends.pop_front();
+        let pending = self
+            .pending_sends
+            .pop_front()
+            .expect("matching pending socket cancellation was checked");
+        if pending.retry_after_cancellation && self.retry_replayed_sample(pending.sample).is_err() {
+            self.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
+            return true;
+        }
         self.refresh_outbox_reconciliation();
         true
     }
@@ -627,6 +636,22 @@ impl MovementTicker {
             return Err(Box::new(sample));
         }
         self.outbox.push_front(sample);
+        Ok(())
+    }
+
+    fn retry_replayed_sample(
+        &mut self,
+        sample: QueuedPhysicsSample,
+    ) -> Result<(), Box<QueuedPhysicsSample>> {
+        if !self.physics_is_authorized() || self.pending_count() == OUTBOX_CAPACITY {
+            return Err(Box::new(sample));
+        }
+        let insertion = self
+            .outbox
+            .iter()
+            .position(|queued| queued.snapshot.tick > sample.snapshot.tick)
+            .unwrap_or(self.outbox.len());
+        self.outbox.insert(insertion, sample);
         Ok(())
     }
 
@@ -759,8 +784,7 @@ impl MovementTicker {
                     }
                 }
 
-                let mut replacement = VecDeque::with_capacity(self.outbox.len());
-                for mut pending in self.outbox.drain(..) {
+                let replay_sample = |pending: &mut QueuedPhysicsSample| {
                     if pending.session_generation != self.session_generation {
                         return Err(PhysicsAuthorityFault::PendingSessionMismatch {
                             expected: self.session_generation,
@@ -769,7 +793,7 @@ impl MovementTicker {
                     }
                     let tick = pending.snapshot.tick;
                     if tick <= plan.corrected_tick {
-                        continue;
+                        return Ok(None);
                     }
                     let Some(replayed) = plan
                         .replayed_samples
@@ -800,12 +824,39 @@ impl MovementTicker {
                         };
                         previous.position
                     };
+                    let prior_position = pending.snapshot.position;
+                    let prior_delta = pending.snapshot.delta;
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = subtract(replayed.position, previous_position);
                     pending.evidence.network_position = replayed.position;
+                    Ok(Some(
+                        pending.snapshot.position != prior_position
+                            || pending.snapshot.delta != prior_delta,
+                    ))
+                };
+
+                let mut replacement = VecDeque::with_capacity(self.outbox.len());
+                for mut pending in self.outbox.drain(..) {
+                    if replay_sample(&mut pending)?.is_none() {
+                        continue;
+                    }
                     replacement.push_back(pending);
                 }
                 self.outbox = replacement;
+                let mut invalidated_transport = false;
+                for pending in &mut self.pending_sends {
+                    if replay_sample(&mut pending.sample)? == Some(true) {
+                        invalidated_transport = true;
+                    }
+                }
+                if invalidated_transport {
+                    for pending in &mut self.pending_sends {
+                        if pending.sample.snapshot.tick > plan.corrected_tick {
+                            pending.retry_after_cancellation = true;
+                        }
+                    }
+                    self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
+                }
                 self.previous_position = plan.final_position;
                 Ok(())
             }

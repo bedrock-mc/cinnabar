@@ -234,12 +234,19 @@ fn socket_ack_publishes_the_immutable_admission_evidence_context() {
         Ok::<_, &str>(())
     })
     .unwrap();
+    let admitted_network_position = ticker.pending_sends[0].evidence.network_position;
+    ticker.pending_sends[0].sample.snapshot.position = [9.0, 70.0, -4.0];
+    assert_ne!(
+        ticker.pending_sends[0].sample.snapshot.position, admitted_network_position,
+        "the fixture must distinguish immutable admission evidence from mutable queued state"
+    );
 
     assert!(ticker.acknowledge_physics_send(identity.unwrap()));
 
     let published = ticker.take_tick_evidence();
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].context, admitted);
+    assert_eq!(published[0].network_position, admitted_network_position);
     let mut emitter = crate::runtime::phase3_evidence::Phase3EvidenceEmitter::default();
     let markers = emitter.observe_completed_ticks(&published);
     let frame: serde_json::Value =

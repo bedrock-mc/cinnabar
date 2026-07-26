@@ -164,6 +164,26 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
+    #[cfg(test)]
+    pub(crate) fn test_stub() -> (Self, watch::Receiver<u64>) {
+        let (_control_event_tx, control_events) = mpsc::channel(1);
+        let (_world_event_tx, world_events) = mpsc::channel(1);
+        let (commands, _command_rx) = mpsc::channel(1);
+        let (physics_reanchor, physics_reanchor_rx) = watch::channel(0);
+        let (shutdown, _shutdown_rx) = watch::channel(false);
+        (
+            Self {
+                control_events,
+                world_events,
+                commands,
+                physics_reanchor,
+                shutdown,
+                thread: None,
+            },
+            physics_reanchor_rx,
+        )
+    }
+
     pub fn control_events_mut(&mut self) -> &mut mpsc::Receiver<NetworkControlEvent> {
         &mut self.control_events
     }

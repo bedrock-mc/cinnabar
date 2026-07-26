@@ -40,8 +40,8 @@ use crate::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
     },
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
-        reconcile_candidate_physics_correction,
+        LocalPhysicsController, MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries,
+        PhysicsCorrectionMode, PhysicsCorrectionOutcome, reconcile_candidate_physics_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
@@ -59,6 +59,33 @@ pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn reconcile_candidate_physics_correction_and_invalidate(
+    network: &NetworkHandle,
+    movement: &mut MovementTicker,
+    local_physics: &mut LocalPhysicsController,
+    network_position: [f32; 3],
+    tick: u64,
+    on_ground: bool,
+    mode: PhysicsCorrectionMode,
+    world: &impl sim::CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    let prior_reanchor_epoch = movement.reanchor_epoch();
+    let outcome = reconcile_candidate_physics_correction(
+        movement,
+        local_physics,
+        network_position,
+        tick,
+        on_ground,
+        mode,
+        world,
+    )?;
+    if movement.reanchor_epoch() != prior_reanchor_epoch {
+        network.invalidate_physics_before(movement.reanchor_epoch());
+    }
+    Ok(outcome)
 }
 
 #[derive(Resource, Debug, Default)]
@@ -370,8 +397,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    let prior_reanchor_epoch = movement.reanchor_epoch();
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
+                        &network,
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -380,9 +407,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::ReplayIfRetained,
                         &world,
                     ) {
-                        if movement.reanchor_epoch() != prior_reanchor_epoch {
-                            network.invalidate_physics_before(movement.reanchor_epoch());
-                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -413,8 +437,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    let prior_reanchor_epoch = movement.reanchor_epoch();
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
+                        &network,
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -423,9 +447,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::Snap,
                         &world,
                     ) {
-                        if movement.reanchor_epoch() != prior_reanchor_epoch {
-                            network.invalidate_physics_before(movement.reanchor_epoch());
-                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -452,8 +473,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    let prior_reanchor_epoch = movement.reanchor_epoch();
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
+                        &network,
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -462,9 +483,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::Snap,
                         &world,
                     ) {
-                        if movement.reanchor_epoch() != prior_reanchor_epoch {
-                            network.invalidate_physics_before(movement.reanchor_epoch());
-                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),

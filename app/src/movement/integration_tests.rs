@@ -539,6 +539,181 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
 }
 
 #[test]
+fn retained_correction_cancels_admitted_future_ticks_and_requeues_replayed_positions() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+    assert_eq!(frame.samples.len(), 3);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut admitted = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        admitted
+            .iter()
+            .map(|identity| identity.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+    let admitted_epoch = ticker.reanchor_epoch();
+
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    ));
+    assert!(
+        ticker.reanchor_epoch() > admitted_epoch,
+        "replay changed transport-owned future ticks without invalidating their admission epoch"
+    );
+
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    let replayed = ticker.pending_snapshots();
+    assert_eq!(
+        replayed
+            .iter()
+            .map(|snapshot| snapshot.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+    assert!(replayed.iter().all(|snapshot| snapshot.position[0] > 0.2));
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::BudgetDeferred,
+        "definitely-unsent obsolete packets must restore corrected ticks instead of silently draining"
+    );
+
+    let mut readmitted = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            readmitted.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(
+        readmitted
+            .iter()
+            .all(|identity| identity.reanchor_epoch > admitted_epoch)
+    );
+    for identity in readmitted {
+        assert!(ticker.acknowledge_physics_send(identity));
+    }
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+    let evidence = ticker.take_tick_evidence();
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|sample| sample.tick > 101)
+            .map(|sample| sample.network_position)
+            .collect::<Vec<_>>(),
+        replayed
+            .iter()
+            .map(|snapshot| snapshot.position)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn production_replay_reconciliation_notifies_the_network_invalidation_channel() {
+    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    flush_player_auth_inputs(
+        &mut ticker,
+        3,
+        Some(evidence_context()),
+        |_identity, _packet| Ok::<_, &str>(()),
+    )
+    .unwrap();
+
+    crate::runtime::world::reconcile_candidate_physics_correction_and_invalidate(
+        &network,
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        *reanchor.borrow(),
+        ticker.reanchor_epoch(),
+        "production reconciliation must publish its new epoch to the network worker"
+    );
+    assert_ne!(*reanchor.borrow(), 0);
+}
+
+#[test]
 fn replay_world_identity_change_records_fault_before_deauthorizing_atomically() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);

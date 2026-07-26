@@ -552,18 +552,21 @@ impl LocalPhysicsController {
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
         // cannot be recomputed from a corrected anchor. They are retained only
-        // when a bounded transport-success record proves the server echoed the
-        // exact network position this client sent for that tick, the retained
-        // sample used that same immutable collision identity, and every chunk
-        // in that identity is still loaded at the same revision. The motion
-        // behind it is then confirmed too, and a legitimate wall climb must not
-        // stutter on every confirming correction. Any missing proof or mismatch
-        // clears the flags and keeps the discrete climb branch closed. Identity
-        // query failure is semantic unavailability, so it clears these optional
-        // flags without disconnecting. The position comparison is exact in the
-        // sent `f32` network space because only that is what the server saw. The
-        // loss is bounded to the first replayed tick: `Simulator::tick`
-        // re-derives collisions for every tick after it.
+        // when a bounded transport-success record shows that the correction
+        // exactly matches the network position this client sent for that tick,
+        // the retained sample used that same immutable collision identity, and
+        // every chunk in that identity is still loaded at the same revision.
+        // Cinnabar provisionally interprets that combination as confirmation of
+        // the motion behind the position; this is a client replay policy, not
+        // an established vanilla or protocol guarantee. Retaining the flags
+        // avoids stuttering a legitimate wall climb on matching corrections.
+        // Any missing proof or mismatch clears the flags and keeps the discrete
+        // climb branch closed. Identity query failure is semantic
+        // unavailability, so it clears these optional flags without
+        // disconnecting. The position comparison is exact in the sent `f32`
+        // network space because that is the serialized position available to
+        // compare. The loss is bounded to the first replayed tick:
+        // `Simulator::tick` re-derives collisions for every tick after it.
         let retained_sample = self
             .sample_history
             .iter()
