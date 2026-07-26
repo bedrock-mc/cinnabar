@@ -62,6 +62,34 @@ fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
 }
 
 #[test]
+fn blob_cache_log_line_exposes_every_pressure_counter() {
+    let source = include_str!("../session.rs");
+    let telemetry = source
+        .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
+        .expect("blob-cache telemetry function")
+        .1
+        .split_once("fn emit_bounded_blob_cache_warning")
+        .expect("blob-cache telemetry function body")
+        .0;
+    let expected = [
+        "cached_packet_transaction_pressure",
+        "cached_packet_pending_pressure",
+        "cached_packet_staged_pressure",
+        "cached_packet_reconstruction_pressure",
+        "cached_packet_ready_pressure",
+    ];
+    let missing = expected
+        .into_iter()
+        .filter(|field| !telemetry.contains(&format!("{field} = stats.{field},")))
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing.is_empty(),
+        "blob-cache log line is missing pressure counters: {missing:?}"
+    );
+}
+
+#[test]
 fn network_pump_terminal_marker_carries_the_unmasked_error() {
     let mut output = Vec::new();
     write_network_pump_terminal_marker(

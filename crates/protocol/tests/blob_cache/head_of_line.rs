@@ -3,6 +3,10 @@ use super::*;
 #[test]
 fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 256);
+    assert_eq!(
+        protocol::MAX_CLIENT_BLOB_PENDING_BYTES,
+        64 * 1024 * 1024
+    );
     assert_eq!(protocol::MAX_CLIENT_BLOB_HASHES_PER_PACKET, 4_095);
     assert_eq!(
         protocol::MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION,
@@ -15,6 +19,75 @@ fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
             trim_trigger_bytes: 100 * 1024 * 1024,
             trim_floor_bytes: 80 * 1024 * 1024,
         }
+    );
+}
+
+#[test]
+fn two_hundred_fifty_six_large_inline_pending_packets_are_bounded_and_recovered() {
+    const INLINE_PAYLOAD_BYTES: usize = 1024 * 1024;
+
+    let cache = ClientBlobCache::with_limits(limits(1));
+    let mut resolver = BlobCacheResolver::new(cache.clone());
+    let mut last_abandoned = None;
+    for x in 0..256 {
+        let missing_payload = format!("missing-inline-{x}");
+        let missing_hash = client_blob_hash(missing_payload.as_bytes());
+        let status = resolver
+            .accept_cached_packet(
+                LevelChunkPacket {
+                    x,
+                    z: -13,
+                    dimension: 0,
+                    sub_chunk_count: -1,
+                    blobs: Some(LevelChunkPacketBlobs {
+                        hashes: vec![missing_hash],
+                    }),
+                    payload: vec![0x5a; INLINE_PAYLOAD_BYTES],
+                    ..Default::default()
+                }
+                .into(),
+            )
+            .expect("pending-byte pressure must stay non-fatal");
+        assert_eq!(status.missing(), [missing_hash]);
+        assert!(status.have().is_empty());
+        if let Some(recovery) = status.recovery {
+            assert_eq!((recovery.x, recovery.z), (x, -13));
+            last_abandoned = Some((missing_hash, missing_payload));
+        }
+    }
+
+    assert!(
+        resolver.stats().pending_bytes <= protocol::MAX_CLIENT_BLOB_PENDING_BYTES,
+        "retained pending bytes must stay within the restored 64 MiB ceiling; observed {}",
+        resolver.stats().pending_bytes
+    );
+    assert!(
+        resolver.stats().pending_transactions < 256,
+        "byte pressure must engage before the transaction-count ceiling"
+    );
+    assert!(
+        resolver.stats().skipped_cached_packets > 0,
+        "pending-byte abandonment must be classified as a cached-packet skip"
+    );
+    assert_eq!(
+        resolver.stats().cached_packet_pending_pressure,
+        resolver.stats().skipped_cached_packets,
+        "every skip in this fixture is specifically pending-byte pressure"
+    );
+    assert_eq!(resolver.stats().cached_packet_transaction_pressure, 0);
+
+    let (abandoned_hash, abandoned_payload) =
+        last_abandoned.expect("at least one packet must route through recovery");
+    assert_eq!(client_blob_hash(abandoned_payload.as_bytes()), abandoned_hash);
+    cache
+        .insert(abandoned_payload.as_bytes())
+        .expect("insert formerly abandoned hash");
+    cache
+        .insert(b"replacement")
+        .expect("exercise cache trimming after abandonment");
+    assert!(
+        !cache.contains(abandoned_hash),
+        "pending-byte abandonment must release the transaction pin"
     );
 }
 

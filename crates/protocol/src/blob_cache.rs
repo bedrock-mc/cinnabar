@@ -26,6 +26,12 @@ pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_095;
 /// accepts the largest observed server setting with headroom while bounding remotely controlled
 /// resolver memory. Excess work is abandoned non-fatally and recovered through a chunk resync.
 pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 256;
+/// Cinnabar's maximum aggregate accounted bytes across retained cached transactions.
+///
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. It independently
+/// charges decoded packet containers and inline payload capacities retained while cache misses are
+/// unresolved, even when reconstruction size is unknown and no cached payload is staged.
+pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
 /// Ordinary decoded work is retained independently from cache transactions. The session receive
 /// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
 /// keeps direct resolver users bounded too.
@@ -89,6 +95,7 @@ pub struct BlobCacheStats {
     pub empty_miss_responses: u64,
     pub cached_packet_semantic_shape: u64,
     pub cached_packet_transaction_pressure: u64,
+    pub cached_packet_pending_pressure: u64,
     pub cached_packet_reconstruction_pressure: u64,
     pub cached_packet_staged_pressure: u64,
     pub cached_packet_ready_pressure: u64,

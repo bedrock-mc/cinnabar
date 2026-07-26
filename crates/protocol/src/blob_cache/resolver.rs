@@ -326,6 +326,22 @@ impl BlobCacheResolver {
                 .insert(sequence);
         }
         self.refresh_pending_accounting()?;
+        if self.stats.pending_bytes > MAX_CLIENT_BLOB_PENDING_BYTES {
+            self.record_pending_skip();
+            let transaction = self
+                .remove_pending_transaction(sequence)
+                .expect("newly admitted transaction remains pending");
+            self.cache.unpin_all(&transaction.unique_hashes);
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            let recovery = pending_packet_recovery(&transaction.packet);
+            if recovery.is_some() {
+                self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            }
+            status.set_recovery(recovery);
+            self.refresh_pending_accounting()?;
+            return Ok(status);
+        }
         if missing.is_empty() {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
@@ -624,6 +640,22 @@ impl BlobCacheResolver {
             self.abandon_pending_transaction(sequence);
             return self.refresh_pending_accounting();
         }
+        let projected_retained_bytes = self
+            .retained_cached_bytes()?
+            .checked_sub(
+                self.pending
+                    .get(&sequence)
+                    .expect("resolved transaction remains pending")
+                    .accounted_bytes,
+            )
+            .and_then(|bytes| bytes.checked_add(ready_bytes))
+            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ReadyTransaction)>()))
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        if projected_retained_bytes > MAX_CLIENT_BLOB_PENDING_BYTES {
+            self.record_pending_skip();
+            self.abandon_pending_transaction(sequence);
+            return self.refresh_pending_accounting();
+        }
         let transaction = self
             .remove_pending_transaction(sequence)
             .expect("resolved transaction remains pending");
@@ -753,6 +785,12 @@ impl BlobCacheResolver {
         self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
         self.stats.cached_packet_staged_pressure =
             self.stats.cached_packet_staged_pressure.saturating_add(1);
+    }
+
+    fn record_pending_skip(&mut self) {
+        self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+        self.stats.cached_packet_pending_pressure =
+            self.stats.cached_packet_pending_pressure.saturating_add(1);
     }
 
     fn record_ready_skip(&mut self) {
