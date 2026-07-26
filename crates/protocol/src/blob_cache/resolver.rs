@@ -184,13 +184,23 @@ impl BlobCacheResolver {
         let ready_before = self.ready.len();
         match self.accept_cached_packet_inner(packet, raw_packet_bytes) {
             Ok(status) => Ok(status),
-            Err(
-                BlobCacheError::TooManyPendingTransactions { .. }
-                | BlobCacheError::TooManyPendingBytes { .. },
-            ) => {
+            Err(BlobCacheError::TooManyPendingTransactions { .. }) => {
                 self.rollback_pressure_admission(pending_before, ready_before)?;
                 self.stats.skipped_cached_packets =
                     self.stats.skipped_cached_packets.saturating_add(1);
+                self.stats.cached_packet_transaction_pressure = self
+                    .stats
+                    .cached_packet_transaction_pressure
+                    .saturating_add(1);
+                self.queue_level_chunk_resync(&pressure_packet)?;
+                Ok(skipped_cached_status(&self.cache, &pressure_packet))
+            }
+            Err(BlobCacheError::TooManyPendingBytes { .. }) => {
+                self.rollback_pressure_admission(pending_before, ready_before)?;
+                self.stats.skipped_cached_packets =
+                    self.stats.skipped_cached_packets.saturating_add(1);
+                self.stats.cached_packet_byte_pressure =
+                    self.stats.cached_packet_byte_pressure.saturating_add(1);
                 self.queue_level_chunk_resync(&pressure_packet)?;
                 Ok(skipped_cached_status(&self.cache, &pressure_packet))
             }
@@ -202,6 +212,8 @@ impl BlobCacheResolver {
                 self.rollback_pressure_admission(pending_before, ready_before)?;
                 self.stats.skipped_cached_packets =
                     self.stats.skipped_cached_packets.saturating_add(1);
+                self.stats.cached_packet_semantic_shape =
+                    self.stats.cached_packet_semantic_shape.saturating_add(1);
                 self.queue_level_chunk_resync(&pressure_packet)?;
                 Ok(ClientCacheBlobStatusPacket::default())
             }
@@ -474,16 +486,36 @@ impl BlobCacheResolver {
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
             Err(BlobCacheError::TooManyPendingBytes { .. }) => {
+                self.stats.miss_response_byte_pressure =
+                    self.stats.miss_response_byte_pressure.saturating_add(1);
                 self.recover_repeated_ready_byte_pressure()
             }
-            Err(BlobCacheError::UnsolicitedBlob(_)) => self.recover_skipped_miss_response(),
+            Err(BlobCacheError::UnsolicitedBlob(_)) => {
+                self.stats.miss_response_unsolicited =
+                    self.stats.miss_response_unsolicited.saturating_add(1);
+                self.recover_skipped_miss_response()
+            }
+            Err(BlobCacheError::TooManyHashes { .. }) => {
+                self.stats.miss_response_semantic_shape =
+                    self.stats.miss_response_semantic_shape.saturating_add(1);
+                self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
+                self.recover_skipped_miss_response()
+            }
             Err(
-                BlobCacheError::TooManyHashes { .. }
-                | BlobCacheError::BlobTooLarge { .. }
-                | BlobCacheError::CacheCapacity { .. }
+                BlobCacheError::BlobTooLarge { .. }
                 | BlobCacheError::HashMismatch { .. }
                 | BlobCacheError::ConflictingDuplicate(_),
             ) => {
+                self.stats.miss_response_integrity_rejection = self
+                    .stats
+                    .miss_response_integrity_rejection
+                    .saturating_add(1);
+                self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
+                self.recover_skipped_miss_response()
+            }
+            Err(BlobCacheError::CacheCapacity { .. }) => {
+                self.stats.miss_response_cache_pressure =
+                    self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response()
             }

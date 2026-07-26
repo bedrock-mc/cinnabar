@@ -334,6 +334,101 @@ fn well_formed_invalid_blob_content_is_rejected_without_ending_the_session() {
 }
 
 #[test]
+fn skip_reason_counters_distinguish_pressure_shape_unsolicited_and_integrity() {
+    let transaction_limits = BlobCacheLimits {
+        max_pending_transactions: 1,
+        ..Default::default()
+    };
+    let mut transaction_pressure =
+        BlobCacheResolver::new(ClientBlobCache::with_limits(transaction_limits));
+    transaction_pressure
+        .accept_cached_packet(cached_request_level(1, client_blob_hash(b"first")))
+        .expect("first transaction fills the bounded FIFO");
+    transaction_pressure
+        .accept_cached_packet(cached_request_level(2, client_blob_hash(b"second")))
+        .expect("transaction pressure is a bounded skip");
+    assert_eq!(
+        transaction_pressure
+            .stats()
+            .cached_packet_transaction_pressure,
+        1
+    );
+    assert_eq!(transaction_pressure.stats().cached_packet_byte_pressure, 0);
+    assert_eq!(transaction_pressure.stats().cached_packet_semantic_shape, 0);
+
+    let byte_limits = BlobCacheLimits {
+        max_pending_bytes: 1,
+        ..Default::default()
+    };
+    let mut byte_pressure = BlobCacheResolver::new(ClientBlobCache::with_limits(byte_limits));
+    byte_pressure
+        .accept_cached_packet(cached_request_level(3, client_blob_hash(b"byte-pressure")))
+        .expect("byte pressure is a bounded skip");
+    assert_eq!(byte_pressure.stats().cached_packet_byte_pressure, 1);
+    assert_eq!(byte_pressure.stats().cached_packet_transaction_pressure, 0);
+
+    let mut semantic_shape = BlobCacheResolver::new(ClientBlobCache::default());
+    semantic_shape
+        .accept_cached_packet(
+            LevelChunkPacket {
+                sub_chunk_count: -3,
+                blobs: Some(LevelChunkPacketBlobs {
+                    hashes: vec![client_blob_hash(b"invalid-shape")],
+                }),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("semantic shape is a bounded skip");
+    assert_eq!(semantic_shape.stats().cached_packet_semantic_shape, 1);
+
+    let unsolicited_payload = b"unsolicited-counter";
+    let mut unsolicited = BlobCacheResolver::new(ClientBlobCache::default());
+    unsolicited
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: client_blob_hash(unsolicited_payload),
+                payload: unsolicited_payload.to_vec(),
+            }],
+        })
+        .expect("unsolicited response remains a recoverable skip");
+    assert_eq!(unsolicited.stats().miss_response_unsolicited, 1);
+    assert_eq!(unsolicited.stats().miss_response_integrity_rejection, 0);
+
+    let wanted = b"integrity-counter";
+    let wanted_hash = client_blob_hash(wanted);
+    let mut integrity = BlobCacheResolver::new(ClientBlobCache::default());
+    integrity
+        .accept_cached_packet(cached_request_level(4, wanted_hash))
+        .expect("authorize integrity test miss");
+    integrity
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: wanted_hash,
+                payload: b"wrong-integrity-counter".to_vec(),
+            }],
+        })
+        .expect("integrity rejection remains a recoverable skip");
+    assert_eq!(integrity.stats().miss_response_integrity_rejection, 1);
+    assert_eq!(integrity.stats().miss_response_unsolicited, 0);
+
+    let semantic_limits = BlobCacheLimits {
+        max_hashes_per_packet: 0,
+        ..Default::default()
+    };
+    let mut miss_shape = BlobCacheResolver::new(ClientBlobCache::with_limits(semantic_limits));
+    miss_shape
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: client_blob_hash(b"miss-shape"),
+                payload: b"miss-shape".to_vec(),
+            }],
+        })
+        .expect("miss-response semantic shape remains a recoverable skip");
+    assert_eq!(miss_shape.stats().miss_response_semantic_shape, 1);
+}
+
+#[test]
 fn fast_transfer_rotation_preserves_ready_prefix_and_releases_retired_pins() {
     let hit_payload = b"verified-hit";
     let hit_hash = client_blob_hash(hit_payload);
