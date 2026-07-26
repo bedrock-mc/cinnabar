@@ -265,6 +265,19 @@ pub struct LevelChunkEvent {
     pub payload: Vec<u8>,
 }
 
+/// A cached LevelChunk discarded under bounded resolver pressure.
+///
+/// The world streamer uses this marker to request the affected column again
+/// without treating absent cached payloads as authoritative chunk data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkResyncEvent {
+    pub dimension: i32,
+    pub x: i32,
+    pub z: i32,
+    /// `None` requests the dimension's full vanilla vertical range.
+    pub requested_sub_chunks: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubChunkUnavailable {
     Undefined,
@@ -469,6 +482,7 @@ pub struct BiomeDefinitionsEvent {
 pub enum WorldEvent {
     BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
+    ChunkResync(ChunkResyncEvent),
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),

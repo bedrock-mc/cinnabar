@@ -29,6 +29,7 @@ impl BlobCacheResolver {
             cache,
             pending: VecDeque::new(),
             ready: VecDeque::new(),
+            recovery_ready: VecDeque::new(),
             authorized_misses: Vec::new(),
             retired_authorized_misses: Vec::new(),
             fast_transfer_rotation_armed: false,
@@ -187,7 +188,8 @@ impl BlobCacheResolver {
                 self.rollback_pressure_admission(pending_before, ready_before)?;
                 self.stats.skipped_cached_packets =
                     self.stats.skipped_cached_packets.saturating_add(1);
-                Ok(skipped_cached_status(&pressure_packet))
+                self.queue_level_chunk_resync(&pressure_packet)?;
+                Ok(skipped_cached_status(&self.cache, &pressure_packet))
             }
             Err(error) => {
                 self.reset_pending();
@@ -454,8 +456,7 @@ impl BlobCacheResolver {
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
             Err(BlobCacheError::TooManyPendingBytes { .. }) => {
-                self.retire_blocking_transaction_for_pressure()?;
-                self.drain_ready()
+                self.recover_repeated_ready_byte_pressure()
             }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
@@ -576,6 +577,7 @@ impl BlobCacheResolver {
         }
         self.pending = VecDeque::new();
         self.ready = VecDeque::new();
+        self.recovery_ready = VecDeque::new();
         self.authorized_misses = Vec::new();
         self.retired_authorized_misses = Vec::new();
         self.fast_transfer_rotation_armed = false;
@@ -617,9 +619,34 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()
     }
 
-    fn retire_blocking_transaction_for_pressure(&mut self) -> Result<(), BlobCacheError> {
+    fn retire_one_transaction_for_pressure(&mut self) -> Result<bool, BlobCacheError> {
+        if self.stats.pending_bytes > self.cache.limits.max_pending_bytes
+            && let Some(transaction) = self.ready.pop_back()
+        {
+            match transaction.value {
+                BlobCacheReady::Packet(Packet {
+                    data: McpePacketData::PacketLevelChunk(_) | McpePacketData::PacketSubchunk(_),
+                    ..
+                }) => {
+                    self.stats.retired_cached_transactions =
+                        self.stats.retired_cached_transactions.saturating_add(1);
+                }
+                BlobCacheReady::Packet(_) => {
+                    self.stats.skipped_packets = self.stats.skipped_packets.saturating_add(1);
+                }
+                BlobCacheReady::WorldEvent(_) => {
+                    self.stats.skipped_world_events =
+                        self.stats.skipped_world_events.saturating_add(1);
+                }
+            }
+            if self.ready.is_empty() {
+                self.ready = VecDeque::new();
+            }
+            self.refresh_pending_accounting()?;
+            return Ok(true);
+        }
         let Some(transaction) = self.pending.pop_front() else {
-            return Ok(());
+            return Ok(false);
         };
         match transaction.packet {
             PendingPacket::LevelChunk(_) | PendingPacket::SubChunk(_) => {
@@ -630,35 +657,70 @@ impl BlobCacheResolver {
                 self.stats.skipped_packets = self.stats.skipped_packets.saturating_add(1);
             }
             PendingPacket::WorldEvent(_) => {
-                self.stats.skipped_world_events =
-                    self.stats.skipped_world_events.saturating_add(1);
+                self.stats.skipped_world_events = self.stats.skipped_world_events.saturating_add(1);
             }
         }
-        for hash in transaction
-            .unique_hashes
-            .iter()
-            .copied()
-            .filter(|hash| !self.cache.contains(*hash))
-        {
+        for hash in transaction.unique_hashes.iter().copied() {
             if decrement_authorization(&mut self.authorized_misses, hash) {
-                increment_authorization(&mut self.retired_authorized_misses, hash)?;
+                if !self.cache.contains(hash) {
+                    increment_authorization(&mut self.retired_authorized_misses, hash)?;
+                }
             }
+        }
+        if self.authorized_misses.is_empty() {
+            self.authorized_misses = Vec::new();
         }
         self.cache.unpin_all(&transaction.unique_hashes);
         if self.pending.is_empty() {
             self.pending = VecDeque::new();
         }
+        self.refresh_pending_accounting()?;
+        Ok(true)
+    }
+
+    fn recover_repeated_ready_byte_pressure(&mut self) -> Result<(), BlobCacheError> {
+        let mut retirement_budget = self.pending.len().saturating_add(self.ready.len());
+        while retirement_budget != 0 {
+            if !self.retire_one_transaction_for_pressure()? {
+                break;
+            }
+            retirement_budget -= 1;
+            match self.drain_ready() {
+                Ok(()) => return Ok(()),
+                Err(BlobCacheError::TooManyPendingBytes { .. }) => {}
+                Err(error) => return Err(error),
+            }
+        }
         self.refresh_pending_accounting()
     }
 
-    pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
-        let ready = self.ready.pop_front()?;
-        if self.ready.is_empty() {
-            self.ready = VecDeque::new();
+    fn queue_level_chunk_resync(&mut self, packet: &Packet) -> Result<(), BlobCacheError> {
+        let Some(recovery) = level_chunk_resync(packet) else {
+            return Ok(());
+        };
+        let recovery_limit = self.cache.limits.max_pending_transactions.max(1);
+        if self.recovery_ready.len() >= recovery_limit {
+            return Ok(());
         }
-        self.refresh_pending_accounting()
-            .expect("retained ready accounting cannot overflow after a pop");
-        Some(ready.value)
+        self.recovery_ready
+            .try_reserve(1)
+            .map_err(|_| BlobCacheError::ByteCountOverflow)?;
+        self.recovery_ready.push_back(recovery);
+        Ok(())
+    }
+
+    pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
+        if let Some(ready) = self.ready.pop_front() {
+            if self.ready.is_empty() {
+                self.ready = VecDeque::new();
+            }
+            self.refresh_pending_accounting()
+                .expect("retained ready accounting cannot overflow after a pop");
+            return Some(ready.value);
+        }
+        self.recovery_ready
+            .pop_front()
+            .map(|recovery| BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery)))
     }
 
     fn drain_ready(&mut self) -> Result<(), BlobCacheError> {
@@ -712,7 +774,7 @@ impl BlobCacheResolver {
     }
 }
 
-fn skipped_cached_status(packet: &Packet) -> ClientCacheBlobStatusPacket {
+fn skipped_cached_status(cache: &ClientBlobCache, packet: &Packet) -> ClientCacheBlobStatusPacket {
     let hashes = match &packet.data {
         McpePacketData::PacketLevelChunk(packet) => packet
             .blobs
@@ -725,9 +787,7 @@ fn skipped_cached_status(packet: &Packet) -> ClientCacheBlobStatusPacket {
             stable_unique(
                 &entries
                     .iter()
-                    .filter(|entry| {
-                        entry.result == SubChunkEntryWithCachingItemResult::Success
-                    })
+                    .filter(|entry| entry.result == SubChunkEntryWithCachingItemResult::Success)
                     .map(|entry| entry.blob_id)
                     .collect::<Vec<_>>(),
             )
@@ -736,8 +796,29 @@ fn skipped_cached_status(packet: &Packet) -> ClientCacheBlobStatusPacket {
     };
     ClientCacheBlobStatusPacket {
         missing: Vec::new(),
-        have: hashes,
+        have: hashes
+            .into_iter()
+            .filter(|hash| cache.contains(*hash))
+            .collect(),
     }
+}
+
+fn level_chunk_resync(packet: &Packet) -> Option<ChunkResyncEvent> {
+    let McpePacketData::PacketLevelChunk(packet) = &packet.data else {
+        return None;
+    };
+    let requested_sub_chunks = match packet.sub_chunk_count {
+        count if count >= 0 => usize::try_from(count).ok().map(Some)?,
+        -2 => packet.highest_subchunk_count.map(usize::from).map(Some)?,
+        -1 => None,
+        _ => return None,
+    };
+    Some(ChunkResyncEvent {
+        dimension: packet.dimension,
+        x: packet.x,
+        z: packet.z,
+        requested_sub_chunks,
+    })
 }
 
 impl Drop for BlobCacheResolver {

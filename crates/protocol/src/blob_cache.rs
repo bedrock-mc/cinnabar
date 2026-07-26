@@ -9,7 +9,7 @@ use valentine::bedrock::version::v1_26_30::{
     SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
 };
 
-use crate::{Packet, WorldEvent};
+use crate::{ChunkResyncEvent, Packet, WorldEvent};
 
 mod resolver;
 pub use resolver::BlobCacheReady;
@@ -18,9 +18,11 @@ pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 4_096;
 pub const MAX_CLIENT_BLOB_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_096;
-/// A 2,048-transaction budget covers the 1,089 columns in Cinnabar's bounded 16-chunk-radius
-/// active view plus ordered join traffic. A vanilla BDS 1.26.32.2 join exceeded the old 256
-/// calibration while advertising 101 cache misses; the independent 64 MiB ceiling remains binding.
+/// Provisional headroom after a vanilla BDS 1.26.32.2 join exceeded the old 256-transaction
+/// calibration while advertising 101 cache misses. The observed transaction high-water mark was
+/// not captured, so 2,048 is not an evidence-derived boundary; recording the peak simultaneous
+/// pending transaction count across joins, dimension changes, and fast transfers will settle it.
+/// Admission exhaustion is recoverable, and the independent 64 MiB ceiling remains binding.
 pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
 
@@ -243,6 +245,7 @@ pub struct BlobCacheResolver {
     cache: ClientBlobCache,
     pending: VecDeque<PendingTransaction>,
     ready: VecDeque<ReadyTransaction>,
+    recovery_ready: VecDeque<ChunkResyncEvent>,
     authorized_misses: Vec<(u64, usize)>,
     retired_authorized_misses: Vec<(u64, usize)>,
     fast_transfer_rotation_armed: bool,

@@ -133,10 +133,7 @@ fn cache_miss_response_still_unblocks_the_fifo_under_admission_pressure() {
         .expect("authorized miss response remains admissible under pressure");
 
     let resolved = pop_packet(&mut resolver, "resolved cached FIFO head");
-    assert!(matches!(
-        resolved.data,
-        McpePacketData::PacketLevelChunk(_)
-    ));
+    assert!(matches!(resolved.data, McpePacketData::PacketLevelChunk(_)));
     assert!(matches!(
         resolver.pop_ready(),
         Some(protocol::BlobCacheReady::WorldEvent(WorldEvent::SetTime(
@@ -163,10 +160,43 @@ fn cached_subchunk_pressure_is_skipped_for_the_bounded_request_retry_path() {
         .expect("requested SubChunk pressure must not disconnect");
 
     assert!(status.missing.is_empty());
-    assert_eq!(status.have, vec![skipped_hash]);
+    assert!(status.have.is_empty());
     assert_eq!(resolver.stats().pending_transactions, 1);
     assert!(resolver.stats().pending_bytes <= bounded.max_pending_bytes);
     assert_eq!(resolver.stats().skipped_cached_packets, 1);
+}
+
+#[test]
+fn refused_cached_level_chunk_queues_a_bounded_column_resync() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let head_hash = client_blob_hash(b"head-miss");
+    resolver
+        .accept_cached_packet(cached_request_level(1, head_hash))
+        .expect("unresolved cached FIFO head");
+
+    let refused_hash = client_blob_hash(b"refused-level");
+    let status = resolver
+        .accept_cached_packet(cached_request_level(27, refused_hash))
+        .expect("refused LevelChunk pressure must not disconnect");
+
+    assert!(status.have.is_empty());
+    assert!(status.missing.is_empty());
+    let recovery = resolver
+        .pop_ready()
+        .expect("refused LevelChunk must surface a recovery event")
+        .into_world_event()
+        .expect("recovery must be a world event");
+    assert_eq!(
+        recovery,
+        WorldEvent::ChunkResync(protocol::ChunkResyncEvent {
+            dimension: 0,
+            x: 27,
+            z: 0,
+            requested_sub_chunks: None,
+        })
+    );
 }
 
 #[test]
@@ -709,6 +739,60 @@ fn repeated_large_blob_expansion_retires_the_transaction_without_rejecting_the_b
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
     assert_eq!(resolver.stats().retired_cached_transactions, 1);
+}
+
+#[test]
+fn consecutive_large_blob_expansions_are_all_retired_without_rejecting_the_blob() {
+    let payload = [0x6b; 512];
+    let hash = client_blob_hash(&payload);
+    let mut probe_limits = limits(4, 4_096);
+    probe_limits.max_blob_bytes = 1_024;
+    let mut probe = BlobCacheResolver::new(ClientBlobCache::with_limits(probe_limits));
+    for _ in 0..2 {
+        probe
+            .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+            .expect("measure two retained transactions");
+    }
+    let retained_high_water = probe.stats().pending_bytes;
+
+    let mut ready_probe = BlobCacheResolver::new(ClientBlobCache::with_limits(probe_limits));
+    ready_probe
+        .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("measure one retained transaction");
+    ready_probe
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("measure one reconstructed transaction");
+    assert!(ready_probe.stats().pending_bytes > retained_high_water);
+
+    let mut bounded = probe_limits;
+    bounded.max_pending_bytes = 2_048;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    for _ in 0..2 {
+        resolver
+            .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+            .expect("both retained transactions fit before expansion");
+    }
+    assert_eq!(resolver.stats().hashes_classified, 2);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("well-formed shared miss survives repeated ready-byte pressure");
+
+    assert!(resolver.cache().contains(hash));
+    assert!(resolver.pop_ready().is_none());
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().retired_cached_transactions, 2);
 }
 
 #[test]
