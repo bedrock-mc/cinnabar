@@ -290,11 +290,11 @@ fn invalid_late_retired_response_is_atomic_and_keeps_generation_resolvable() {
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
-                blobs: vec![Blob {
-                    hash,
-                    payload: b"wrong-payload".to_vec(),
-                }],
-            })
+            blobs: vec![Blob {
+                hash,
+                payload: b"wrong-payload".to_vec(),
+            }],
+        })
         .expect("invalid well-formed response is skipped");
     assert!(!cache.contains(hash));
     resolver

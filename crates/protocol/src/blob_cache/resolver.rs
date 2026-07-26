@@ -711,8 +711,7 @@ impl BlobCacheResolver {
     }
 
     fn recover_skipped_miss_response(&mut self) -> Result<(), BlobCacheError> {
-        self.stats.skipped_miss_responses =
-            self.stats.skipped_miss_responses.saturating_add(1);
+        self.stats.skipped_miss_responses = self.stats.skipped_miss_responses.saturating_add(1);
         let recovery = self.pending.front().and_then(|transaction| {
             let PendingPacket::LevelChunk(packet) = &transaction.packet else {
                 return None;
