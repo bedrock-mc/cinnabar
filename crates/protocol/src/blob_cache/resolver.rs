@@ -618,7 +618,7 @@ impl BlobCacheResolver {
         if self
             .retained_reconstructed_bytes()?
             .checked_add(ready_bytes)
-            .map_or(true, |bytes| bytes > MAX_CLIENT_BLOB_READY_BYTES)
+            .is_none_or(|bytes| bytes > MAX_CLIENT_BLOB_READY_BYTES)
         {
             self.record_ready_skip();
             self.abandon_pending_transaction(sequence);
