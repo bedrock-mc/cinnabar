@@ -1695,6 +1695,53 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     vendored `crates/protocol/vendor/jolyne` crate because optional dependencies are not
     vendored. This work did not cause that failure, and CI does not use `--all-features`.
 
+- **Phase 3 local BDS smoke findings (2026-07-26, four runs at BDS 1.26.32.2).**
+  These runs found defects; they did not validate native parity, remote-server behavior, or
+  Phase 3 acceptance and do not advance Phase 3 closure. Phase 3 remains incomplete; native/live
+  and performance acceptance remain open.
+  - Fixed and confirmed only against local BDS 1.26.32.2: blob-cache admission exhaustion at
+    the former 256-transaction cap was fatal and is now recoverable, improving session survival
+    from 9.1 seconds to 114–187 seconds. Zero-blob cache-miss responses were incorrectly treated
+    as invalid, causing arbitrary FIFO retirement and a feedback loop; they are now successful
+    no-ops, with live runs reporting `skipped_miss_responses = 0`,
+    `retired_cached_transactions = 0`, and 283 / 4,666 empty responses handled cleanly.
+    Skip telemetry is now separated by reason and resync lifecycle counters exist; this
+    observability isolated the remaining defect in one run. Before the loop fix, measured join
+    high-water marks were 1,194 / 845 pending transactions, independently showing that the old
+    256 cap was under-calibrated.
+  - Open, root-caused, and not fixed: blob-cache FIFO head-of-line blocking in
+    `crates/protocol/src/blob_cache/resolver.rs`. Cached chunks, ordinary packets, and world
+    events share one `pending + ready` budget (`resolver.rs:153`, `:249-254`, `:287-292`,
+    `:454-459`), while draining requires the front transaction to have every hash cached
+    (`:811-817`). One unresolved cached transaction therefore blocks hash-free world events and
+    all later work. At capacity cached packets are skipped (`:387-392`), and world events are
+    silently and permanently discarded without stored retry or resync (`:271-275`).
+  - Live evidence at `b29966d`: pending transactions pinned at 2,047/2,048 in both scenarios;
+    `skipped_world_events` was 9,139 / 15,002 and cached transaction-pressure skips were
+    2,312 / 3,953. Byte-pressure, semantic-shape, unsolicited, and integrity skips were all
+    zero, as were all resync lifecycle counters.
+  - Pressure-skipped `SubChunk` packets receive no resync because
+    `queue_level_chunk_resync` returns `None` for non-`LevelChunk` packets
+    (`resolver/helpers.rs:35-40`). They fall back to two client-world retries
+    (`stream.rs:101-102`), then finish with `collision_authoritative = false`
+    (`stream/retries.rs:247-255`) while the column is still added to `loaded_columns`
+    (`retries.rs:39-47`), so cohort completeness can be misleading. Consequently
+    `mutation_coordinate` remains `null` (`app-metrics.json:7`);
+    `RUST_MCBE_WORLD_READY` never fires (`app/src/acceptance/mutation.rs:270-272`), the
+    60-second acceptance clock never arms, and runs hang until the launcher's 180-second bound.
+    **No `phase3-final.json` has ever been produced; there is no Phase 3 acceptance verdict of
+    any kind.**
+  - Open separate defect: the local Go bridge reported
+    `invalid checksum of packet 6217`, then the local listener was forcibly closed
+    (OS error 10054). Saturation is neither its cause nor consequence: FreeCamera saturated
+    well before it, while CandidatePhysics saturated more severely without a checksum error.
+    Likely investigation targets are cipher-counter divergence, send-buffer reuse, or frame
+    corruption in the Rust-to-Go bridge; this needs a separate instrumented investigation.
+  - Open and unchanged: every CandidatePhysics run still reports `physics_tick_overflow` with
+    `detail.dropped = 5` and an authority-fault violation. The prior diagnosis is that
+    "collision data unavailable, wait" and "cannot keep up, dropped time" are conflated in
+    `dropped_ticks`, and any nonzero value revokes authority. This is not fixed.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
