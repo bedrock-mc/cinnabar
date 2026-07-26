@@ -374,6 +374,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let hud_report = temporary.join("hud.json");
     let lang = temporary.join("lang.mcbelang");
     let lang_report = temporary.join("lang.json");
+    let icon = temporary.join("icon.mcbeico");
+    let icon_report = temporary.join("icon.json");
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
@@ -396,6 +398,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
         format!("LANG_ASSET_BLOB={}", make_path(&lang)),
         format!("LANG_ASSET_REPORT={}", make_path(&lang_report)),
+        format!("ICON_ASSET_BLOB={}", make_path(&icon)),
+        format!("ICON_ASSET_REPORT={}", make_path(&icon_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
         producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
@@ -414,6 +418,12 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         producer_assignment("FONT_ASSET_COMPILE", "font", &log, &[&font, &font_report]),
         producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
         producer_assignment("LANG_ASSET_COMPILE", "lang", &log, &[&lang, &lang_report]),
+        producer_assignment(
+            "ICON_ASSET_COMPILE",
+            "icon",
+            &log,
+            &[&icon, &icon_report],
+        ),
         format!(
             "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
             make_path(&physics)
@@ -444,6 +454,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "font",
             "hud",
             "lang",
+            "icon",
             "physics",
             "launch"
         ]
