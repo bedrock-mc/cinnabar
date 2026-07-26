@@ -1066,6 +1066,34 @@ fn fatal_error_exits_immediately_even_before_timed_deadline() {
 }
 
 #[test]
+fn phase3_terminal_ack_drain_is_bounded_by_the_existing_acceptance_grace() {
+    let deadline = Instant::now();
+    let mut acceptance = AcceptanceRun::new(Some(60), None, false, false);
+    acceptance.deadline = Some(deadline);
+
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(deadline, true, 1),
+        Phase3TerminalDrainDecision::Wait
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(
+            deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE - Duration::from_millis(1),
+            true,
+            0,
+        ),
+        Phase3TerminalDrainDecision::Drained
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(
+            deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE,
+            true,
+            1,
+        ),
+        Phase3TerminalDrainDecision::TimedOut
+    );
+}
+
+#[test]
 fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_finalization() {
     assert_eq!(
         fatal_runtime_exit("network session failed: bridge closed"),

@@ -699,6 +699,14 @@ Describe 'Phase 3 production marker evidence validation' {
         (Invoke-Validator (Write-MarkerLog 'terminal-full-restored.log')).ExitCode | Should Not Be 0
     }
 
+    It 'parses SocketPending as typed terminal state but rejects the Candidate terminal gate' {
+        $script:Terminals[0].outbox_reconciliation = 'SocketPending'
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-socket-pending.log')
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'CandidatePhysics terminal does not prove Physics packet production'
+        $result.Output | Should Not Match 'terminal outbox_reconciliation is unsupported'
+    }
+
     It 'rejects a nonzero app process exit as the only changed condition' {
         $script:RunMetadata.app_exit_code = 9
         (Invoke-Validator (Write-MarkerLog 'process-app-exit.log')).ExitCode | Should Not Be 0

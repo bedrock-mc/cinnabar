@@ -31,7 +31,8 @@ use crate::acceptance::markers::{
     TRANSPARENT_SORT_COMMITTED, WORLD_PUBLICATION_SNAPSHOT, WORLD_READY,
 };
 use crate::acceptance::{
-    AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE,
+    AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
+    TRANSPARENT_PRESENTATION_EXIT_GRACE,
     markers::{
         acceptance_runtime_metadata_marker, cumulative_counter_delta, requested_present_mode,
         visibility_digest_marker_fields, world_publication_snapshot_marker,

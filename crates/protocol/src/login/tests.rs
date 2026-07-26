@@ -72,8 +72,8 @@ use valentine::bedrock::version::v1_26_30::{
     CorrectPlayerMovePredictionPacket, GameRuleI32, GameRuleI32Type, GameRuleI32Value,
     GameRulesChangedPacket, ItemNew, ItemRegistryPacket, LevelChunkPacket, LevelChunkPacketBlobs,
     LevelEventPacket, LevelEventPacketEvent, McpePacketName, MobEquipmentPacket, MovePlayerPacket,
-    SetTimePacket, TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentJson,
-    TextPacketType, UpdateBlockPacket, Vec2F, Vec3F, WindowId,
+    RespawnPacket, SetTimePacket, TextPacket, TextPacketCategory, TextPacketContent,
+    TextPacketContentJson, TextPacketType, UpdateBlockPacket, Vec2F, Vec3F, WindowId,
 };
 
 fn raw_packet(id: McpePacketName, body: &[u8]) -> jolyne::raw::RawPacket {
@@ -605,6 +605,42 @@ fn allowlisted_move_player_is_materialized_and_normalized() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+        })
+    );
+}
+
+#[test]
+fn allowlisted_respawn_is_materialized_and_normalized() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = RespawnPacket {
+        position: Vec3F {
+            x: 8.5,
+            y: 71.620_01,
+            z: -4.25,
+        },
+        state: 1,
+        runtime_entity_id: 42,
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode respawn");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw respawn");
+    let decoder_called = Cell::new(false);
+
+    let event = decode_world_raw_with(raw, 0, |raw| {
+        decoder_called.set(true);
+        raw.decode(&session)
+    })
+    .expect("decode respawn")
+    .expect("respawn event");
+
+    assert!(decoder_called.get());
+    assert_eq!(
+        event,
+        WorldEvent::Respawn(crate::RespawnEvent {
+            position: [8.5, 71.620_01, -4.25],
+            state: 1,
+            runtime_entity_id: 42,
         })
     );
 }

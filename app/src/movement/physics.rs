@@ -212,6 +212,12 @@ pub struct PhysicsMovementSample {
     pub world_identity: WorldCollisionIdentity,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PhysicsCorrectionConfirmation {
+    pub position: [f32; 3],
+    pub world_identity: WorldCollisionIdentity,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsCorrectionMode {
     ReplayIfRetained,
@@ -500,6 +506,7 @@ impl LocalPhysicsController {
         tick: u64,
         on_ground: bool,
         mode: PhysicsCorrectionMode,
+        confirmation: Option<&PhysicsCorrectionConfirmation>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
         if !network_position.into_iter().all(f32::is_finite) {
@@ -545,19 +552,33 @@ impl LocalPhysicsController {
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
         // cannot be recomputed from a corrected anchor. They are retained only
-        // when the server echoes back the exact network position this client
-        // sent for that tick: the motion behind it is then confirmed too, and a
-        // legitimate wall climb must not stutter on every confirming correction.
-        // Any other correction repudiates that motion, so the flags are cleared
-        // and the discrete climb branch stays closed. The comparison is exact
-        // and happens in the sent `f32` network space rather than against the
-        // `f64` feet state, because only the former is what the server actually
-        // acknowledged. The resulting loss is bounded to the first replayed
-        // tick: `Simulator::tick` re-derives collisions for every tick after it.
-        let server_confirmed_prediction = self
+        // when a bounded transport-success record shows that the correction
+        // exactly matches the network position this client sent for that tick,
+        // the retained sample used that same immutable collision identity, and
+        // every chunk in that identity is still loaded at the same revision.
+        // Cinnabar provisionally interprets that combination as confirmation of
+        // the motion behind the position; this is a client replay policy, not
+        // an established vanilla or protocol guarantee. Retaining the flags
+        // avoids stuttering a legitimate wall climb on matching corrections.
+        // Any missing proof or mismatch clears the flags and keeps the discrete
+        // climb branch closed. Identity query failure is semantic
+        // unavailability, so it clears these optional flags without
+        // disconnecting. The position comparison is exact in the sent `f32`
+        // network space because that is the serialized position available to
+        // compare. The loss is bounded to the first replayed tick:
+        // `Simulator::tick` re-derives collisions for every tick after it.
+        let retained_sample = self
             .sample_history
             .iter()
-            .any(|sample| sample.tick == tick && sample.position == network_position);
+            .find(|sample| sample.tick == tick)
+            .expect("retained correction sample was checked");
+        let server_confirmed_prediction = confirmation.is_some_and(|confirmation| {
+            confirmation.position == network_position
+                && retained_sample.position == network_position
+                && confirmation.world_identity == retained_sample.world_identity
+                && collision_identity_is_current(world, feet, &confirmation.world_identity)
+                    .unwrap_or(false)
+        });
         corrected.collisions = if server_confirmed_prediction {
             self.history
                 .state_at(tick)
@@ -667,14 +688,6 @@ impl LocalPhysicsController {
         self.history.len()
     }
 
-    /// Retained axis collisions at a specific predicted tick, for asserting the
-    /// correction/replay contract without exposing history to production code.
-    #[cfg(test)]
-    #[must_use]
-    pub(super) fn retained_collisions_at(&self, tick: u64) -> Option<sim::AxisCollisions> {
-        self.history.state_at(tick).map(|state| state.collisions)
-    }
-
     #[must_use]
     pub const fn dropped_tick_count(&self) -> u64 {
         self.dropped_tick_count
@@ -694,4 +707,44 @@ impl LocalPhysicsController {
     pub const fn last_world_identity(&self) -> Option<&WorldCollisionIdentity> {
         self.last_world_identity.as_ref()
     }
+}
+
+fn collision_identity_is_current(
+    world: &impl CollisionWorld,
+    corrected_feet: Vec3,
+    expected: &WorldCollisionIdentity,
+) -> Result<bool, sim::WorldQueryError> {
+    let y = checked_block_coordinate(corrected_feet.y)?;
+    let mut current: Option<WorldCollisionIdentity> = None;
+    if expected.chunks.is_empty() {
+        let block = [
+            checked_block_coordinate(corrected_feet.x)?,
+            y,
+            checked_block_coordinate(corrected_feet.z)?,
+        ];
+        current = Some(world.block_physics(block)?.identity);
+    } else {
+        for revision in &expected.chunks {
+            let Some(x) = revision.chunk.x.checked_mul(16) else {
+                return Err(sim::WorldQueryError::CoordinateOutOfRange);
+            };
+            let Some(z) = revision.chunk.z.checked_mul(16) else {
+                return Err(sim::WorldQueryError::CoordinateOutOfRange);
+            };
+            let identity = world.block_physics([x, y, z])?.identity;
+            current = Some(match current {
+                None => identity,
+                Some(previous) => previous.merge(&identity)?,
+            });
+        }
+    }
+    Ok(current.as_ref() == Some(expected))
+}
+
+fn checked_block_coordinate(value: f64) -> Result<i32, sim::WorldQueryError> {
+    let value = value.floor();
+    if value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
+        return Err(sim::WorldQueryError::CoordinateOutOfRange);
+    }
+    Ok(value as i32)
 }

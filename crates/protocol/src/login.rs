@@ -552,6 +552,7 @@ fn decode_world_raw_with(
             | McpePacketName::PacketChunkRadiusUpdate
             | McpePacketName::PacketNetworkChunkPublisherUpdate
             | McpePacketName::PacketChangeDimension
+            | McpePacketName::PacketRespawn
             | McpePacketName::PacketMovePlayer
             | McpePacketName::PacketCorrectPlayerMovePrediction
             | McpePacketName::PacketSetTime

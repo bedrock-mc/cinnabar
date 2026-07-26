@@ -13,7 +13,11 @@ use protocol::{
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
-use crate::{acceptance::mutation::write_stdout_marker, ui_runtime::FastTransferAction};
+use crate::{
+    acceptance::mutation::write_stdout_marker,
+    movement::{MovementTicker, PhysicsSendIdentity},
+    ui_runtime::FastTransferAction,
+};
 
 pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
@@ -52,6 +56,13 @@ pub enum NetworkControlEvent {
         session: u64,
         sequence: u64,
         message: String,
+    },
+    PhysicsPacketSent {
+        identity: PhysicsSendIdentity,
+    },
+    PhysicsPacketCancelled {
+        identity: PhysicsSendIdentity,
+        definitely_unsent: bool,
     },
     BlobCacheTelemetry {
         enabled: bool,
@@ -93,6 +104,8 @@ enum NetworkCommand {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
         chat: Option<ChatPacketSend>,
+        physics: Option<PhysicsSendIdentity>,
+        physics_reanchor: Option<watch::Receiver<u64>>,
     },
 }
 
@@ -146,11 +159,36 @@ pub struct NetworkHandle {
     control_events: mpsc::Receiver<NetworkControlEvent>,
     world_events: mpsc::Receiver<WorldIngress>,
     commands: mpsc::Sender<NetworkCommand>,
+    physics_reanchor: watch::Sender<u64>,
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl NetworkHandle {
+    #[cfg(test)]
+    pub(crate) fn test_stub() -> (Self, watch::Receiver<u64>) {
+        let (_control_event_tx, control_events) = mpsc::channel(1);
+        let (_world_event_tx, world_events) = mpsc::channel(1);
+        let (commands, _command_rx) = mpsc::channel(1);
+        let (physics_reanchor, physics_reanchor_rx) = watch::channel(0);
+        let (shutdown, _shutdown_rx) = watch::channel(false);
+        (
+            Self {
+                control_events,
+                world_events,
+                commands,
+                physics_reanchor,
+                shutdown,
+                thread: None,
+            },
+            physics_reanchor_rx,
+        )
+    }
+
+    pub(crate) fn movement_ticker(&self) -> MovementTicker {
+        MovementTicker::with_epoch_publisher(self.physics_reanchor.clone())
+    }
+
     pub fn control_events_mut(&mut self) -> &mut mpsc::Receiver<NetworkControlEvent> {
         &mut self.control_events
     }
@@ -173,8 +211,23 @@ impl NetworkHandle {
             .saturating_sub(self.commands.capacity())
     }
 
+    #[cfg(test)]
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None, None)
+    }
+
+    pub(crate) fn send_physics_packet(
+        &self,
+        identity: PhysicsSendIdentity,
+        packet: Packet,
+    ) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(
+            packet,
+            None,
+            None,
+            Some(identity),
+            Some(self.physics_reanchor.subscribe()),
+        )
     }
 
     pub fn send_chat_packet(
@@ -192,6 +245,8 @@ impl NetworkHandle {
                 sequence,
                 fast_transfer_action,
             }),
+            None,
+            None,
         )
     }
 
@@ -210,6 +265,8 @@ impl NetworkHandle {
                 count,
             }),
             None,
+            None,
+            None,
         )
     }
 
@@ -218,12 +275,16 @@ impl NetworkHandle {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
         chat: Option<ChatPacketSend>,
+        physics: Option<PhysicsSendIdentity>,
+        physics_reanchor: Option<watch::Receiver<u64>>,
     ) -> Result<(), PacketSendError> {
         self.commands
             .try_send(NetworkCommand::Send {
                 packet,
                 sub_chunk,
                 chat,
+                physics,
+                physics_reanchor,
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
@@ -270,6 +331,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
     let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let thread = thread::Builder::new()
         .name("bedrock-network".to_owned())
@@ -355,6 +417,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         control_events,
         world_events,
         commands,
+        physics_reanchor,
         shutdown,
         thread: Some(thread),
     })
@@ -493,15 +556,50 @@ async fn run_network_pump<S: NetworkSession>(
                     packet,
                     sub_chunk,
                     chat,
+                    physics,
+                    mut physics_reanchor,
                 }) => {
+                    if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
+                        && *reanchor.borrow() != identity.reanchor_epoch
+                    {
+                        if !send_control_event_or_cancel(
+                            &control_event_tx,
+                            &mut shutdown_rx,
+                            NetworkControlEvent::PhysicsPacketCancelled {
+                                identity,
+                                definitely_unsent: true,
+                            },
+                        )
+                        .await
+                        {
+                            return;
+                        }
+                        continue;
+                    }
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
                         session.begin_packet_id_trace();
                     }
-                    match wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
-                        .await
+                    let send_outcome = if let (Some(identity), Some(reanchor)) =
+                        (physics, physics_reanchor.as_mut())
                     {
-                        None => {
+                        wait_for_physics_send_or_cancel(
+                            session.send_packet(packet),
+                            &mut shutdown_rx,
+                            reanchor,
+                            identity.reanchor_epoch,
+                        )
+                        .await
+                    } else {
+                        match wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
+                            .await
+                        {
+                            Some(result) => PhysicsSendOutcome::Sent(result),
+                            None => PhysicsSendOutcome::Shutdown,
+                        }
+                    };
+                    match send_outcome {
+                        PhysicsSendOutcome::Shutdown => {
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
@@ -509,9 +607,37 @@ async fn run_network_pump<S: NetworkSession>(
                                 break;
                             }
                         }
-                        Some(Ok(())) => {
+                        PhysicsSendOutcome::Invalidated => {
+                            if trace_armed {
+                                session.cancel_packet_id_trace();
+                            }
+                            if let Some(identity) = physics
+                                && !send_control_event_or_cancel(
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkControlEvent::PhysicsPacketCancelled {
+                                        identity,
+                                        definitely_unsent: false,
+                                    },
+                                )
+                                .await
+                            {
+                                return;
+                            }
+                        }
+                        PhysicsSendOutcome::Sent(Ok(())) => {
                             if trace_armed {
                                 session.rotate_blob_cache_pending_for_fast_transfer();
+                            }
+                            if let Some(identity) = physics
+                                && !send_control_event_or_cancel(
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkControlEvent::PhysicsPacketSent { identity },
+                                )
+                                .await
+                            {
+                                return;
                             }
                             if let Some(marker) = chat.and_then(|chat| {
                                 chat.fast_transfer_action.map(|action| {
@@ -577,7 +703,7 @@ async fn run_network_pump<S: NetworkSession>(
                                 return;
                             }
                         }
-                        Some(Err(error)) => {
+                        PhysicsSendOutcome::Sent(Err(error)) => {
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
@@ -798,6 +924,38 @@ where
         biased;
         _ = wait_for_shutdown(shutdown) => None,
         result = send => Some(result),
+    }
+}
+
+enum PhysicsSendOutcome<T> {
+    Sent(T),
+    Invalidated,
+    Shutdown,
+}
+
+async fn wait_for_physics_send_or_cancel<F>(
+    send: F,
+    shutdown: &mut watch::Receiver<bool>,
+    reanchor: &mut watch::Receiver<u64>,
+    admitted_epoch: u64,
+) -> PhysicsSendOutcome<F::Output>
+where
+    F: Future,
+{
+    if *shutdown.borrow() {
+        return PhysicsSendOutcome::Shutdown;
+    }
+    if *reanchor.borrow() != admitted_epoch {
+        return PhysicsSendOutcome::Invalidated;
+    }
+    tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown) => PhysicsSendOutcome::Shutdown,
+        changed = reanchor.changed() => {
+            let _ = changed;
+            PhysicsSendOutcome::Invalidated
+        }
+        result = send => PhysicsSendOutcome::Sent(result),
     }
 }
 
