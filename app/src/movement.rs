@@ -172,6 +172,7 @@ pub(crate) struct PhysicsSendIdentity {
     pub(crate) session_generation: u64,
     pub(crate) tick: u64,
     pub(crate) admission_id: u64,
+    pub(crate) reanchor_epoch: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +246,7 @@ pub struct MovementTicker {
     outbox_reconciliation: MovementOutboxReconciliation,
     pending_fault: Option<PhysicsAuthorityFaultRecord>,
     next_admission_id: u64,
+    reanchor_epoch: u64,
     terminal_drain: bool,
 }
 
@@ -267,6 +269,7 @@ impl Default for MovementTicker {
             outbox_reconciliation: MovementOutboxReconciliation::NotAuthoritative,
             pending_fault: None,
             next_admission_id: 0,
+            reanchor_epoch: 0,
             terminal_drain: false,
         }
     }
@@ -294,6 +297,7 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.pending_fault = None;
         self.next_admission_id = 0;
+        self.reanchor_epoch = 0;
         self.terminal_drain = false;
     }
 
@@ -464,6 +468,7 @@ impl MovementTicker {
             session_generation: sample.session_generation,
             tick: sample.snapshot.tick,
             admission_id: self.next_admission_id,
+            reanchor_epoch: self.reanchor_epoch,
         }
     }
 
@@ -497,6 +502,25 @@ impl MovementTicker {
         });
     }
 
+    fn restore_admitted(
+        &mut self,
+        identity: PhysicsSendIdentity,
+    ) -> Result<QueuedPhysicsSample, PhysicsAuthorityFault> {
+        let pending = self
+            .pending_sends
+            .pop_back()
+            .filter(|pending| pending.identity == identity)
+            .ok_or(PhysicsAuthorityFault::PendingTickMismatch {
+                expected: identity.tick,
+                actual: self
+                    .pending_sends
+                    .back()
+                    .map_or(0, |pending| pending.identity.tick),
+            })?;
+        self.next_admission_id = self.next_admission_id.saturating_sub(1);
+        Ok(pending.sample)
+    }
+
     fn confirm_sent(&mut self, sample: &QueuedPhysicsSample) {
         if self.sent_history.len() == OUTBOX_CAPACITY {
             self.sent_history.pop_front();
@@ -528,11 +552,37 @@ impl MovementTicker {
             .pending_sends
             .pop_front()
             .expect("matching pending socket acknowledgement was checked");
-        self.confirm_sent(&pending.sample);
+        if identity.reanchor_epoch == self.reanchor_epoch {
+            self.confirm_sent(&pending.sample);
+        }
         self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
-        let mut evidence = pending.evidence;
-        evidence.network_position = pending.sample.snapshot.position;
-        self.tick_evidence.push_back(evidence);
+        self.tick_evidence.push_back(pending.evidence);
+        self.refresh_outbox_reconciliation();
+        true
+    }
+
+    pub(crate) fn resolve_cancelled_physics_send(
+        &mut self,
+        identity: PhysicsSendIdentity,
+        definitely_unsent: bool,
+    ) -> bool {
+        if !self.physics_is_authorized() || identity.session_generation != self.session_generation {
+            return false;
+        }
+        if self
+            .pending_sends
+            .front()
+            .is_none_or(|pending| pending.identity != identity)
+        {
+            return false;
+        }
+        if !definitely_unsent {
+            self.fail_physics_authority(PhysicsAuthorityFault::IndeterminatePhysicsSend {
+                tick: identity.tick,
+            });
+            return true;
+        }
+        self.pending_sends.pop_front();
         self.refresh_outbox_reconciliation();
         true
     }
@@ -544,8 +594,8 @@ impl MovementTicker {
         self.previous_position = position;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
-        self.pending_sends.clear();
         self.sent_history.clear();
+        self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
         self.refresh_outbox_reconciliation();
     }
 
@@ -663,6 +713,10 @@ impl MovementTicker {
         self.pending_fault
     }
 
+    pub(crate) const fn reanchor_epoch(&self) -> u64 {
+        self.reanchor_epoch
+    }
+
     pub(crate) fn record_physics_fault(&mut self, fault: PhysicsAuthorityFault) {
         self.fail_physics_authority(fault);
     }
@@ -680,8 +734,8 @@ impl MovementTicker {
                 self.previous_position = plan.final_position;
                 self.previous_input = HeldInput::default();
                 self.outbox.clear();
-                self.pending_sends.clear();
                 self.sent_history.clear();
+                self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -748,6 +802,7 @@ impl MovementTicker {
                     };
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = subtract(replayed.position, previous_position);
+                    pending.evidence.network_position = replayed.position;
                     replacement.push_back(pending);
                 }
                 self.outbox = replacement;
@@ -844,18 +899,21 @@ pub(crate) fn flush_player_auth_inputs<E>(
         };
         let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
         let identity = ticker.next_send_identity(&sample);
+        ticker.note_command_admitted(
+            identity,
+            sample,
+            evidence_context.expect("nonempty outbox requires staged evidence context"),
+        );
         if let Err(error) = send(identity, packet) {
+            let sample = ticker
+                .restore_admitted(identity)
+                .map_err(|_| MovementSendError::RestoreOverflow)?;
             ticker
                 .retry_front(sample)
                 .map_err(|_| MovementSendError::RestoreOverflow)?;
             ticker.outbox_reconciliation = MovementOutboxReconciliation::TransportRestored;
             return Err(MovementSendError::Transport(error));
         }
-        ticker.note_command_admitted(
-            identity,
-            sample,
-            evidence_context.expect("nonempty outbox requires staged evidence context"),
-        );
         sent += 1;
     }
     ticker.refresh_outbox_reconciliation();

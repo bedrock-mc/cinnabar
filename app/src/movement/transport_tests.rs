@@ -122,14 +122,112 @@ fn terminal_drain_stops_admissions_then_reconciles_a_healthy_final_write() {
 }
 
 #[test]
-fn socket_ack_publishes_the_immutable_admission_evidence_context() {
+fn surface_reanchor_keeps_an_already_admitted_send_nonterminal_until_transport_resolves_it() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 40, [0.0; 3]);
     ticker.set_source(MovementSource::Physics);
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
+    let mut admitted = None;
+    assert_eq!(
+        flush_player_auth_inputs(
+            &mut ticker,
+            1,
+            Some(evidence_context()),
+            |identity, _packet| {
+                admitted = Some(identity);
+                Ok::<_, &str>(())
+            },
+        ),
+        Ok(1)
+    );
+
+    ticker.reanchor_surface_spawn(41, [8.0, 71.620_01, 9.0]);
+
+    assert_eq!(
+        ticker.pending_count(),
+        1,
+        "an admitted command remains transport-owned until cancellation or socket acknowledgement"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::SocketPending,
+        "acceptance must not report a clean drain while the admitted command can still reach the socket"
+    );
+    assert!(
+        ticker.acknowledge_physics_send(admitted.unwrap()),
+        "a raced successful socket write must remain countable after the reanchor"
+    );
+    assert_eq!(ticker.sent_physics_packet_count(), 1);
+}
+
+#[test]
+fn indeterminate_reanchor_cancellation_fails_physics_authority_closed() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
+        .unwrap();
+    let mut admitted = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    ticker.reanchor_surface_spawn(41, [8.0, 71.620_01, 9.0]);
+
+    assert!(ticker.resolve_cancelled_physics_send(admitted.unwrap(), false));
+    assert!(!ticker.physics_is_authorized());
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative
+    );
+    assert_eq!(
+        ticker.take_authority_fault().unwrap().fault,
+        PhysicsAuthorityFault::IndeterminatePhysicsSend { tick: 41 }
+    );
+}
+
+#[test]
+fn socket_ack_publishes_the_immutable_admission_evidence_context() {
+    let mut ordering_probe = MovementTicker::default();
+    ordering_probe.reset(7, 40, [0.0; 3]);
+    ordering_probe.set_source(MovementSource::Physics);
+    ordering_probe
+        .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
+        .unwrap();
     let admitted = evidence_context();
+    let handoff = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = flush_player_auth_inputs(
+            &mut ordering_probe,
+            1,
+            Some(admitted),
+            |_identity, _packet| -> Result<(), &str> {
+                panic!("send closure observed");
+            },
+        );
+    }));
+    assert!(handoff.is_err());
+    assert_eq!(
+        ordering_probe.pending_sends.len(),
+        1,
+        "the complete evidence record must be staged before the send closure can begin handoff"
+    );
+    assert_eq!(ordering_probe.pending_sends[0].evidence.context, admitted);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
+        .unwrap();
     let mut identity = None;
     flush_player_auth_inputs(&mut ticker, 1, Some(admitted), |send_identity, _packet| {
         identity = Some(send_identity);
@@ -137,18 +235,6 @@ fn socket_ack_publishes_the_immutable_admission_evidence_context() {
     })
     .unwrap();
 
-    let changed_render_frame = PhysicsTickEvidenceContext {
-        fifo_sequence: 99,
-        pose_generation: 212,
-        dimension: 1,
-        perspective: semantic_input::PerspectiveMode::ThirdPersonFront,
-        camera_blocked: true,
-        local_avatar_visible: true,
-        look_delta: [-8.0, 4.0],
-        outbox_depth: 0,
-        ..admitted
-    };
-    assert_ne!(changed_render_frame, admitted);
     assert!(ticker.acknowledge_physics_send(identity.unwrap()));
 
     let published = ticker.take_tick_evidence();

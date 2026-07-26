@@ -302,6 +302,7 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
+    network: Res<NetworkHandle>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
@@ -369,6 +370,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
+                    let prior_reanchor_epoch = movement.reanchor_epoch();
                     if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
@@ -378,6 +380,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::ReplayIfRetained,
                         &world,
                     ) {
+                        if movement.reanchor_epoch() != prior_reanchor_epoch {
+                            network.invalidate_physics_before(movement.reanchor_epoch());
+                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -408,6 +413,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
+                    let prior_reanchor_epoch = movement.reanchor_epoch();
                     if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
@@ -417,6 +423,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::Snap,
                         &world,
                     ) {
+                        if movement.reanchor_epoch() != prior_reanchor_epoch {
+                            network.invalidate_physics_before(movement.reanchor_epoch());
+                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -443,6 +452,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
+                    let prior_reanchor_epoch = movement.reanchor_epoch();
                     if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
@@ -452,6 +462,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::Snap,
                         &world,
                     ) {
+                        if movement.reanchor_epoch() != prior_reanchor_epoch {
+                            network.invalidate_physics_before(movement.reanchor_epoch());
+                        }
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -747,6 +760,7 @@ pub(crate) fn drive_world_stream(
         // World publication runs after local physics. The next frame's delta
         // starts after this anchor, so it must remain eligible for simulation.
         movement.reanchor_surface_spawn(tick, position);
+        network.invalidate_physics_before(movement.reanchor_epoch());
         local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");

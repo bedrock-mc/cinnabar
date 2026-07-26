@@ -464,7 +464,23 @@ pub(crate) fn receive_network_events(
                         session_generation = identity.session_generation,
                         tick = identity.tick,
                         admission_id = identity.admission_id,
+                        reanchor_epoch = identity.reanchor_epoch,
                         "ignored stale, duplicate, or out-of-order physics send acknowledgement"
+                    );
+                }
+            }
+            NetworkControlEvent::PhysicsPacketCancelled {
+                identity,
+                definitely_unsent,
+            } => {
+                if !movement.resolve_cancelled_physics_send(identity, definitely_unsent) {
+                    warn!(
+                        session_generation = identity.session_generation,
+                        tick = identity.tick,
+                        admission_id = identity.admission_id,
+                        reanchor_epoch = identity.reanchor_epoch,
+                        definitely_unsent,
+                        "ignored stale, duplicate, or out-of-order physics cancellation"
                     );
                 }
             }

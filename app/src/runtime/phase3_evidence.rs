@@ -508,6 +508,10 @@ impl PhysicsAuthorityFaultRecord {
                 "pending_session_mismatch",
                 serde_json::json!({"expected": expected, "actual": actual}),
             ),
+            PhysicsAuthorityFault::IndeterminatePhysicsSend { tick } => (
+                "indeterminate_physics_send",
+                serde_json::json!({"tick": tick}),
+            ),
         };
         format!(
             "{PHASE3_EVENT}={}",

@@ -528,6 +528,14 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     );
     assert_ne!(after[0].snapshot.position, before[0].snapshot.position);
     assert_ne!(after[1].snapshot.position, before[1].snapshot.position);
+    assert_eq!(
+        after[0].evidence.network_position, after[0].snapshot.position,
+        "replay must update the evidence snapshot to the exact position that will be encoded"
+    );
+    assert_eq!(
+        after[1].evidence.network_position, after[1].snapshot.position,
+        "every replay-adjusted packet must retain matching immutable evidence"
+    );
 }
 
 #[test]

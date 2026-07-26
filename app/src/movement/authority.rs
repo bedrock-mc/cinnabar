@@ -23,6 +23,7 @@ pub enum PhysicsAuthorityFault {
     PendingWorldIdentityMismatch { tick: u64 },
     PendingTickMismatch { expected: u64, actual: u64 },
     PendingSessionMismatch { expected: u64, actual: u64 },
+    IndeterminatePhysicsSend { tick: u64 },
 }
 
 impl PhysicsAuthorityGate {
