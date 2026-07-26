@@ -211,8 +211,8 @@ Describe 'Phase 3 production marker evidence validation' {
     }
 
     It 'accepts one bounded production-derived consecutive tick sequence' {
-        $result = Invoke-Validator (Write-MarkerLog 'valid.log')
-        $result.ExitCode | Should Be 0
+        $logPath = Write-MarkerLog 'valid.log'; Add-Content -LiteralPath $logPath -Encoding utf8 -Value 'RUST_MCBE_NETWORK_PUMP_TERMINAL={"schema":"rust-mcbe-network-pump-terminal-v1","outcome":"failed","stage":"receive_packet","message":"connection reset","decode_error_count":0}'; $result = Invoke-Validator $logPath
+        $result.ExitCode | Should Be 0; $result.Output | Should Match 'Phase 3 network pump terminal diagnostic:'; $result.Output | Should Match 'connection\s+reset'
         $result.Output | Should Match 'PHASE3_EVIDENCE_VALID target=Bds .* frames=5 events=3'
         $aggregate = Get-Content -Raw -LiteralPath $result.Aggregate | ConvertFrom-Json
         $aggregate.movement.held_jump_longest_run | Should Be 2

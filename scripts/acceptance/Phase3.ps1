@@ -66,6 +66,7 @@ $ErrorActionPreference = 'Stop'
 $framePrefix = 'RUST_MCBE_PHASE3_FRAME='
 $eventPrefix = 'RUST_MCBE_PHASE3_EVENT='
 $identityPrefix = 'RUST_MCBE_PHASE3_IDENTITY='
+$networkPumpTerminalPrefix = 'RUST_MCBE_NETWORK_PUMP_TERMINAL='
 $terminalPrefix = 'RUST_MCBE_PHASE3_TERMINAL='
 $violationPrefix = 'RUST_MCBE_PHASE3_VIOLATION='
 $identityProperties = @(
@@ -432,6 +433,12 @@ $eventJson = [Collections.Generic.List[string]]::new()
 $identityJson = [Collections.Generic.List[string]]::new()
 $terminalJson = [Collections.Generic.List[string]]::new()
 foreach ($line in Get-Content -LiteralPath $LogPath) {
+    if ($line.StartsWith($networkPumpTerminalPrefix, [StringComparison]::Ordinal)) {
+        Write-Warning (
+            'Phase 3 network pump terminal diagnostic: ' +
+            $line.Substring($networkPumpTerminalPrefix.Length)
+        )
+    }
     if ($line.StartsWith($violationPrefix, [StringComparison]::Ordinal)) {
         throw 'Phase 3 client log contains a production evidence violation marker'
     }
