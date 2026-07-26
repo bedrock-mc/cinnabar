@@ -1038,6 +1038,62 @@ fn app_semantic_runtime_preserves_keyboard_controller_touch_equivalence() {
 }
 
 #[test]
+fn semantic_controller_activity_ignores_drift_without_refiring_held_buttons() {
+    let mut runtime = SemanticInputRuntime::default();
+    let controller_frame = |drift| DeviceFrame {
+        controllers: vec![
+            ControllerFrame {
+                device_id: 7,
+                buttons: vec![0],
+                ..ControllerFrame::default()
+            },
+            ControllerFrame {
+                device_id: 8,
+                axes: [drift, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            },
+        ],
+        ..DeviceFrame::default()
+    };
+
+    let controller_owned = runtime.route_and_finalize(controller_frame(0.0)).unwrap();
+    assert_eq!(
+        controller_owned.input_mode,
+        semantic_input::InputMode::GamePad
+    );
+    assert!(controller_owned.phases[Action::Jump as usize].pressed);
+    assert!(controller_owned.phases[Action::Jump as usize].held);
+
+    let keyboard = KeyboardMouseFrame {
+        keys: vec![0x1a],
+        ..KeyboardMouseFrame::default()
+    };
+    let mut keyboard_frame = controller_frame(0.0);
+    keyboard_frame.keyboard_mouse = Some(keyboard.clone());
+    let keyboard_owned = runtime.route_and_finalize(keyboard_frame).unwrap();
+    assert_eq!(
+        keyboard_owned.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
+    assert_eq!(keyboard_owned.movement, [0.0, 1.0]);
+
+    let mut sub_deadzone_drift = controller_frame(0.05);
+    sub_deadzone_drift.keyboard_mouse = Some(keyboard.clone());
+    let drift = runtime.route_and_finalize(sub_deadzone_drift).unwrap();
+    assert_eq!(drift.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(drift.movement, [0.0, 1.0]);
+    assert!(!drift.phases[Action::Jump as usize].pressed);
+
+    let mut crossed_deadzone = controller_frame(0.2);
+    crossed_deadzone.keyboard_mouse = Some(keyboard);
+    let crossing = runtime.route_and_finalize(crossed_deadzone).unwrap();
+    assert_eq!(crossing.input_mode, semantic_input::InputMode::GamePad);
+    assert!(crossing.movement[0] > 0.0);
+    assert!(!crossing.phases[Action::Jump as usize].pressed);
+    assert!(crossing.phases[Action::Jump as usize].held);
+}
+
+#[test]
 fn semantic_runtime_wires_context_bindings_authority_and_release_at_finalize() {
     let mut runtime = SemanticInputRuntime::default();
     let held_jump = DeviceFrame {

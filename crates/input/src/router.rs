@@ -1,10 +1,11 @@
 use core::num::NonZeroU64;
 
 use crate::{
-    Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings, DeviceFrame,
-    FrameError, InputChord, InputContext, InputMode, MAX_CONTROLLER_BUTTONS, MAX_CONTROLLERS,
-    MAX_KEYBOARD_KEYS, MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MouseAxis, PhysicalControl,
-    ReleaseReason, TouchAxis, TouchControlKind, TouchControlLayout,
+    Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings,
+    ControllerFrame, DeviceFrame, FrameError, InputChord, InputContext, InputMode,
+    MAX_CONTROLLER_BUTTONS, MAX_CONTROLLERS, MAX_KEYBOARD_KEYS, MAX_MOUSE_BUTTONS,
+    MAX_TOUCH_CONTACTS, MouseAxis, PhysicalControl, ReleaseReason, TouchAxis, TouchControlKind,
+    TouchControlLayout,
 };
 
 /// Maximum Euclidean magnitude accepted for a semantic look delta.
@@ -84,6 +85,16 @@ impl SemanticInputRouter {
             touch_layout,
             ..Self::default()
         })
+    }
+
+    /// Reports whether the merged, deadzone-adjusted controller state changed.
+    pub fn controller_activity_changed<'a, 'b>(
+        &self,
+        previous: impl IntoIterator<Item = &'a ControllerFrame>,
+        current: impl IntoIterator<Item = &'b ControllerFrame>,
+    ) -> bool {
+        evaluate_controller_state(previous, &self.settings)
+            != evaluate_controller_state(current, &self.settings)
     }
 
     pub fn route(&mut self, frame: DeviceFrame) -> Result<(), RouterError> {
@@ -216,7 +227,7 @@ impl SemanticInputRouter {
                 pressed: if action.is_one_shot() {
                     sample.pressed[index]
                 } else {
-                    is_down && (!was_down || authority_release)
+                    is_down && (sample.pressed[index] || authority_release)
                 },
                 held: is_down && persistent,
                 released: persistent && was_down && (!is_down || authority_release),
@@ -852,15 +863,15 @@ fn directional_axis(value: f32, positive: bool) -> f32 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct EvaluatedControllerState {
     axes: [f32; 8],
-    has_buttons: bool,
+    buttons: u32,
 }
 
 impl EvaluatedControllerState {
     fn is_neutral(self) -> bool {
-        !self.has_buttons && self.axes.iter().all(|axis| *axis == 0.0)
+        self.buttons == 0 && self.axes.iter().all(|axis| *axis == 0.0)
     }
 
     fn axis_family_is_active(self, axis: usize) -> bool {
@@ -879,9 +890,13 @@ fn evaluate_controller_state<'a>(
     // Sampling, mode eligibility, quarantine, and reconnect rearming all
     // consume this exact component-wise merge and radial-deadzone result.
     let mut axes = [0.0_f32; 8];
-    let mut has_buttons = false;
+    let mut buttons = 0_u32;
     for controller in controllers {
-        has_buttons |= !controller.buttons.is_empty();
+        for button in &controller.buttons {
+            if let Some(button) = 1_u32.checked_shl(u32::from(*button)) {
+                buttons |= button;
+            }
+        }
         for (output, input) in axes.iter_mut().zip(controller.axes) {
             if input.abs() > output.abs() {
                 *output = input;
@@ -895,7 +910,7 @@ fn evaluate_controller_state<'a>(
     for axis in &mut axes[4..] {
         *axis = axis.clamp(-1.0, 1.0);
     }
-    EvaluatedControllerState { axes, has_buttons }
+    EvaluatedControllerState { axes, buttons }
 }
 
 fn radial_deadzone(value: [f32; 2], deadzone: f32) -> [f32; 2] {

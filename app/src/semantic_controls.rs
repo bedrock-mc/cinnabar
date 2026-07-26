@@ -2,9 +2,8 @@ use std::{collections::HashMap, num::NonZeroU64};
 
 use bevy::prelude::{Res, ResMut, Resource};
 use semantic_input::{
-    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, ControllerFrame,
-    DeviceFrame, InputContext, KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter,
-    TouchContact,
+    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, DeviceFrame, InputContext,
+    KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
 mod physical;
@@ -187,18 +186,35 @@ impl SemanticInputRuntime {
         frame
             .controllers
             .sort_by_key(|controller| controller.device_id);
+        let known_controller_activity_changed = {
+            let previous = &self.previous.controllers;
+            self.router.controller_activity_changed(
+                previous.iter().filter(|previous| {
+                    frame
+                        .controllers
+                        .iter()
+                        .any(|current| current.device_id == previous.device_id)
+                }),
+                frame.controllers.iter().filter(|current| {
+                    previous
+                        .iter()
+                        .any(|previous| previous.device_id == current.device_id)
+                }),
+            )
+        };
+        let known_controller_activity =
+            known_controller_activity_changed.then(|| self.next_activity());
         for current in &mut frame.controllers {
             let previous = self
                 .previous
                 .controllers
                 .iter()
                 .find(|previous| previous.device_id == current.device_id);
-            current.activity_sequence =
-                if previous.is_some_and(|previous| controller_physical_eq(previous, current)) {
-                    previous.map_or(0, |previous| previous.activity_sequence)
-                } else {
-                    self.next_activity()
-                };
+            current.activity_sequence = match (previous, known_controller_activity) {
+                (Some(_), Some(activity)) => activity,
+                (Some(previous), None) => previous.activity_sequence,
+                (None, _) => self.next_activity(),
+            };
         }
         frame.touches.sort_by_key(|touch| touch.contact_id);
         for current in &mut frame.touches {
@@ -222,10 +238,6 @@ fn keyboard_physical_eq(left: &KeyboardMouseFrame, right: &KeyboardMouseFrame) -
         && left.mouse_buttons == right.mouse_buttons
         && left.mouse_motion == right.mouse_motion
         && left.modifiers == right.modifiers
-}
-
-fn controller_physical_eq(left: &ControllerFrame, right: &ControllerFrame) -> bool {
-    left.axes == right.axes && left.buttons == right.buttons
 }
 
 fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
