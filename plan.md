@@ -99,7 +99,7 @@ Phase status at this audit:
 | Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
 | Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
-| Phase 3 movement | Packet/simulation foundations plus app input, fixed-step simulation, collision registries, camera interpolation, and correction/session reanchors are integrated through `e370880`. Production outbound movement remains intentionally off in FreeCamera mode; remaining bedsim movement strata and live server-authoritative acceptance are still open |
+| Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live and performance acceptance remain open. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
 | Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, distinct per-frame render interpolation, and the bounded MCBEENT3 geometry/bone/cube carrier are complete. Runtime rig consumption, animations/Molang, persona/custom rendering, legacy/outer skin layers, and remaining entity families are still open |
 
 Nine other patch-unique branch heads were audited as superseded/reimplemented and were
@@ -1652,6 +1652,45 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   enforcement are green. The controller deliberately cannot authorize network transmission:
   production remains `FreeCamera` and sends no local position updates. Enabling `Physics`
   authority requires the remaining movement strata plus live server-authoritative verification.
+
+- **PR #6 Phase 3 integration record (2026-07-26).** Both independently reviewed lanes landed
+  with history preserved. The input-parity lane `codex/pr6-input-parity` was approved at
+  `c1bb584` after five independent Sol-high review rounds and four fix rounds, with final
+  decision `APPROVE` and no findings, then landed as merge `cfdf897`. The correction and
+  acceptance lane `agent/pr6-phase3-completion` was approved at `e099529` after six independent
+  Sol-high review rounds and five fix rounds, with final decision `APPROVE` and no findings,
+  then landed as merge `a9593e7`.
+  - Post-integration deterministic verification on the merged tree passed:
+    `cargo test -p semantic-input --locked` (53 passed);
+    `cargo test -p bedrock-client --locked` (lib 420, assets 41, hud_assets 9,
+    inventory_router 3, physics_assets 2, doctest 1; all passed);
+    `cargo test -p protocol --locked` (21 test binaries, all passed);
+    `cargo test -p client-world --locked` (lib 236 passed / 1 ignored,
+    entity_runtime 11, item_actions 14; all passed);
+    `cargo fmt --all -- --check` passed;
+    `git diff --check` passed;
+    `cargo clippy --workspace --all-targets --locked -- -D warnings` passed with zero
+    warnings and is CI's exact Clippy command; and
+    `Invoke-Pester -Script 'scripts/tests/acceptance/Phase3.Tests.ps1' -PassThru` passed
+    89/89.
+  - `cargo test --workspace --locked` was not run locally as a single invocation. The
+    per-crate suites above were run instead; CI runs the workspace form.
+  - Implementation and deterministic verification are complete. Native/live and performance
+    acceptance remain open and are **not** closed; Phase 3 is not complete. No native/live
+    acceptance checkbox is closed by this integration.
+  - Production outbound `Physics` transmission remains intentionally disabled. Enabling it is
+    a separate reviewed change.
+  - The network lifecycle emits one bootstrap per `NetworkHandle`; same-handle session
+    replacement remains a known uncovered lifecycle.
+  - Two acceptance-harness inconsistencies remain open and were deliberately not fixed in this
+    integration: the `CandidatePhysics` manifest requires a touch witness while production
+    touch is disabled, so a candidate run cannot currently reach a passing verdict; and
+    `Phase3Launcher.ps1` has no Zeno target even though `docs/agents/live-testing.md` designates
+    `zenomc.org:19197` for low-population server-authority checks.
+  - The owner has deprioritized touch parity, so touch parity must not gate Phase 3 acceptance.
+  - Pre-existing, out-of-scope observation: adding `--all-features` to Clippy fails in the
+    vendored `crates/protocol/vendor/jolyne` crate because optional dependencies are not
+    vendored. This work did not cause that failure, and CI does not use `--all-features`.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
 
