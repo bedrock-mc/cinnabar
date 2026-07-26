@@ -822,7 +822,7 @@ async fn encrypted_login_advertises_client_cache_only_when_resolver_is_installed
 }
 
 #[tokio::test]
-async fn encrypted_play_resolves_client_cached_level_chunk_and_preserves_world_fifo() {
+async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves() {
     let transport =
         ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
     let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
@@ -844,20 +844,24 @@ async fn encrypted_play_resolves_client_cached_level_chunk_and_preserves_world_f
         );
     }
 
+    assert_eq!(
+        session
+            .recv_world_event(0)
+            .await
+            .expect("independent SetTime"),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
+    );
+
     let chunk = session
         .recv_world_event(0)
         .await
         .expect("resolved cached chunk");
     let WorldEvent::LevelChunk(chunk) = chunk else {
-        panic!("cached transaction must remain first")
+        panic!("cached transaction must resolve after its miss response")
     };
     assert_eq!((chunk.x, chunk.z), (9, -11));
     assert_eq!(chunk.payload, b"cached-columntail");
 
-    assert_eq!(
-        session.recv_world_event(0).await.expect("FIFO SetTime"),
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
-    );
     let stats = session.blob_cache_stats();
     assert_eq!(stats.hashes_classified, 1);
     assert_eq!(stats.misses, 1);

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn skipped_cached_status(
+pub(super) fn classified_cached_status(
     cache: &ClientBlobCache,
     packet: &Packet,
 ) -> ClientCacheBlobStatusPacket {
@@ -23,13 +23,8 @@ pub(super) fn skipped_cached_status(
         }
         _ => Vec::new(),
     };
-    ClientCacheBlobStatusPacket {
-        missing: Vec::new(),
-        have: hashes
-            .into_iter()
-            .filter(|hash| cache.contains(*hash))
-            .collect(),
-    }
+    let (have, missing) = cache.classify(&hashes);
+    ClientCacheBlobStatusPacket { missing, have }
 }
 
 pub(super) fn level_chunk_resync(packet: &Packet) -> Option<ChunkResyncEvent> {
@@ -96,9 +91,6 @@ pub(super) fn reconstructed_accounted_bytes(
                     Ok(bytes)
                 }
             })
-        }
-        PendingPacket::Ordinary(_) | PendingPacket::WorldEvent(_) => {
-            Ok(transaction.accounted_bytes)
         }
     }
 }

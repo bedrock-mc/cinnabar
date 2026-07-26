@@ -206,7 +206,7 @@ fn retired_generation_does_not_admit_unrelated_blobs() {
 }
 
 #[test]
-fn empty_miss_response_is_a_noop_that_leaves_the_fifo_untouched() {
+fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
     let payload = b"empty-response-wanted";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -215,7 +215,7 @@ fn empty_miss_response_is_a_noop_that_leaves_the_fifo_untouched() {
         .expect("unresolved cached FIFO head");
     resolver
         .accept_passthrough(SetTimePacket { time: 42 }.into(), 32)
-        .expect("ordinary packet queues behind the cached head");
+        .expect("ordinary packet is independent");
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket { blobs: Vec::new() })
@@ -223,12 +223,10 @@ fn empty_miss_response_is_a_noop_that_leaves_the_fifo_untouched() {
 
     assert_eq!(resolver.stats().skipped_miss_responses, 0);
     assert_eq!(resolver.stats().empty_miss_responses, 1);
-    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert_eq!(resolver.stats().pending_transactions, 1);
     assert_eq!(resolver.stats().retired_cached_transactions, 0);
-    assert!(
-        resolver.pop_ready().is_none(),
-        "the unresolved FIFO head and its follower must remain queued"
-    );
+    let ordinary = pop_packet(&mut resolver, "ordinary packet remains ready");
+    assert!(matches!(ordinary.data, McpePacketData::PacketSetTime(_)));
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -241,8 +239,6 @@ fn empty_miss_response_is_a_noop_that_leaves_the_fifo_untouched() {
     assert!(resolver.cache().contains(hash));
     let chunk = pop_packet(&mut resolver, "original cached FIFO head");
     assert!(matches!(chunk.data, McpePacketData::PacketLevelChunk(_)));
-    let ordinary = pop_packet(&mut resolver, "ordinary FIFO follower");
-    assert!(matches!(ordinary.data, McpePacketData::PacketSetTime(_)));
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert!(
         resolver.pop_ready().is_none(),

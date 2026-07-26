@@ -208,6 +208,14 @@ impl ClientBlobCache {
         (have, missing)
     }
 
+    fn classify(&self, hashes: &[u64]) -> (Vec<u64>, Vec<u64>) {
+        let store = self.lock();
+        hashes
+            .iter()
+            .copied()
+            .partition(|hash| store.entries.contains_key(hash))
+    }
+
     fn unpin_all(&self, hashes: &[u64]) {
         let mut store = self.lock();
         for &hash in hashes {
@@ -233,8 +241,6 @@ pub fn client_blob_hash(payload: &[u8]) -> u64 {
 enum PendingPacket {
     LevelChunk(Box<LevelChunkPacket>),
     SubChunk(Box<SubchunkPacket>),
-    Ordinary(Packet),
-    WorldEvent(WorldEvent),
 }
 
 #[derive(Debug)]
@@ -249,6 +255,18 @@ struct PendingTransaction {
 struct ReadyTransaction {
     value: BlobCacheReady,
     accounted_bytes: usize,
+    sequence: u64,
+}
+
+#[derive(Debug)]
+struct ImmediateReady {
+    value: BlobCacheReady,
+    sequence: u64,
+}
+
+#[derive(Debug)]
+struct ReadyRecovery {
+    event: ChunkResyncEvent,
 }
 
 #[derive(Debug)]
@@ -256,10 +274,13 @@ pub struct BlobCacheResolver {
     cache: ClientBlobCache,
     pending: VecDeque<PendingTransaction>,
     ready: VecDeque<ReadyTransaction>,
-    recovery_ready: VecDeque<ChunkResyncEvent>,
+    immediate_ready: VecDeque<ImmediateReady>,
+    recovery_ready: VecDeque<ReadyRecovery>,
     authorized_misses: Vec<(u64, usize)>,
     retired_authorized_misses: Vec<(u64, usize)>,
+    pressure_authorized_misses: VecDeque<u64>,
     fast_transfer_rotation_armed: bool,
+    next_ready_sequence: u64,
     stats: BlobCacheStats,
 }
 

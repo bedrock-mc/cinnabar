@@ -87,7 +87,7 @@ fn pop_packet(resolver: &mut BlobCacheResolver, label: &str) -> protocol::Packet
 }
 
 #[test]
-fn well_formed_world_event_pressure_keeps_the_resolver_bounded_and_alive() {
+fn world_events_are_independent_of_cached_transaction_pressure() {
     let mut bounded = limits(8, 256);
     bounded.max_pending_transactions = 2;
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
@@ -103,14 +103,22 @@ fn well_formed_world_event_pressure_keeps_the_resolver_bounded_and_alive() {
         .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 2 }), 8)
         .expect("well-formed event pressure must be recoverable");
 
-    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert_eq!(resolver.stats().pending_transactions, 1);
     assert!(resolver.stats().pending_bytes <= bounded.max_pending_bytes);
     assert_eq!(resolver.stats().pending_resets, 0);
-    assert_eq!(resolver.stats().skipped_world_events, 1);
+    assert_eq!(resolver.stats().skipped_world_events, 0);
+    for time in [1, 2] {
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::SetTime(
+                SetTimeEvent { time: actual }
+            ))) if actual == time
+        ));
+    }
 }
 
 #[test]
-fn cache_miss_response_still_unblocks_the_fifo_under_admission_pressure() {
+fn cache_miss_response_resolves_after_independent_world_events() {
     let payload = b"head-miss";
     let hash = client_blob_hash(payload);
     let mut bounded = limits(8, 256);
@@ -124,7 +132,16 @@ fn cache_miss_response_still_unblocks_the_fifo_under_admission_pressure() {
         .expect("event at the exact transaction boundary");
     resolver
         .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 2 }), 8)
-        .expect("pressure is a lenient skip");
+        .expect("second event is also independent");
+
+    for time in [1, 2] {
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::SetTime(
+                SetTimeEvent { time: actual }
+            ))) if actual == time
+        ));
+    }
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -137,14 +154,8 @@ fn cache_miss_response_still_unblocks_the_fifo_under_admission_pressure() {
 
     let resolved = pop_packet(&mut resolver, "resolved cached FIFO head");
     assert!(matches!(resolved.data, McpePacketData::PacketLevelChunk(_)));
-    assert!(matches!(
-        resolver.pop_ready(),
-        Some(protocol::BlobCacheReady::WorldEvent(WorldEvent::SetTime(
-            SetTimeEvent { time: 1 }
-        )))
-    ));
     assert!(resolver.pop_ready().is_none());
-    assert_eq!(resolver.stats().skipped_world_events, 1);
+    assert_eq!(resolver.stats().skipped_world_events, 0);
 }
 
 #[test]
@@ -162,11 +173,49 @@ fn cached_subchunk_pressure_is_skipped_for_the_bounded_request_retry_path() {
         .accept_cached_packet(cached_subchunk(skipped_hash, b"tail"))
         .expect("requested SubChunk pressure must not disconnect");
 
-    assert!(status.missing.is_empty());
+    assert_eq!(status.missing, vec![skipped_hash]);
     assert!(status.have.is_empty());
     assert_eq!(resolver.stats().pending_transactions, 1);
     assert!(resolver.stats().pending_bytes <= bounded.max_pending_bytes);
     assert_eq!(resolver.stats().skipped_cached_packets, 1);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: skipped_hash,
+                payload: b"retry-subchunk".to_vec(),
+            }],
+        })
+        .expect("truthfully requested pressure miss remains solicited");
+    assert!(resolver.cache().contains(skipped_hash));
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().skipped_miss_responses, 0);
+}
+
+#[test]
+fn hash_free_world_event_is_ready_while_cached_transaction_is_unresolved() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    resolver
+        .accept_cached_packet(cached_request_level(
+            1,
+            client_blob_hash(b"unresolved-cache-transaction"),
+        ))
+        .expect("unresolved cached transaction");
+
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 42 }), usize::MAX)
+        .expect("hash-free event is independent of cache pressure");
+
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::SetTime(
+            SetTimeEvent { time: 42 }
+        )))
+    ));
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().skipped_world_events, 0);
 }
 
 #[test]
@@ -185,7 +234,7 @@ fn refused_cached_level_chunk_queues_a_bounded_column_resync() {
         .expect("refused LevelChunk pressure must not disconnect");
 
     assert!(status.have.is_empty());
-    assert!(status.missing.is_empty());
+    assert_eq!(status.missing, vec![refused_hash]);
     let recovery = resolver
         .pop_ready()
         .expect("refused LevelChunk must surface a recovery event")
@@ -429,7 +478,7 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
 }
 
 #[test]
-fn miss_packets_complete_transactions_in_original_fifo_order() {
+fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
     let a = b"a";
     let b = b"b";
     let ah = client_blob_hash(a);
@@ -450,7 +499,13 @@ fn miss_packets_complete_transactions_in_original_fifo_order() {
             }],
         })
         .expect("later transaction resolves first");
-    assert!(resolver.pop_ready().is_none());
+    let second = pop_packet(&mut resolver, "later completed packet");
+    let McpePacketData::PacketLevelChunk(second) = second.data else {
+        panic!()
+    };
+    assert!(second.payload.ends_with(b"second"));
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
@@ -461,19 +516,14 @@ fn miss_packets_complete_transactions_in_original_fifo_order() {
         .expect("earlier transaction resolves");
 
     let first = pop_packet(&mut resolver, "first packet");
-    let second = pop_packet(&mut resolver, "second packet");
     let McpePacketData::PacketLevelChunk(first) = first.data else {
         panic!()
     };
-    let McpePacketData::PacketLevelChunk(second) = second.data else {
-        panic!()
-    };
     assert!(first.payload.ends_with(b"first"));
-    assert!(second.payload.ends_with(b"second"));
 }
 
 #[test]
-fn ordinary_packets_are_fifo_barriers_between_cached_transactions() {
+fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
     let a = b"missing-a";
     let b = b"cached-b";
     let ah = client_blob_hash(a);
@@ -486,12 +536,18 @@ fn ordinary_packets_are_fifo_barriers_between_cached_transactions() {
         .expect("pending A");
     resolver
         .accept_passthrough(SetTimePacket { time: 42 }.into(), 8)
-        .expect("ordinary FIFO barrier");
+        .expect("ordinary packet");
     let b_status = resolver
         .accept_cached_packet(cached_level(vec![bh, bh, bh], b"B"))
         .expect("hit B");
     assert_eq!(b_status.have, vec![bh]);
-    assert!(resolver.pop_ready().is_none());
+    let ordinary = pop_packet(&mut resolver, "ordinary packet is immediately ready");
+    let b_packet = pop_packet(&mut resolver, "later cached hit is ready");
+    assert!(matches!(
+        ordinary.data,
+        McpePacketData::PacketSetTime(SetTimePacket { time: 42 })
+    ));
+    assert!(matches!(b_packet.data, McpePacketData::PacketLevelChunk(_)));
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -502,15 +558,8 @@ fn ordinary_packets_are_fifo_barriers_between_cached_transactions() {
         })
         .expect("resolve A");
 
-    let a_packet = pop_packet(&mut resolver, "A first");
-    let ordinary = pop_packet(&mut resolver, "ordinary second");
-    let b_packet = pop_packet(&mut resolver, "B third");
+    let a_packet = pop_packet(&mut resolver, "A resolves last");
     assert!(matches!(a_packet.data, McpePacketData::PacketLevelChunk(_)));
-    assert!(matches!(
-        ordinary.data,
-        McpePacketData::PacketSetTime(SetTimePacket { time: 42 })
-    ));
-    assert!(matches!(b_packet.data, McpePacketData::PacketLevelChunk(_)));
 }
 
 #[test]
@@ -693,7 +742,7 @@ fn ready_queue_high_water_capacity_remains_accounted_until_empty_compaction() {
 }
 
 #[test]
-fn passthrough_stats_include_ready_items_that_have_not_been_consumed() {
+fn passthrough_items_are_excluded_from_cache_transaction_stats() {
     let cache = ClientBlobCache::with_limits(limits(2, 128));
     let hash = cache.insert(b"hit").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
@@ -704,9 +753,9 @@ fn passthrough_stats_include_ready_items_that_have_not_been_consumed() {
         .accept_passthrough(SetTimePacket { time: 7 }.into(), 8)
         .expect("ready passthrough");
 
-    assert_eq!(resolver.stats().pending_transactions, 2);
-    let _ = pop_packet(&mut resolver, "cached first");
     assert_eq!(resolver.stats().pending_transactions, 1);
+    let _ = pop_packet(&mut resolver, "cached first");
+    assert_eq!(resolver.stats().pending_transactions, 0);
     let _ = pop_packet(&mut resolver, "passthrough second");
     assert_eq!(resolver.stats().pending_transactions, 0);
 }
@@ -995,7 +1044,7 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
 }
 
 #[test]
-fn default_limits_accept_177_distinct_request_transactions_and_publish_fifo() {
+fn default_limits_accept_177_distinct_transactions_and_publish_as_completed() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let fixtures: Vec<_> = (0..177_u16)
         .map(|index| {
@@ -1015,7 +1064,7 @@ fn default_limits_accept_177_distinct_request_transactions_and_publish_fifo() {
     assert!(resolver.stats().pending_bytes > 0);
     assert!(resolver.stats().pending_bytes <= resolver.cache().limits().max_pending_bytes);
 
-    for (_, hash, payload) in fixtures.iter().skip(1).rev() {
+    for (expected_x, hash, payload) in fixtures.iter().skip(1).rev() {
         resolver
             .accept_miss_response(ClientCacheMissResponsePacket {
                 blobs: vec![Blob {
@@ -1024,10 +1073,11 @@ fn default_limits_accept_177_distinct_request_transactions_and_publish_fifo() {
                 }],
             })
             .expect("out-of-order response remains authorized");
-        assert!(
-            resolver.pop_ready().is_none(),
-            "FIFO head is still unresolved"
-        );
+        let packet = pop_packet(&mut resolver, "out-of-order completed request column");
+        let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+            panic!("expected LevelChunk")
+        };
+        assert_eq!(packet.x, *expected_x);
     }
     let (_, first_hash, first_payload) = &fixtures[0];
     resolver
@@ -1037,14 +1087,12 @@ fn default_limits_accept_177_distinct_request_transactions_and_publish_fifo() {
                 payload: first_payload.clone(),
             }],
         })
-        .expect("resolve FIFO head");
-    for (expected_x, _, _) in &fixtures {
-        let packet = pop_packet(&mut resolver, "resolved request column");
-        let McpePacketData::PacketLevelChunk(packet) = packet.data else {
-            panic!("expected LevelChunk")
-        };
-        assert_eq!(packet.x, *expected_x);
-    }
+        .expect("resolve remaining transaction");
+    let packet = pop_packet(&mut resolver, "remaining request column");
+    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+        panic!("expected LevelChunk")
+    };
+    assert_eq!(packet.x, fixtures[0].0);
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
 }
