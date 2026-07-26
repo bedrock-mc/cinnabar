@@ -1704,6 +1704,60 @@ fn quarantined_controller_axis_requires_neutral_across_sign_change() {
 }
 
 #[test]
+fn neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
+    let mut router = SemanticInputRouter::default();
+    let keyboard = KeyboardMouseFrame {
+        activity_sequence: 2,
+        keys: vec![0x1a],
+        ..KeyboardMouseFrame::default()
+    };
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 1,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let keyboard_owned = router.finalize().unwrap();
+    assert_eq!(
+        keyboard_owned.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
+    assert_eq!(keyboard_owned.movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            disconnected_controllers: vec![7],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 3,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let reconnect = router.finalize().unwrap();
+    assert_eq!(
+        reconnect.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
+    assert_eq!(reconnect.movement, [0.0, 1.0]);
+}
+
+#[test]
 fn held_reconnect_is_quarantined_after_more_than_four_controller_ids_churn() {
     let mut router = SemanticInputRouter::default();
     router

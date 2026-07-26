@@ -96,28 +96,34 @@ const fn input_source_gates(window_focused: bool, cursor_captured: bool) -> Inpu
 }
 
 #[derive(Debug)]
-struct BoundedDeviceSamples {
-    controllers: Vec<ControllerFrame>,
-    touches: Vec<TouchContact>,
-    ignored_controllers: usize,
-    ignored_touches: usize,
+struct BoundedSamples<T> {
+    samples: Vec<T>,
+    ignored: usize,
 }
 
-fn bound_device_samples(
-    mut controllers: Vec<ControllerFrame>,
-    mut touches: Vec<TouchContact>,
-) -> BoundedDeviceSamples {
-    controllers.sort_by_key(|controller| controller.device_id);
-    touches.sort_by_key(|touch| touch.contact_id);
-    let ignored_controllers = controllers.len().saturating_sub(MAX_CONTROLLERS);
-    let ignored_touches = touches.len().saturating_sub(MAX_TOUCH_CONTACTS);
-    controllers.truncate(MAX_CONTROLLERS);
-    touches.truncate(MAX_TOUCH_CONTACTS);
-    BoundedDeviceSamples {
-        controllers,
-        touches,
-        ignored_controllers,
-        ignored_touches,
+fn select_lowest_by_key<T>(
+    samples: impl IntoIterator<Item = T>,
+    limit: usize,
+    key: impl Fn(&T) -> u64,
+) -> BoundedSamples<T> {
+    let mut selected = Vec::with_capacity(limit);
+    let mut observed = 0_usize;
+    for sample in samples {
+        observed = observed.saturating_add(1);
+        if limit == 0 {
+            continue;
+        }
+        let insertion = selected.partition_point(|existing| key(existing) <= key(&sample));
+        if selected.len() < limit {
+            selected.insert(insertion, sample);
+        } else if insertion < limit {
+            selected.pop();
+            selected.insert(insertion, sample);
+        }
+    }
+    BoundedSamples {
+        ignored: observed.saturating_sub(selected.len()),
+        samples: selected,
     }
 }
 
@@ -180,9 +186,12 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             },
         }
     });
-    let controllers = gamepads
-        .iter()
-        .map(|(entity, gamepad)| ControllerFrame {
+    let bounded_gamepads = select_lowest_by_key(gamepads.iter(), MAX_CONTROLLERS, |(entity, _)| {
+        u64::from(entity.index().index())
+    });
+    let mut controllers = Vec::with_capacity(bounded_gamepads.samples.len());
+    for (entity, gamepad) in bounded_gamepads.samples {
+        controllers.push(ControllerFrame {
             device_id: entity.index().index(),
             activity_sequence: 0,
             axes: [
@@ -196,14 +205,16 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
                 0.0,
             ],
             buttons: gamepad_button_codes(gamepad),
-        })
-        .collect::<Vec<_>>();
+        });
+    }
     let width = window.width().max(1.0);
     let height = window.height().max(1.0);
-    touch_targets.retain_active_contacts(touches.iter().map(|touch| touch.id()));
-    let contacts = touches
-        .iter()
-        .map(|touch| TouchContact {
+    let bounded_touches =
+        select_lowest_by_key(touches.iter(), MAX_TOUCH_CONTACTS, |touch| touch.id());
+    touch_targets.retain_active_contacts(bounded_touches.samples.iter().map(|touch| touch.id()));
+    let mut contacts = Vec::with_capacity(bounded_touches.samples.len());
+    for touch in bounded_touches.samples {
+        let contact = TouchContact {
             contact_id: touch.id(),
             activity_sequence: 0,
             position: [
@@ -212,22 +223,20 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             ],
             delta: [touch.delta().x / width, touch.delta().y / height],
             hit_id: touch_targets.target(touch.id()),
-        })
-        .collect::<Vec<_>>();
-    let bounded = bound_device_samples(controllers, contacts);
+        };
+        if contact.hit_id.is_some() {
+            contacts.push(contact);
+        }
+    }
     TranslatedDeviceFrame {
         frame: DeviceFrame {
             keyboard_mouse,
-            controllers: bounded.controllers,
-            touches: bounded
-                .touches
-                .into_iter()
-                .filter(|contact| contact.hit_id.is_some())
-                .collect(),
+            controllers,
+            touches: contacts,
             ..DeviceFrame::default()
         },
-        ignored_controllers: bounded.ignored_controllers,
-        ignored_touches: bounded.ignored_touches,
+        ignored_controllers: bounded_gamepads.ignored,
+        ignored_touches: bounded_touches.ignored,
     }
 }
 
@@ -315,14 +324,21 @@ fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TRANSLATED_GAMEPAD_BUTTONS, bound_device_samples, input_source_gates, keyboard_usage,
-        mouse_button_code,
+        PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input, input_source_gates,
+        keyboard_usage, mouse_button_code, select_lowest_by_key,
     };
     use bevy::prelude::{KeyCode, MouseButton};
+    use bevy::{
+        input::{ButtonInput, gamepad::Gamepad, mouse::AccumulatedMouseMotion, touch::Touches},
+        prelude::{App, Update, Window},
+        window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    };
     use semantic_input::{
         ControlSettings, ControllerFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS, PhysicalControl,
         TouchContact,
     };
+
+    use crate::semantic_controls::SemanticTouchTargets;
 
     /// Exactly the keys this translation layer claims to support. A default
     /// binding naming a usage outside this set is dead input: the player
@@ -452,8 +468,7 @@ mod tests {
             .map(|device_id| ControllerFrame {
                 device_id: device_id as u32,
                 ..ControllerFrame::default()
-            })
-            .collect();
+            });
         let touches = (0..=MAX_TOUCH_CONTACTS)
             .rev()
             .map(|contact_id| TouchContact {
@@ -462,29 +477,93 @@ mod tests {
                 position: [0.5, 0.5],
                 delta: [0.0, 0.0],
                 hit_id: None,
-            })
-            .collect();
+            });
 
-        let bounded = bound_device_samples(controllers, touches);
-        assert_eq!(bounded.controllers.len(), MAX_CONTROLLERS);
-        assert_eq!(bounded.touches.len(), MAX_TOUCH_CONTACTS);
+        let bounded_controllers =
+            select_lowest_by_key(controllers, MAX_CONTROLLERS, |controller| {
+                u64::from(controller.device_id)
+            });
+        let bounded_touches =
+            select_lowest_by_key(touches, MAX_TOUCH_CONTACTS, |touch| touch.contact_id);
+        assert_eq!(bounded_controllers.samples.len(), MAX_CONTROLLERS);
+        assert_eq!(bounded_touches.samples.len(), MAX_TOUCH_CONTACTS);
         assert_eq!(
-            bounded
-                .controllers
+            bounded_controllers
+                .samples
                 .iter()
                 .map(|controller| controller.device_id)
                 .collect::<Vec<_>>(),
             (0..MAX_CONTROLLERS as u32).collect::<Vec<_>>()
         );
         assert_eq!(
-            bounded
-                .touches
+            bounded_touches
+                .samples
                 .iter()
                 .map(|contact| contact.contact_id)
                 .collect::<Vec<_>>(),
             (0..MAX_TOUCH_CONTACTS as u64).collect::<Vec<_>>()
         );
-        assert_eq!(bounded.ignored_controllers, 1);
-        assert_eq!(bounded.ignored_touches, 1);
+        assert_eq!(bounded_controllers.ignored, 1);
+        assert_eq!(bounded_touches.ignored, 1);
+    }
+
+    #[test]
+    fn device_sampling_does_not_retain_raw_population_capacity() {
+        let controllers = (0..MAX_CONTROLLERS * 8).map(|device_id| ControllerFrame {
+            device_id: device_id as u32,
+            ..ControllerFrame::default()
+        });
+        let touches = (0..MAX_TOUCH_CONTACTS * 8).map(|contact_id| TouchContact {
+            contact_id: contact_id as u64,
+            activity_sequence: 0,
+            position: [0.5, 0.5],
+            delta: [0.0, 0.0],
+            hit_id: None,
+        });
+
+        let bounded_controllers =
+            select_lowest_by_key(controllers, MAX_CONTROLLERS, |controller| {
+                u64::from(controller.device_id)
+            });
+        let bounded_touches =
+            select_lowest_by_key(touches, MAX_TOUCH_CONTACTS, |touch| touch.contact_id);
+
+        assert!(bounded_controllers.samples.capacity() <= MAX_CONTROLLERS);
+        assert!(bounded_touches.samples.capacity() <= MAX_TOUCH_CONTACTS);
+    }
+
+    #[test]
+    fn production_device_sampling_bounds_controller_allocation_before_translation() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<Touches>()
+            .init_resource::<SemanticTouchTargets>()
+            .init_resource::<PendingDeviceFrame>()
+            .add_systems(Update, collect_raw_input);
+        app.world_mut().spawn((
+            Window {
+                focused: true,
+                ..Window::default()
+            },
+            CursorOptions {
+                grab_mode: CursorGrabMode::Locked,
+                visible: false,
+                ..CursorOptions::default()
+            },
+            PrimaryWindow,
+        ));
+        for _ in 0..MAX_CONTROLLERS * 8 {
+            app.world_mut().spawn(Gamepad::default());
+        }
+
+        app.update();
+
+        let pending = app.world().resource::<PendingDeviceFrame>();
+        let frame = pending.frame.as_ref().unwrap();
+        assert_eq!(frame.controllers.len(), MAX_CONTROLLERS);
+        assert!(frame.controllers.capacity() <= MAX_CONTROLLERS);
+        assert_eq!(pending.ignored_controllers, (MAX_CONTROLLERS * 7) as u64);
     }
 }

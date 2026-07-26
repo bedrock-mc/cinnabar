@@ -264,8 +264,14 @@ impl SemanticInputRouter {
         if let Some(frame) = self.pending.as_ref() {
             quarantine_active_controls(frame, &mut self.quarantined_controls);
         }
+        let pending_mouse_motion = self
+            .pending
+            .as_ref()
+            .and_then(|frame| frame.keyboard_mouse.as_ref())
+            .is_some_and(|keyboard| keyboard.mouse_motion != [0.0, 0.0]);
         self.pending_release_barrier |= self.physical_down.iter().any(|down| *down)
-            || self.quarantined_controls.len() > previous_quarantine_len;
+            || self.quarantined_controls.len() > previous_quarantine_len
+            || pending_mouse_motion;
         for action in Action::ALL {
             let index = action as usize;
             if self.physical_down[index] && !action.is_one_shot() {
@@ -328,10 +334,7 @@ impl SemanticInputRouter {
                     .controllers
                     .iter()
                     .any(|previous| previous.device_id == controller.device_id);
-                if !was_observed
-                    && controller_has_physical_input(controller)
-                    && !quarantined.contains(&controller.device_id)
-                {
+                if !was_observed && !quarantined.contains(&controller.device_id) {
                     quarantined.push(controller.device_id);
                 }
             }

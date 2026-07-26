@@ -1141,6 +1141,43 @@ fn semantic_authority_tracks_ui_settings_session_and_dimension_transitions_in_pr
 }
 
 #[test]
+fn pending_mouse_motion_cannot_cross_session_authority_in_production_order() {
+    let mut runtime = SemanticInputRuntime::default();
+    let authority = |session_generation| SemanticInputAuthorityFrame {
+        context: InputContext::Gameplay,
+        controls_generation: 1,
+        controls: ControlSettings::default(),
+        session_generation: NonZeroU64::new(session_generation).unwrap(),
+        dimension: 0,
+    };
+
+    runtime.route_device_frame(DeviceFrame::default()).unwrap();
+    runtime.synchronize_authority(authority(1)).unwrap();
+    assert_eq!(
+        runtime.finalize_routed_input().unwrap().look_delta,
+        [0.0, 0.0]
+    );
+
+    runtime
+        .route_device_frame(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                mouse_motion: [8.0, -4.0],
+                ..KeyboardMouseFrame::default()
+            }),
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    runtime.synchronize_authority(authority(2)).unwrap();
+    let transitioned = runtime.finalize_routed_input().unwrap();
+
+    assert_eq!(transitioned.look_delta, [0.0, 0.0]);
+    assert_eq!(
+        transitioned.authority_generation,
+        NonZeroU64::new(2).unwrap()
+    );
+}
+
+#[test]
 fn semantic_runtime_synthesizes_controller_disconnect_and_releases_stale_touch_targets() {
     let mut runtime = SemanticInputRuntime::default();
     let held_controller_jump = DeviceFrame {
