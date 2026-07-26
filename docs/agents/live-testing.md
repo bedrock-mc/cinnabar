@@ -1,0 +1,48 @@
+# Live testing, capture, and native evidence
+
+Load this before running the Bevy client or BDS on Windows, capturing frames, or
+closing a native/visual/performance acceptance gate.
+
+## Windows capture
+
+Use native Computer Use/WGC as the primary path for Cinnabar window inspection and
+input testing. Do not assume the Bevy window is inaccessible because an earlier run
+failed: refresh app/window discovery for each live run and diagnose a missing
+target as a current integration bug. If native capture genuinely fails after fresh
+discovery and recovery, use Windows GDI `CopyFromScreen` only as an explicit
+fallback, write PNGs beneath `%TEMP%`, and inspect those fresh files with the
+image-viewing tool. Never claim visual verification from a stale or occluded
+capture.
+
+## Stable executable paths
+
+Windows Firewall consent is path-specific, so reuse the paths the user already
+approved: `.local/bds-runtime/bedrock-server-1.26.32.2/bedrock_server.exe` for BDS,
+and `target/debug/bedrock-client.exe` for the Rust client (rebuild in place to keep
+it stable). Do not copy either executable to a new worktree or temporary path for a
+live run, do not change firewall policy, and do not automate UAC or security-consent
+dialogs. If a genuinely new listening executable is required, explain why and wait
+until the user is at the PC.
+
+## Visual acceptance
+
+A UI, HUD, text, graphics, shader, or rendering change is not ready to push or
+describe as done without a real rendered-frame pass on the target platform,
+resolution, and DPI/scale. Unit tests, snapshots, draw-list checks, GPU adapter
+tests, lint, and code review are necessary but never substitutes for seeing the
+output. The pass must explicitly check legibility, geometry, clipping,
+depth/layering, scaling, colors, and the relevant live input/focus behavior, and
+must record the tested platform and visible result. If the target-platform pass
+cannot be performed, keep the change local and say it is not cleared to push.
+
+## Native and performance evidence
+
+Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
+acceptance gate, preferring version-matched, reproducible, fixed-state galleries and
+exact protocol fixtures over visual guesswork. Perform live acceptance only from the
+firewall-approved paths above, after integration and a build at the canonical path.
+Batch equivalent captures and reuse an authoritative existing witness when it covers
+the same version, state product, camera, geometry, material, and behavior question.
+Performance claims require measured release evidence against the stated `plan.md`
+budgets; a debug screenshot, small test scene, or green unit suite is not
+performance acceptance.
