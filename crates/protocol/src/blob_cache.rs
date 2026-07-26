@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -9,7 +9,7 @@ use valentine::bedrock::version::v1_26_30::{
     SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
 };
 
-use crate::{Packet, WorldEvent};
+use crate::{ChunkResyncEvent, Packet, WorldEvent};
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -28,6 +28,13 @@ pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_095;
 /// Transaction concurrency is server-controlled. This constant records the protocol contract
 /// and sizes client-side indexes; a semantically odd server that exceeds it remains non-fatal.
 pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 8;
+/// Ordinary decoded work is retained independently from cache transactions. The session receive
+/// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
+/// keeps direct resolver users bounded too.
+pub const MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS: usize = 64;
+/// The transport retains at most 16 MiB of deferred raw packet data. Two frames of headroom cover
+/// decoded container allocation overhead without coupling ordinary traffic to cache limits.
+pub const MAX_CLIENT_BLOB_ORDINARY_READY_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlobCacheLimits {
@@ -56,6 +63,11 @@ pub struct BlobCacheStats {
     pub evictions: u64,
     pub pending_transactions: usize,
     pub pending_bytes: usize,
+    pub retained_cached_transactions: usize,
+    pub ordinary_ready_events: usize,
+    pub ordinary_ready_bytes: usize,
+    pub recovery_ready_events: usize,
+    pub recovery_ready_bytes: usize,
     pub pending_resets: u64,
     pub skipped_packets: u64,
     pub skipped_world_events: u64,
@@ -63,9 +75,13 @@ pub struct BlobCacheStats {
     pub skipped_miss_responses: u64,
     pub empty_miss_responses: u64,
     pub cached_packet_semantic_shape: u64,
+    pub cached_packet_transaction_pressure: u64,
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
+    pub abandoned_cached_transactions: u64,
+    pub recovery_requests: u64,
+    pub ordinary_backpressure: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,
 }
@@ -92,6 +108,15 @@ pub enum BlobCacheError {
     MissingResolvedBlob(u64),
     #[error("cached payload byte accounting overflowed")]
     ByteCountOverflow,
+    #[error(
+        "ordinary resolver lane is full at {events} events / {bytes} bytes (maximum {max_events} events / {max_bytes} bytes)"
+    )]
+    OrdinaryLaneFull {
+        events: usize,
+        bytes: usize,
+        max_events: usize,
+        max_bytes: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -191,14 +216,6 @@ impl ClientBlobCache {
         (have, missing)
     }
 
-    fn classify(&self, hashes: &[u64]) -> (Vec<u64>, Vec<u64>) {
-        let store = self.lock();
-        hashes
-            .iter()
-            .copied()
-            .partition(|hash| store.entries.contains_key(hash))
-    }
-
     fn unpin_all(&self, hashes: &[u64]) {
         let mut store = self.lock();
         for &hash in hashes {
@@ -248,6 +265,7 @@ struct ReadyTransaction {
 struct ImmediateReady {
     value: BlobCacheReady,
     columns: Vec<ColumnKey>,
+    accounted_bytes: usize,
     sequence: u64,
 }
 
@@ -267,6 +285,7 @@ pub struct BlobCacheResolver {
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,
+    recovery_ready: VecDeque<ChunkResyncEvent>,
     fast_transfer_reset_armed: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,

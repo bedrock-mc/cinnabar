@@ -14,10 +14,11 @@ use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMoveEvent,
     ActorPositionOrigin, ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockCrackAction, BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
-    MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
-    SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent,
+    LevelChunkMode, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, UiEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,
@@ -599,6 +600,35 @@ fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.take_requests().len(), 1);
     (stream, key)
+}
+
+#[test]
+fn abandoned_cached_column_recovery_enters_bounded_request_scheduler() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::ChunkResync(ChunkResyncEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                requested_sub_chunks: None,
+            }),
+        )
+        .expect("cache recovery admission");
+
+    let requests = stream.take_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].chunk, ChunkKey::new(0, 0, 0));
+    assert_eq!(requests[0].base_sub_chunk_y, -4);
+    assert_eq!(requests[0].count, 24);
 }
 
 fn apply_sub_chunk_result(

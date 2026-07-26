@@ -49,6 +49,20 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)
     }
 
+    pub(crate) fn retained_ordinary_bytes(&self) -> Result<usize, BlobCacheError> {
+        self.immediate_ready
+            .len()
+            .checked_mul(size_of::<(u64, ImmediateReady)>())
+            .and_then(|bytes| {
+                self.immediate_ready
+                    .values()
+                    .try_fold(bytes, |total, ready| {
+                        total.checked_add(ready.accounted_bytes)
+                    })
+            })
+            .ok_or(BlobCacheError::ByteCountOverflow)
+    }
+
     pub(super) fn refresh_pending_accounting(&mut self) -> Result<(), BlobCacheError> {
         if self.pending.is_empty() {
             self.pending = HashMap::new();
@@ -60,6 +74,16 @@ impl BlobCacheResolver {
         }
         self.stats.pending_bytes = self.retained_cached_bytes()?;
         self.stats.pending_transactions = self.pending.len();
+        self.stats.retained_cached_transactions =
+            self.pending.len().saturating_add(self.ready.len());
+        self.stats.ordinary_ready_events = self.immediate_ready.len();
+        self.stats.ordinary_ready_bytes = self.retained_ordinary_bytes()?;
+        self.stats.recovery_ready_events = self.recovery_ready.len();
+        self.stats.recovery_ready_bytes = self
+            .recovery_ready
+            .len()
+            .checked_mul(size_of::<ChunkResyncEvent>())
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
         Ok(())
     }
 }

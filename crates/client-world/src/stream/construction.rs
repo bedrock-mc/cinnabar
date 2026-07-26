@@ -246,6 +246,7 @@ impl WorldStream {
         let heavy = matches!(
             event,
             WorldEvent::LevelChunk(_)
+                | WorldEvent::ChunkResync(_)
                 | WorldEvent::SubChunks(_)
                 | WorldEvent::BlockUpdates(_)
                 | WorldEvent::BlockEntityUpdate(_)
@@ -259,6 +260,7 @@ impl WorldStream {
                 mode: LevelChunkMode::LimitlessRequests,
                 ..
             }) => true,
+            WorldEvent::ChunkResync(event) => event.requested_sub_chunks != Some(0),
             _ => false,
         };
         if creates_request && self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {

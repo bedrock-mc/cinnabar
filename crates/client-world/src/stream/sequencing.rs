@@ -388,6 +388,30 @@ impl WorldStream {
             WorldEvent::LevelChunk(_) => {
                 unreachable!("LevelChunk packets are prepared on workers")
             }
+            WorldEvent::ChunkResync(event) => {
+                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                    if let Some(sequence) = sequence {
+                        self.cancel_request_reservation(sequence);
+                    }
+                    self.record_normalization_error(
+                        NormalizationErrorReason::UnsupportedLevelChunkDimension,
+                    );
+                    return;
+                };
+                let key = ChunkKey::new(event.dimension, event.x, event.z);
+                if !self.column_is_active(key) {
+                    if let Some(sequence) = sequence {
+                        self.cancel_request_reservation(sequence);
+                    }
+                    self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
+                    return;
+                }
+                let count = event
+                    .requested_sub_chunks
+                    .unwrap_or(range.sub_chunk_count)
+                    .min(range.sub_chunk_count);
+                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+            }
             WorldEvent::BlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
             }

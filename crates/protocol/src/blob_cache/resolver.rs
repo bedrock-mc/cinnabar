@@ -31,9 +31,15 @@ impl BlobCacheReady {
 pub struct BlobCacheStatus {
     pub missing: Vec<u64>,
     pub have: Vec<u64>,
+    pub recovery: Option<ChunkResyncEvent>,
 }
 
 impl BlobCacheStatus {
+    #[must_use]
+    pub fn take_recovery(&mut self) -> Option<ChunkResyncEvent> {
+        self.recovery.take()
+    }
+
     /// Splits the two protocol sets without omitting or reclassifying any referenced hash.
     #[must_use]
     pub fn into_packets(self) -> Vec<ClientCacheBlobStatusPacket> {
@@ -71,6 +77,7 @@ impl BlobCacheResolver {
             resolved_pending: BTreeSet::new(),
             ready: BTreeMap::new(),
             immediate_ready: BTreeMap::new(),
+            recovery_ready: VecDeque::new(),
             fast_transfer_reset_armed: false,
             next_ready_sequence: 0,
             stats: BlobCacheStats::default(),
@@ -147,7 +154,14 @@ impl BlobCacheResolver {
                     self.stats.skipped_cached_packets.saturating_add(1);
                 self.stats.cached_packet_semantic_shape =
                     self.stats.cached_packet_semantic_shape.saturating_add(1);
-                Ok(self.classify_skipped_packet(&skipped_packet))
+                let recovery = chunk_recovery(&skipped_packet);
+                if recovery.is_some() {
+                    self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+                }
+                Ok(BlobCacheStatus {
+                    recovery,
+                    ..BlobCacheStatus::default()
+                })
             }
             Err(error) => {
                 self.reset_pending();
@@ -177,8 +191,24 @@ impl BlobCacheResolver {
     fn accept_immediate(
         &mut self,
         value: BlobCacheReady,
-        _accounted_bytes: usize,
+        accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
+        let retained_bytes = self
+            .retained_ordinary_bytes()?
+            .checked_add(accounted_bytes)
+            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ImmediateReady)>()))
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        if self.immediate_ready.len() >= MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
+            || retained_bytes > MAX_CLIENT_BLOB_ORDINARY_READY_BYTES
+        {
+            self.stats.ordinary_backpressure = self.stats.ordinary_backpressure.saturating_add(1);
+            return Err(BlobCacheError::OrdinaryLaneFull {
+                events: self.immediate_ready.len(),
+                bytes: self.stats.ordinary_ready_bytes,
+                max_events: MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS,
+                max_bytes: MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
+            });
+        }
         let columns = ready_value_columns(&value);
         let sequence = self.take_ready_sequence()?;
         self.immediate_ready.insert(
@@ -186,14 +216,11 @@ impl BlobCacheResolver {
             ImmediateReady {
                 value,
                 columns,
+                accounted_bytes,
                 sequence,
             },
         );
         self.refresh_pending_accounting()
-    }
-
-    fn classify_skipped_packet(&self, packet: &Packet) -> BlobCacheStatus {
-        classified_cached_status(&self.cache, packet)
     }
 
     fn accept_cached_packet_inner(
@@ -274,6 +301,22 @@ impl BlobCacheResolver {
                     .and_then(|hash_bytes| bytes.checked_add(hash_bytes))
             })
             .ok_or(BlobCacheError::ByteCountOverflow)?;
+        if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+            || !self.recovery_ready.is_empty()
+        {
+            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+            self.stats.cached_packet_transaction_pressure = self
+                .stats
+                .cached_packet_transaction_pressure
+                .saturating_add(1);
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            return Ok(BlobCacheStatus {
+                recovery: pending_packet_recovery(&packet),
+                ..BlobCacheStatus::default()
+            });
+        }
         let (have, missing) = self.cache.classify_and_pin(&unique_hashes);
         let columns = pending_packet_columns(&packet);
         let sequence = self.take_ready_sequence()?;
@@ -312,7 +355,11 @@ impl BlobCacheResolver {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
         }
-        Ok(BlobCacheStatus { missing, have })
+        Ok(BlobCacheStatus {
+            missing,
+            have,
+            recovery: None,
+        })
     }
 
     pub fn accept_miss_response(
@@ -323,13 +370,18 @@ impl BlobCacheResolver {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
             return Ok(());
         }
+        let response_hashes = response
+            .blobs
+            .iter()
+            .map(|blob| blob.hash)
+            .collect::<Vec<_>>();
         let rejected = u64::try_from(response.blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
             Err(BlobCacheError::UnsolicitedBlob(_)) => {
                 self.stats.miss_response_unsolicited =
                     self.stats.miss_response_unsolicited.saturating_add(1);
-                self.recover_skipped_miss_response()
+                self.recover_skipped_miss_response(&response_hashes)
             }
             Err(
                 BlobCacheError::BlobTooLarge { .. }
@@ -341,13 +393,13 @@ impl BlobCacheResolver {
                     .miss_response_integrity_rejection
                     .saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
-                self.recover_skipped_miss_response()
+                self.recover_skipped_miss_response(&response_hashes)
             }
             Err(BlobCacheError::CacheCapacity { .. }) => {
                 self.stats.miss_response_cache_pressure =
                     self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
-                self.recover_skipped_miss_response()
+                self.recover_skipped_miss_response(&response_hashes)
             }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
@@ -436,18 +488,40 @@ impl BlobCacheResolver {
         self.resolved_pending = BTreeSet::new();
         self.ready = BTreeMap::new();
         self.immediate_ready = BTreeMap::new();
+        self.recovery_ready = VecDeque::new();
         self.fast_transfer_reset_armed = false;
         self.next_ready_sequence = 0;
         self.stats.pending_transactions = 0;
         self.stats.pending_bytes = 0;
+        self.stats.retained_cached_transactions = 0;
+        self.stats.ordinary_ready_events = 0;
+        self.stats.ordinary_ready_bytes = 0;
+        self.stats.recovery_ready_events = 0;
+        self.stats.recovery_ready_bytes = 0;
     }
 
-    fn recover_skipped_miss_response(&mut self) -> Result<(), BlobCacheError> {
+    fn recover_skipped_miss_response(&mut self, hashes: &[u64]) -> Result<(), BlobCacheError> {
         self.stats.skipped_miss_responses = self.stats.skipped_miss_responses.saturating_add(1);
+        let sequences = hashes
+            .iter()
+            .filter_map(|hash| self.pending_by_hash.get(hash))
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        for sequence in sequences {
+            self.abandon_pending_transaction(sequence);
+        }
         self.refresh_pending_accounting()
     }
 
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
+        if let Some(recovery) = self.recovery_ready.pop_front() {
+            self.refresh_pending_accounting()
+                .expect("retained recovery accounting cannot overflow after a pop");
+            return Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+                recovery,
+            )));
+        }
         let cached_sequence = self
             .ready
             .iter()
@@ -486,6 +560,38 @@ impl BlobCacheResolver {
             return Some(ready.value);
         }
         None
+    }
+
+    /// Stops network intake while ordinary work is retained behind an earlier cached column.
+    #[must_use]
+    pub fn ordinary_lane_needs_drain(&self) -> bool {
+        !self.immediate_ready.is_empty()
+    }
+
+    /// Abandons only the depth-8 cached transactions that block retained ordinary work.
+    pub fn unblock_ordinary_lane(&mut self) -> Result<bool, BlobCacheError> {
+        let blocked_columns = self
+            .immediate_ready
+            .values()
+            .flat_map(|ready| ready.columns.iter())
+            .copied()
+            .collect::<HashSet<_>>();
+        let blockers = self
+            .pending
+            .iter()
+            .filter(|(_, transaction)| {
+                transaction
+                    .columns
+                    .iter()
+                    .any(|column| blocked_columns.contains(column))
+            })
+            .map(|(sequence, _)| *sequence)
+            .collect::<Vec<_>>();
+        for sequence in &blockers {
+            self.abandon_pending_transaction(*sequence);
+        }
+        self.refresh_pending_accounting()?;
+        Ok(!blockers.is_empty())
     }
 
     fn drain_ready(&mut self) -> Result<(), BlobCacheError> {
@@ -556,6 +662,27 @@ impl BlobCacheResolver {
         Some(transaction)
     }
 
+    fn abandon_pending_transaction(&mut self, sequence: u64) {
+        let Some(transaction) = self.remove_pending_transaction(sequence) else {
+            return;
+        };
+        self.cache.unpin_all(&transaction.unique_hashes);
+        self.stats.abandoned_cached_transactions =
+            self.stats.abandoned_cached_transactions.saturating_add(1);
+        if let Some(recovery) = pending_packet_recovery(&transaction.packet) {
+            debug_assert!(
+                self.recovery_ready.len() < MAX_CLIENT_BLOB_PENDING_TRANSACTIONS,
+                "recovery intake is drained before another cached transaction is accepted"
+            );
+            self.recovery_ready.push_back(recovery);
+            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+        }
+    }
+
+    fn retained_cached_transaction_count(&self) -> usize {
+        self.pending.len().saturating_add(self.ready.len())
+    }
+
     /// Conservative, unverified ordering: ordinary updates for a column wait until every earlier
     /// cached chunk for that column has reconstructed and been emitted. Mojang's behavior here is
     /// not documented; this depth-8 scan stays pending authoritative vanilla evidence.
@@ -588,6 +715,36 @@ impl BlobCacheResolver {
 impl Drop for BlobCacheResolver {
     fn drop(&mut self) {
         self.reset_pending();
+    }
+}
+
+fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
+    match &packet.data {
+        McpePacketData::PacketLevelChunk(packet) => Some(ChunkResyncEvent {
+            dimension: packet.dimension,
+            x: packet.x,
+            z: packet.z,
+            requested_sub_chunks: None,
+        }),
+        // Cached SubChunk packets are responses to scheduler-owned requests. Discarding the
+        // response deliberately leaves that request outstanding, so its existing deadline and
+        // bounded retry path performs recovery without a duplicate full-column request.
+        McpePacketData::PacketSubchunk(_) => None,
+        _ => None,
+    }
+}
+
+fn pending_packet_recovery(packet: &PendingPacket) -> Option<ChunkResyncEvent> {
+    match packet {
+        PendingPacket::LevelChunk(packet) => Some(ChunkResyncEvent {
+            dimension: packet.dimension,
+            x: packet.x,
+            z: packet.z,
+            requested_sub_chunks: None,
+        }),
+        // See `chunk_recovery`: the world scheduler still owns the original SubChunk request and
+        // retries it when no normalized response arrives.
+        PendingPacket::SubChunk(_) => None,
     }
 }
 

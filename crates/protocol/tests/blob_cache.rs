@@ -386,7 +386,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
 }
 
 #[test]
-fn invalid_miss_is_atomic_keeps_pending_and_does_not_poison_cache() {
+fn invalid_miss_is_atomic_abandons_pending_and_does_not_poison_cache() {
     let wanted = b"wanted";
     let hash = client_blob_hash(wanted);
     let cache = ClientBlobCache::with_limits(limits(4, 128));
@@ -404,10 +404,42 @@ fn invalid_miss_is_atomic_keeps_pending_and_does_not_poison_cache() {
         })
         .expect("hash mismatch is rejected without ending the session");
     assert!(!cache.contains(hash));
-    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
     assert_eq!(resolver.stats().rejected_blobs, 1);
     assert_eq!(resolver.stats().skipped_miss_responses, 1);
     assert_eq!(resolver.stats().pending_resets, 0);
+}
+
+#[test]
+fn cache_capacity_rejection_abandons_transaction_and_requests_column_again() {
+    let mut bounded = limits(0, 128);
+    bounded.max_blob_bytes = 128;
+    let payload = b"cannot-admit";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    resolver
+        .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("pending transaction");
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("cache pressure is semantic and non-fatal");
+
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().miss_response_cache_pressure, 1);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
 }
 
 #[test]
@@ -444,7 +476,7 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
 }
 
 #[test]
-fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
+fn semantic_shape_skips_do_not_solicit_blobs_for_discarded_packets() {
     let mut strict = limits(2, 16);
     strict.max_blob_bytes = 4;
     let cache = ClientBlobCache::with_limits(strict);
@@ -481,8 +513,12 @@ fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
         let status = resolver
             .accept_cached_packet(packet)
             .expect("semantic shape must recover without disconnecting");
-        assert_eq!(status.have, vec![hit]);
-        assert_eq!(status.missing, vec![miss]);
+        assert!(status.have.is_empty());
+        assert!(
+            status.missing.is_empty(),
+            "discarded semantic-shape packets must not solicit blobs"
+        );
+        assert_eq!(status.recovery.map(|recovery| recovery.x), Some(4));
         assert_eq!(resolver.stats().pending_transactions, 0);
         assert_eq!(resolver.stats().skipped_cached_packets, 1);
     }
@@ -616,6 +652,7 @@ fn blob_status_splits_at_4095_ids_without_omission_or_reclassification() {
     let packets = BlobCacheStatus {
         missing: missing.clone(),
         have: vec![u64::MAX],
+        recovery: None,
     }
     .into_packets();
 
@@ -646,7 +683,7 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     let wanted = b"wanted";
     let wanted_hash = client_blob_hash(wanted);
 
-    let exercise = |blobs: Vec<Blob>| {
+    let exercise = |blobs: Vec<Blob>, expected_pending| {
         let cache = ClientBlobCache::with_limits(limits(4, 128));
         let mut resolver = BlobCacheResolver::new(cache.clone());
         resolver
@@ -659,44 +696,76 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
             .accept_miss_response(ClientCacheMissResponsePacket { blobs })
             .expect("semantically invalid response is a recoverable skip");
         assert!(!cache.contains(wanted_hash));
-        assert_eq!(resolver.stats().pending_transactions, 1);
+        assert_eq!(resolver.stats().pending_transactions, expected_pending);
         assert_eq!(resolver.stats().skipped_miss_responses, 1);
+        assert_eq!(
+            matches!(
+                resolver.pop_ready(),
+                Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+            ),
+            expected_pending == 0
+        );
         resolver.stats().rejected_blobs
     };
 
     let unsolicited = b"unsolicited";
     assert_eq!(
-        exercise(vec![Blob {
-            hash: client_blob_hash(unsolicited),
-            payload: unsolicited.to_vec(),
-        }]),
+        exercise(
+            vec![Blob {
+                hash: client_blob_hash(unsolicited),
+                payload: unsolicited.to_vec(),
+            }],
+            1,
+        ),
         0
     );
     assert_eq!(
-        exercise(vec![
-            Blob {
-                hash: wanted_hash,
-                payload: wanted.to_vec(),
-            },
-            Blob {
-                hash: wanted_hash,
-                payload: b"different".to_vec(),
-            },
-        ]),
+        exercise(
+            vec![
+                Blob {
+                    hash: wanted_hash,
+                    payload: wanted.to_vec(),
+                },
+                Blob {
+                    hash: wanted_hash,
+                    payload: b"different".to_vec(),
+                },
+            ],
+            0,
+        ),
         2
     );
     assert_eq!(
-        exercise(vec![
-            Blob {
-                hash: wanted_hash,
-                payload: wanted.to_vec(),
-            },
-            Blob {
-                hash: wanted_hash,
-                payload: b"poison".to_vec(),
-            },
-        ]),
+        exercise(
+            vec![
+                Blob {
+                    hash: wanted_hash,
+                    payload: wanted.to_vec(),
+                },
+                Blob {
+                    hash: wanted_hash,
+                    payload: b"poison".to_vec(),
+                },
+            ],
+            0,
+        ),
         2
+    );
+    assert_eq!(
+        exercise(
+            vec![
+                Blob {
+                    hash: wanted_hash,
+                    payload: wanted.to_vec(),
+                },
+                Blob {
+                    hash: client_blob_hash(unsolicited),
+                    payload: unsolicited.to_vec(),
+                },
+            ],
+            0,
+        ),
+        0
     );
 }
 
