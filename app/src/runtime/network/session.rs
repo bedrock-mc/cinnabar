@@ -853,6 +853,7 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         skipped_world_events = stats.skipped_world_events,
         skipped_cached_packets = stats.skipped_cached_packets,
         skipped_miss_responses = stats.skipped_miss_responses,
+        empty_miss_responses = stats.empty_miss_responses,
         retired_cached_transactions = stats.retired_cached_transactions,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,

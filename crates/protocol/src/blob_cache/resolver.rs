@@ -466,15 +466,17 @@ impl BlobCacheResolver {
         &mut self,
         response: ClientCacheMissResponsePacket,
     ) -> Result<(), BlobCacheError> {
+        if response.blobs.is_empty() {
+            self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
+            return Ok(());
+        }
         let rejected = u64::try_from(response.blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
             Err(BlobCacheError::TooManyPendingBytes { .. }) => {
                 self.recover_repeated_ready_byte_pressure()
             }
-            Err(BlobCacheError::EmptyMissResponse | BlobCacheError::UnsolicitedBlob(_)) => {
-                self.recover_skipped_miss_response()
-            }
+            Err(BlobCacheError::UnsolicitedBlob(_)) => self.recover_skipped_miss_response(),
             Err(
                 BlobCacheError::TooManyHashes { .. }
                 | BlobCacheError::BlobTooLarge { .. }
@@ -497,9 +499,6 @@ impl BlobCacheResolver {
         &mut self,
         response: ClientCacheMissResponsePacket,
     ) -> Result<(), BlobCacheError> {
-        if response.blobs.is_empty() {
-            return Err(BlobCacheError::EmptyMissResponse);
-        }
         if response.blobs.len() > self.cache.limits.max_hashes_per_packet {
             return Err(BlobCacheError::TooManyHashes {
                 count: response.blobs.len(),

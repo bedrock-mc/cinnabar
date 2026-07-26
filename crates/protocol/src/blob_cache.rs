@@ -64,6 +64,7 @@ pub struct BlobCacheStats {
     pub skipped_world_events: u64,
     pub skipped_cached_packets: u64,
     pub skipped_miss_responses: u64,
+    pub empty_miss_responses: u64,
     pub retired_cached_transactions: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,
@@ -87,8 +88,6 @@ pub enum BlobCacheError {
     InvalidLevelChunkCount(i32),
     #[error("packet is not a cached LevelChunk or SubChunk")]
     NotCachedPacket,
-    #[error("cache miss response contains no requested blobs")]
-    EmptyMissResponse,
     #[error("cache miss response contains unsolicited hash {0:#018x}")]
     UnsolicitedBlob(u64),
     #[error("cache miss response hash {claimed:#018x} disagrees with payload hash {actual:#018x}")]

@@ -206,7 +206,7 @@ fn retired_generation_does_not_admit_unrelated_blobs() {
 }
 
 #[test]
-fn empty_miss_response_retires_the_blocked_head_and_keeps_late_resolution_bounded() {
+fn empty_miss_response_is_a_noop_that_leaves_the_fifo_untouched() {
     let payload = b"empty-response-wanted";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -219,19 +219,16 @@ fn empty_miss_response_retires_the_blocked_head_and_keeps_late_resolution_bounde
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket { blobs: Vec::new() })
-        .expect("well-formed empty response is a recoverable skip");
+        .expect("well-formed empty response is a successful no-op");
 
-    assert_eq!(resolver.stats().skipped_miss_responses, 1);
-    assert_eq!(resolver.stats().pending_transactions, 1);
-    assert_eq!(resolver.stats().retired_cached_transactions, 1);
-    let ordinary = pop_packet(&mut resolver, "ordinary FIFO work after retirement");
-    assert!(matches!(ordinary.data, McpePacketData::PacketSetTime(_)));
-    assert!(matches!(
-        resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-            ChunkResyncEvent { x: 21, .. }
-        )))
-    ));
+    assert_eq!(resolver.stats().skipped_miss_responses, 0);
+    assert_eq!(resolver.stats().empty_miss_responses, 1);
+    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert_eq!(resolver.stats().retired_cached_transactions, 0);
+    assert!(
+        resolver.pop_ready().is_none(),
+        "the unresolved FIFO head and its follower must remain queued"
+    );
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -240,9 +237,17 @@ fn empty_miss_response_retires_the_blocked_head_and_keeps_late_resolution_bounde
                 payload: payload.to_vec(),
             }],
         })
-        .expect("late valid response remains authorized and cacheable");
+        .expect("the still-pending head resolves normally");
     assert!(resolver.cache().contains(hash));
+    let chunk = pop_packet(&mut resolver, "original cached FIFO head");
+    assert!(matches!(chunk.data, McpePacketData::PacketLevelChunk(_)));
+    let ordinary = pop_packet(&mut resolver, "ordinary FIFO follower");
+    assert!(matches!(ordinary.data, McpePacketData::PacketSetTime(_)));
     assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(
+        resolver.pop_ready().is_none(),
+        "no unrelated resync was queued"
+    );
 }
 
 #[test]
