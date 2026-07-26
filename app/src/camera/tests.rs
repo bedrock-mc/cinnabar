@@ -7,7 +7,8 @@ use crate::camera::{
 };
 use crate::local_player::LocalViewPose;
 use crate::semantic_controls::{
-    collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+    SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
+    route_semantic_input,
 };
 use crate::settings_runtime::RuntimeSettings;
 use bevy::{
@@ -17,7 +18,7 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
-use semantic_input::PerspectiveMode;
+use semantic_input::{Action, PerspectiveMode};
 use sim::{Aabb, CollisionQuery, CollisionWorld, Vec3 as SimVec3, WorldQueryError};
 use ui::UserSettings;
 use world::ChunkKey;
@@ -397,6 +398,126 @@ fn left_click_recaptures_with_locked_invisible_cursor() {
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
     assert!(!cursor.visible);
+}
+
+#[test]
+fn production_schedule_consumes_recapture_click_until_physical_release() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::default());
+    app.add_systems(
+        Update,
+        (
+            collect_raw_input.in_set(ClientFrameSet::RawInput),
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+        ),
+    );
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions {
+            grab_mode: CursorGrabMode::None,
+            visible: true,
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    app.update();
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Attack),
+        Default::default()
+    );
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear();
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Attack),
+        Default::default(),
+        "the click that captured the cursor must remain quarantined while physically held"
+    );
+
+    {
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.release(MouseButton::Left);
+        mouse.clear();
+    }
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Attack)
+            .pressed
+    );
+}
+
+#[test]
+fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::default());
+    app.add_systems(
+        Update,
+        (
+            collect_raw_input.in_set(ClientFrameSet::RawInput),
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+        ),
+    );
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            visible: false,
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    app.update();
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    let pressed = app
+        .world()
+        .resource::<SemanticInputSnapshot>()
+        .phase(Action::Attack);
+    assert!(pressed.pressed);
+    assert!(pressed.held);
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear();
+    app.update();
+    let held = app
+        .world()
+        .resource::<SemanticInputSnapshot>()
+        .phase(Action::Attack);
+    assert!(!held.pressed);
+    assert!(held.held, "captured mining/attack must remain held");
 }
 
 #[test]

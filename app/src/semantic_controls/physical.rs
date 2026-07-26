@@ -11,14 +11,19 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use semantic_input::{
-    ControllerFrame, DeviceFrame, KeyboardMouseFrame, ModifierChord, TouchContact,
+    ControllerFrame, DeviceFrame, KeyboardMouseFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS,
+    ModifierChord, TouchContact,
 };
 
 use super::{SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets};
 use crate::camera::input_is_active;
 
 #[derive(Resource, Debug, Default)]
-pub(crate) struct PendingDeviceFrame(Option<DeviceFrame>);
+pub(crate) struct PendingDeviceFrame {
+    frame: Option<DeviceFrame>,
+    ignored_controllers: u64,
+    ignored_touches: u64,
+}
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SemanticRouteState {
@@ -40,7 +45,14 @@ pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
     mut pending: ResMut<PendingDeviceFrame>,
 ) {
-    pending.0 = Some(translate_device_frame(inputs));
+    let translated = translate_device_frame(inputs);
+    pending.ignored_controllers = pending
+        .ignored_controllers
+        .saturating_add(translated.ignored_controllers as u64);
+    pending.ignored_touches = pending
+        .ignored_touches
+        .saturating_add(translated.ignored_touches as u64);
+    pending.frame = Some(translated.frame);
 }
 
 pub(crate) fn route_semantic_input(
@@ -49,7 +61,7 @@ pub(crate) fn route_semantic_input(
     mut route: ResMut<SemanticRouteState>,
 ) {
     route.routed = pending
-        .0
+        .frame
         .take()
         .is_some_and(|frame| runtime.route_device_frame(frame).is_ok());
 }
@@ -70,7 +82,53 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     }
 }
 
-fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct InputSourceGates {
+    keyboard_mouse: bool,
+    controllers_and_touch: bool,
+}
+
+const fn input_source_gates(window_focused: bool, cursor_captured: bool) -> InputSourceGates {
+    InputSourceGates {
+        keyboard_mouse: window_focused && cursor_captured,
+        controllers_and_touch: window_focused,
+    }
+}
+
+#[derive(Debug)]
+struct BoundedDeviceSamples {
+    controllers: Vec<ControllerFrame>,
+    touches: Vec<TouchContact>,
+    ignored_controllers: usize,
+    ignored_touches: usize,
+}
+
+fn bound_device_samples(
+    mut controllers: Vec<ControllerFrame>,
+    mut touches: Vec<TouchContact>,
+) -> BoundedDeviceSamples {
+    controllers.sort_by_key(|controller| controller.device_id);
+    touches.sort_by_key(|touch| touch.contact_id);
+    let ignored_controllers = controllers.len().saturating_sub(MAX_CONTROLLERS);
+    let ignored_touches = touches.len().saturating_sub(MAX_TOUCH_CONTACTS);
+    controllers.truncate(MAX_CONTROLLERS);
+    touches.truncate(MAX_TOUCH_CONTACTS);
+    BoundedDeviceSamples {
+        controllers,
+        touches,
+        ignored_controllers,
+        ignored_touches,
+    }
+}
+
+#[derive(Debug)]
+struct TranslatedDeviceFrame {
+    frame: DeviceFrame,
+    ignored_controllers: usize,
+    ignored_touches: usize,
+}
+
+fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFrame {
     let SemanticPhysicalInputs {
         window,
         keys,
@@ -81,40 +139,48 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
         mut touch_targets,
     } = inputs;
     let (window, cursor) = window.into_inner();
-    if !input_is_active(window, cursor) {
+    let gates = input_source_gates(window.focused, input_is_active(window, cursor));
+    if !gates.controllers_and_touch {
         touch_targets.release_all();
-        return DeviceFrame {
-            keyboard_mouse: Some(KeyboardMouseFrame::default()),
-            window_focus_lost: !window.focused,
-            ..DeviceFrame::default()
+        return TranslatedDeviceFrame {
+            frame: DeviceFrame {
+                window_focus_lost: true,
+                ..DeviceFrame::default()
+            },
+            ignored_controllers: 0,
+            ignored_touches: 0,
         };
     }
 
-    let mut keyboard_keys = keys
-        .get_pressed()
-        .chain(keys.get_just_pressed())
-        .filter_map(|key| keyboard_usage(*key))
-        .collect::<Vec<_>>();
-    keyboard_keys.sort_unstable();
-    keyboard_keys.dedup();
-    let mut buttons = mouse_buttons
-        .get_pressed()
-        .filter_map(|button| mouse_button_code(*button))
-        .collect::<Vec<_>>();
-    buttons.sort_unstable();
-    let keyboard_mouse = Some(KeyboardMouseFrame {
-        activity_sequence: 0,
-        keys: keyboard_keys,
-        mouse_buttons: buttons,
-        mouse_motion: mouse_motion.delta.to_array(),
-        modifiers: ModifierChord {
-            shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
-            control: keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
-            alt: keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
-            super_key: keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
-        },
+    let keyboard_mouse = gates.keyboard_mouse.then(|| {
+        let mut keyboard_keys = keys
+            .get_pressed()
+            .chain(keys.get_just_pressed())
+            .filter_map(|key| keyboard_usage(*key))
+            .collect::<Vec<_>>();
+        keyboard_keys.sort_unstable();
+        keyboard_keys.dedup();
+        let mut buttons = mouse_buttons
+            .get_pressed()
+            .chain(mouse_buttons.get_just_pressed())
+            .filter_map(|button| mouse_button_code(*button))
+            .collect::<Vec<_>>();
+        buttons.sort_unstable();
+        buttons.dedup();
+        KeyboardMouseFrame {
+            activity_sequence: 0,
+            keys: keyboard_keys,
+            mouse_buttons: buttons,
+            mouse_motion: mouse_motion.delta.to_array(),
+            modifiers: ModifierChord {
+                shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
+                control: keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+                alt: keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
+                super_key: keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
+            },
+        }
     });
-    let mut controllers = gamepads
+    let controllers = gamepads
         .iter()
         .map(|(entity, gamepad)| ControllerFrame {
             device_id: entity.index().index(),
@@ -132,11 +198,10 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
             buttons: gamepad_button_codes(gamepad),
         })
         .collect::<Vec<_>>();
-    controllers.sort_by_key(|controller| controller.device_id);
     let width = window.width().max(1.0);
     let height = window.height().max(1.0);
     touch_targets.retain_active_contacts(touches.iter().map(|touch| touch.id()));
-    let mut contacts = touches
+    let contacts = touches
         .iter()
         .map(|touch| TouchContact {
             contact_id: touch.id(),
@@ -149,12 +214,20 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> DeviceFrame {
             hit_id: touch_targets.target(touch.id()),
         })
         .collect::<Vec<_>>();
-    contacts.sort_by_key(|touch| touch.contact_id);
-    DeviceFrame {
-        keyboard_mouse,
-        controllers,
-        touches: contacts,
-        ..DeviceFrame::default()
+    let bounded = bound_device_samples(controllers, contacts);
+    TranslatedDeviceFrame {
+        frame: DeviceFrame {
+            keyboard_mouse,
+            controllers: bounded.controllers,
+            touches: bounded
+                .touches
+                .into_iter()
+                .filter(|contact| contact.hit_id.is_some())
+                .collect(),
+            ..DeviceFrame::default()
+        },
+        ignored_controllers: bounded.ignored_controllers,
+        ignored_touches: bounded.ignored_touches,
     }
 }
 
@@ -231,7 +304,9 @@ const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
     let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
         .iter()
-        .filter_map(|(code, button)| gamepad.pressed(*button).then_some(*code))
+        .filter_map(|(code, button)| {
+            (gamepad.pressed(*button) || gamepad.just_pressed(*button)).then_some(*code)
+        })
         .collect::<Vec<_>>();
     buttons.sort_unstable();
     buttons
@@ -239,9 +314,15 @@ fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
+    use super::{
+        TRANSLATED_GAMEPAD_BUTTONS, bound_device_samples, input_source_gates, keyboard_usage,
+        mouse_button_code,
+    };
     use bevy::prelude::{KeyCode, MouseButton};
-    use semantic_input::{ControlSettings, PhysicalControl};
+    use semantic_input::{
+        ControlSettings, ControllerFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS, PhysicalControl,
+        TouchContact,
+    };
 
     /// Exactly the keys this translation layer claims to support. A default
     /// binding naming a usage outside this set is dead input: the player
@@ -295,7 +376,7 @@ mod tests {
     /// hit ID that no on-screen region ever assigns, which this cannot see.
     /// Touch reachability is tracked as an open gap, not proven here.
     #[test]
-    fn every_default_binding_names_a_control_the_app_can_emit() {
+    fn default_binding_reachability_is_explicit_for_every_device_family() {
         let usages = TRANSLATED_KEYS
             .iter()
             .filter_map(|key| keyboard_usage(*key))
@@ -309,6 +390,7 @@ mod tests {
             .map(|(code, _)| *code)
             .collect::<Vec<_>>();
 
+        let mut unavailable_touch_bindings = 0;
         for binding in ControlSettings::default().bindings() {
             let action = binding.action;
             match binding.chord.control {
@@ -324,13 +406,18 @@ mod tests {
                     gamepad.contains(&button),
                     "{action:?} is bound to gamepad button {button}, which gamepad_button_codes never emits"
                 ),
-                // Axes and touch hit IDs are supplied wholesale by the frame
-                // translation above and by the app-owned touch layout.
-                PhysicalControl::MouseAxis(_)
-                | PhysicalControl::GamepadAxis { .. }
-                | PhysicalControl::TouchControl(_) => {}
+                PhysicalControl::MouseAxis(_) | PhysicalControl::GamepadAxis { .. } => {}
+                PhysicalControl::TouchControl(_) => {
+                    unavailable_touch_bindings += usize::from(
+                        !crate::ui_runtime::gameplay_touch::PRODUCTION_TOUCH_LAYOUT_AVAILABLE,
+                    );
+                }
             }
         }
+        assert!(
+            unavailable_touch_bindings > 0,
+            "default touch bindings must remain explicitly classified while their layout is unavailable"
+        );
     }
 
     /// Every key this layer translates must produce a distinct HID usage, so a
@@ -345,5 +432,59 @@ mod tests {
         usages.sort_unstable();
         usages.dedup();
         assert_eq!(usages.len(), translated);
+    }
+
+    #[test]
+    fn focus_is_global_but_cursor_capture_only_gates_keyboard_mouse() {
+        let focused_released = input_source_gates(true, false);
+        assert!(!focused_released.keyboard_mouse);
+        assert!(focused_released.controllers_and_touch);
+
+        let unfocused = input_source_gates(false, true);
+        assert!(!unfocused.keyboard_mouse);
+        assert!(!unfocused.controllers_and_touch);
+    }
+
+    #[test]
+    fn device_sampling_keeps_lowest_stable_ids_and_counts_overflow() {
+        let controllers = (0..=MAX_CONTROLLERS)
+            .rev()
+            .map(|device_id| ControllerFrame {
+                device_id: device_id as u32,
+                ..ControllerFrame::default()
+            })
+            .collect();
+        let touches = (0..=MAX_TOUCH_CONTACTS)
+            .rev()
+            .map(|contact_id| TouchContact {
+                contact_id: contact_id as u64,
+                activity_sequence: 0,
+                position: [0.5, 0.5],
+                delta: [0.0, 0.0],
+                hit_id: None,
+            })
+            .collect();
+
+        let bounded = bound_device_samples(controllers, touches);
+        assert_eq!(bounded.controllers.len(), MAX_CONTROLLERS);
+        assert_eq!(bounded.touches.len(), MAX_TOUCH_CONTACTS);
+        assert_eq!(
+            bounded
+                .controllers
+                .iter()
+                .map(|controller| controller.device_id)
+                .collect::<Vec<_>>(),
+            (0..MAX_CONTROLLERS as u32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            bounded
+                .touches
+                .iter()
+                .map(|contact| contact.contact_id)
+                .collect::<Vec<_>>(),
+            (0..MAX_TOUCH_CONTACTS as u64).collect::<Vec<_>>()
+        );
+        assert_eq!(bounded.ignored_controllers, 1);
+        assert_eq!(bounded.ignored_touches, 1);
     }
 }

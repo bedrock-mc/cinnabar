@@ -2,12 +2,19 @@ use core::num::NonZeroU64;
 
 use crate::{
     Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings, DeviceFrame,
-    FrameError, InputChord, InputContext, InputMode, MouseAxis, PhysicalControl, ReleaseReason,
-    TouchAxis, TouchControlKind, TouchControlLayout,
+    FrameError, InputChord, InputContext, InputMode, MAX_CONTROLLER_BUTTONS, MAX_CONTROLLERS,
+    MAX_KEYBOARD_KEYS, MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MouseAxis, PhysicalControl,
+    ReleaseReason, TouchAxis, TouchControlKind, TouchControlLayout,
 };
 
 /// Maximum Euclidean magnitude accepted for a semantic look delta.
 pub const MAX_LOOK_DELTA_PER_FRAME: f32 = 2048.0;
+const CONTROLLER_AXES: usize = 8;
+const MAX_QUARANTINED_CONTROLS: usize = 2
+    * (MAX_KEYBOARD_KEYS
+        + MAX_MOUSE_BUTTONS
+        + MAX_CONTROLLERS * (MAX_CONTROLLER_BUTTONS + CONTROLLER_AXES)
+        + MAX_TOUCH_CONTACTS);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouterError {
@@ -35,6 +42,10 @@ pub struct SemanticInputRouter {
     touch_layout: TouchControlLayout,
     activity_watermark: u64,
     previous_frame: DeviceFrame,
+    quarantined_controls: Vec<QuarantinedControl>,
+    quarantined_controllers: Vec<u32>,
+    controller_activity_baselines: Vec<ControllerActivityBaseline>,
+    pending_release_barrier: bool,
 }
 
 impl Default for SemanticInputRouter {
@@ -54,6 +65,10 @@ impl Default for SemanticInputRouter {
             touch_layout: TouchControlLayout::default(),
             activity_watermark: 0,
             previous_frame: DeviceFrame::default(),
+            quarantined_controls: Vec::new(),
+            quarantined_controllers: Vec::new(),
+            controller_activity_baselines: Vec::new(),
+            pending_release_barrier: false,
         }
     }
 }
@@ -92,8 +107,19 @@ impl SemanticInputRouter {
             .pending
             .as_ref()
             .ok_or(RouterError::MissingPendingFrame)?;
-        let input_mode = self.selected_input_mode(frame).0;
-        let sample = self.sample(frame, input_mode);
+        let quarantined_controllers = self.controller_quarantine_for_frame(frame);
+        let filtered = without_quarantined_controls(
+            frame,
+            &self.quarantined_controls,
+            &quarantined_controllers,
+            &self.controller_activity_baselines,
+        );
+        let input_mode = self.selected_input_mode(&filtered).0;
+        let sample = if self.pending_release_barrier {
+            Sample::default()
+        } else {
+            self.sample(&filtered, input_mode)
+        };
         let index = action as usize;
         let active = sample.active[index];
         Ok(ActionPhase {
@@ -145,9 +171,31 @@ impl SemanticInputRouter {
         if !frame.disconnected_controllers.is_empty() && self.input_mode == InputMode::GamePad {
             self.queue_held_releases(ReleaseReason::ControllerDisconnected);
         }
+        if frame.window_focus_lost {
+            let mut currently_active = Vec::new();
+            quarantine_active_controls(&frame, &mut currently_active);
+            if !currently_active.is_empty() {
+                // A validated frame carrying active devices gives us a newer
+                // bounded physical truth than older focus-loss samples. Keep
+                // only that truth; app-produced focus-loss frames are empty,
+                // so they continue preserving the last focused controls.
+                self.quarantined_controls = currently_active;
+            }
+        }
 
-        let (input_mode, activity_sequence) = self.selected_input_mode(&frame);
-        let sample = self.sample(&frame, input_mode);
+        self.quarantined_controllers = self.controller_quarantine_for_frame(&frame);
+        let filtered = without_quarantined_controls(
+            &frame,
+            &self.quarantined_controls,
+            &self.quarantined_controllers,
+            &self.controller_activity_baselines,
+        );
+        let (input_mode, activity_sequence) = self.selected_input_mode(&filtered);
+        let sample = if self.pending_release_barrier {
+            Sample::default()
+        } else {
+            self.sample(&filtered, input_mode)
+        };
         let mut phases = [ActionPhase::default(); Action::COUNT];
         let mut release_reasons = [None; Action::COUNT];
 
@@ -174,11 +222,26 @@ impl SemanticInputRouter {
 
         self.physical_down = sample.active;
         self.pending_releases = [None; Action::COUNT];
+        self.pending_release_barrier = false;
         self.pending_context = None;
         self.frame_sequence = next_sequence;
         self.input_mode = input_mode;
         self.input_activity_sequence = activity_sequence;
         self.activity_watermark = self.activity_watermark.max(frame_activity_max(&frame));
+        self.update_controller_activity_baselines(&frame);
+        self.quarantined_controllers.retain(|device_id| {
+            frame
+                .controllers
+                .iter()
+                .find(|controller| controller.device_id == *device_id)
+                .is_some_and(controller_has_physical_input)
+        });
+        if !frame.window_focus_lost {
+            let mut active_controls = Vec::new();
+            quarantine_active_controls(&frame, &mut active_controls);
+            self.quarantined_controls
+                .retain(|control| active_controls.contains(control));
+        }
         self.previous_frame = frame;
         if let Some(generation) = self.pending_authority.take() {
             self.authority_generation = generation;
@@ -196,6 +259,13 @@ impl SemanticInputRouter {
     }
 
     fn queue_held_releases(&mut self, reason: ReleaseReason) {
+        let previous_quarantine_len = self.quarantined_controls.len();
+        quarantine_active_controls(&self.previous_frame, &mut self.quarantined_controls);
+        if let Some(frame) = self.pending.as_ref() {
+            quarantine_active_controls(frame, &mut self.quarantined_controls);
+        }
+        self.pending_release_barrier |= self.physical_down.iter().any(|down| *down)
+            || self.quarantined_controls.len() > previous_quarantine_len;
         for action in Action::ALL {
             let index = action as usize;
             if self.physical_down[index] && !action.is_one_shot() {
@@ -241,6 +311,66 @@ impl SemanticInputRouter {
             }
         }
         selected
+    }
+
+    fn controller_quarantine_for_frame(&self, frame: &DeviceFrame) -> Vec<u32> {
+        let mut quarantined = self.quarantined_controllers.clone();
+        quarantined.retain(|device_id| {
+            frame
+                .controllers
+                .iter()
+                .any(|controller| controller.device_id == *device_id)
+        });
+        if self.frame_sequence != 0 {
+            for controller in &frame.controllers {
+                let was_observed = self
+                    .previous_frame
+                    .controllers
+                    .iter()
+                    .any(|previous| previous.device_id == controller.device_id);
+                if !was_observed
+                    && controller_has_physical_input(controller)
+                    && !quarantined.contains(&controller.device_id)
+                {
+                    quarantined.push(controller.device_id);
+                }
+            }
+        }
+        quarantined
+    }
+
+    fn update_controller_activity_baselines(&mut self, frame: &DeviceFrame) {
+        self.controller_activity_baselines.retain(|baseline| {
+            frame
+                .controllers
+                .iter()
+                .any(|controller| controller.device_id == baseline.device_id)
+        });
+        for device_id in &self.quarantined_controllers {
+            let Some(controller) = frame
+                .controllers
+                .iter()
+                .find(|controller| controller.device_id == *device_id)
+            else {
+                continue;
+            };
+            if controller_has_physical_input(controller) {
+                continue;
+            }
+            if let Some(baseline) = self
+                .controller_activity_baselines
+                .iter_mut()
+                .find(|baseline| baseline.device_id == *device_id)
+            {
+                baseline.activity_sequence = controller.activity_sequence;
+            } else {
+                self.controller_activity_baselines
+                    .push(ControllerActivityBaseline {
+                        device_id: *device_id,
+                        activity_sequence: controller.activity_sequence,
+                    });
+            }
+        }
     }
 
     fn validate_activity_sequences(&self, frame: &DeviceFrame) -> Result<(), RouterError> {
@@ -398,12 +528,135 @@ impl SemanticInputRouter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QuarantinedControl {
+    KeyboardUsage(u16),
+    MouseButton(u8),
+    ControllerButton { device_id: u32, button: u8 },
+    ControllerAxis { device_id: u32, axis: u8 },
+    TouchContact(u64),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ControllerActivityBaseline {
+    device_id: u32,
+    activity_sequence: u64,
+}
+
 #[derive(Clone, Copy)]
 struct Sample {
     movement: [f32; 2],
     look_delta: [f32; 2],
     active: [bool; Action::COUNT],
     pressed: [bool; Action::COUNT],
+}
+
+impl Default for Sample {
+    fn default() -> Self {
+        Self {
+            movement: [0.0; 2],
+            look_delta: [0.0; 2],
+            active: [false; Action::COUNT],
+            pressed: [false; Action::COUNT],
+        }
+    }
+}
+
+fn quarantine_active_controls(frame: &DeviceFrame, output: &mut Vec<QuarantinedControl>) {
+    if let Some(keyboard) = frame.keyboard_mouse.as_ref() {
+        for code in &keyboard.keys {
+            push_quarantine(output, QuarantinedControl::KeyboardUsage(*code));
+        }
+        for button in &keyboard.mouse_buttons {
+            push_quarantine(output, QuarantinedControl::MouseButton(*button));
+        }
+    }
+    for controller in &frame.controllers {
+        for button in &controller.buttons {
+            push_quarantine(
+                output,
+                QuarantinedControl::ControllerButton {
+                    device_id: controller.device_id,
+                    button: *button,
+                },
+            );
+        }
+        for (axis, value) in controller.axes.iter().copied().enumerate() {
+            if value == 0.0 {
+                continue;
+            }
+            push_quarantine(
+                output,
+                QuarantinedControl::ControllerAxis {
+                    device_id: controller.device_id,
+                    axis: axis as u8,
+                },
+            );
+        }
+    }
+    for contact in &frame.touches {
+        push_quarantine(output, QuarantinedControl::TouchContact(contact.contact_id));
+    }
+}
+
+fn push_quarantine(output: &mut Vec<QuarantinedControl>, control: QuarantinedControl) {
+    if !output.contains(&control) {
+        if output.len() == MAX_QUARANTINED_CONTROLS {
+            output.remove(0);
+        }
+        output.push(control);
+    }
+}
+
+fn without_quarantined_controls(
+    frame: &DeviceFrame,
+    quarantine: &[QuarantinedControl],
+    quarantined_controllers: &[u32],
+    controller_activity_baselines: &[ControllerActivityBaseline],
+) -> DeviceFrame {
+    let mut filtered = frame.clone();
+    if let Some(keyboard) = filtered.keyboard_mouse.as_mut() {
+        keyboard
+            .keys
+            .retain(|code| !quarantine.contains(&QuarantinedControl::KeyboardUsage(*code)));
+        keyboard
+            .mouse_buttons
+            .retain(|button| !quarantine.contains(&QuarantinedControl::MouseButton(*button)));
+    }
+    filtered.controllers.retain_mut(|controller| {
+        if quarantined_controllers.contains(&controller.device_id)
+            || controller_activity_baselines.iter().any(|baseline| {
+                baseline.device_id == controller.device_id
+                    && controller.activity_sequence <= baseline.activity_sequence
+            })
+        {
+            return false;
+        }
+        let had_physical_input = controller_has_physical_input(controller);
+        controller.buttons.retain(|button| {
+            !quarantine.contains(&QuarantinedControl::ControllerButton {
+                device_id: controller.device_id,
+                button: *button,
+            })
+        });
+        for (axis, value) in controller.axes.iter_mut().enumerate() {
+            if quarantine.contains(&QuarantinedControl::ControllerAxis {
+                device_id: controller.device_id,
+                axis: axis as u8,
+            }) {
+                *value = 0.0;
+            }
+        }
+        !had_physical_input || controller_has_physical_input(controller)
+    });
+    filtered.touches.retain(|contact| {
+        !quarantine.contains(&QuarantinedControl::TouchContact(contact.contact_id))
+    });
+    filtered
+}
+
+fn controller_has_physical_input(controller: &crate::ControllerFrame) -> bool {
+    !controller.buttons.is_empty() || controller.axes.iter().any(|axis| *axis != 0.0)
 }
 
 fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {

@@ -565,8 +565,19 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if mouse_buttons.just_pressed(MouseButton::Left) || auto_fly.capture_pending {
+    let recapture_click =
+        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
+        if recapture_click {
+            // The click that transitions from an absolute UI cursor to
+            // captured gameplay input is UI authority, not an attack. Remove
+            // its held state so it cannot become gameplay input on the next
+            // scheduled sample; the platform must deliver a later physical
+            // release and press before attack can rearm.
+            mouse_buttons.release(MouseButton::Left);
+            mouse_motion.delta = Vec2::ZERO;
+        }
         auto_fly.capture_pending = false;
     }
 }
