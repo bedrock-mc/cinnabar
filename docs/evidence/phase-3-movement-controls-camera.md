@@ -19,11 +19,19 @@ Status: candidate implementation focused tests and fixture-only evidence-harness
 - Lunar: `pvp.lunarbedrock.com:19134`
 - Zeqa: `zeqa.net:19132`
 - LBSG: `play.lbsg.net:19132`
+- Zeno: `zenomc.org:19197`
 - BDS: supplied endpoint, defaulting to `127.0.0.1:19132` (the BDS process must already be available)
 
 The launcher refuses tracked dirty source, embeds the exact clean `HEAD` and `RUST_MCBE_SOURCE_DIRTY=false` in the client build, builds and hashes the core and client, and creates a run ID. Its run directory must be newly created or empty. Before launching the core it proves that the unique socket directory contains no `game.addr`; afterward it accepts only a fresh publication while that exact core process remains alive and binds the witness to that core PID. It then launches the selected client scenario. On Windows the reviewed executable is always `target/debug/bedrock-client.exe`; the launcher does not copy or rename it. In-process identity markers bind the build, run ID, upstream endpoint, PREG/BREG, core SHA/process ID, and app process ID. A copied stale binary cannot claim the current clean `HEAD`, and a binary without the explicit clean-source compile marker cannot emit candidate identity.
 
-Lunar, Zeqa, and LBSG runs require an existing authentication cache beneath `.local`, pass its resolved path to the core as `-auth-cache`, and reject durations below 300 seconds. BDS remains the only offline target and may use a shorter local diagnostic duration.
+Lunar, Zeqa, LBSG, and Zeno runs require an existing authentication cache beneath `.local`, pass its resolved path to the core as `-auth-cache`, and reject durations below 300 seconds. BDS remains the only offline target and may use a shorter local diagnostic duration.
+
+Operating caveats to record and review before a live run:
+
+- The wall, corner, and ceiling manifest checks only prevent weakening the three named controlled scenarios. They do not prove those geometries were exercised: a valid aggregate is not evidence that the scenarios occurred, so the generated artifacts require manual review.
+- `phase3-final.json` has no dedicated server-version field. Record the server-reported version separately during each live run.
+- Static inspection does not verify Zeno's designation as official BDS. Confirm that designation, endpoint reachability, and authentication on the first Zeno live run.
+- `FastTransferWitness` remains LBSG-only, requires at least 600 seconds and the compiled vanilla asset carrier, and requires the operator to run `/transfer sm3`.
 
 Example from a clean committed branch:
 
@@ -74,7 +82,7 @@ The affected broad suites are green with `cargo test --locked -p sim -p semantic
 Fixture-only PowerShell validation is green:
 
 ```text
-scripts/tests/acceptance/Phase3.Tests.ps1: 86 passed, 0 failed
+scripts/tests/acceptance/Phase3.Tests.ps1: 93 passed, 0 failed
 ```
 
 These tests cover authenticated target launcher flags and minimum durations, the stable debug path, new-or-empty run directories, fresh core-attributed endpoint publication, equal-pose catch-up, replay/snap aggregation, the full required-matrix schema, exact perspective wrap, authoritative terminal queue reconciliation, an independent zero-frame FreeCamera terminal, exact schema/correlation, dirty and mismatched run/process/core rejection, and isolated fail-closed negative gates. The negatives independently reject missing flat/diagonal movement, all-zero movement, a missing distinct single jump, weakened movement/jump minima, and weakened wall/corner/ceiling outcomes. They validate the harness contract and synthetic marker fixtures only; they do not claim that a live controlled matrix, geometry-specific camera collision scenario, or native comparison has run. Debug-client timing in a generated aggregate is diagnostic evidence, not a release-performance acceptance claim.
@@ -83,7 +91,7 @@ These tests cover authenticated target launcher flags and minimum durations, the
 
 - Broad Rust, Clippy, format, architecture, and independent-review gates on the integrated branch.
 - Controlled local BDS movement/correction/single-jump/held-jump/perspective matrix, with separate wall, corner, and ceiling third-person camera-collision artifacts.
-- Separate five-minute authenticated `CandidatePhysics` and `FreeCameraSilence` runs on Lunar and Zeqa, plus LBSG.
+- Separate five-minute authenticated `CandidatePhysics` and `FreeCameraSilence` runs on Lunar, Zeqa, LBSG, and Zeno.
 - Native Bedrock comparison for movement cadence, special surfaces, camera collision, local-avatar visibility, and controller equivalence. Touch parity remains open but is owner-deprioritized and does not gate Phase 3 acceptance.
 - Review of each generated `phase3-final.json` before the separate production Physics enable change.
 
