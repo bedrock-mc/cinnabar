@@ -30,11 +30,6 @@ pub(super) fn ready_value_columns(value: &BlobCacheReady) -> Vec<ColumnKey> {
             x: event.x,
             z: event.z,
         }],
-        WorldEvent::ChunkResync(event) => vec![ColumnKey {
-            dimension: event.dimension,
-            x: event.x,
-            z: event.z,
-        }],
         WorldEvent::SubChunks(event) => {
             stable_unique_columns(event.entries.iter().map(|entry| ColumnKey {
                 dimension: event.dimension,

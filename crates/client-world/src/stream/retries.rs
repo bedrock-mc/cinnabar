@@ -18,13 +18,6 @@ impl WorldStream {
                     let removed = expected.remove(&key.y);
                     (removed, expected.is_empty())
                 });
-        if removed.is_some_and(|pending| pending.cache_resync && collision_authoritative) {
-            self.stats.phase2_stages.resync_responses_completed = self
-                .stats
-                .phase2_stages
-                .resync_responses_completed
-                .saturating_add(1);
-        }
         if let Some(pending) = removed
             && (pending.pending_transport_attempts != 0 || pending.confirmed_attempts != 0)
         {
@@ -135,7 +128,6 @@ impl WorldStream {
         if attempts >= MAX_SUB_CHUNK_RETRIES {
             self.stats.sub_chunk_retry_exhaustions =
                 self.stats.sub_chunk_retry_exhaustions.saturating_add(1);
-            self.record_cache_resync_retry_exhausted(key);
             return true;
         }
         match self.try_schedule_exact_retry(key) {
@@ -251,7 +243,6 @@ impl WorldStream {
                     self.stats.phase2_outcomes.timed_out.saturating_add(1);
                 self.stats.sub_chunk_retry_exhaustions =
                     self.stats.sub_chunk_retry_exhaustions.saturating_add(1);
-                self.record_cache_resync_retry_exhausted(key);
                 self.complete_requested_sub_chunk(key, false);
                 continue;
             }
@@ -299,20 +290,6 @@ impl WorldStream {
                     && request.base_sub_chunk_y == key.y
                     && request.count == 1)
         });
-    }
-    fn record_cache_resync_retry_exhausted(&mut self, key: SubChunkKey) {
-        let cache_resync = self
-            .requested_sub_chunks
-            .get(&key.chunk())
-            .and_then(|column| column.get(&key.y))
-            .is_some_and(|pending| pending.cache_resync);
-        if cache_resync {
-            self.stats.phase2_stages.resync_retry_exhausted = self
-                .stats
-                .phase2_stages
-                .resync_retry_exhausted
-                .saturating_add(1);
-        }
     }
     pub(super) fn disarm_sub_chunk_deadline(&mut self, key: SubChunkKey) {
         let deadline = self

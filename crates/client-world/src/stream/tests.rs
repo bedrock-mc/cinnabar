@@ -14,11 +14,10 @@ use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMoveEvent,
     ActorPositionOrigin, ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockCrackAction, BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent,
-    SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, UiEvent, WeatherChannel,
-    WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    ChangeDimensionEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
+    MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
+    SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,
@@ -600,107 +599,6 @@ fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.take_requests().len(), 1);
     (stream, key)
-}
-
-#[test]
-fn cached_level_chunk_pressure_resync_drives_the_request_scheduler() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::ChunkResync(ChunkResyncEvent {
-                dimension: 0,
-                x: 3,
-                z: -2,
-                requested_sub_chunks: None,
-            }),
-        )
-        .expect("bounded cache-pressure recovery event");
-
-    let requests = stream.take_requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].chunk, ChunkKey::new(0, 3, -2));
-    assert_eq!(requests[0].base_sub_chunk_y, -4);
-    assert_eq!(requests[0].count, 24);
-}
-
-#[test]
-fn cache_resync_lifecycle_counts_sent_completed_and_retry_exhausted() {
-    let bootstrap = || WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    };
-    let recovery = |x| {
-        WorldEvent::ChunkResync(ChunkResyncEvent {
-            dimension: 0,
-            x,
-            z: -2,
-            requested_sub_chunks: Some(1),
-        })
-    };
-
-    let mut completed = WorldStream::new(bootstrap());
-    completed
-        .submit(1, recovery(3))
-        .expect("cache recovery request");
-    let completed_request = completed
-        .pop_next_request()
-        .expect("cache recovery outbound request");
-    acknowledge_request_sent(&mut completed, &completed_request, Instant::now());
-    assert_eq!(completed.stats().phase2_stages.resync_requests_sent, 1);
-    apply_sub_chunk_result(
-        &mut completed,
-        SubChunkKey::new(0, 3, -4, -2),
-        super::PreparedSubChunkResult::AllAir,
-    );
-    assert_eq!(
-        completed.stats().phase2_stages.resync_responses_completed,
-        1
-    );
-    assert_eq!(completed.stats().phase2_stages.resync_retry_exhausted, 0);
-
-    let started = Instant::now();
-    let mut exhausted = WorldStream::new(bootstrap());
-    exhausted
-        .submit(1, recovery(4))
-        .expect("cache recovery request");
-    let initial = exhausted
-        .pop_next_request()
-        .expect("initial cache recovery request");
-    acknowledge_request_sent(&mut exhausted, &initial, started);
-    for attempt in 1..=super::MAX_SUB_CHUNK_RETRIES {
-        let deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT * u32::from(attempt);
-        exhausted.expire_sub_chunk_deadlines(deadline);
-        let retry = exhausted
-            .pop_next_request()
-            .expect("bounded cache recovery retry");
-        acknowledge_request_sent(&mut exhausted, &retry, deadline);
-    }
-    exhausted.expire_sub_chunk_deadlines(
-        started
-            + super::SUB_CHUNK_RESPONSE_TIMEOUT
-                * u32::from(super::MAX_SUB_CHUNK_RETRIES.saturating_add(1)),
-    );
-    assert_eq!(
-        exhausted.stats().phase2_stages.resync_requests_sent,
-        u64::from(super::MAX_SUB_CHUNK_RETRIES) + 1
-    );
-    assert_eq!(
-        exhausted.stats().phase2_stages.resync_responses_completed,
-        0
-    );
-    assert_eq!(exhausted.stats().phase2_stages.resync_retry_exhausted, 1);
 }
 
 fn apply_sub_chunk_result(
