@@ -119,7 +119,8 @@ Describe 'Phase 3 production marker evidence validation' {
         )
         $script:ScenarioManifest = [ordered]@{
             schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
-            required_input_modes = @('KeyboardMouse', 'GamePad', 'Touch')
+            required_input_modes = @('KeyboardMouse', 'GamePad'); deferred_input_modes = @('Touch')
+            input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
             required_perspective_sequence = @(
                 'FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront', 'FirstPerson'
             )
@@ -236,8 +237,8 @@ Describe 'Phase 3 production marker evidence validation' {
         $script:Terminals[0].physics_packet_count = 0
         $script:Terminals[0].outbox_reconciliation = 'NotAuthoritative'
         $script:ScenarioManifest.scenario = 'FreeCameraSilence'
-        $script:ScenarioManifest.required_input_modes = @()
-        $script:ScenarioManifest.required_perspective_sequence = @()
+        $script:ScenarioManifest.required_input_modes = @(); $script:ScenarioManifest.deferred_input_modes = @()
+        $script:ScenarioManifest.required_perspective_sequence = @(); $script:ScenarioManifest.input_witness_deferral_reason = ''
         $script:ScenarioManifest.require_replay = $false
         $script:ScenarioManifest.require_snap = $false
         $script:ScenarioManifest.require_held_jump_rejump = $false
@@ -270,6 +271,7 @@ Describe 'Phase 3 production marker evidence validation' {
             Lunar = 'pvp.lunarbedrock.com:19134'
             Zeqa = 'zeqa.net:19132'
             Lbsg = 'play.lbsg.net:19132'
+            Zeno = 'zenomc.org:19197'
             Bds = '127.0.0.1:19132'
         }
         foreach ($target in $targets.Keys) {
@@ -288,16 +290,16 @@ Describe 'Phase 3 production marker evidence validation' {
         }
     }
 
-    It 'forbids missing authentication on Lunar Zeqa and LBSG plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg')) {
+    It 'forbids missing authentication on all external plans' {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 300 -Scenario CandidatePhysics } | Should Throw
         }
     }
 
-    It 'forbids sub-five-minute Lunar Zeqa and LBSG plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg')) {
+    It 'forbids sub-five-minute external plans' {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 299 -Scenario CandidatePhysics -AuthCache token.json } | Should Throw

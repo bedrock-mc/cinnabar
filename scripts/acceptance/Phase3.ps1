@@ -5,7 +5,7 @@ param(
     [string]$LogPath,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg')]
+    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
     [string]$ExpectedTarget,
 
     [Parameter(Mandatory = $true)]
@@ -94,7 +94,8 @@ $terminalProperties = @(
     'pending_outbox_depth', 'outbox_reconciliation'
 )
 $scenarioProperties = @(
-    'schema', 'scenario', 'required_input_modes', 'required_perspective_sequence',
+    'schema', 'scenario', 'required_input_modes', 'deferred_input_modes',
+    'input_witness_deferral_reason', 'required_perspective_sequence',
     'require_replay', 'require_snap', 'require_held_jump_rejump',
     'require_release_before_landing', 'require_camera_blocked', 'require_camera_fallback',
     'require_avatar_visibility_states', 'required_controlled_matrix'
@@ -270,6 +271,12 @@ if ($scenarioManifest.scenario -isnot [string] -or
 }
 Assert-StringArray $scenarioManifest.required_input_modes 'scenario manifest.required_input_modes' `
     @('KeyboardMouse', 'GamePad', 'Touch') 3
+Assert-StringArray $scenarioManifest.deferred_input_modes 'scenario manifest.deferred_input_modes' `
+    @('Touch') 1
+if ($scenarioManifest.input_witness_deferral_reason -isnot [string] -or
+    ([string]$scenarioManifest.input_witness_deferral_reason).Length -gt 256) {
+    throw 'scenario manifest.input_witness_deferral_reason must be a bounded string'
+}
 Assert-OrderedStringArray $scenarioManifest.required_perspective_sequence `
     'scenario manifest.required_perspective_sequence' `
     @('FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront') 4
@@ -311,11 +318,17 @@ foreach ($name in @('camera_wall_outcome', 'camera_corner_outcome', 'camera_ceil
 $candidateScenario = [string]$scenarioManifest.scenario -ceq 'CandidatePhysics'
 if ($candidateScenario) {
     $requiredModes = @($scenarioManifest.required_input_modes)
-    if ($requiredModes.Count -ne 3 -or
-        @(@('KeyboardMouse', 'GamePad', 'Touch') | Where-Object {
+    if ($requiredModes.Count -ne 2 -or
+        @(@('KeyboardMouse', 'GamePad') | Where-Object {
             $requiredModes -cnotcontains $_
         }).Count -ne 0) {
-        throw 'CandidatePhysics scenario must require keyboard mouse gamepad and touch witnesses'
+        throw 'CandidatePhysics scenario must require keyboard mouse and gamepad witnesses'
+    }
+    if (@($scenarioManifest.deferred_input_modes).Count -ne 1 -or
+        [string]$scenarioManifest.deferred_input_modes[0] -cne 'Touch' -or
+        [string]$scenarioManifest.input_witness_deferral_reason -cne
+            'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.') {
+        throw 'CandidatePhysics scenario must explicitly defer touch by owner decision'
     }
     $requiredPerspectives = @($scenarioManifest.required_perspective_sequence)
     if ($requiredPerspectives.Count -ne 4 -or
@@ -371,6 +384,8 @@ if ($candidateScenario) {
 }
 else {
     if (@($scenarioManifest.required_input_modes).Count -ne 0 -or
+        @($scenarioManifest.deferred_input_modes).Count -ne 0 -or
+        -not [string]::IsNullOrEmpty([string]$scenarioManifest.input_witness_deferral_reason) -or
         @($scenarioManifest.required_perspective_sequence).Count -ne 0) {
         throw 'FreeCameraSilence scenario cannot require movement frame witnesses'
     }

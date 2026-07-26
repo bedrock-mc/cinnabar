@@ -119,6 +119,23 @@ function Write-Phase3FinalAggregate {
             $heldJumpCurrent = 0
         }
     }
+    $inputWitnesses = [Collections.Generic.List[object]]::new()
+    foreach ($requiredMode in @($ScenarioManifest.required_input_modes)) {
+        $inputWitnesses.Add([ordered]@{
+            input_mode = [string]$requiredMode
+            acceptance_disposition = 'Required'
+            observed = $inputModes.Contains([string]$requiredMode)
+            deferral_reason = $null
+        })
+    }
+    foreach ($deferredMode in @($ScenarioManifest.deferred_input_modes)) {
+        $inputWitnesses.Add([ordered]@{
+            input_mode = [string]$deferredMode
+            acceptance_disposition = 'Deferred'
+            observed = $inputModes.Contains([string]$deferredMode)
+            deferral_reason = [string]$ScenarioManifest.input_witness_deferral_reason
+        })
+    }
     $candidateScenario = [string]$ScenarioManifest.scenario -ceq 'CandidatePhysics'
     Assert-Integer $Terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 0
     $expectedTerminalReconciliation = if ($candidateScenario) { 'Drained' } else { 'NotAuthoritative' }
@@ -270,6 +287,7 @@ function Write-Phase3FinalAggregate {
         }
         movement = [ordered]@{
             input_modes = @($inputModes)
+            input_witnesses = @($inputWitnesses)
             tick_first = if ($Frames.Count -eq 0) { $null } else { [uint64]$Frames[0].physics_tick }
             tick_last = if ($Frames.Count -eq 0) { $null } else { [uint64]$Frames[$Frames.Count - 1].physics_tick }
             tick_count = [uint64]$Frames.Count

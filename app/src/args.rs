@@ -27,7 +27,7 @@ Options:
   --model-witness-request <PATH>
                                Poll an ignored-local exact packed-model witness request
   --phase3-evidence-target <TARGET>
-                               Bind Phase 3 evidence to Bds, Lunar, Zeqa, or Lbsg
+                               Bind Phase 3 evidence to Bds, Lunar, Zeqa, Lbsg, or Zeno
   --phase3-candidate-physics  Request fail-closed candidate Physics authority for Phase 3 evidence
   -h, --help                   Print this help
 ";
@@ -38,6 +38,7 @@ pub enum Phase3Target {
     Lunar,
     Zeqa,
     Lbsg,
+    Zeno,
 }
 
 impl Phase3Target {
@@ -47,6 +48,7 @@ impl Phase3Target {
             Self::Lunar => "Lunar",
             Self::Zeqa => "Zeqa",
             Self::Lbsg => "Lbsg",
+            Self::Zeno => "Zeno",
         }
     }
 
@@ -56,6 +58,7 @@ impl Phase3Target {
             "Lunar" => Ok(Self::Lunar),
             "Zeqa" => Ok(Self::Zeqa),
             "Lbsg" => Ok(Self::Lbsg),
+            "Zeno" => Ok(Self::Zeno),
             _ => Err(ArgsError::InvalidPhase3Target(value)),
         }
     }
@@ -141,7 +144,7 @@ pub enum ArgsError {
     #[error("--vsync and --no-vsync cannot be used together")]
     ConflictingVsyncFlags,
 
-    #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, or Lbsg, got {0:?}")]
+    #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, Lbsg, or Zeno, got {0:?}")]
     InvalidPhase3Target(String),
 
     #[error("--phase3-candidate-physics requires an attributable --phase3-evidence-target run")]
@@ -350,7 +353,7 @@ mod tests {
             "--model-witness-request",
             "run/model-witness-request.json",
             "--phase3-evidence-target",
-            "Zeqa",
+            "Zeno",
             "--phase3-candidate-physics",
         ])
         .unwrap() else {
@@ -376,7 +379,7 @@ mod tests {
             args.model_witness_request,
             Some(PathBuf::from("run/model-witness-request.json"))
         );
-        assert_eq!(args.phase3_evidence_target, Some(super::Phase3Target::Zeqa));
+        assert_eq!(args.phase3_evidence_target, Some(super::Phase3Target::Zeno));
         assert!(args.phase3_candidate_physics);
     }
 

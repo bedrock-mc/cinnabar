@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg')]
+    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
     [string]$Target,
     [ValidateRange(60, [int]::MaxValue)]
     [int]$DurationSeconds = 300,
@@ -117,7 +117,9 @@ try {
 $scenarioManifest = if ($Scenario -ceq 'CandidatePhysics') {
     [ordered]@{
         schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
-        required_input_modes = @('KeyboardMouse', 'GamePad', 'Touch')
+        required_input_modes = @('KeyboardMouse', 'GamePad')
+        deferred_input_modes = @('Touch')
+        input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
         required_perspective_sequence = @(
             'FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront', 'FirstPerson'
         )
@@ -157,7 +159,8 @@ elseif ($Scenario -ceq 'FastTransferWitness') {
 else {
     [ordered]@{
         schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'FreeCameraSilence'
-        required_input_modes = @(); required_perspective_sequence = @()
+        required_input_modes = @(); deferred_input_modes = @()
+        input_witness_deferral_reason = ''; required_perspective_sequence = @()
         require_replay = $false; require_snap = $false; require_held_jump_rejump = $false
         require_release_before_landing = $false; require_camera_blocked = $false
         require_camera_fallback = $false; require_avatar_visibility_states = $false
