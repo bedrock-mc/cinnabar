@@ -247,7 +247,7 @@ fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
 }
 
 #[test]
-fn wholly_unmatched_miss_response_is_skipped_without_poisoning_or_stalling_fifo() {
+fn wholly_unmatched_miss_response_does_not_retire_the_real_transaction() {
     let wanted = b"unmatched-response-wanted";
     let wanted_hash = client_blob_hash(wanted);
     let unsolicited = b"unmatched-response-unsolicited";
@@ -267,15 +267,10 @@ fn wholly_unmatched_miss_response_is_skipped_without_poisoning_or_stalling_fifo(
         .expect("well-formed unmatched response is a recoverable skip");
 
     assert_eq!(resolver.stats().skipped_miss_responses, 1);
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().retired_cached_transactions, 0);
     assert!(!resolver.cache().contains(unsolicited_hash));
-    assert!(matches!(
-        resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-            ChunkResyncEvent { x: 22, .. }
-        )))
-    ));
+    assert!(resolver.pop_ready().is_none());
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -284,12 +279,16 @@ fn wholly_unmatched_miss_response_is_skipped_without_poisoning_or_stalling_fifo(
                 payload: wanted.to_vec(),
             }],
         })
-        .expect("late requested blob remains boundedly admissible");
+        .expect("requested blob still resolves the retained transaction");
     assert!(resolver.cache().contains(wanted_hash));
+    let _ = pop_packet(
+        &mut resolver,
+        "real transaction survives unsolicited response",
+    );
 }
 
 #[test]
-fn well_formed_invalid_blob_content_is_rejected_without_ending_the_session() {
+fn well_formed_invalid_blob_content_does_not_retire_the_real_transaction() {
     let payload = b"integrity-response-wanted";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -308,15 +307,10 @@ fn well_formed_invalid_blob_content_is_rejected_without_ending_the_session() {
 
     assert_eq!(resolver.stats().skipped_miss_responses, 1);
     assert_eq!(resolver.stats().rejected_blobs, 1);
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().retired_cached_transactions, 0);
     assert!(!resolver.cache().contains(hash));
-    assert!(matches!(
-        resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-            ChunkResyncEvent { x: 23, .. }
-        )))
-    ));
+    assert!(resolver.pop_ready().is_none());
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -325,8 +319,9 @@ fn well_formed_invalid_blob_content_is_rejected_without_ending_the_session() {
                 payload: payload.to_vec(),
             }],
         })
-        .expect("late valid payload remains authorized after bounded retirement");
+        .expect("later valid payload resolves the retained transaction");
     assert!(resolver.cache().contains(hash));
+    let _ = pop_packet(&mut resolver, "real transaction survives invalid content");
 }
 
 #[test]

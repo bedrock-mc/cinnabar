@@ -57,7 +57,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
     resolver.reset_pending();
 
     assert_eq!(resolver.pending.capacity(), 0);
-    assert_eq!(resolver.ready.capacity(), 0);
+    assert!(resolver.ready.is_empty());
     assert_eq!(resolver.authorized_misses.capacity(), 0);
     assert_eq!(resolver.stats.pending_bytes, 0);
 }
@@ -85,4 +85,45 @@ fn classify_and_pin_is_one_cache_operation() {
         "reported hit is already pinned"
     );
     cache.unpin_all(&[hit, miss]);
+}
+
+#[test]
+fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
+    let shared_payload = b"shared-index";
+    let shared = client_blob_hash(shared_payload);
+    let other = client_blob_hash(b"other-index");
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    for (x, hash) in [(1, shared), (2, shared), (3, other)] {
+        resolver
+            .accept_cached_packet(
+                LevelChunkPacket {
+                    x,
+                    sub_chunk_count: -1,
+                    blobs: Some(
+                        valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                            hashes: vec![hash],
+                        },
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+            )
+            .expect("index pending transaction by its missing hash");
+    }
+    assert_eq!(resolver.pending_by_hash[&shared].len(), 2);
+    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![valentine::bedrock::version::v1_26_30::Blob {
+                hash: shared,
+                payload: shared_payload.to_vec(),
+            }],
+        })
+        .expect("resolve only the shared index bucket");
+
+    assert!(!resolver.pending_by_hash.contains_key(&shared));
+    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+    assert_eq!(resolver.pending.len(), 1);
+    assert_eq!(resolver.ready.len(), 2);
 }

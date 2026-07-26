@@ -930,25 +930,18 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
             expected
         );
     }
-    assert!(matches!(
-        semantic_session
-            .recv_world_event(0)
-            .await
-            .expect("semantic rejection yields bounded recovery"),
-        WorldEvent::ChunkResync(protocol::ChunkResyncEvent { x: 31, z: -47, .. })
-    ));
     assert_eq!(
         semantic_session
             .recv_world_event(0)
             .await
-            .expect("traffic after semantic rejection"),
+            .expect("unrelated traffic bypasses the retained transaction"),
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 45_678 })
     );
     let stats = semantic_session.blob_cache_stats();
     assert_eq!(stats.skipped_miss_responses, 1);
     assert_eq!(stats.rejected_blobs, 1);
-    assert_eq!(stats.retired_cached_transactions, 1);
-    assert_eq!(stats.pending_transactions, 0);
+    assert_eq!(stats.retired_cached_transactions, 0);
+    assert_eq!(stats.pending_transactions, 1);
     assert_eq!(semantic_session.decode_error_count(), 0);
 }
 

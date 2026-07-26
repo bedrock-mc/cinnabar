@@ -1,6 +1,7 @@
 use protocol::{
     BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver,
-    ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
+    BlockUpdateEvent, ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent,
+    client_blob_hash,
 };
 use std::mem::size_of;
 use std::sync::{Arc, Barrier};
@@ -28,8 +29,12 @@ fn limits(entries: usize, bytes: usize) -> BlobCacheLimits {
 }
 
 fn cached_level(hashes: Vec<u64>, tail: &[u8]) -> protocol::Packet {
+    cached_level_at(4, hashes, tail)
+}
+
+fn cached_level_at(x: i32, hashes: Vec<u64>, tail: &[u8]) -> protocol::Packet {
     LevelChunkPacket {
-        x: 4,
+        x,
         z: -7,
         dimension: 0,
         sub_chunk_count: 2,
@@ -117,6 +122,52 @@ fn world_events_are_independent_of_cached_transaction_pressure() {
             ))) if actual == time
         ));
     }
+}
+
+#[test]
+fn immediate_ready_lane_backpressures_at_its_independent_count_and_byte_limits() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 2;
+    bounded.max_pending_bytes = 1_024;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let first = WorldEvent::SetTime(SetTimeEvent { time: 1 });
+    let retry = WorldEvent::SetTime(SetTimeEvent { time: 3 });
+
+    resolver
+        .accept_world_event(first, 32)
+        .expect("first independent-lane event");
+    resolver
+        .accept_passthrough(SetTimePacket { time: 2 }.into(), 32)
+        .expect("second independent-lane entry");
+    assert!(
+        resolver.accept_world_event(retry.clone(), 32).is_err(),
+        "the independent lane must backpressure at its count bound"
+    );
+    assert!(
+        resolver.stats().pending_bytes >= 64,
+        "retained-byte accounting must include the immediate-ready lane"
+    );
+
+    assert_eq!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::SetTime(
+            SetTimeEvent { time: 1 }
+        )))
+    );
+    resolver
+        .accept_world_event(retry, 32)
+        .expect("caller can retry after backpressure is relieved");
+
+    let mut byte_bounded = limits(8, 256);
+    byte_bounded.max_pending_bytes = 31;
+    let mut byte_resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(byte_bounded));
+    assert!(
+        byte_resolver
+            .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 4 }), 32)
+            .is_err(),
+        "the independent lane must backpressure before exceeding its byte bound"
+    );
+    assert_eq!(byte_resolver.stats().pending_bytes, 0);
 }
 
 #[test]
@@ -435,7 +486,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
         .accept_passthrough(SetTimePacket { time: 42 }.into(), 8)
         .expect("ordinary packet");
     let b_status = resolver
-        .accept_cached_packet(cached_level(vec![bh, bh, bh], b"B"))
+        .accept_cached_packet(cached_level_at(5, vec![bh, bh, bh], b"B"))
         .expect("hit B");
     assert_eq!(b_status.have, vec![bh]);
     let ordinary = pop_packet(&mut resolver, "ordinary packet is immediately ready");
@@ -460,7 +511,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
 }
 
 #[test]
-fn invalid_miss_is_atomic_retires_pending_and_does_not_poison_cache() {
+fn invalid_miss_is_atomic_keeps_pending_and_does_not_poison_cache() {
     let wanted = b"wanted";
     let hash = client_blob_hash(wanted);
     let cache = ClientBlobCache::with_limits(limits(4, 128));
@@ -478,11 +529,21 @@ fn invalid_miss_is_atomic_retires_pending_and_does_not_poison_cache() {
         })
         .expect("hash mismatch is rejected without ending the session");
     assert!(!cache.contains(hash));
-    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_transactions, 1);
     assert_eq!(resolver.stats().rejected_blobs, 1);
     assert_eq!(resolver.stats().skipped_miss_responses, 1);
     assert_eq!(resolver.stats().pending_resets, 0);
-    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    assert_eq!(resolver.stats().retired_cached_transactions, 0);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: wanted.to_vec(),
+            }],
+        })
+        .expect("a later valid response still resolves the retained transaction");
+    let _ = pop_packet(&mut resolver, "retained transaction resolves");
 }
 
 #[test]
@@ -519,33 +580,60 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
 }
 
 #[test]
-fn semantic_hash_bound_recovers_while_blob_size_bound_fails_closed() {
+fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
     let mut strict = limits(2, 16);
     strict.max_hashes_per_packet = 1;
     strict.max_blob_bytes = 4;
     let cache = ClientBlobCache::with_limits(strict);
-    let mut resolver = BlobCacheResolver::new(cache.clone());
-    let a = client_blob_hash(b"a");
+    let hit = cache.insert(b"hit").expect("seed semantic-shape hit");
+    let miss = client_blob_hash(b"miss");
 
-    let status = resolver
-        .accept_cached_packet(cached_level(vec![a, a, a], b""))
-        .expect("semantic hash pressure must recover without disconnecting");
-    assert!(status.have.is_empty());
-    assert!(status.missing.is_empty());
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().pending_bytes, 0);
-    assert_eq!(resolver.stats().skipped_cached_packets, 1);
-    assert_eq!(
-        resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-            ChunkResyncEvent {
-                dimension: 0,
-                x: 4,
-                z: -7,
-                requested_sub_chunks: Some(2),
-            }
-        )))
-    );
+    let packets: [protocol::Packet; 3] = [
+        LevelChunkPacket {
+            x: 4,
+            z: -7,
+            dimension: 0,
+            sub_chunk_count: -3,
+            blobs: Some(LevelChunkPacketBlobs {
+                hashes: vec![hit, miss],
+            }),
+            ..Default::default()
+        }
+        .into(),
+        LevelChunkPacket {
+            x: 4,
+            z: -7,
+            dimension: 0,
+            sub_chunk_count: 0,
+            blobs: Some(LevelChunkPacketBlobs {
+                hashes: vec![hit, miss],
+            }),
+            ..Default::default()
+        }
+        .into(),
+        LevelChunkPacket {
+            x: 4,
+            z: -7,
+            dimension: 0,
+            sub_chunk_count: 1,
+            blobs: Some(LevelChunkPacketBlobs {
+                hashes: vec![hit, miss],
+            }),
+            ..Default::default()
+        }
+        .into(),
+    ];
+
+    for packet in packets {
+        let mut resolver = BlobCacheResolver::new(cache.clone());
+        let status = resolver
+            .accept_cached_packet(packet)
+            .expect("semantic shape must recover without disconnecting");
+        assert_eq!(status.have, vec![hit]);
+        assert_eq!(status.missing, vec![miss]);
+        assert_eq!(resolver.stats().pending_transactions, 0);
+        assert_eq!(resolver.stats().skipped_cached_packets, 1);
+    }
     assert!(cache.insert(b"12345").is_err());
 }
 
@@ -608,7 +696,7 @@ fn terminal_pending_counters_reach_zero_only_after_ready_is_popped() {
 }
 
 #[test]
-fn ready_queue_high_water_capacity_remains_accounted_until_empty_compaction() {
+fn ready_queue_retained_bytes_track_live_entries_and_compact_when_empty() {
     let mut bounded = limits(2, 64);
     bounded.max_pending_transactions = 16;
     bounded.max_pending_bytes = 64 * 1024;
@@ -631,8 +719,8 @@ fn ready_queue_high_water_capacity_remains_accounted_until_empty_compaction() {
     }
     assert_eq!(high_water.stats().pending_transactions, 1);
     assert!(
-        high_water.stats().pending_bytes > one_ready_bytes,
-        "the retained high-water VecDeque backing must remain charged while one item remains"
+        high_water.stats().pending_bytes >= one_ready_bytes,
+        "the remaining ready transaction must stay charged until it is consumed"
     );
     let _ = pop_packet(&mut high_water, "final high-water transaction");
     assert_eq!(high_water.stats().pending_bytes, 0);
@@ -836,10 +924,20 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
             .accept_miss_response(ClientCacheMissResponsePacket { blobs })
             .expect("semantically invalid response is a recoverable skip");
         assert!(!cache.contains(wanted_hash));
-        assert_eq!(resolver.stats().pending_transactions, 0);
+        assert_eq!(resolver.stats().pending_transactions, 1);
         assert_eq!(resolver.stats().skipped_miss_responses, 1);
-        assert_eq!(resolver.stats().retired_cached_transactions, 1);
-        resolver.stats().rejected_blobs
+        assert_eq!(resolver.stats().retired_cached_transactions, 0);
+        let rejected = resolver.stats().rejected_blobs;
+        resolver
+            .accept_miss_response(ClientCacheMissResponsePacket {
+                blobs: vec![Blob {
+                    hash: wanted_hash,
+                    payload: wanted.to_vec(),
+                }],
+            })
+            .expect("unrelated invalid response must not destroy the real transaction");
+        let _ = pop_packet(&mut resolver, "real transaction survives invalid response");
+        rejected
     };
 
     let unsolicited = b"unsolicited";

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -93,6 +93,10 @@ pub enum BlobCacheError {
     TooManyPendingTransactions { max: usize },
     #[error("pending blob-cache bytes would exceed {max}")]
     TooManyPendingBytes { max: usize },
+    #[error("immediate-ready lane count would exceed {max}; caller must retry after draining")]
+    ImmediateReadyCountPressure { max: usize },
+    #[error("immediate-ready lane bytes would exceed {max}; caller must retry after draining")]
+    ImmediateReadyBytePressure { max: usize },
     #[error("cached LevelChunk hash count {actual} does not match expected {expected}")]
     InvalidLevelChunkHashCount { actual: usize, expected: usize },
     #[error("cached LevelChunk has invalid sub-chunk count {0}")]
@@ -248,12 +252,15 @@ struct PendingTransaction {
     packet: PendingPacket,
     hashes: Vec<u64>,
     unique_hashes: Vec<u64>,
+    unresolved_hashes: usize,
+    columns: Vec<ColumnKey>,
     accounted_bytes: usize,
 }
 
 #[derive(Debug)]
 struct ReadyTransaction {
     value: BlobCacheReady,
+    columns: Vec<ColumnKey>,
     accounted_bytes: usize,
     sequence: u64,
 }
@@ -261,6 +268,8 @@ struct ReadyTransaction {
 #[derive(Debug)]
 struct ImmediateReady {
     value: BlobCacheReady,
+    columns: Vec<ColumnKey>,
+    accounted_bytes: usize,
     sequence: u64,
 }
 
@@ -269,16 +278,26 @@ struct ReadyRecovery {
     event: ChunkResyncEvent,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct ColumnKey {
+    dimension: i32,
+    x: i32,
+    z: i32,
+}
+
 #[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
-    pending: VecDeque<PendingTransaction>,
-    ready: VecDeque<ReadyTransaction>,
-    immediate_ready: VecDeque<ImmediateReady>,
+    pending: HashMap<u64, PendingTransaction>,
+    pending_order: BTreeSet<u64>,
+    pending_by_hash: HashMap<u64, HashSet<u64>>,
+    resolved_pending: BTreeSet<u64>,
+    ready: BTreeMap<u64, ReadyTransaction>,
+    immediate_ready: BTreeMap<u64, ImmediateReady>,
+    column_barriers: HashMap<ColumnKey, BTreeSet<u64>>,
     recovery_ready: VecDeque<ReadyRecovery>,
     authorized_misses: Vec<(u64, usize)>,
     retired_authorized_misses: Vec<(u64, usize)>,
-    pressure_authorized_misses: VecDeque<u64>,
     fast_transfer_rotation_armed: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,
