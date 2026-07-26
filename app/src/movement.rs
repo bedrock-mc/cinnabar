@@ -19,6 +19,7 @@ pub use physics::{
     PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
 };
 use sim::{CollisionWorld, WorldCollisionIdentity};
+use tokio::sync::watch;
 
 use bevy::{
     log::debug,
@@ -28,11 +29,8 @@ use bevy::{
 use semantic_input::Action;
 
 use crate::{
-    acceptance::AcceptanceRun,
-    camera::AutoFly,
-    local_player::LocalViewPose,
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
+    acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
+    runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
 };
 
 pub const OUTBOX_CAPACITY: usize = 32;
@@ -45,7 +43,6 @@ pub(crate) fn advance_local_physics(
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
-    network: Res<NetworkHandle>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
@@ -110,13 +107,11 @@ pub(crate) fn advance_local_physics(
         movement_ticker.record_physics_fault(PhysicsAuthorityFault::PhysicsTickOverflow {
             dropped: frame.dropped_ticks,
         });
-        network.invalidate_physics_before(movement_ticker.reanchor_epoch());
         physics.deactivate();
         return;
     }
     for sample in frame.samples {
         if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
-            network.invalidate_physics_before(movement_ticker.reanchor_epoch());
             debug!(?fault, "candidate Physics movement authority failed closed");
             physics.deactivate();
             return;
@@ -255,6 +250,7 @@ pub struct MovementTicker {
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
+    epoch_publisher: Option<watch::Sender<u64>>,
 }
 
 impl Default for MovementTicker {
@@ -278,11 +274,19 @@ impl Default for MovementTicker {
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
+            epoch_publisher: None,
         }
     }
 }
 
 impl MovementTicker {
+    pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
+        Self {
+            epoch_publisher: Some(epoch_publisher),
+            ..Self::default()
+        }
+    }
+
     pub fn reset(
         &mut self,
         session_generation: u64,
@@ -594,7 +598,11 @@ impl MovementTicker {
             .pending_sends
             .pop_front()
             .expect("matching pending socket cancellation was checked");
+        // Terminal drain has permanently closed transmission. A definitely
+        // unsent retry can be retired safely, but must never be restored into
+        // the outbox that terminal drain refuses to flush.
         if pending.retry_after_cancellation
+            && !self.terminal_drain
             && self.physics_is_authorized()
             && pending.sample.session_generation == self.session_generation
             && self.retry_replayed_sample(pending.sample).is_err()
@@ -634,10 +642,24 @@ impl MovementTicker {
     /// Records the explicit event that the server-authoritative local position
     /// changed. Every transport admission from the prior epoch becomes
     /// obsolete regardless of whether its packet fields happen to compare
-    /// equal after reconciliation.
+    /// equal after reconciliation. Publishing here keeps worker invalidation
+    /// inseparable from advancing the epoch.
     fn position_authority_changed(&mut self) {
         self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
+        for pending in &mut self.pending_sends {
+            pending.retry_after_cancellation = false;
+        }
         self.sent_history.clear();
+        if let Some(publisher) = &self.epoch_publisher {
+            publisher.send_if_modified(|published| {
+                if *published == self.reanchor_epoch {
+                    false
+                } else {
+                    *published = self.reanchor_epoch;
+                    true
+                }
+            });
+        }
         self.refresh_outbox_reconciliation();
     }
 
@@ -766,6 +788,7 @@ impl MovementTicker {
         self.pending_fault
     }
 
+    #[cfg(test)]
     pub(crate) const fn reanchor_epoch(&self) -> u64 {
         self.reanchor_epoch
     }
@@ -869,11 +892,11 @@ impl MovementTicker {
                 for pending in &mut self.pending_sends {
                     let _ = replay_sample(&mut pending.sample)?;
                 }
+                self.position_authority_changed();
                 for pending in &mut self.pending_sends {
                     pending.retry_after_cancellation =
                         pending.sample.snapshot.tick > plan.corrected_tick;
                 }
-                self.position_authority_changed();
                 self.previous_position = plan.final_position;
                 Ok(())
             }

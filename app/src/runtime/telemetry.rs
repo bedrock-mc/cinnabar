@@ -379,7 +379,6 @@ pub(crate) fn send_player_auth_inputs(
             );
         }
     }
-    network.invalidate_physics_before(movement.reanchor_epoch());
 }
 
 pub(crate) fn update_visibility_diagnostics(

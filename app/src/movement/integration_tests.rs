@@ -71,6 +71,64 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     }
 }
 
+fn replay_with_admitted_future_ticks(
+    mut ticker: MovementTicker,
+) -> (
+    MovementTicker,
+    LocalPhysicsController,
+    Vec<super::PhysicsSendIdentity>,
+) {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut admitted = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    (ticker, physics, admitted)
+}
+
 #[test]
 fn candidate_physics_authority_is_explicit_complete_and_auto_fly_safe() {
     assert_eq!(
@@ -669,6 +727,80 @@ fn retained_correction_cancels_admitted_future_ticks_and_requeues_replayed_posit
 }
 
 #[test]
+fn respawn_snap_after_replay_drops_pre_respawn_retries() {
+    let (mut ticker, mut physics, admitted) =
+        replay_with_admitted_future_ticks(MovementTicker::default());
+
+    assert_eq!(
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            [8.0, 71.620_01, 9.0],
+            0,
+            false,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        ),
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 103 })
+    );
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "pre-respawn replay retries must not survive the hard respawn anchor"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+}
+
+#[test]
+fn surface_spawn_reanchor_after_replay_drops_pre_anchor_retries() {
+    let (mut ticker, _physics, admitted) =
+        replay_with_admitted_future_ticks(MovementTicker::default());
+
+    ticker.reanchor_surface_spawn(103, [8.0, 71.620_01, 9.0]);
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "pre-anchor replay retries must not survive a surface-spawn reanchor"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+}
+
+#[test]
+fn correction_during_terminal_drain_discards_definitely_unsent_retry() {
+    let (mut ticker, _physics, admitted) =
+        replay_with_admitted_future_ticks(MovementTicker::default());
+
+    ticker.begin_terminal_drain();
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "terminal drain must not restore a retry into an outbox that cannot flush"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+}
+
+#[test]
 fn newest_retained_tick_correction_invalidates_its_admitted_packet_without_replaying() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
@@ -912,7 +1044,7 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
         PhysicsSampleContext::default(),
         &VersionedFloor(1),
     );
-    let mut ticker = MovementTicker::default();
+    let mut ticker = network.movement_ticker();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
     for sample in frame.samples {
@@ -926,8 +1058,7 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
     )
     .unwrap();
 
-    crate::runtime::world::reconcile_candidate_physics_correction_and_invalidate(
-        &network,
+    reconcile_candidate_physics_correction(
         &mut ticker,
         &mut physics,
         [0.25, 2.620_01, 0.0],
@@ -947,6 +1078,60 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
 }
 
 #[test]
+fn app_respawn_snap_publishes_its_epoch_from_the_authority_event() {
+    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
+    let (mut ticker, mut physics, _admitted) =
+        replay_with_admitted_future_ticks(network.movement_ticker());
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [8.0, 71.620_01, 9.0],
+        0,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        *reanchor.borrow(),
+        ticker.reanchor_epoch(),
+        "the respawn snap event must publish its new epoch without an outer call site"
+    );
+}
+
+#[test]
+fn world_stream_fatal_deactivation_publishes_before_early_return() {
+    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
+    let mut ticker = network.movement_ticker();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    assert_eq!(*reanchor.borrow(), ticker.reanchor_epoch());
+
+    ticker.deactivate();
+
+    assert_eq!(
+        *reanchor.borrow(),
+        ticker.reanchor_epoch(),
+        "world-stream fatal deactivation must publish before its caller returns"
+    );
+}
+
+#[test]
+fn bootstrap_reset_publishes_before_equipment_identity_early_exit() {
+    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
+    let mut ticker = network.movement_ticker();
+
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+
+    assert_eq!(
+        *reanchor.borrow(),
+        ticker.reanchor_epoch(),
+        "bootstrap reset must publish even when equipment identity routing exits early"
+    );
+}
+
+#[test]
 fn failed_production_reconciliation_invalidates_transport_owned_commands() {
     let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
     let mut physics = LocalPhysicsController::default();
@@ -957,7 +1142,7 @@ fn failed_production_reconciliation_invalidates_transport_owned_commands() {
         PhysicsSampleContext::default(),
         &VersionedFloor(1),
     );
-    let mut ticker = MovementTicker::default();
+    let mut ticker = network.movement_ticker();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
     ticker
@@ -977,8 +1162,7 @@ fn failed_production_reconciliation_invalidates_transport_owned_commands() {
     let admitted_epoch = admitted.unwrap().reanchor_epoch;
 
     assert_eq!(
-        crate::runtime::world::reconcile_candidate_physics_correction_and_invalidate(
-            &network,
+        reconcile_candidate_physics_correction(
             &mut ticker,
             &mut physics,
             [4.0, 70.620_01, 5.0],

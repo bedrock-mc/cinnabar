@@ -14,7 +14,8 @@ use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
 use crate::{
-    acceptance::mutation::write_stdout_marker, movement::PhysicsSendIdentity,
+    acceptance::mutation::write_stdout_marker,
+    movement::{MovementTicker, PhysicsSendIdentity},
     ui_runtime::FastTransferAction,
 };
 
@@ -184,6 +185,10 @@ impl NetworkHandle {
         )
     }
 
+    pub(crate) fn movement_ticker(&self) -> MovementTicker {
+        MovementTicker::with_epoch_publisher(self.physics_reanchor.clone())
+    }
+
     pub fn control_events_mut(&mut self) -> &mut mpsc::Receiver<NetworkControlEvent> {
         &mut self.control_events
     }
@@ -223,17 +228,6 @@ impl NetworkHandle {
             Some(identity),
             Some(self.physics_reanchor.subscribe()),
         )
-    }
-
-    pub(crate) fn invalidate_physics_before(&self, reanchor_epoch: u64) {
-        self.physics_reanchor.send_if_modified(|published| {
-            if *published == reanchor_epoch {
-                false
-            } else {
-                *published = reanchor_epoch;
-                true
-            }
-        });
     }
 
     pub fn send_chat_packet(

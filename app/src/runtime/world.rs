@@ -40,8 +40,8 @@ use crate::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
     },
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries,
-        PhysicsCorrectionMode, PhysicsCorrectionOutcome, reconcile_candidate_physics_correction,
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
+        reconcile_candidate_physics_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
@@ -59,33 +59,6 @@ pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn reconcile_candidate_physics_correction_and_invalidate(
-    network: &NetworkHandle,
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    network_position: [f32; 3],
-    tick: u64,
-    on_ground: bool,
-    mode: PhysicsCorrectionMode,
-    world: &impl sim::CollisionWorld,
-) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
-    let prior_reanchor_epoch = movement.reanchor_epoch();
-    let outcome = reconcile_candidate_physics_correction(
-        movement,
-        local_physics,
-        network_position,
-        tick,
-        on_ground,
-        mode,
-        world,
-    );
-    if movement.reanchor_epoch() != prior_reanchor_epoch {
-        network.invalidate_physics_before(movement.reanchor_epoch());
-    }
-    outcome
 }
 
 #[derive(Resource, Debug, Default)]
@@ -329,7 +302,6 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
-    network: Res<NetworkHandle>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
@@ -378,7 +350,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
-        let prior_reanchor_epoch = movement.reanchor_epoch();
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
@@ -398,8 +369,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
-                        &network,
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -438,8 +408,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
-                        &network,
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -474,8 +443,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
-                        &network,
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -509,8 +477,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
-                        &network,
+                    if let Ok(outcome) = reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -540,9 +507,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
-        if movement.reanchor_epoch() != prior_reanchor_epoch {
-            network.invalidate_physics_before(movement.reanchor_epoch());
-        }
         local_frame.reset(reset);
         interaction.invalidate();
         let _ = acceptance.observe_committed_full_view_control(&control);
@@ -817,7 +781,6 @@ pub(crate) fn drive_world_stream(
         // World publication runs after local physics. The next frame's delta
         // starts after this anchor, so it must remain eligible for simulation.
         movement.reanchor_surface_spawn(tick, position);
-        network.invalidate_physics_before(movement.reanchor_epoch());
         local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
