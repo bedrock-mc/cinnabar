@@ -535,21 +535,33 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
 }
 
 #[test]
-fn exact_hash_transaction_and_blob_bounds_fail_closed() {
+fn semantic_hash_bound_recovers_while_blob_size_bound_fails_closed() {
     let mut strict = limits(2, 16);
     strict.max_hashes_per_packet = 1;
-    strict.max_pending_transactions = 1;
     strict.max_blob_bytes = 4;
     let cache = ClientBlobCache::with_limits(strict);
     let mut resolver = BlobCacheResolver::new(cache.clone());
     let a = client_blob_hash(b"a");
 
-    assert!(
-        resolver
-            .accept_cached_packet(cached_level(vec![a, a, a], b""))
-            .is_err()
-    );
+    let status = resolver
+        .accept_cached_packet(cached_level(vec![a, a, a], b""))
+        .expect("semantic hash pressure must recover without disconnecting");
+    assert!(status.have.is_empty());
+    assert!(status.missing.is_empty());
     assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
+    assert_eq!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent {
+                dimension: 0,
+                x: 4,
+                z: -7,
+                requested_sub_chunks: Some(2),
+            }
+        )))
+    );
     assert!(cache.insert(b"12345").is_err());
 }
 

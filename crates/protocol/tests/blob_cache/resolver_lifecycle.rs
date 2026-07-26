@@ -67,8 +67,10 @@ fn mismatched_level_chunk_hash_count_is_skipped_without_resetting_fifo() {
 
 #[test]
 fn excessive_semantic_hash_count_is_skipped_without_resetting_fifo() {
-    let mut bounded = BlobCacheLimits::default();
-    bounded.max_hashes_per_packet = 2;
+    let bounded = BlobCacheLimits {
+        max_hashes_per_packet: 2,
+        ..Default::default()
+    };
     let packet: protocol::Packet = LevelChunkPacket {
         sub_chunk_count: 2,
         blobs: Some(LevelChunkPacketBlobs {

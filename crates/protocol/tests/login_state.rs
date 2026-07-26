@@ -637,11 +637,11 @@ fn encode_server_raw_packet(id: McpePacketName, body: &[u8], mode: CompressionMo
 fn encode_server_payload(payload: &[u8], mode: Option<CompressionMode>) -> Bytes {
     let mut frame = BytesMut::from(&b"\xfe"[..]);
     match mode {
-        None => frame.extend_from_slice(&payload),
+        None => frame.extend_from_slice(payload),
         Some(CompressionMode::Deflate) => {
             use std::io::Write;
             let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
-            encoder.write_all(&payload).expect("deflate payload");
+            encoder.write_all(payload).expect("deflate payload");
             frame.extend_from_slice(&[0]);
             frame.extend_from_slice(&encoder.finish().expect("finish deflate"));
         }
@@ -649,13 +649,13 @@ fn encode_server_payload(payload: &[u8], mode: Option<CompressionMode>) -> Bytes
             frame.extend_from_slice(&[1]);
             frame.extend_from_slice(
                 &snap::raw::Encoder::new()
-                    .compress_vec(&payload)
+                    .compress_vec(payload)
                     .expect("snappy payload"),
             );
         }
         Some(CompressionMode::None) => {
             frame.extend_from_slice(&[0xff]);
-            frame.extend_from_slice(&payload);
+            frame.extend_from_slice(payload);
         }
     }
     frame.freeze()
