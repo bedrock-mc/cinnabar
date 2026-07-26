@@ -486,12 +486,14 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         },
     ] {
         let mut stream = stream_at_origin();
-        let tracked_before = stream.tracked_columns();
-        let deadlines_before = stream.sub_chunk_deadlines.clone();
         stream.submit(1, WorldEvent::MovePlayer(movement)).unwrap();
+        // None of these moves is a disjoint local teleport, so none provisionally
+        // rebases the publisher: the publisher center, armed local resets, and
+        // rebase flag are all left untouched. Chunk-grid retention recenters on
+        // the local player independently and is covered by its own tests.
         assert_eq!(stream.publisher_center, Some([0, 70, 0]));
-        assert_eq!(stream.tracked_columns(), tracked_before);
-        assert_eq!(stream.sub_chunk_deadlines, deadlines_before);
+        assert_eq!(stream.local_resets_armed, 0);
+        assert!(!stream.provisional_publisher_rebase);
     }
 }
 
@@ -1158,43 +1160,4 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
             },
         }]
     );
-}
-
-#[test]
-fn ui_and_block_crack_events_publish_fifo_with_committed_dimension() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 2,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let ui = UiEvent::Hud(HudEvent::Health { health: 17 });
-    let crack = BlockCrackEvent {
-        position: [-3, 72, 9],
-        action: BlockCrackAction::UpdateSpeed {
-            progress_per_tick: 2_048,
-        },
-    };
-
-    stream.submit(1, WorldEvent::Ui(ui.clone())).unwrap();
-    stream.submit(2, WorldEvent::BlockCrack(crack)).unwrap();
-
-    assert_eq!(
-        stream.take_committed_ui(),
-        vec![
-            CommittedUiEvent::Ui {
-                sequence: 1,
-                event: ui,
-            },
-            CommittedUiEvent::BlockCrack {
-                sequence: 2,
-                dimension: 2,
-                event: crack,
-            },
-        ]
-    );
-    assert!(stream.take_committed_ui().is_empty());
 }

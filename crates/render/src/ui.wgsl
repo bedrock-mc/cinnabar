@@ -39,7 +39,13 @@ fn ui_vertex(
 @fragment
 fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(ui_pages));
-    let normalized_uv = (input.uv + vec2<f32>(0.5)) / dimensions;
+    // Vertex UVs address texel *edges*: a glyph spans x0..x0+width. Linear
+    // interpolation across the quad therefore already lands on texel centres,
+    // and adding half a texel here shifted the whole nearest-sampling grid by
+    // half a texel. At a 1:1 draw that sampled one texel to the right; at a 2x
+    // draw it gave the leading column one pixel, every other column two, and
+    // bled a column of the neighbouring glyph in on the right.
+    let normalized_uv = input.uv / dimensions;
     let sample = textureSample(
         ui_pages,
         ui_sampler,

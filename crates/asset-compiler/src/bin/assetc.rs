@@ -1,13 +1,14 @@
 use std::{
     fs::{self, File},
     io::{self, Read},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    OutlineFontConfig, compile_atmosphere_assets_with_options, compile_entity_assets_with_report,
-    compile_fonts, compile_outline_font, compile_pack_with_biomes, inspect_animation_inventory,
+    GlyphAdvances, OutlineFontConfig, compile_atmosphere_assets_with_options,
+    compile_entity_assets_with_report, compile_fonts, compile_outline_font,
+    compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
@@ -24,10 +25,13 @@ mod hud_command;
 mod icon_command;
 #[path = "assetc/lang_command.rs"]
 mod lang_command;
+#[path = "assetc/output_validation.rs"]
+mod output_validation;
 
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
 use lang_command::compile_lang_assets_command;
+use output_validation::validate_output_bundle;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -497,6 +501,18 @@ fn compile_outline_font_assets_command(
     let atlas_side = required_u32(raster, "atlas_side")?;
     let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
         .ok_or("font replacement_codepoint is not a Unicode scalar")?;
+    // Absent means keep the outline font's own advances, so an older manifest
+    // still compiles to the same monospace metrics it always did.
+    let advances = match raster.get("proportional_advance_gap_px") {
+        None => GlyphAdvances::Source,
+        Some(_) => GlyphAdvances::InkPlusGap {
+            gap_px: required_u32(raster, "proportional_advance_gap_px")?,
+            blank_advance_px: match raster.get("blank_advance_px") {
+                None => None,
+                Some(_) => Some(required_u32(raster, "blank_advance_px")?),
+            },
+        },
+    };
     let expected_font_size = source
         .get("font_size_bytes")
         .and_then(serde_json::Value::as_u64)
@@ -526,6 +542,7 @@ fn compile_outline_font_assets_command(
             pixel_height,
             atlas_side,
             replacement_codepoint: replacement,
+            advances,
         },
     )?;
     write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
@@ -826,136 +843,6 @@ fn build_atmosphere_report(
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn validate_output_bundle(blob: &Path, report: &Path) -> Result<(), AssetError> {
-    let normalized_blob = normalized_absolute(blob)?;
-    let normalized_report = normalized_absolute(report)?;
-    if paths_alias(&normalized_blob, &normalized_report)
-        || paths_alias(
-            &canonicalized_location(&normalized_blob)?,
-            &canonicalized_location(&normalized_report)?,
-        )
-    {
-        return Err(output_alias_error(blob));
-    }
-
-    let mut both_exist = true;
-    for path in [blob, report] {
-        match fs::metadata(path) {
-            Ok(metadata) if !metadata.is_file() => {
-                return Err(AssetError::Io {
-                    path: path.to_path_buf(),
-                    source: io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "atmosphere output destination is not a regular file",
-                    ),
-                });
-            }
-            Ok(_) => {}
-            Err(source) if source.kind() == io::ErrorKind::NotFound => both_exist = false,
-            Err(source) => {
-                return Err(AssetError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
-        }
-    }
-    if both_exist {
-        match same_file::is_same_file(blob, report) {
-            Ok(true) => return Err(output_alias_error(blob)),
-            Ok(false) => {}
-            Err(source) => {
-                return Err(AssetError::Io {
-                    path: blob.to_path_buf(),
-                    source,
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn output_alias_error(path: &Path) -> AssetError {
-    AssetError::Io {
-        path: path.to_path_buf(),
-        source: io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "atmosphere blob and report paths must identify distinct files",
-        ),
-    }
-}
-
-fn normalized_absolute(path: &Path) -> Result<PathBuf, AssetError> {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map_err(|source| AssetError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?
-            .join(path)
-    };
-    let mut normalized = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(AssetError::Io {
-                        path: path.to_path_buf(),
-                        source: io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "output path escapes its filesystem root",
-                        ),
-                    });
-                }
-            }
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                normalized.push(component.as_os_str());
-            }
-        }
-    }
-    Ok(normalized)
-}
-
-fn canonicalized_location(path: &Path) -> Result<PathBuf, AssetError> {
-    let mut ancestor = path;
-    let mut suffix = Vec::new();
-    loop {
-        match fs::canonicalize(ancestor) {
-            Ok(mut canonical) => {
-                for component in suffix.iter().rev() {
-                    canonical.push(component);
-                }
-                return Ok(canonical);
-            }
-            Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                let Some(file_name) = ancestor.file_name() else {
-                    return Err(AssetError::Io {
-                        path: path.to_path_buf(),
-                        source,
-                    });
-                };
-                suffix.push(file_name.to_os_string());
-                let Some(parent) = ancestor.parent() else {
-                    return Err(AssetError::Io {
-                        path: path.to_path_buf(),
-                        source,
-                    });
-                };
-                ancestor = parent;
-            }
-            Err(source) => {
-                return Err(AssetError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
-        }
-    }
 }
 
 fn paths_alias(left: &Path, right: &Path) -> bool {

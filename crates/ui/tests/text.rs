@@ -98,6 +98,8 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
             text: "AB?",
             style: TextStyle::default(),
             width_64: 128,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
         })
@@ -155,6 +157,8 @@ fn visual_overhang_drives_wrapping_and_reported_bounds() {
             text: "A",
             style: TextStyle::default(),
             width_64: 128,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::default(),
             font: &positive,
         }),
@@ -189,6 +193,8 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
             text: &too_many_lines,
             style: TextStyle::default(),
             width_64: 64,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
         }),
@@ -201,6 +207,8 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
             text: &too_many_glyphs,
             style: TextStyle::default(),
             width_64: u32::MAX,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
         }),
@@ -218,6 +226,8 @@ fn rejected_unbounded_text_does_not_hash_or_advance_cache_identity() {
             text: &oversized,
             style: TextStyle::default(),
             width_64: 64,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
         }),
@@ -301,6 +311,8 @@ fn layout(
             text: content,
             style: TextStyle::default(),
             width_64,
+            line_height_64: 64,
+            baseline_64: 0,
             scale: UiScale::new(scale).unwrap(),
             font,
         })
@@ -353,4 +365,213 @@ fn font_with_glyph(source_manifest_sha256: [u8; 32], glyph: GlyphMetrics) -> Com
     let bytes =
         encode_font_catalog(source_manifest_sha256, &[glyph, replacement], &[page]).unwrap();
     CompiledFontCatalog::decode(&bytes, source_manifest_sha256).unwrap()
+}
+
+#[test]
+fn explicit_line_pitch_ignores_a_tall_outlier_glyph_in_the_catalog() {
+    // Deriving the pitch from the atlas let the tallest glyph anywhere in the
+    // catalog inflate every line, even for text that never references it.
+    let rgba8 = vec![255; 4 * 40].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/outlier.png".into(),
+        source_bytes: rgba8.len() as u32,
+        source_sha256: [0x81; 32],
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 1,
+        height: 40,
+        rgba8,
+    };
+    let glyphs = [
+        GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 1, 8],
+            bearing: [0, 0],
+            advance_64: 64,
+        },
+        // A box-drawing-sized outlier that the text below never uses.
+        GlyphMetrics {
+            codepoint: '\u{2588}',
+            page: 0,
+            uv: [0, 0, 1, 40],
+            bearing: [0, 0],
+            advance_64: 64,
+        },
+        GlyphMetrics {
+            codepoint: '\u{fffd}',
+            page: 0,
+            uv: [0, 0, 1, 8],
+            bearing: [0, 0],
+            advance_64: 64,
+        },
+    ];
+    let identity = [0x82; 32];
+    let bytes = encode_font_catalog(identity, &glyphs, &[page]).unwrap();
+    let font = CompiledFontCatalog::decode(&bytes, identity).unwrap();
+
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let layout = cache
+        .layout(TextLayoutRequest {
+            text: "A\nA",
+            style: TextStyle::default(),
+            width_64: 64,
+            line_height_64: 10 * 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+
+    assert_eq!(layout.line_count(), 2);
+    // Two lines at the requested 10px pitch, not at the 40px outlier.
+    assert_eq!(layout.size_64()[1], 20 * 64);
+    assert_eq!(layout.glyphs()[1].bounds_64[1], 10 * 64);
+}
+
+#[test]
+fn line_pitch_scales_with_the_requested_scale_and_keys_the_cache() {
+    let font = font([0x83; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let single = cache
+        .layout(TextLayoutRequest {
+            text: "A\nA",
+            style: TextStyle::default(),
+            width_64: 64,
+            line_height_64: 8 * 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+    let doubled = cache
+        .layout(TextLayoutRequest {
+            text: "A\nA",
+            style: TextStyle::default(),
+            width_64: 640,
+            line_height_64: 8 * 64,
+            baseline_64: 0,
+            scale: UiScale::new(2.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+    assert_eq!(single.glyphs()[1].bounds_64[1], 8 * 64);
+    assert_eq!(doubled.glyphs()[1].bounds_64[1], 16 * 64);
+
+    // A different pitch is a different layout, never a cache hit.
+    let retightened = cache
+        .layout(TextLayoutRequest {
+            text: "A\nA",
+            style: TextStyle::default(),
+            width_64: 64,
+            line_height_64: 9 * 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+    assert_ne!(retightened.id(), single.id());
+    assert_eq!(retightened.key().line_height_64, 9 * 64);
+}
+
+#[test]
+fn zero_line_height_fails_closed() {
+    let font = font([0x84; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    assert!(matches!(
+        cache.layout(TextLayoutRequest {
+            text: "A",
+            style: TextStyle::default(),
+            width_64: 64,
+            line_height_64: 0,
+            baseline_64: 0,
+            scale: UiScale::default(),
+            font: &font,
+        }),
+        Err(TextError::ZeroLineHeight)
+    ));
+}
+
+#[test]
+fn a_single_row_reports_exactly_the_line_pitch() {
+    // Regression: glyph bearings point up from the baseline, so with the
+    // baseline pinned to the line box origin every glyph hung above the box
+    // while the pitch extended below it. A one-line layout then reported
+    // ascent + pitch, and a caller stacking one layout per chat row spaced
+    // those rows by that inflated height -- visibly double-spaced text.
+    let rgba8 = vec![255; 4 * 4 * 4].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/seated.png".into(),
+        source_bytes: rgba8.len() as u32,
+        source_sha256: [0x93; 32],
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 4,
+        height: 4,
+        rgba8,
+    };
+    // 3 texels tall, sitting 3 above the baseline, like a real cap glyph.
+    let glyphs = ['A', '\u{fffd}'].map(|codepoint| GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, 2, 3],
+        bearing: [0, -3],
+        advance_64: 2 * 64,
+    });
+    let identity = [0x91; 32];
+    let bytes = encode_font_catalog(identity, &glyphs, &[page]).unwrap();
+    let font = CompiledFontCatalog::decode(&bytes, identity).unwrap();
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let request = |baseline_64| TextLayoutRequest {
+        text: "A",
+        style: TextStyle::default(),
+        width_64: 64 * 64,
+        line_height_64: 4 * 64,
+        baseline_64,
+        scale: UiScale::new(1.0).unwrap(),
+        font: &font,
+    };
+
+    let seated = cache.layout(request(3 * 64)).unwrap();
+    assert_eq!(
+        seated.size_64()[1],
+        4 * 64,
+        "one row must be one pitch tall"
+    );
+    assert_eq!(
+        seated.glyphs()[0].bounds_64[1],
+        0,
+        "glyph must start inside"
+    );
+    assert_eq!(seated.glyphs()[0].bounds_64[3], 3 * 64);
+
+    // With no baseline the glyph hangs above the origin and the row inflates.
+    let hanging = cache.layout(request(0)).unwrap();
+    assert_eq!(hanging.size_64()[1], 7 * 64);
+
+    // Two rows stack at exactly two pitches, not two inflated boxes.
+    let two_rows = cache
+        .layout(TextLayoutRequest {
+            text: "A\nA",
+            ..request(3 * 64)
+        })
+        .unwrap();
+    assert_eq!(two_rows.size_64()[1], 8 * 64);
+    assert_eq!(two_rows.glyphs()[1].bounds_64[1], 4 * 64);
+}
+
+#[test]
+fn a_baseline_below_the_line_box_fails_closed() {
+    let font = font([0x92; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    assert!(matches!(
+        cache.layout(TextLayoutRequest {
+            text: "A",
+            style: TextStyle::default(),
+            width_64: 64 * 64,
+            line_height_64: 4 * 64,
+            baseline_64: 5 * 64,
+            scale: UiScale::default(),
+            font: &font,
+        }),
+        Err(TextError::BaselineOutsideLine { .. })
+    ));
 }

@@ -7,8 +7,8 @@ use std::{
 };
 
 use assets::{
-    AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, HudCatalogError, RuntimeAssets,
-    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
+    AssetError, FontCatalogError, HudCatalogError, RuntimeAssets, RuntimeAtmosphereAssets,
+    RuntimeEntityAssets, RuntimeFontCatalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -16,13 +16,16 @@ use thiserror::Error;
 
 use crate::metrics::AssetMetrics;
 
+mod font_fallback;
+use font_fallback::diagnostic_font_assets;
+
 pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
-pub const FONT_ASSETS_FILENAME: &str = "ui-inter-v1.mcbefont";
+pub const FONT_ASSETS_FILENAME: &str = "ui-monocraft-v1.mcbefont";
 pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
@@ -138,7 +141,7 @@ impl LoadedFontAssets {
     pub fn startup_summary(&self) -> String {
         if self.diagnostic {
             return format!(
-                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Inter carrier with: {}",
+                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Monocraft carrier with: {}",
                 self.selected_path.display(),
                 FONT_ASSETS_COMPILE_COMMAND
             );
@@ -486,7 +489,7 @@ rebuild item-icon assets with: {rebuild_command}"
     IconAssetsDecode {
         path: PathBuf,
         #[source]
-        source: assets::AssetError,
+        source: Box<assets::AssetError>,
         rebuild_command: String,
     },
 
@@ -810,46 +813,6 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
         runtime: Arc::new(runtime),
         selected_path: path,
         diagnostic: false,
-    })
-}
-
-fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartupError> {
-    const DIAGNOSTIC_MANIFEST: [u8; 32] = [0xd1; 32];
-    let rgba8 = vec![255, 255, 255, 255].into_boxed_slice();
-    let page = FontTexturePage {
-        source_path: "font/builtin-diagnostic.png".into(),
-        source_bytes: 4,
-        source_sha256: Sha256::digest(&rgba8).into(),
-        pixels_sha256: Sha256::digest(&rgba8).into(),
-        width: 1,
-        height: 1,
-        rgba8,
-    };
-    let glyph = GlyphMetrics {
-        codepoint: '\u{fffd}',
-        page: 0,
-        uv: [0, 0, 1, 1],
-        bearing: [0, 0],
-        advance_64: 64,
-    };
-    let bytes = encode_font_catalog(DIAGNOSTIC_MANIFEST, &[glyph], &[page]).map_err(|source| {
-        AssetStartupError::FontAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-        }
-    })?;
-    let runtime = RuntimeFontCatalog::decode(&bytes, DIAGNOSTIC_MANIFEST).map_err(|source| {
-        AssetStartupError::FontAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-        }
-    })?;
-    Ok(LoadedFontAssets {
-        runtime: Arc::new(runtime),
-        selected_path: path,
-        diagnostic: true,
     })
 }
 

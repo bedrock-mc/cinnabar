@@ -14,8 +14,8 @@ PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)
 UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
-UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65
-UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf
+UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9
+UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
 LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
 BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
@@ -31,8 +31,8 @@ ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
 ENTITY_ASSET_REPORT ?= .local/assets/compiled/entity-assets.json
-FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont
-FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json
+FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont
+FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json
 LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
@@ -78,7 +78,7 @@ help:
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
-	@echo make font-assets     - Fetch and compile the pinned open-licensed Inter UI font
+	@echo make font-assets     - Fetch and compile the pinned open-licensed Monocraft UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR

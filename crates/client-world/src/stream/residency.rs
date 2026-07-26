@@ -108,36 +108,45 @@ impl WorldStream {
         columns.extend(self.known_air.iter().map(|key| key.chunk()));
         columns
     }
-    pub(super) fn evict_outside_active_radius(&mut self) {
-        let Some(center) = self.publisher_center else {
+    /// Re-evaluates chunk-grid retention against the local player's current
+    /// chunk and the server-confirmed radius, evicting every tracked column the
+    /// vanilla client's grid no longer keeps. Cheap to call on every player
+    /// move: it only rescans when the player's chunk or the confirmed radius
+    /// changes.
+    pub(super) fn reevaluate_chunk_retention(&mut self) {
+        let Some(radius) = self.chunk_radius else {
             return;
         };
-        let radius = self.active_radius_chunks();
-        let center_x = center[0].div_euclid(16);
-        let center_z = center[2].div_euclid(16);
-        let mut columns = self
-            .resident
-            .iter()
-            .map(|key| key.chunk())
+        let center = self.player_chunk();
+        if self.last_retention_center == Some(center) && self.last_retention_radius == Some(radius)
+        {
+            return;
+        }
+        self.last_retention_center = Some(center);
+        self.last_retention_radius = Some(radius);
+        let center_xz = [center.x, center.z];
+        let stale = self
+            .tracked_columns()
+            .into_iter()
             .filter(|key| {
                 key.dimension != self.current_dimension
-                    || i64::from(key.x).abs_diff(i64::from(center_x)) > radius as u64
-                    || i64::from(key.z).abs_diff(i64::from(center_z)) > radius as u64
+                    || !chunk_in_view(radius, [key.x, key.z], center_xz)
             })
-            .collect::<BTreeSet<_>>();
-        columns.extend(self.loaded_columns.iter().copied().filter(|key| {
-            key.dimension != self.current_dimension
-                || i64::from(key.x).abs_diff(i64::from(center_x)) > radius as u64
-                || i64::from(key.z).abs_diff(i64::from(center_z)) > radius as u64
-        }));
-        columns.extend(self.requested_sub_chunks.keys().copied().filter(|key| {
-            key.dimension != self.current_dimension
-                || i64::from(key.x).abs_diff(i64::from(center_x)) > radius as u64
-                || i64::from(key.z).abs_diff(i64::from(center_z)) > radius as u64
-        }));
-        for column in columns {
+            .collect::<Vec<_>>();
+        for column in stale {
             self.evict_column(column);
         }
+    }
+    /// The local player's current chunk column, floored from the resolved
+    /// server-authoritative position so negative coordinates land in the
+    /// correct column.
+    fn player_chunk(&self) -> ChunkKey {
+        let position = self.resolved_server_position.position;
+        ChunkKey::new(
+            self.current_dimension,
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        )
     }
     pub(super) fn active_radius_chunks(&self) -> i32 {
         match (self.publisher_radius_chunks, self.chunk_radius) {

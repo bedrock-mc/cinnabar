@@ -423,6 +423,12 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
     );
 }
 
+/// Shadowed text draws each glyph twice: the darkened offset pass, then the
+/// glyph itself.
+const TEXT_PASSES: usize = 2;
+/// Height of the synthetic fixture glyph, in atlas texels.
+const FIXTURE_GLYPH_TEXELS: f32 = 16.0;
+
 #[test]
 fn focused_chat_uses_compact_java_style_text_and_does_not_dim_the_hud() {
     let font = fixture_font();
@@ -460,10 +466,20 @@ fn focused_chat_uses_compact_java_style_text_and_does_not_dim_the_hud() {
         "single-row chat used an oversized {panel_top}..{panel_bottom} surface"
     );
 
+    // 800x600 leaves room for exactly one physical pixel per atlas texel, so
+    // chat renders at whole scale 1 -- Mojang's GUI scale 2 for this viewport.
+    // The fixture glyph is 16 texels tall, so 16 px is the expected height and
+    // anything larger means a fractional or inflated scale crept back in.
+    assert_eq!(
+        super::TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap())
+            .scale
+            .get(),
+        1.0
+    );
     for glyph in active.vertices[4..].chunks_exact(4) {
         let (top, bottom) = vertical_bounds(glyph);
         assert!(
-            bottom - top <= 12.0,
+            bottom - top <= FIXTURE_GLYPH_TEXELS,
             "chat glyph exceeded the approved compact scale: {top}..{bottom}"
         );
     }
@@ -492,7 +508,7 @@ fn wrapped_chat_messages_reserve_their_full_visual_height() {
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
     // Filter to the white chat text vertices so the Java-style translucent per-line backdrops
-    // (separate solid quads) do not shift the per-message vertex ranges this assertion relies on.
+    // and their shadow passes do not shift the per-message vertex ranges this assertion relies on.
     let text: Vec<_> = active
         .vertices
         .iter()
@@ -750,9 +766,9 @@ fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
     let panel_vertices = 4;
-    let history_vertices = history.chars().count() * 4;
-    let editor_vertices = "> /g|".chars().count() * 4;
-    let suggestion_vertices = "> /give-0".chars().count() * 4;
+    let history_vertices = history.chars().count() * 4 * TEXT_PASSES;
+    let editor_vertices = "> /g|".chars().count() * 4 * TEXT_PASSES;
+    let suggestion_vertices = "> /give-0".chars().count() * 4 * TEXT_PASSES;
     let history_bounds =
         vertical_bounds(&active.vertices[panel_vertices..panel_vertices + history_vertices]);
     let editor_start = panel_vertices + history_vertices;
@@ -799,7 +815,9 @@ fn oversized_latest_chat_message_keeps_a_bounded_visible_portion() {
         active
             .vertices
             .iter()
-            .all(|vertex| vertex.position[1] >= 380.0 && vertex.position[1] <= 528.0),
+            // The extra two pixels past the old 528 bound are the
+            // one-design-pixel drop shadow, which is two texels at scale 1.
+            .all(|vertex| vertex.position[1] >= 380.0 && vertex.position[1] <= 530.0),
         "oversized message escaped bounded presentation region"
     );
 }
@@ -875,7 +893,7 @@ fn suggestion_hit_testing_uses_the_exact_rendered_rows_and_width_cap() {
         }));
     }
     assert_eq!(
-        presentation.hit_test_chat_suggestion(UiPoint::new(20.0, 533.0).unwrap(), [800.0, 600.0],),
+        presentation.hit_test_chat_suggestion(UiPoint::new(20.0, 517.0).unwrap(), [800.0, 600.0],),
         Some(3),
         "the old synthetic hit test incorrectly selected row 4 here"
     );
@@ -1000,23 +1018,27 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
+/// Models the shipped atlas: ink 16 texels tall sitting 14 above the baseline
+/// with a 12-texel advance, so layout geometry in these tests matches what the
+/// client actually lays out. A fixture whose glyphs hang below the baseline
+/// instead makes every row report far more height than it occupies.
 pub(crate) fn fixture_font() -> Arc<RuntimeFontCatalog> {
-    let pixels = vec![255; 16 * 24 * 4].into_boxed_slice();
+    let pixels = vec![255; 16 * 16 * 4].into_boxed_slice();
     let page = FontTexturePage {
         source_path: "font/page.png".into(),
         source_bytes: pixels.len() as u32,
         source_sha256: [1; 32],
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 16,
-        height: 24,
+        height: 16,
         rgba8: pixels,
     };
     let glyphs = ['/', '0', '2', '\u{fffd}'].map(|codepoint| GlyphMetrics {
         codepoint,
         page: 0,
-        uv: [0, 0, 16, 24],
-        bearing: [0, 0],
-        advance_64: 512,
+        uv: [0, 0, 12, 16],
+        bearing: [0, -14],
+        advance_64: 12 * 64,
     });
     let manifest = [7; 32];
     let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();

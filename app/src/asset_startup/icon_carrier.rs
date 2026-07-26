@@ -137,7 +137,7 @@ pub fn require_icon_assets(
     let runtime = RuntimeIconCatalog::decode(&bytes).map_err(|source| {
         AssetStartupError::IconAssetsDecode {
             path: path.clone(),
-            source,
+            source: Box::new(source),
             rebuild_command: icon_assets_rebuild_command(&path),
         }
     })?;

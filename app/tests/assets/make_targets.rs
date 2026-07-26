@@ -182,10 +182,10 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
 
     for contract in [
         "UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json",
-        "UI_FONT_DIR ?= .local/assets/ui-font/389b770410cc0b7c21c85673bfa2077420fe7f65",
-        "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Inter.ttf",
-        "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-inter-v1.mcbefont",
-        "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-inter-font-assets.json",
+        "UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9",
+        "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf",
+        "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont",
+        "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json",
         "LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
         "LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
         "FONT_PACK_DIR ?= .local/assets/font-source",

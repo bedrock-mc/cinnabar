@@ -5,11 +5,11 @@ use std::{
 
 use assets::RuntimeFontCatalog;
 use ui::{
-    DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache, TextLayoutRequest, TextStyle,
-    UiNode, UiNodeId, UiScale, UiVisual,
+    DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache, TextShadow, UiNode, UiNodeId,
+    UiVisual,
 };
 
-use super::{UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
+use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
 
 // Exact classic-profile contracts from the hash-pinned official sample ui/scoreboards.json.
 pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
@@ -309,6 +309,7 @@ pub(super) fn append_player_list_nodes(
     next_id: &mut u32,
     layouts: &mut TextLayoutCache,
     font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
     solid_texture_page: u16,
     viewport_width: f32,
     viewport_height: f32,
@@ -326,25 +327,21 @@ pub(super) fn append_player_list_nodes(
     let mut rows = Vec::with_capacity(players.len().min(MAX_PRESENTED_PLAYER_LIST_ROWS));
     for (name, score) in players.iter().take(MAX_PRESENTED_PLAYER_LIST_ROWS) {
         let name_layout = layouts
-            .layout(TextLayoutRequest {
-                text: bounded_visible_text(name),
-                style: TextStyle::default(),
-                width_64: (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
-                scale: UiScale::default(),
+            .layout(metrics.request(
+                bounded_visible_text(name),
+                (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
                 font,
-            })
+            ))
             .map_err(UiPresentationError::Text)?;
         let name_width = name_layout.size_64()[0] as f32 / 64.0;
         let score = score
             .map(|score| {
                 layouts
-                    .layout(TextLayoutRequest {
-                        text: &score.to_string(),
-                        style: TextStyle::default(),
-                        width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
-                        scale: UiScale::default(),
+                    .layout(metrics.request(
+                        &score.to_string(),
+                        (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
                         font,
-                    })
+                    ))
                     .map(|layout| {
                         let width = layout.size_64()[0] as f32 / 64.0;
                         (layout, width)
@@ -384,6 +381,7 @@ pub(super) fn append_player_list_nodes(
             [left + 2.0, row_top, left + 2.0 + row.name_width, row_bottom],
             row.name,
             [255; 4],
+            metrics.shadow(),
         )?;
         if let Some((score, score_width)) = row.score {
             append_clipped_text_node(
@@ -393,6 +391,7 @@ pub(super) fn append_player_list_nodes(
                 [right - 2.0 - score_width, row_top, right - 2.0, row_bottom],
                 score,
                 [255, 255, 85, 255],
+                metrics.shadow(),
             )?;
         }
     }
@@ -405,6 +404,7 @@ pub(super) fn append_scoreboard_nodes(
     next_id: &mut u32,
     layouts: &mut TextLayoutCache,
     font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
     solid_texture_page: u16,
     viewport_width: f32,
     viewport_height: f32,
@@ -412,35 +412,25 @@ pub(super) fn append_scoreboard_nodes(
     opacity: ScoreboardOpacityAuthority,
 ) -> Result<(), UiPresentationError> {
     let title = layouts
-        .layout(TextLayoutRequest {
-            text: bounded_visible_text(&scoreboard.title),
-            style: TextStyle::default(),
-            width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
-            scale: UiScale::default(),
+        .layout(metrics.request(
+            bounded_visible_text(&scoreboard.title),
+            (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
             font,
-        })
+        ))
         .map_err(UiPresentationError::Text)?;
     let title_width = title.size_64()[0] as f32 / 64.0;
     let mut content_width = title_width;
     let mut rows = Vec::with_capacity(scoreboard.rows.len());
     for row in &scoreboard.rows {
         let label = layouts
-            .layout(TextLayoutRequest {
-                text: bounded_visible_text(&row.label),
-                style: TextStyle::default(),
-                width_64: (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
-                scale: UiScale::default(),
+            .layout(metrics.request(
+                bounded_visible_text(&row.label),
+                (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
                 font,
-            })
+            ))
             .map_err(UiPresentationError::Text)?;
         let score = layouts
-            .layout(TextLayoutRequest {
-                text: &row.score,
-                style: TextStyle::default(),
-                width_64: (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
-                scale: UiScale::default(),
-                font,
-            })
+            .layout(metrics.request(&row.score, (SCOREBOARD_TITLE_WIDTH * 64.0) as u32, font))
             .map_err(UiPresentationError::Text)?;
         let label_width = label.size_64()[0] as f32 / 64.0;
         let score_width = score.size_64()[0] as f32 / 64.0;
@@ -486,6 +476,7 @@ pub(super) fn append_scoreboard_nodes(
         ],
         title,
         [255; 4],
+        metrics.shadow(),
     )?;
     for (index, row) in rows.into_iter().enumerate() {
         let row_top = top + SCOREBOARD_LIST_OFFSET + SCOREBOARD_TEXT_HEIGHT * index as f32;
@@ -502,6 +493,7 @@ pub(super) fn append_scoreboard_nodes(
             ],
             row.label,
             [255; 4],
+            metrics.shadow(),
         )?;
         append_clipped_text_node(
             nodes,
@@ -515,6 +507,7 @@ pub(super) fn append_scoreboard_nodes(
             ],
             row.score,
             [255, 0, 0, 255],
+            metrics.shadow(),
         )?;
     }
     Ok(())
@@ -544,6 +537,7 @@ fn append_clipped_text_node(
     text_bounds: [f32; 4],
     layout: Arc<ui::TextLayout>,
     color: [u8; 4],
+    shadow: TextShadow,
 ) -> Result<(), UiPresentationError> {
     let clip_id = take_node_id(next_id);
     nodes.push(
@@ -570,7 +564,11 @@ fn append_clipped_text_node(
                 text_bounds[3] - clip_bounds[1],
             )?,
         )
-        .with_visual(UiVisual::Text { layout, color }),
+        .with_visual(UiVisual::Text {
+            layout,
+            color,
+            shadow,
+        }),
     );
     Ok(())
 }

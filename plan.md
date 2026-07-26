@@ -1775,7 +1775,8 @@ reconciliation; Java presentation must not invent state that Bedrock does not
 expose. Menus, inventories, containers, forms, controls, and resource-pack JSON
 UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
-below are green.
+below are green. See `AGENTS.md`'s gameplay-HUD exception for the repository-wide
+scope and decompilation-evidence rules.
 
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,

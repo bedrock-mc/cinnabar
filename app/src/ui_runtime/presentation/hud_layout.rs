@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use assets::{HudTextureRole, RuntimeFontCatalog};
 use ui::{
-    SafeArea, TextLayoutCache, TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiScale, UiVisual,
+    SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle, UiNode, UiNodeId, UiScale,
+    UiVisual,
 };
 
 use super::{HudSprite, HudTexturePages, UiPresentationError, UiRuntime, rect};
@@ -141,6 +142,8 @@ impl<'a> HudLayout<'a> {
                 text: "0",
                 style: TextStyle::default(),
                 width_64: 64 * 64,
+                line_height_64: super::TEXT_LINE_HEIGHT_64,
+                baseline_64: super::TEXT_BASELINE_64,
                 scale: UiScale::default(),
                 font,
             })
@@ -303,6 +306,8 @@ impl<'a> HudLayout<'a> {
                     text: &text,
                     style: TextStyle::default(),
                     width_64: (64.0 * 64.0) as u32,
+                    line_height_64: super::TEXT_LINE_HEIGHT_64,
+                    baseline_64: super::TEXT_BASELINE_64,
                     scale,
                     font: self.font,
                 })
@@ -353,6 +358,8 @@ impl<'a> HudLayout<'a> {
                 text: super::bounded_visible_text(&name),
                 style: TextStyle::default(),
                 width_64: (g.gui_width.max(1.0) * g.scale * 64.0) as u32,
+                line_height_64: super::TEXT_LINE_HEIGHT_64,
+                baseline_64: super::TEXT_BASELINE_64,
                 scale,
                 font: self.font,
             })
@@ -619,6 +626,8 @@ impl<'a> HudLayout<'a> {
                     text: &text,
                     style: TextStyle::default(),
                     width_64: (64.0 * 64.0) as u32,
+                    line_height_64: super::TEXT_LINE_HEIGHT_64,
+                    baseline_64: super::TEXT_BASELINE_64,
                     scale,
                     font: self.font,
                 })
@@ -712,6 +721,8 @@ impl<'a> HudLayout<'a> {
                         text: title,
                         style: TextStyle::default(),
                         width_64: (g.gui_width.max(1.0) * g.scale * 64.0) as u32,
+                        line_height_64: super::TEXT_LINE_HEIGHT_64,
+                        baseline_64: super::TEXT_BASELINE_64,
                         scale,
                         font: self.font,
                     })
@@ -927,7 +938,11 @@ impl<'a> HudLayout<'a> {
             None,
             rect(x, y, x + width, y + height)?,
         )
-        .with_visual(UiVisual::Text { layout, color });
+        .with_visual(UiVisual::Text {
+            layout,
+            color,
+            shadow: TextShadow::None,
+        });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
         Ok(())
@@ -940,13 +955,22 @@ impl<'a> HudLayout<'a> {
         gui: [f32; 2],
         color: [u8; 4],
     ) -> Result<(), UiPresentationError> {
-        let shadow = [
-            (u16::from(color[0]) / 4) as u8,
-            (u16::from(color[1]) / 4) as u8,
-            (u16::from(color[2]) / 4) as u8,
-            color[3],
-        ];
-        self.text_gui(Arc::clone(&layout), [gui[0] + 1.0, gui[1] + 1.0], shadow)?;
-        self.text_gui(layout, gui, color)
+        let g = self.geometry;
+        let [x, y] = g.logical(gui);
+        let width = layout.size_64()[0] as f32 / 64.0;
+        let height = layout.size_64()[1] as f32 / 64.0;
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + width, y + height)?,
+        )
+        .with_visual(UiVisual::Text {
+            layout,
+            color,
+            shadow: TextShadow::Offset64(super::TEXT_SHADOW_OFFSET_64),
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
+        Ok(())
     }
 }

@@ -6,6 +6,7 @@
 mod biome;
 mod block_entity;
 mod chunk;
+mod chunk_grid;
 mod collision_revision;
 mod error;
 mod light;
@@ -25,6 +26,7 @@ pub use block_entity::{
     RootByteCandidate,
 };
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
+pub use chunk_grid::{CHUNK_VIEW_SLACK, chunk_in_view, chunk_view_distance};
 pub use error::{CollisionRevisionError, DecodeError, MutationError};
 pub use light::{
     LIGHT_SAMPLES_PER_SUB_CHUNK, LightChannel, LightNibbleStorage, LightStorageError, LightStore,
