@@ -482,6 +482,22 @@ impl WorldStream {
                     resolved,
                 });
             }
+            WorldEvent::Respawn(respawn) => {
+                let sequence = sequence.expect("sequenced respawns commit through submit");
+                let resolved = resolve_server_position(
+                    respawn.position,
+                    self.resolved_server_position.position,
+                    self.resolved_server_position.surface_anchor,
+                );
+                self.resolved_server_position = resolved;
+                self.provisionally_rebase_for_local_teleport(resolved.position);
+                self.reevaluate_chunk_retention();
+                self.push_committed_control(CommittedControlEvent::Respawn {
+                    sequence,
+                    respawn,
+                    resolved,
+                });
+            }
             WorldEvent::MovePlayer(movement) => {
                 let sequence = sequence.expect("sequenced MovePlayer commits through submit");
                 let _ = self.actors.apply_player_move(

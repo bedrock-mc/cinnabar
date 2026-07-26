@@ -226,7 +226,14 @@ impl NetworkHandle {
     }
 
     pub(crate) fn invalidate_physics_before(&self, reanchor_epoch: u64) {
-        self.physics_reanchor.send_replace(reanchor_epoch);
+        self.physics_reanchor.send_if_modified(|published| {
+            if *published == reanchor_epoch {
+                false
+            } else {
+                *published = reanchor_epoch;
+                true
+            }
+        });
     }
 
     pub fn send_chat_packet(

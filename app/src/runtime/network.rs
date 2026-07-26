@@ -270,6 +270,7 @@ pub(crate) fn receive_network_events(
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
+        let prior_reanchor_epoch = movement.reanchor_epoch();
         match control {
             NetworkControlEvent::Bootstrap {
                 session_generation,
@@ -515,6 +516,9 @@ pub(crate) fn receive_network_events(
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());
                 }
             }
+        }
+        if movement.reanchor_epoch() != prior_reanchor_epoch {
+            network.invalidate_physics_before(movement.reanchor_epoch());
         }
     }
 

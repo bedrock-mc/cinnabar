@@ -28,8 +28,11 @@ use bevy::{
 use semantic_input::Action;
 
 use crate::{
-    acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
-    runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
+    acceptance::AcceptanceRun,
+    camera::AutoFly,
+    local_player::LocalViewPose,
+    runtime::{network::NetworkHandle, world::ClientWorld},
+    semantic_controls::SemanticInputSnapshot,
 };
 
 pub const OUTBOX_CAPACITY: usize = 32;
@@ -42,6 +45,7 @@ pub(crate) fn advance_local_physics(
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
+    network: Res<NetworkHandle>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
@@ -106,11 +110,13 @@ pub(crate) fn advance_local_physics(
         movement_ticker.record_physics_fault(PhysicsAuthorityFault::PhysicsTickOverflow {
             dropped: frame.dropped_ticks,
         });
+        network.invalidate_physics_before(movement_ticker.reanchor_epoch());
         physics.deactivate();
         return;
     }
     for sample in frame.samples {
         if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
+            network.invalidate_physics_before(movement_ticker.reanchor_epoch());
             debug!(?fault, "candidate Physics movement authority failed closed");
             physics.deactivate();
             return;
@@ -283,6 +289,7 @@ impl MovementTicker {
         initial_server_tick: u64,
         initial_position: [f32; 3],
     ) {
+        self.position_authority_changed();
         self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
@@ -298,11 +305,11 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.pending_fault = None;
         self.next_admission_id = 0;
-        self.reanchor_epoch = 0;
         self.terminal_drain = false;
     }
 
     pub fn deactivate(&mut self) {
+        self.position_authority_changed();
         self.session_active = false;
         self.outbox.clear();
         self.pending_sends.clear();
@@ -322,10 +329,10 @@ impl MovementTicker {
         if self.source == source {
             return;
         }
+        self.position_authority_changed();
         self.source = source;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
-        self.pending_sends.clear();
         self.sent_history.clear();
         self.outbox_reconciliation = match source {
             MovementSource::Physics => MovementOutboxReconciliation::Drained,
@@ -338,11 +345,11 @@ impl MovementTicker {
         if !self.session_active {
             return;
         }
+        self.position_authority_changed();
         self.next_tick = tick.saturating_add(1);
         self.previous_position = position;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
-        self.pending_sends.clear();
         self.sent_history.clear();
     }
 
@@ -411,9 +418,9 @@ impl MovementTicker {
                 pending_count: self.pending_count(),
             });
         }
+        self.position_authority_changed();
         self.source = MovementSource::FreeCamera;
         self.outbox.clear();
-        self.pending_sends.clear();
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
@@ -536,9 +543,6 @@ impl MovementTicker {
     }
 
     pub(crate) fn acknowledge_physics_send(&mut self, identity: PhysicsSendIdentity) -> bool {
-        if !self.physics_is_authorized() || identity.session_generation != self.session_generation {
-            return false;
-        }
         if self
             .pending_sends
             .front()
@@ -547,6 +551,7 @@ impl MovementTicker {
             return false;
         }
         if self.tick_evidence.len() == OUTBOX_CAPACITY {
+            self.pending_sends.pop_front();
             self.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
             return false;
         }
@@ -554,7 +559,10 @@ impl MovementTicker {
             .pending_sends
             .pop_front()
             .expect("matching pending socket acknowledgement was checked");
-        if identity.reanchor_epoch == self.reanchor_epoch {
+        if self.physics_is_authorized()
+            && identity.session_generation == self.session_generation
+            && identity.reanchor_epoch == self.reanchor_epoch
+        {
             self.confirm_sent(&pending.sample);
         }
         self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
@@ -568,9 +576,6 @@ impl MovementTicker {
         identity: PhysicsSendIdentity,
         definitely_unsent: bool,
     ) -> bool {
-        if !self.physics_is_authorized() || identity.session_generation != self.session_generation {
-            return false;
-        }
         if self
             .pending_sends
             .front()
@@ -579,6 +584,7 @@ impl MovementTicker {
             return false;
         }
         if !definitely_unsent {
+            self.pending_sends.pop_front();
             self.fail_physics_authority(PhysicsAuthorityFault::IndeterminatePhysicsSend {
                 tick: identity.tick,
             });
@@ -588,7 +594,11 @@ impl MovementTicker {
             .pending_sends
             .pop_front()
             .expect("matching pending socket cancellation was checked");
-        if pending.retry_after_cancellation && self.retry_replayed_sample(pending.sample).is_err() {
+        if pending.retry_after_cancellation
+            && self.physics_is_authorized()
+            && pending.sample.session_generation == self.session_generation
+            && self.retry_replayed_sample(pending.sample).is_err()
+        {
             self.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
             return true;
         }
@@ -599,12 +609,12 @@ impl MovementTicker {
     /// Reanchors movement without allowing queued pre-anchor commands or input
     /// edges to cross the new authoritative position.
     pub(crate) fn reanchor_surface_spawn(&mut self, tick: u64, position: [f32; 3]) {
+        self.position_authority_changed();
         self.next_tick = self.next_tick.max(tick.saturating_add(1));
         self.previous_position = position;
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
-        self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
         self.refresh_outbox_reconciliation();
     }
 
@@ -615,8 +625,26 @@ impl MovementTicker {
         }
     }
 
-    pub(crate) const fn accepting_physics_admissions(&self) -> bool {
-        self.physics_is_authorized() && !self.terminal_drain
+    pub(crate) fn accepting_physics_admissions(&self) -> bool {
+        self.physics_is_authorized()
+            && !self.terminal_drain
+            && !self.has_unresolved_position_authority_change()
+    }
+
+    /// Records the explicit event that the server-authoritative local position
+    /// changed. Every transport admission from the prior epoch becomes
+    /// obsolete regardless of whether its packet fields happen to compare
+    /// equal after reconciliation.
+    fn position_authority_changed(&mut self) {
+        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
+        self.sent_history.clear();
+        self.refresh_outbox_reconciliation();
+    }
+
+    fn has_unresolved_position_authority_change(&self) -> bool {
+        self.pending_sends
+            .iter()
+            .any(|pending| pending.identity.reanchor_epoch != self.reanchor_epoch)
     }
 
     fn refresh_outbox_reconciliation(&mut self) {
@@ -755,12 +783,12 @@ impl MovementTicker {
         }
         match plan.outcome {
             PhysicsCorrectionOutcome::Snapped { .. } => {
+                self.position_authority_changed();
                 self.next_tick = plan.final_tick.saturating_add(1);
                 self.previous_position = plan.final_position;
                 self.previous_input = HeldInput::default();
                 self.outbox.clear();
                 self.sent_history.clear();
-                self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -824,15 +852,10 @@ impl MovementTicker {
                         };
                         previous.position
                     };
-                    let prior_position = pending.snapshot.position;
-                    let prior_delta = pending.snapshot.delta;
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = subtract(replayed.position, previous_position);
                     pending.evidence.network_position = replayed.position;
-                    Ok(Some(
-                        pending.snapshot.position != prior_position
-                            || pending.snapshot.delta != prior_delta,
-                    ))
+                    Ok(Some(()))
                 };
 
                 let mut replacement = VecDeque::with_capacity(self.outbox.len());
@@ -843,20 +866,14 @@ impl MovementTicker {
                     replacement.push_back(pending);
                 }
                 self.outbox = replacement;
-                let mut invalidated_transport = false;
                 for pending in &mut self.pending_sends {
-                    if replay_sample(&mut pending.sample)? == Some(true) {
-                        invalidated_transport = true;
-                    }
+                    let _ = replay_sample(&mut pending.sample)?;
                 }
-                if invalidated_transport {
-                    for pending in &mut self.pending_sends {
-                        if pending.sample.snapshot.tick > plan.corrected_tick {
-                            pending.retry_after_cancellation = true;
-                        }
-                    }
-                    self.reanchor_epoch = self.reanchor_epoch.saturating_add(1);
+                for pending in &mut self.pending_sends {
+                    pending.retry_after_cancellation =
+                        pending.sample.snapshot.tick > plan.corrected_tick;
                 }
+                self.position_authority_changed();
                 self.previous_position = plan.final_position;
                 Ok(())
             }
@@ -931,7 +948,7 @@ pub(crate) fn flush_player_auth_inputs<E>(
         ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         return Ok(0);
     }
-    if ticker.terminal_drain {
+    if ticker.terminal_drain || ticker.has_unresolved_position_authority_change() {
         ticker.refresh_outbox_reconciliation();
         return Ok(0);
     }

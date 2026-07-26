@@ -328,6 +328,18 @@ pub struct ChangeDimensionEvent {
     pub position: [f32; 3],
 }
 
+/// One server-driven local-player respawn phase.
+///
+/// The wire state and runtime ID are retained even when semantically unusual;
+/// every well-formed respawn packet changes local position authority and must
+/// reach the app instead of being silently dropped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RespawnEvent {
+    pub position: [f32; 3],
+    pub state: u8,
+    pub runtime_entity_id: i64,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MovePlayerEvent {
     pub runtime_id: u64,
@@ -463,6 +475,7 @@ pub enum WorldEvent {
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
+    Respawn(RespawnEvent),
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     SetTime(SetTimeEvent),
@@ -800,6 +813,11 @@ pub fn into_world_event(
                 position: [packet.position.x, packet.position.y, packet.position.z],
             })
         }
+        McpePacketData::PacketRespawn(packet) => WorldEvent::Respawn(RespawnEvent {
+            position: [packet.position.x, packet.position.y, packet.position.z],
+            state: packet.state,
+            runtime_entity_id: packet.runtime_entity_id,
+        }),
         McpePacketData::PacketMovePlayer(packet) => {
             let mode = MovePlayerMode::from(packet.mode);
             WorldEvent::MovePlayer(MovePlayerEvent {

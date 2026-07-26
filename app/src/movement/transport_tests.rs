@@ -186,6 +186,11 @@ fn indeterminate_reanchor_cancellation_fails_physics_authority_closed() {
     assert!(ticker.resolve_cancelled_physics_send(admitted.unwrap(), false));
     assert!(!ticker.physics_is_authorized());
     assert_eq!(
+        ticker.pending_count(),
+        0,
+        "the indeterminate transport result is resolved even though it poisons authority"
+    );
+    assert_eq!(
         ticker.outbox_reconciliation(),
         MovementOutboxReconciliation::NotAuthoritative
     );

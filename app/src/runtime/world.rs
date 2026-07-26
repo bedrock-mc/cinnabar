@@ -81,11 +81,11 @@ pub(crate) fn reconcile_candidate_physics_correction_and_invalidate(
         on_ground,
         mode,
         world,
-    )?;
+    );
     if movement.reanchor_epoch() != prior_reanchor_epoch {
         network.invalidate_physics_before(movement.reanchor_epoch());
     }
-    Ok(outcome)
+    outcome
 }
 
 #[derive(Resource, Debug, Default)]
@@ -378,6 +378,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
+        let prior_reanchor_epoch = movement.reanchor_epoch();
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
@@ -498,12 +499,50 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 }
                 LocalPlayerFrameReset::Dimension
             }
+            CommittedControlEvent::Respawn { resolved, .. } => {
+                if movement.physics_is_authorized() {
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(stream.network_id_mode()),
+                        stream.current_dimension(),
+                    );
+                    let previous = local_physics
+                        .network_position()
+                        .unwrap_or(resolved.position);
+                    if let Ok(outcome) = reconcile_candidate_physics_correction_and_invalidate(
+                        &network,
+                        &mut movement,
+                        &mut local_physics,
+                        resolved.position,
+                        0,
+                        false,
+                        PhysicsCorrectionMode::Snap,
+                        &world,
+                    ) {
+                        phase3_evidence.note_correction(
+                            outcome,
+                            position_distance(previous, resolved.position),
+                        );
+                    }
+                } else {
+                    movement.snap_non_authoritative_anchor(0, resolved.position);
+                    local_physics.reanchor_network_position_before_advance(
+                        resolved.position,
+                        0,
+                        false,
+                    );
+                }
+                LocalPlayerFrameReset::Correction
+            }
             CommittedControlEvent::SetTime { .. }
             | CommittedControlEvent::DaylightCycle { .. }
             | CommittedControlEvent::Weather { .. } => {
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
+        if movement.reanchor_epoch() != prior_reanchor_epoch {
+            network.invalidate_physics_before(movement.reanchor_epoch());
+        }
         local_frame.reset(reset);
         interaction.invalidate();
         let _ = acceptance.observe_committed_full_view_control(&control);
@@ -887,6 +926,17 @@ pub(crate) fn apply_committed_control(
             camera_settings.reset_perspective();
             resolved
         }
+        CommittedControlEvent::Respawn {
+            respawn, resolved, ..
+        } => {
+            info!(
+                state = respawn.state,
+                runtime_entity_id = respawn.runtime_entity_id,
+                position = ?respawn.position,
+                "applying committed Respawn"
+            );
+            resolved
+        }
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::Weather { .. } => return,
@@ -902,7 +952,8 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
     let resolved = match control {
         CommittedControlEvent::MovePlayer { resolved, .. }
         | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
-        | CommittedControlEvent::ChangeDimension { resolved, .. } => resolved,
+        | CommittedControlEvent::ChangeDimension { resolved, .. }
+        | CommittedControlEvent::Respawn { resolved, .. } => resolved,
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::Weather { .. } => return false,

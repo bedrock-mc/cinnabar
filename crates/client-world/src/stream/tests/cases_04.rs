@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn respawn_commits_as_a_local_position_authority_change() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let respawn = RespawnEvent {
+        position: [8.5, 71.620_01, -4.25],
+        state: 1,
+        runtime_entity_id: 1,
+    };
+
+    stream.submit(1, WorldEvent::Respawn(respawn)).unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![super::CommittedControlEvent::Respawn {
+            sequence: 1,
+            respawn,
+            resolved: super::server_position::ResolvedServerPosition {
+                position: respawn.position,
+                surface_anchor: None,
+            },
+        }]
+    );
+}
+
+#[test]
 fn older_movement_correction_tick_cannot_rewind_newer_correction() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

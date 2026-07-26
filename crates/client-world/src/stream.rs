@@ -20,9 +20,9 @@ use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
     ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
-    request_sub_chunk_column, vanilla_dimension_range,
+    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, RespawnEvent,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{

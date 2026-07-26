@@ -669,6 +669,239 @@ fn retained_correction_cancels_admitted_future_ticks_and_requeues_replayed_posit
 }
 
 #[test]
+fn newest_retained_tick_correction_invalidates_its_admitted_packet_without_replaying() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 1);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(frame.samples[0].clone())
+        .unwrap();
+    let mut admitted = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    let admitted = admitted.expect("newest retained tick was admitted");
+
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 0,
+        }
+    );
+    assert!(
+        ticker.reanchor_epoch() > admitted.reanchor_epoch,
+        "correcting only the newest retained tick must still invalidate its admitted command"
+    );
+    assert!(!ticker.accepting_physics_admissions());
+    assert!(ticker.resolve_cancelled_physics_send(admitted, true));
+    assert_eq!(ticker.pending_count(), 0);
+}
+
+#[test]
+fn invalidated_retries_resolve_before_a_newer_queued_tick_can_reach_the_wire() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(200),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 4);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut invalidated = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            invalidated.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        invalidated
+            .iter()
+            .map(|identity| identity.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    let mut overtaking_wire_ticks = Vec::new();
+    let sent = flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, _packet| {
+            overtaking_wire_ticks.push(identity.tick);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        sent, 0,
+        "tick {overtaking_wire_ticks:?} overtook unresolved retries for ticks 102 and 103"
+    );
+    assert!(!ticker.accepting_physics_admissions());
+
+    for identity in invalidated {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    assert!(ticker.accepting_physics_admissions());
+
+    let mut ordered_wire_ticks = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, _packet| {
+            ordered_wire_ticks.push(identity.tick);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(ordered_wire_ticks, [102, 103, 104]);
+}
+
+#[test]
+fn newer_correction_drops_a_retry_that_is_now_the_corrected_tick() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut invalidated = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            invalidated.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.5, 2.620_01, 0.0],
+        102,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    for identity in invalidated {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    assert_eq!(
+        ticker
+            .pending_snapshots()
+            .iter()
+            .map(|snapshot| snapshot.tick)
+            .collect::<Vec<_>>(),
+        [103],
+        "a later correction owns tick 102, so only the still-future tick may be retried"
+    );
+}
+
+#[test]
 fn production_replay_reconciliation_notifies_the_network_invalidation_channel() {
     let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
     let mut physics = LocalPhysicsController::default();
@@ -711,6 +944,60 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
         "production reconciliation must publish its new epoch to the network worker"
     );
     assert_ne!(*reanchor.borrow(), 0);
+}
+
+#[test]
+fn failed_production_reconciliation_invalidates_transport_owned_commands() {
+    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::test_stub();
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(frame.samples[0].clone())
+        .unwrap();
+    let mut admitted = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    let admitted_epoch = admitted.unwrap().reanchor_epoch;
+
+    assert_eq!(
+        crate::runtime::world::reconcile_candidate_physics_correction_and_invalidate(
+            &network,
+            &mut ticker,
+            &mut physics,
+            [4.0, 70.620_01, 5.0],
+            999,
+            false,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            &VersionedFloor(1),
+        ),
+        Err(PhysicsAuthorityFault::CorrectionNotRetained { tick: 999 })
+    );
+    assert!(
+        ticker.reanchor_epoch() > admitted_epoch,
+        "authority failure must advance the position-authority epoch"
+    );
+    assert_eq!(
+        *reanchor.borrow(),
+        ticker.reanchor_epoch(),
+        "authority failure must publish its invalidation epoch to the network worker"
+    );
 }
 
 #[test]

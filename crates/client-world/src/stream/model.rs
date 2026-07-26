@@ -339,6 +339,11 @@ pub enum CommittedControlEvent {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
     },
+    Respawn {
+        sequence: u64,
+        respawn: RespawnEvent,
+        resolved: ResolvedServerPosition,
+    },
     SetTime {
         sequence: u64,
         update: SetTimeEvent,
