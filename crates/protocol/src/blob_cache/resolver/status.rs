@@ -1,5 +1,14 @@
 use super::*;
 
+/// A complete, immutable partition of one cached packet's unique blob references.
+///
+/// The classified sets cannot be shortened after classification:
+///
+/// ```compile_fail
+/// fn omit_reference(status: &mut protocol::BlobCacheStatus) {
+///     status.missing.clear();
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCacheStatus {
     pub missing: Vec<u64>,

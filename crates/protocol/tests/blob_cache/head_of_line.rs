@@ -5,12 +5,151 @@ fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 256);
     assert_eq!(protocol::MAX_CLIENT_BLOB_HASHES_PER_PACKET, 4_095);
     assert_eq!(
+        protocol::MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION,
+        32 * 1024 * 1024
+    );
+    assert_eq!(
+        protocol::MAX_CLIENT_BLOB_READY_BYTES,
+        32 * 1024 * 1024
+    );
+    assert_eq!(
         ClientBlobCache::default().limits(),
         BlobCacheLimits {
             trim_trigger_bytes: 100 * 1024 * 1024,
             trim_floor_bytes: 80 * 1024 * 1024,
         }
     );
+}
+
+#[test]
+fn staged_pinned_bytes_are_bounded_before_every_miss_resolves_and_released_on_skip() {
+    let blob_len = protocol::MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION / 3;
+    let first = vec![0x11; blob_len];
+    let second = vec![0x22; blob_len];
+    let third = vec![0x33; blob_len + 3];
+    let hashes = [
+        client_blob_hash(&first),
+        client_blob_hash(&second),
+        client_blob_hash(&third),
+        client_blob_hash(b"still-missing"),
+    ];
+    let cache = ClientBlobCache::with_limits(limits(1));
+    let mut resolver = BlobCacheResolver::new(cache.clone());
+    let status = resolver
+        .accept_cached_packet(
+            LevelChunkPacket {
+                x: 41,
+                z: -9,
+                dimension: 0,
+                sub_chunk_count: 3,
+                blobs: Some(LevelChunkPacketBlobs {
+                    hashes: hashes.to_vec(),
+                }),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("transaction is initially admitted");
+    assert_eq!(status.missing, hashes);
+
+    for (hash, payload) in [(hashes[0], first), (hashes[1], second)] {
+        resolver
+            .accept_miss_response(ClientCacheMissResponsePacket {
+                blobs: vec![Blob { hash, payload }],
+            })
+            .expect("staged payload remains below the bound");
+    }
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: hashes[2],
+                payload: third,
+            }],
+        })
+        .expect("staged-byte excess is a non-fatal semantic skip");
+
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().retained_cached_transactions, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            protocol::ChunkResyncEvent { x: 41, z: -9, .. }
+        )))
+    ));
+
+    cache.insert(b"replacement").expect("exercise cache trimming");
+    assert!(
+        !cache.contains(hashes[0]) && !cache.contains(hashes[1]),
+        "abandonment must release every pin so later cache pressure can evict staged blobs"
+    );
+}
+
+#[test]
+fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
+    let blob_len = protocol::MAX_CLIENT_BLOB_READY_BYTES / 2 + 1;
+    let first = vec![0x44; blob_len];
+    let second = vec![0x55; blob_len];
+    let cache = ClientBlobCache::default();
+    let first_hash = cache.insert(&first).expect("seed first ready payload");
+    let second_hash = cache.insert(&second).expect("seed second ready payload");
+    let mut resolver = BlobCacheResolver::new(cache);
+
+    resolver
+        .accept_cached_packet(cached_request_level(51, first_hash))
+        .expect("first output fits the aggregate ready bound");
+    resolver
+        .accept_cached_packet(cached_request_level(52, second_hash))
+        .expect("aggregate ready excess is non-fatal");
+
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        1,
+        "only the first reconstructed output may remain retained"
+    );
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            protocol::ChunkResyncEvent { x: 52, .. }
+        )))
+    ));
+    let packet = pop_packet(&mut resolver, "first retained output remains lossless");
+    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+        panic!("expected reconstructed LevelChunk")
+    };
+    assert_eq!(packet.x, 51);
+    assert_eq!(packet.payload, first);
+}
+
+#[test]
+fn zero_reference_status_is_suppressed_but_have_only_status_is_sent() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    let empty = resolver
+        .accept_cached_packet(
+            SubchunkPacket {
+                entries: SubchunkPacketEntries::SubChunkEntryWithCaching(Vec::new()),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .expect("well-formed empty cached SubChunk");
+    assert!(
+        empty.into_packets().is_empty(),
+        "vanilla sends no totally empty cache-status packet"
+    );
+
+    let payload = b"full-cache-hit";
+    let cache = ClientBlobCache::default();
+    let hash = cache.insert(payload).expect("seed full hit");
+    let mut resolver = BlobCacheResolver::new(cache);
+    let packets = resolver
+        .accept_cached_packet(cached_request_level(61, hash))
+        .expect("have-only cached status")
+        .into_packets();
+    assert_eq!(packets.len(), 1);
+    assert!(packets[0].missing.is_empty());
+    assert_eq!(packets[0].have, vec![hash]);
 }
 
 #[test]

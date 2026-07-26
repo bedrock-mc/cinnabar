@@ -40,6 +40,14 @@ pub const MAX_CLIENT_BLOB_ORDINARY_READY_BYTES: usize = 32 * 1024 * 1024;
 /// cannot allocate more payload memory than that entire lane. Every blob reference contributes its
 /// payload length, including duplicate references, because reconstruction copies each occurrence.
 pub const MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES: usize = 32 * 1024 * 1024;
+/// Cinnabar's maximum pinned cache payload retained for one unresolved transaction.
+///
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit.
+pub const MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION: usize = 32 * 1024 * 1024;
+/// Cinnabar's maximum aggregate accounted bytes across retained reconstructed outputs.
+///
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit.
+pub const MAX_CLIENT_BLOB_READY_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlobCacheLimits {
