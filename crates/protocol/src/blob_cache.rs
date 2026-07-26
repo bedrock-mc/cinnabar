@@ -14,20 +14,18 @@ use crate::{ChunkResyncEvent, Packet, WorldEvent};
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
 
-pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 4_096;
-pub const MAX_CLIENT_BLOB_CACHE_BYTES: usize = 64 * 1024 * 1024;
-pub const MAX_CLIENT_BLOB_BYTES: usize = 2 * 1024 * 1024;
+pub const CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES: usize = 100 * 1024 * 1024;
+pub const CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES: usize = 80 * 1024 * 1024;
 /// Mojang's cache design limits each `ClientCacheBlobStatusPacket` to 4,095 IDs:
 /// <https://gist.github.com/Tomcc/4be79d3eafcd158c5059abd4ab2e8d35>.
 pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_095;
-/// Mojang documents 1–8 concurrent cache transactions per connection, and Dragonfly enforces
-/// the same maximum in `server/session/session.go` (`maxChunkTransactions = 8`):
-/// <https://gist.github.com/Tomcc/4be79d3eafcd158c5059abd4ab2e8d35>,
-/// <https://github.com/df-mc/dragonfly/blob/v0.11.0/server/session/session.go#L500-L507>.
+/// Cinnabar's own memory-safety bound, not a Bedrock protocol limit.
 ///
-/// Transaction concurrency is server-controlled. This constant records the protocol contract
-/// and sizes client-side indexes; a semantically odd server that exceeds it remains non-fatal.
-pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 8;
+/// Bedrock 1.26.30 enforces transfer concurrency on the server at 20, 40, 100, or 200 according
+/// to network status; its client has no corresponding cap. Keeping 256 retained transactions
+/// accepts the largest observed server setting with headroom while bounding remotely controlled
+/// resolver memory. Excess work is abandoned non-fatally and recovered through a chunk resync.
+pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 256;
 /// Ordinary decoded work is retained independently from cache transactions. The session receive
 /// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
 /// keeps direct resolver users bounded too.
@@ -38,17 +36,15 @@ pub const MAX_CLIENT_BLOB_ORDINARY_READY_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlobCacheLimits {
-    pub max_entries: usize,
-    pub max_total_bytes: usize,
-    pub max_blob_bytes: usize,
+    pub trim_trigger_bytes: usize,
+    pub trim_floor_bytes: usize,
 }
 
 impl Default for BlobCacheLimits {
     fn default() -> Self {
         Self {
-            max_entries: MAX_CLIENT_BLOB_CACHE_ENTRIES,
-            max_total_bytes: MAX_CLIENT_BLOB_CACHE_BYTES,
-            max_blob_bytes: MAX_CLIENT_BLOB_BYTES,
+            trim_trigger_bytes: CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES,
+            trim_floor_bytes: CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES,
         }
     }
 }
@@ -88,10 +84,6 @@ pub struct BlobCacheStats {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BlobCacheError {
-    #[error("blob contains {bytes} bytes, maximum is {max}")]
-    BlobTooLarge { bytes: usize, max: usize },
-    #[error("blob cache cannot admit {bytes} bytes within {entries} entries")]
-    CacheCapacity { bytes: usize, entries: usize },
     #[error("cached LevelChunk hash count {actual} does not match expected {expected}")]
     InvalidLevelChunkHashCount { actual: usize, expected: usize },
     #[error("cached LevelChunk has invalid sub-chunk count {0}")]
@@ -340,44 +332,11 @@ fn insert_verified(
     hash: u64,
     payload: &[u8],
 ) -> Result<(), BlobCacheError> {
-    if payload.len() > limits.max_blob_bytes {
-        return Err(BlobCacheError::BlobTooLarge {
-            bytes: payload.len(),
-            max: limits.max_blob_bytes,
-        });
-    }
     if let Some(existing) = store.entries.get(&hash) {
         if existing.payload.as_ref() != payload {
             return Err(BlobCacheError::ConflictingDuplicate(hash));
         }
         return Ok(());
-    }
-    let target_bytes = store
-        .total_bytes
-        .checked_add(payload.len())
-        .ok_or(BlobCacheError::ByteCountOverflow)?;
-    while store.entries.len() >= limits.max_entries || target_bytes > limits.max_total_bytes {
-        let Some((&evict, _)) = store
-            .entries
-            .iter()
-            .filter(|(candidate, _)| !store.pins.contains_key(candidate))
-            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
-        else {
-            return Err(BlobCacheError::CacheCapacity {
-                bytes: payload.len(),
-                entries: 1,
-            });
-        };
-        let removed = store.entries.remove(&evict).expect("selected cache entry");
-        store.total_bytes = store.total_bytes.saturating_sub(removed.payload.len());
-        if store
-            .total_bytes
-            .checked_add(payload.len())
-            .is_some_and(|bytes| bytes <= limits.max_total_bytes)
-            && store.entries.len() < limits.max_entries
-        {
-            break;
-        }
     }
     store.clock = store.clock.saturating_add(1);
     store.total_bytes = store
@@ -391,7 +350,29 @@ fn insert_verified(
             last_used: store.clock,
         },
     );
+    trim_if_needed(store, limits, hash);
     Ok(())
+}
+
+fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash: u64) {
+    if store.total_bytes <= limits.trim_trigger_bytes {
+        return;
+    }
+    let floor = limits.trim_floor_bytes.min(limits.trim_trigger_bytes);
+    while store.total_bytes > floor {
+        let Some((&evict, _)) = store
+            .entries
+            .iter()
+            .filter(|(candidate, _)| {
+                **candidate != inserted_hash && !store.pins.contains_key(candidate)
+            })
+            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
+        else {
+            break;
+        };
+        let removed = store.entries.remove(&evict).expect("selected cache entry");
+        store.total_bytes = store.total_bytes.saturating_sub(removed.payload.len());
+    }
 }
 
 #[cfg(test)]

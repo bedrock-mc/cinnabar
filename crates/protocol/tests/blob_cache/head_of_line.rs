@@ -1,14 +1,21 @@
 use super::*;
 
 #[test]
-fn authoritative_cached_transaction_and_status_packet_limits_are_defaults() {
-    assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 8);
+fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
+    assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 256);
     assert_eq!(protocol::MAX_CLIENT_BLOB_HASHES_PER_PACKET, 4_095);
+    assert_eq!(
+        ClientBlobCache::default().limits(),
+        BlobCacheLimits {
+            trim_trigger_bytes: 100 * 1024 * 1024,
+            trim_floor_bytes: 80 * 1024 * 1024,
+        }
+    );
 }
 
 #[test]
 fn ordinary_lane_is_not_bounded_by_the_cached_transaction_limit() {
-    let bounded = limits(8, 256);
+    let bounded = limits(256);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
     resolver
         .accept_cached_packet(cached_request_level(
@@ -85,7 +92,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
     let b = b"b";
     let ah = client_blob_hash(a);
     let bh = client_blob_hash(b);
-    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(4, 128)));
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(128)));
     resolver
         .accept_cached_packet(cached_level_at(1, vec![ah, ah, ah], b"first"))
         .expect("first transaction");
@@ -128,7 +135,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
 fn same_column_block_update_waits_for_cached_chunk_and_survives_replacement() {
     let chunk_payload = b"cached-column";
     let hash = client_blob_hash(chunk_payload);
-    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(8, 256)));
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(256)));
     resolver
         .accept_cached_packet(cached_request_level(4, hash))
         .expect("pending cached column");
@@ -256,19 +263,19 @@ fn rejected_response_abandons_dead_transaction_and_unblocks_its_column() {
 }
 
 #[test]
-fn ninth_server_controlled_transaction_is_rejected_without_retained_growth() {
+fn observed_server_maximum_is_accepted_and_safety_excess_recovers_without_growth() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    for index in 0..8_u64 {
+    for index in 0..256_u64 {
         let status = resolver
             .accept_cached_packet(cached_request_level(index as i32, index + 1))
-            .expect("the documented eight transactions remain accepted");
+            .expect("transactions through the Cinnabar safety bound remain accepted");
         assert_eq!(status.missing, vec![index + 1]);
     }
     let retained_at_limit = resolver.stats().pending_bytes;
 
     let excess = resolver
-        .accept_cached_packet(cached_request_level(99, 99))
-        .expect("server-controlled excess stays non-fatal");
+        .accept_cached_packet(cached_request_level(999, 999))
+        .expect("Cinnabar safety-bound excess stays non-fatal");
 
     assert!(
         excess.missing.is_empty() && excess.have.is_empty(),
@@ -276,26 +283,26 @@ fn ninth_server_controlled_transaction_is_rejected_without_retained_growth() {
     );
     assert_eq!(
         excess.recovery.map(|recovery| recovery.x),
-        Some(99),
+        Some(999),
         "discarded cached work must request its affected column again"
     );
-    assert_eq!(resolver.stats().pending_transactions, 8);
+    assert_eq!(resolver.stats().pending_transactions, 256);
     assert_eq!(resolver.stats().pending_bytes, retained_at_limit);
 }
 
 #[test]
-fn completed_cached_transactions_share_the_same_eight_item_retained_bound() {
+fn completed_cached_transactions_share_the_same_safety_bound() {
     let cache = ClientBlobCache::default();
     let hash = cache.insert(b"ready-hit").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
-    for x in 0..8 {
+    for x in 0..256 {
         resolver
             .accept_cached_packet(cached_request_level(x, hash))
-            .expect("eight completed cached transactions");
+            .expect("completed transaction through the safety bound");
     }
     let retained_at_limit = resolver.stats().pending_bytes;
     assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().retained_cached_transactions, 8);
+    assert_eq!(resolver.stats().retained_cached_transactions, 256);
 
     let excess = resolver
         .accept_cached_packet(cached_request_level(99, hash))
@@ -303,7 +310,7 @@ fn completed_cached_transactions_share_the_same_eight_item_retained_bound() {
 
     assert!(excess.missing.is_empty() && excess.have.is_empty());
     assert!(excess.recovery.is_some());
-    assert_eq!(resolver.stats().retained_cached_transactions, 8);
+    assert_eq!(resolver.stats().retained_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_bytes, retained_at_limit);
 }
 

@@ -383,21 +383,11 @@ impl BlobCacheResolver {
                     self.stats.miss_response_unsolicited.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
             }
-            Err(
-                BlobCacheError::BlobTooLarge { .. }
-                | BlobCacheError::HashMismatch { .. }
-                | BlobCacheError::ConflictingDuplicate(_),
-            ) => {
+            Err(BlobCacheError::HashMismatch { .. } | BlobCacheError::ConflictingDuplicate(_)) => {
                 self.stats.miss_response_integrity_rejection = self
                     .stats
                     .miss_response_integrity_rejection
                     .saturating_add(1);
-                self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
-                self.recover_skipped_miss_response(&response_hashes)
-            }
-            Err(BlobCacheError::CacheCapacity { .. }) => {
-                self.stats.miss_response_cache_pressure =
-                    self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response(&response_hashes)
             }
@@ -416,12 +406,6 @@ impl BlobCacheResolver {
         let mut unique = Vec::<(u64, Vec<u8>)>::new();
         let mut positions = HashMap::<u64, usize>::new();
         for blob in response.blobs {
-            if blob.payload.len() > self.cache.limits.max_blob_bytes {
-                return Err(BlobCacheError::BlobTooLarge {
-                    bytes: blob.payload.len(),
-                    max: self.cache.limits.max_blob_bytes,
-                });
-            }
             if !self.pending_by_hash.contains_key(&blob.hash) {
                 return Err(BlobCacheError::UnsolicitedBlob(blob.hash));
             }
@@ -568,7 +552,7 @@ impl BlobCacheResolver {
         !self.immediate_ready.is_empty()
     }
 
-    /// Abandons only the depth-8 cached transactions that block retained ordinary work.
+    /// Abandons only cached transactions that block retained ordinary work.
     pub fn unblock_ordinary_lane(&mut self) -> Result<bool, BlobCacheError> {
         let blocked_columns = self
             .immediate_ready
@@ -685,7 +669,7 @@ impl BlobCacheResolver {
 
     /// Conservative, unverified ordering: ordinary updates for a column wait until every earlier
     /// cached chunk for that column has reconstructed and been emitted. Mojang's behavior here is
-    /// not documented; this depth-8 scan stays pending authoritative vanilla evidence.
+    /// connection-wide rather than per-column; aligning this scan remains open parity work.
     fn sequence_is_unblocked(&self, sequence: u64, columns: &[ColumnKey]) -> bool {
         let conflicts = |earlier_sequence: &u64, earlier_columns: &[ColumnKey]| {
             *earlier_sequence < sequence

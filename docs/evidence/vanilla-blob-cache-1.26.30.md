@@ -10,9 +10,10 @@ observations. No disassembly, proprietary source, or copied code structure is
 reproduced here.
 
 Unless a program-wide or `.text` scan is stated explicitly, each observation is
-attributed to the named symbol and RVA. The sections through "Cache status under
-pressure" describe vanilla behavior. "Cinnabar divergences and open decisions"
-describes the implementation's current differences separately.
+attributed to the named symbol and RVA. Sections explicitly labelled
+"Observation" describe vanilla behavior. Derived values and inferences are
+labelled separately and are not presented as direct observations. "Cinnabar
+divergences and known gaps" describes the implementation's current differences.
 
 ## World-change ordering uses receive-side pause bookkeeping
 
@@ -35,9 +36,10 @@ This list is exhaustive. The repository owner established it by scanning all of
 the client's `.text` section for `call [reg+0x7f0]`, finding 31 call sites, and
 resolving every hit.
 
-On receipt of a `LevelChunkPacket`, vanilla increments
-`mPendingChunks[{&dimension, ChunkPos}]` (RVA `0x7998db5`). The stored value is a
-reference count, not a flag.
+On receipt of a `LevelChunkPacket`, vanilla inserts or finds
+`mPendingChunks[{&dimension, ChunkPos}]` and increments its value
+(`_Try_emplace` at RVA `0x07998dac`). The stored value is a reference count, not
+a flag.
 
 When the count for the packet's column is non-zero,
 `queueHandleWorldChangePacket` calls
@@ -130,19 +132,140 @@ calls `dropBlobFor` for each missing ID and
 `TransferTracker::onAckReceived` for each found ID, with no coupling between
 the two lists.
 
+## Concurrent transfers are limited by the server, not the client
+
+**Observation.** `ClientBlobCache::Server::ActiveTransfersManager` owns
+`TransferTracker::mMaxConcurrentTransfers` at offset `+0xd0`.
+`updateNetworkConditions` (RVA `0x0ba66950`) assigns it from the first field
+returned by `NetworkPeer::getNetworkStatus()`:
+
+| Network status | Maximum concurrent transfers |
+| --- | ---: |
+| `0` | 200 |
+| `1` | 100 |
+| `2` | 40 |
+| any other value | 20 |
+
+`getNetworkStatus` initializes the status to `1`, making 100 the effective
+default. `tryStartTransfer` (RVA `0x0ba662d0`) returns a live
+`TransferBuilder` when `mTransfers.size() <= mMaxConcurrentTransfers` and an
+empty builder otherwise. This gates starting another transfer; it does not
+cancel an existing transfer.
+
+The 1.26.30 client has no corresponding enforcement cap. Its observed
+self-limits are the shared 4,095-ID cache-status packet capacity and one status
+packet per 5 ms. The similarly named
+`ClientBlobCacheTrackingData::ActiveTransfersData::mMaximumAllowedActiveTransfers`
+is performance-overlay telemetry mirroring the server tracker, not a client
+enforcement point.
+
+Mojang's public design note says that between one and eight transactions may be
+concurrent. That figure **does not match the 1.26.30 binary** and is superseded
+for this version by the server-side values above.
+
+## Cache capacity, touch tracking, and eviction
+
+**Observation.** Vanilla uses one persistent store: a LevelDB opened beneath
+`AppPlatform::<vt+0x430>()` at `"blob_cache"`. There is no separate in-memory
+blob store. Its keys are:
+
+- `current_timestamp`, the monotonic timestamp base;
+- `blob_<8-byte id>`, the payload; and
+- `time_<8-byte id>`, the last-touch timestamp.
+
+The cache is bounded by bytes only, not by entry count. `_computeSize` (RVA
+`0x079cea60`) measures the cache directory on disk through
+`getDirectoryFilesSizeRecursively`.
+
+`_trimIfNeeded` (RVA `0x079d0ec0`) starts trimming above 100 MiB (the first
+triggering value is `0x6400001`) and aims to free down to an 80 MiB floor.
+Victims are least-recently-used by last touch. The number selected is based on
+an average-entry-size estimate rather than exact per-victim byte accounting.
+The delete loop protects recent entries by skipping a victim whose timestamp
+is at least `makeTimestamp(now - 60 s)`.
+
+`Cache::insert` (RVA `0x079d08b0`) performs no payload-size comparison, and
+`MissingBlobData` has no length field. There is no per-blob maximum and an
+oversized blob is stored; trimming is retroactive rather than an admission
+gate. The in-memory dirty timestamp set flushing at 3,001 entries is write
+batching, not an entry-count or byte-cap rule.
+
+Exactly one repeating trim task is created at RVA `0x079e9020` and requeues
+itself every 60 seconds (`0xdf8475800` nanoseconds).
+
+**Derived, not directly observed.** The timestamp unit is approximately 20 ms.
+That duration is derived from reciprocal-multiply constants rather than a
+directly observed duration literal.
+
+## `mPendingChunks` is unbounded
+
+**Observation.** A binary-wide review found exactly four operations on the
+`mPendingChunks` map:
+
+- `count` at `0x0795c633` in `queueHandleWorldChangePacket`;
+- `_Try_emplace` at `0x07998dac` in `handle(LevelChunkPacket)`;
+- `find` at `0x0795da81` in `onChunkHandleCompleted`; and
+- `_Unchecked_erase` at `0x0795daa5` in `onChunkHandleCompleted`.
+
+There is no size check. No `clear()` or `_Tidy` instantiation exists for this
+map type in the binary, so even the general capability to clear the map was
+not compiled in. The sole removal path is a chunk-task completion decrementing
+the reference count to zero. Duplicate packets for a column increase the
+count, and a server can grow the map without a bound. There is no abandon,
+cancel, or timeout path.
+
+`mConnectionPausedCallbacks` has the same unbounded container shape, but the
+pause stops further ordinary packet processing, making that map self-limiting
+to approximately one live entry in normal execution.
+
+**Inference, not observation.** The `mPendingChunks` key contains a raw
+`const Dimension*` and is never cleared. The verified lifetime facts imply
+that a chunk task which never completes leaks its entry. If a later
+`Dimension` reused the same address, its stale non-zero reference count could
+pause a column bucket even though no corresponding task was in flight, with
+nothing available to release it. Address reuse producing this collision was
+not observed.
+
+## Dimension change and disconnect behavior
+
+**Observation.** Neither `mPendingChunks` nor
+`mConnectionPausedCallbacks` is cleared on a dimension change.
+`onLevelDestruction` (RVA `0x079987f0`) touches the blob cache, miss queue, and
+player list, but not these maps.
+
+Release remains driven by chunk-task completion.
+`NetworkChunkInserter::onChunkHandleCompleted` compares the completed chunk's
+dimension ID with the target dimension. A mismatch skips insertion, but still
+calls `ClientNetworkHandler::onChunkHandleCompleted` unless
+`isClientGeneratedChunk()` is true, and still increments
+`mNextChunkSequenceID`.
+
+Inside `ClientNetworkHandler::onChunkHandleCompleted`, the
+`mPendingChunks` decrement happens first. A second gate compares the completed
+chunk's dimension ID at `Dimension+0x1a0` with the local player's current
+dimension ID. On mismatch, the deferred world-change callback is skipped, but
+the map erase and receive-bucket unpause still occur. A dimension change can
+therefore silently drop the queued world-change callback, but completion does
+not leave the bucket wedged.
+
+There is no timeout or disconnect hook that releases a pending pause. On
+disconnect, destruction of the owning `NetworkConnection` destroys its
+buffers.
+
 ## Corroborating public sources
 
 These public sources corroborate parts of the binary observations but are not
 the primary authority for this contract:
 
 - Mojang's [blob-cache design note](https://gist.github.com/Tomcc/4be79d3eafcd158c5059abd4ab2e8d35)
-  describes between one and eight concurrent transactions and a maximum of
-  4,095 IDs in `ClientCacheBlobStatusPacket`.
+  corroborates the maximum of 4,095 IDs in
+  `ClientCacheBlobStatusPacket`. Its one-to-eight concurrent-transaction
+  figure is superseded for 1.26.30 because it does not match this binary.
 - A public [cache-poisoning disclosure](https://gist.github.com/JustTalDevelops/1abfdae7ab7618af2ec82f709ffa93bb)
   reports that the vanilla client no longer validates a blob payload against
   its hash.
 
-## Cinnabar divergences and open decisions
+## Cinnabar divergences and known gaps
 
 Cinnabar deliberately retains blob-payload hash validation even though
 vanilla no longer performs it. This is a security-motivated divergence that
@@ -156,6 +279,23 @@ by the repository owner. This document does not resolve that choice.
 Cinnabar currently resolves transactions out of order and uses per-column
 ordering rather than vanilla's connection-wide receive pause. This is a known
 divergence pending redesign, not a validated parity choice.
+
+Cinnabar applies its own 256-retained-transaction memory-safety bound. This is
+not a protocol or vanilla client limit. It sits above the observed server
+maximum of 200; excess cached work is abandoned non-fatally and routed through
+the existing chunk-resync recovery path instead of allowing remotely
+controlled resolver growth.
+
+Cinnabar's cache is byte-bounded only, admits blobs without an entry-count or
+per-blob maximum, and uses a 100 MiB trigger, 80 MiB floor, and LRU last-touch
+ordering. Its current in-memory implementation trims synchronously and uses
+exact retained-byte accounting while preserving pinned/current entries.
+
+Persistent LevelDB storage, vanilla's repeating 60-second trim task, its
+timestamp write batching, and its 60-second recent-touch protection window are
+not implemented in this tranche. These are known parity gaps. In particular,
+Cinnabar's process-persistent shared in-memory cache is not equivalent to
+vanilla's disk-persistent store or trim schedule.
 
 Implementing vanilla's pause requires no channel or transport concept: only
 a receive-side pause with the two-bucket classification described above.

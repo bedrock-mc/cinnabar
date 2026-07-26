@@ -15,11 +15,10 @@ mod head_of_line;
 #[path = "blob_cache/resolver_lifecycle.rs"]
 mod resolver_lifecycle;
 
-fn limits(entries: usize, bytes: usize) -> BlobCacheLimits {
+fn limits(bytes: usize) -> BlobCacheLimits {
     BlobCacheLimits {
-        max_entries: entries,
-        max_total_bytes: bytes,
-        max_blob_bytes: 64,
+        trim_trigger_bytes: bytes,
+        trim_floor_bytes: bytes.saturating_mul(4) / 5,
     }
 }
 
@@ -90,7 +89,7 @@ fn pop_packet(resolver: &mut BlobCacheResolver, label: &str) -> protocol::Packet
 
 #[test]
 fn world_events_are_independent_of_cached_transaction_pressure() {
-    let bounded = limits(8, 256);
+    let bounded = limits(256);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
     let missing = client_blob_hash(b"head-miss");
     resolver
@@ -121,7 +120,7 @@ fn world_events_are_independent_of_cached_transaction_pressure() {
 fn cache_miss_response_resolves_after_independent_world_events() {
     let payload = b"head-miss";
     let hash = client_blob_hash(payload);
-    let bounded = limits(8, 256);
+    let bounded = limits(256);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
     resolver
         .accept_cached_packet(cached_request_level(1, hash))
@@ -169,7 +168,7 @@ fn bedrock_blob_ids_are_seed_zero_xxhash64() {
 #[test]
 fn shared_cache_concurrent_inserts_do_not_lose_committed_entries() {
     for round in 0..32_u8 {
-        let cache = ClientBlobCache::with_limits(limits(32, 1_024));
+        let cache = ClientBlobCache::with_limits(limits(1_024));
         let barrier = Arc::new(Barrier::new(16));
         let threads: Vec<_> = (0..16_u8)
             .map(|index| {
@@ -197,7 +196,7 @@ fn shared_cache_concurrent_inserts_do_not_lose_committed_entries() {
 #[test]
 fn concurrent_classification_pins_every_reported_hit_atomically() {
     for _ in 0..2_000 {
-        let cache = ClientBlobCache::with_limits(limits(1, 8));
+        let cache = ClientBlobCache::with_limits(limits(8));
         let a = client_blob_hash(b"a");
         let b = client_blob_hash(b"b");
         cache.insert(b"a").expect("seed hit");
@@ -232,7 +231,7 @@ fn cached_inline_level_chunk_classifies_unique_hashes_and_reconstructs_wire_orde
     let missing = b"subchunk-b";
     let first_hash = client_blob_hash(first);
     let missing_hash = client_blob_hash(missing);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(first).expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
 
@@ -277,7 +276,7 @@ fn cached_inline_level_chunk_classifies_unique_hashes_and_reconstructs_wire_orde
 fn request_mode_level_chunk_reconstructs_biome_before_uncached_tail() {
     let biome = b"biome-data";
     let hash = client_blob_hash(biome);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(biome).expect("seed biome");
     let mut resolver = BlobCacheResolver::new(cache);
     let packet: protocol::Packet = LevelChunkPacket {
@@ -305,7 +304,7 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     let subchunk = b"subchunk";
     let nbt_tail = b"block-entity-nbt";
     let hash = client_blob_hash(subchunk);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     let mut resolver = BlobCacheResolver::new(cache);
 
     let status = resolver
@@ -351,7 +350,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
     let b = b"cached-b";
     let ah = client_blob_hash(a);
     let bh = client_blob_hash(b);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(b).expect("seed b hit");
     let mut resolver = BlobCacheResolver::new(cache);
     resolver
@@ -389,7 +388,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
 fn invalid_miss_is_atomic_abandons_pending_and_does_not_poison_cache() {
     let wanted = b"wanted";
     let hash = client_blob_hash(wanted);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     let mut resolver = BlobCacheResolver::new(cache.clone());
     resolver
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b"tail"))
@@ -415,12 +414,12 @@ fn invalid_miss_is_atomic_abandons_pending_and_does_not_poison_cache() {
 }
 
 #[test]
-fn cache_capacity_rejection_abandons_transaction_and_requests_column_again() {
-    let mut bounded = limits(0, 128);
-    bounded.max_blob_bytes = 128;
-    let payload = b"cannot-admit";
+fn cache_pressure_never_refuses_a_requested_blob() {
+    let bounded = limits(0);
+    let payload = b"admit-even-above-trigger";
     let hash = client_blob_hash(payload);
-    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let cache = ClientBlobCache::with_limits(bounded);
+    let mut resolver = BlobCacheResolver::new(cache.clone());
     resolver
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
         .expect("pending transaction");
@@ -432,13 +431,15 @@ fn cache_capacity_rejection_abandons_transaction_and_requests_column_again() {
                 payload: payload.to_vec(),
             }],
         })
-        .expect("cache pressure is semantic and non-fatal");
+        .expect("cache pressure never refuses a well-formed requested blob");
 
     assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().miss_response_cache_pressure, 1);
+    assert_eq!(resolver.stats().miss_response_cache_pressure, 0);
+    assert_eq!(resolver.stats().admitted_blobs, 1);
+    assert!(cache.contains(hash));
     assert!(matches!(
         resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+        Some(BlobCacheReady::Packet(_))
     ));
 }
 
@@ -450,7 +451,7 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
     let ah = client_blob_hash(a);
     let bh = client_blob_hash(b);
     let ch = client_blob_hash(c);
-    let cache = ClientBlobCache::with_limits(limits(2, 16));
+    let cache = ClientBlobCache::with_limits(limits(16));
     cache.insert(a).expect("insert a");
     cache.insert(b).expect("insert b");
     let mut resolver = BlobCacheResolver::new(cache.clone());
@@ -477,9 +478,7 @@ fn lru_eviction_never_removes_a_blob_pinned_by_a_pending_transaction() {
 
 #[test]
 fn semantic_shape_skips_do_not_solicit_blobs_for_discarded_packets() {
-    let mut strict = limits(2, 16);
-    strict.max_blob_bytes = 4;
-    let cache = ClientBlobCache::with_limits(strict);
+    let cache = ClientBlobCache::with_limits(limits(16));
     let hit = cache.insert(b"hit").expect("seed semantic-shape hit");
     let miss = client_blob_hash(b"miss");
 
@@ -522,12 +521,14 @@ fn semantic_shape_skips_do_not_solicit_blobs_for_discarded_packets() {
         assert_eq!(resolver.stats().pending_transactions, 0);
         assert_eq!(resolver.stats().skipped_cached_packets, 1);
     }
-    assert!(cache.insert(b"12345").is_err());
+    cache
+        .insert(b"12345")
+        .expect("cache storage has no per-blob maximum");
 }
 
 #[test]
 fn resolved_transaction_is_not_outstanding_while_ready_bytes_remain_accounted() {
-    let cache = ClientBlobCache::with_limits(limits(2, 256));
+    let cache = ClientBlobCache::with_limits(limits(256));
     let hash = cache.insert(b"hit").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
     resolver
@@ -543,7 +544,7 @@ fn resolved_transaction_is_not_outstanding_while_ready_bytes_remain_accounted() 
 
 #[test]
 fn ready_queue_retained_bytes_track_live_entries_and_compact_when_empty() {
-    let bounded = limits(2, 64);
+    let bounded = limits(64);
     let cache = ClientBlobCache::with_limits(bounded);
     let hash = cache.insert(b"hit").expect("seed hit");
 
@@ -572,7 +573,7 @@ fn ready_queue_retained_bytes_track_live_entries_and_compact_when_empty() {
 
 #[test]
 fn passthrough_items_are_excluded_from_cache_transaction_stats() {
-    let cache = ClientBlobCache::with_limits(limits(2, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     let hash = cache.insert(b"hit").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
     resolver
@@ -591,9 +592,7 @@ fn passthrough_items_are_excluded_from_cache_transaction_stats() {
 
 #[test]
 fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
-    let mut bounded = limits(256, 4_096);
-    bounded.max_blob_bytes = 2 * 1024 * 1024;
-    let cache = ClientBlobCache::with_limits(bounded);
+    let cache = ClientBlobCache::with_limits(limits(4_096));
     let mut hashes = Vec::new();
     let mut expected = Vec::new();
     for value in 0..177_u16 {
@@ -627,7 +626,7 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
     let miss = b"wire-miss";
     let hit_hash = client_blob_hash(hit);
     let miss_hash = client_blob_hash(miss);
-    let cache = ClientBlobCache::with_limits(limits(4, 128));
+    let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(hit).expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
     let status = resolver
@@ -684,7 +683,7 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     let wanted_hash = client_blob_hash(wanted);
 
     let exercise = |blobs: Vec<Blob>, expected_pending| {
-        let cache = ClientBlobCache::with_limits(limits(4, 128));
+        let cache = ClientBlobCache::with_limits(limits(128));
         let mut resolver = BlobCacheResolver::new(cache.clone());
         resolver
             .accept_cached_packet(cached_level(
@@ -770,28 +769,46 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
 }
 
 #[test]
-fn cache_storage_ceilings_accept_exact_boundaries_and_stay_bounded() {
-    let mut cache_limits = limits(2, 8);
-    cache_limits.max_blob_bytes = 4;
-    let cache = ClientBlobCache::with_limits(cache_limits);
-    let first = cache.insert(b"1234").expect("exact blob maximum");
-    let second = cache.insert(b"5678").expect("exact entry and byte maximum");
-    assert_eq!(cache.entry_count(), 2);
-    assert_eq!(cache.total_bytes(), 8);
-    assert!(matches!(
-        cache.insert(b"12345"),
-        Err(BlobCacheError::BlobTooLarge { .. })
-    ));
-    let third = cache.insert(b"abcd").expect("bounded LRU replacement");
-    assert_eq!(cache.entry_count(), 2);
-    assert_eq!(cache.total_bytes(), 8);
-    assert!(!cache.contains(first));
-    assert!(cache.contains(second));
-    assert!(cache.contains(third));
+fn cache_accepts_a_blob_larger_than_its_total_byte_trigger() {
+    let oversized = vec![0x5a; 9];
+    let cache = ClientBlobCache::with_limits(limits(8));
+
+    let hash = cache
+        .insert(&oversized)
+        .expect("vanilla has no per-blob maximum");
+
+    assert!(cache.contains(hash));
+    assert_eq!(cache.total_bytes(), oversized.len());
 }
 
 #[test]
-fn default_limit_accepts_eight_distinct_transactions_and_publishes_out_of_order() {
+fn cache_trims_from_trigger_to_lower_floor_in_lru_order() {
+    let cache = ClientBlobCache::with_limits(limits(10));
+    let a = cache.insert(b"aaaaaa").expect("insert six-byte a");
+    let b = cache.insert(b"bb").expect("insert two-byte b");
+
+    let mut resolver = BlobCacheResolver::new(cache.clone());
+    resolver
+        .accept_cached_packet(cached_request_level(0, a))
+        .expect("touch a as a cache hit");
+    let _ = pop_packet(&mut resolver, "consume a cache hit");
+
+    let c = cache.insert(b"ccc").expect("insert past trim trigger");
+
+    assert!(
+        !cache.contains(b),
+        "the least-recently-used entry goes first"
+    );
+    assert!(
+        !cache.contains(a),
+        "trimming continues below the trigger until the lower floor is reached"
+    );
+    assert!(cache.contains(c), "the triggering insert is never refused");
+    assert_eq!(cache.total_bytes(), 3);
+}
+
+#[test]
+fn distinct_transactions_publish_out_of_order() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let fixtures: Vec<_> = (0..8_u16)
         .map(|index| {
@@ -804,7 +821,7 @@ fn default_limit_accepts_eight_distinct_transactions_and_publishes_out_of_order(
     for (x, hash, _) in &fixtures {
         let status = resolver
             .accept_cached_packet(cached_request_level(*x, *hash))
-            .expect("default accepts the authoritative concurrent-transaction maximum");
+            .expect("sample transaction is below the Cinnabar safety bound");
         assert_eq!(status.missing, vec![*hash]);
     }
     assert_eq!(resolver.stats().pending_transactions, 8);

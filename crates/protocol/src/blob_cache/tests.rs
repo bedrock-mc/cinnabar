@@ -65,9 +65,8 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
 #[test]
 fn classify_and_pin_is_one_cache_operation() {
     let limits = BlobCacheLimits {
-        max_entries: 1,
-        max_total_bytes: 8,
-        max_blob_bytes: 8,
+        trim_trigger_bytes: 4,
+        trim_floor_bytes: 3,
     };
     let cache = ClientBlobCache::with_limits(limits);
     let hit = cache.insert(b"hit").expect("seed hit");
@@ -77,9 +76,13 @@ fn classify_and_pin_is_one_cache_operation() {
 
     assert_eq!(have, vec![hit]);
     assert_eq!(missing, vec![miss]);
+    let new = cache
+        .insert(b"new")
+        .expect("cache pressure never refuses an insert");
+    assert!(cache.contains(hit), "reported hit is already pinned");
     assert!(
-        cache.insert(b"new").is_err(),
-        "reported hit is already pinned"
+        cache.contains(new),
+        "the triggering insert remains admitted"
     );
     cache.unpin_all(&[hit, miss]);
 }
