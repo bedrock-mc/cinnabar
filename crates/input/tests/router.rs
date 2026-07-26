@@ -22,6 +22,20 @@ fn touch_button(hit_id: u16) -> TouchControl {
     }
 }
 
+fn settings_with_deadzones(move_deadzone: f32, look_deadzone: f32) -> ControlSettings {
+    ControlSettings::new(
+        ControlSettings::default().bindings().to_vec(),
+        1.0,
+        1.0,
+        1.0,
+        false,
+        false,
+        move_deadzone,
+        look_deadzone,
+    )
+    .unwrap()
+}
+
 fn assert_global_activity_contract(seed: DeviceFrame, source: fn(u64) -> DeviceFrame) {
     let mut router = SemanticInputRouter::default();
     router.route(seed).unwrap();
@@ -1889,6 +1903,186 @@ fn post_reconnect_sub_deadzone_drift_cannot_take_mode_from_held_keyboard() {
     assert_eq!(drift.input_mode, semantic_input::InputMode::KeyboardMouse);
     assert_eq!(drift.movement, [0.0, 1.0]);
     assert!(drift.phases[Action::MoveForward as usize].held);
+}
+
+#[test]
+fn connected_sub_deadzone_drift_cannot_take_mode_from_held_keyboard() {
+    let mut router = SemanticInputRouter::default();
+    let keyboard = KeyboardMouseFrame {
+        activity_sequence: 2,
+        keys: vec![0x1a],
+        ..KeyboardMouseFrame::default()
+    };
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 1,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 3,
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let drift = router.finalize().unwrap();
+    assert_eq!(drift.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(drift.movement, [0.0, 1.0]);
+    assert!(drift.phases[Action::MoveForward as usize].held);
+}
+
+#[test]
+fn authority_quarantine_uses_merged_multi_controller_radial_deadzone() {
+    let mut router = SemanticInputRouter::default();
+    let controllers = vec![
+        ControllerFrame {
+            device_id: 7,
+            activity_sequence: 1,
+            axes: [0.12, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..ControllerFrame::default()
+        },
+        ControllerFrame {
+            device_id: 8,
+            activity_sequence: 1,
+            axes: [0.0, 0.12, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..ControllerFrame::default()
+        },
+    ];
+    router
+        .route(DeviceFrame {
+            controllers: controllers.clone(),
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let held = router.finalize().unwrap();
+    assert!(held.movement[0] > 0.0);
+    assert!(held.movement[1] > 0.0);
+
+    router.replace_authority(NonZeroU64::new(2).unwrap());
+    router
+        .route(DeviceFrame {
+            controllers: controllers.clone(),
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 0.0]);
+
+    router
+        .route(DeviceFrame {
+            controllers,
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let unchanged = router.finalize().unwrap();
+    assert_eq!(unchanged.movement, [0.0, 0.0]);
+    assert!(unchanged.phases.iter().all(|phase| !phase.held));
+}
+
+#[test]
+fn lowering_move_deadzone_quarantines_pending_axis_under_replacement_settings() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .replace_bindings(settings_with_deadzones(0.15, 0.15))
+        .unwrap();
+    let controller = ControllerFrame {
+        device_id: 7,
+        activity_sequence: 1,
+        axes: [0.10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ..ControllerFrame::default()
+    };
+    router
+        .route(DeviceFrame {
+            controllers: vec![controller.clone()],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 0.0]);
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![controller.clone()],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    router
+        .replace_bindings(settings_with_deadzones(0.05, 0.15))
+        .unwrap();
+    let replacement = router.finalize().unwrap();
+    assert_eq!(replacement.movement, [0.0, 0.0]);
+    assert!(replacement.phases.iter().all(|phase| !phase.pressed));
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![controller],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 0.0]);
+}
+
+#[test]
+fn raising_move_deadzone_releases_axis_and_allows_fresh_button_activity() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .replace_bindings(settings_with_deadzones(0.05, 0.15))
+        .unwrap();
+    let controller = ControllerFrame {
+        device_id: 7,
+        activity_sequence: 1,
+        axes: [0.10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ..ControllerFrame::default()
+    };
+    router
+        .route(DeviceFrame {
+            controllers: vec![controller.clone()],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert!(router.finalize().unwrap().movement[0] > 0.0);
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![controller],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    router
+        .replace_bindings(settings_with_deadzones(0.15, 0.15))
+        .unwrap();
+    let replacement = router.finalize().unwrap();
+    assert_eq!(replacement.movement, [0.0, 0.0]);
+    assert_eq!(
+        replacement.release_reasons[Action::MoveRight as usize],
+        Some(ReleaseReason::BindingChanged)
+    );
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 2,
+                buttons: vec![0],
+                axes: [0.10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let button = router.finalize().unwrap();
+    assert_eq!(button.input_mode, semantic_input::InputMode::GamePad);
+    assert!(button.phases[Action::Jump as usize].pressed);
 }
 
 #[test]

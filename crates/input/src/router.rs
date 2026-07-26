@@ -147,8 +147,8 @@ impl SemanticInputRouter {
 
     pub fn replace_bindings(&mut self, settings: ControlSettings) -> Result<(), BindingError> {
         settings.validate(&self.touch_layout)?;
-        self.queue_held_releases(ReleaseReason::BindingChanged);
         self.settings = settings;
+        self.queue_held_releases(ReleaseReason::BindingChanged);
         Ok(())
     }
 
@@ -235,12 +235,19 @@ impl SemanticInputRouter {
         self.input_activity_sequence = activity_sequence;
         self.activity_watermark = self.activity_watermark.max(frame_activity_max(&frame));
         self.update_controller_activity_baselines(&frame);
+        let quarantined_state = evaluate_controller_state(
+            frame
+                .controllers
+                .iter()
+                .filter(|controller| self.quarantined_controllers.contains(&controller.device_id)),
+            &self.settings,
+        );
         self.quarantined_controllers.retain(|device_id| {
             frame
                 .controllers
                 .iter()
-                .find(|controller| controller.device_id == *device_id)
-                .is_some_and(|controller| controller_has_semantic_input(controller, &self.settings))
+                .any(|controller| controller.device_id == *device_id)
+                && !quarantined_state.is_neutral()
         });
         if !frame.window_focus_lost {
             let mut active_controls = Vec::new();
@@ -359,6 +366,16 @@ impl SemanticInputRouter {
                 .iter()
                 .any(|controller| controller.device_id == baseline.device_id)
         });
+        let quarantined_state = evaluate_controller_state(
+            frame
+                .controllers
+                .iter()
+                .filter(|controller| self.quarantined_controllers.contains(&controller.device_id)),
+            &self.settings,
+        );
+        if !quarantined_state.is_neutral() {
+            return;
+        }
         for device_id in &self.quarantined_controllers {
             let Some(controller) = frame
                 .controllers
@@ -367,9 +384,6 @@ impl SemanticInputRouter {
             else {
                 continue;
             };
-            if controller_has_semantic_input(controller, &self.settings) {
-                continue;
-            }
             if let Some(baseline) = self
                 .controller_activity_baselines
                 .iter_mut()
@@ -425,9 +439,11 @@ impl SemanticInputRouter {
     }
 
     fn sample(&self, frame: &DeviceFrame, input_mode: InputMode) -> Sample {
-        let controller_axes = merged_controller_axes(frame, &self.settings);
+        let controller_axes =
+            evaluate_controller_state(frame.controllers.iter(), &self.settings).axes;
         let touch_movement = merged_touch_movement(frame);
-        let previous_controller_axes = merged_controller_axes(&self.previous_frame, &self.settings);
+        let previous_controller_axes =
+            evaluate_controller_state(self.previous_frame.controllers.iter(), &self.settings).axes;
         let mut strengths = [0.0_f32; Action::COUNT];
         let mut pressed = [false; Action::COUNT];
         for binding in self.settings.bindings() {
@@ -588,6 +604,7 @@ fn quarantine_active_controls(
             push_quarantine(output, QuarantinedControl::MouseButton(*button));
         }
     }
+    let controller_state = evaluate_controller_state(frame.controllers.iter(), settings);
     for controller in &frame.controllers {
         for button in &controller.buttons {
             push_quarantine(
@@ -599,7 +616,7 @@ fn quarantine_active_controls(
             );
         }
         for axis in 0..controller.axes.len() {
-            if !controller_axis_is_active(controller, axis, settings) {
+            if controller.axes[axis] == 0.0 || !controller_state.axis_family_is_active(axis) {
                 continue;
             }
             push_quarantine(
@@ -641,18 +658,17 @@ fn without_quarantined_controls(
             .mouse_buttons
             .retain(|button| !quarantine.contains(&QuarantinedControl::MouseButton(*button)));
     }
+    let controller_state = evaluate_controller_state(filtered.controllers.iter(), settings);
     filtered.controllers.retain_mut(|controller| {
-        let has_semantic_input = controller_has_semantic_input(controller, settings);
         if quarantined_controllers.contains(&controller.device_id)
             || controller_activity_baselines.iter().any(|baseline| {
                 baseline.device_id == controller.device_id
                     && (controller.activity_sequence <= baseline.activity_sequence
-                        || !has_semantic_input)
+                        || controller_state.is_neutral())
             })
         {
             return false;
         }
-        let had_semantic_input = has_semantic_input;
         controller.buttons.retain(|button| {
             !quarantine.contains(&QuarantinedControl::ControllerButton {
                 device_id: controller.device_id,
@@ -667,33 +683,20 @@ fn without_quarantined_controls(
                 *value = 0.0;
             }
         }
-        !had_semantic_input || controller_has_semantic_input(controller, settings)
+        true
     });
+    // A neutral controller family cannot compete with another present device
+    // family. Preserve the sole-controller mode fallback without allowing it
+    // to suppress semantically active keyboard or touch input.
+    if evaluate_controller_state(filtered.controllers.iter(), settings).is_neutral()
+        && (filtered.keyboard_mouse.is_some() || !filtered.touches.is_empty())
+    {
+        filtered.controllers.clear();
+    }
     filtered.touches.retain(|contact| {
         !quarantine.contains(&QuarantinedControl::TouchContact(contact.contact_id))
     });
     filtered
-}
-
-fn controller_has_semantic_input(
-    controller: &crate::ControllerFrame,
-    settings: &ControlSettings,
-) -> bool {
-    !controller.buttons.is_empty()
-        || (0..controller.axes.len())
-            .any(|axis| controller_axis_is_active(controller, axis, settings))
-}
-
-fn controller_axis_is_active(
-    controller: &crate::ControllerFrame,
-    axis: usize,
-    settings: &ControlSettings,
-) -> bool {
-    match axis {
-        0 | 1 => controller.axes[0].hypot(controller.axes[1]) > settings.gamepad_move_deadzone,
-        2 | 3 => controller.axes[2].hypot(controller.axes[3]) > settings.gamepad_look_deadzone,
-        _ => controller.axes[axis] != 0.0,
-    }
 }
 
 fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {
@@ -849,9 +852,36 @@ fn directional_axis(value: f32, positive: bool) -> f32 {
     }
 }
 
-fn merged_controller_axes(frame: &DeviceFrame, settings: &ControlSettings) -> [f32; 8] {
+#[derive(Clone, Copy)]
+struct EvaluatedControllerState {
+    axes: [f32; 8],
+    has_buttons: bool,
+}
+
+impl EvaluatedControllerState {
+    fn is_neutral(self) -> bool {
+        !self.has_buttons && self.axes.iter().all(|axis| *axis == 0.0)
+    }
+
+    fn axis_family_is_active(self, axis: usize) -> bool {
+        match axis {
+            0 | 1 => self.axes[0] != 0.0 || self.axes[1] != 0.0,
+            2 | 3 => self.axes[2] != 0.0 || self.axes[3] != 0.0,
+            _ => self.axes[axis] != 0.0,
+        }
+    }
+}
+
+fn evaluate_controller_state<'a>(
+    controllers: impl IntoIterator<Item = &'a crate::ControllerFrame>,
+    settings: &ControlSettings,
+) -> EvaluatedControllerState {
+    // Sampling, mode eligibility, quarantine, and reconnect rearming all
+    // consume this exact component-wise merge and radial-deadzone result.
     let mut axes = [0.0_f32; 8];
-    for controller in &frame.controllers {
+    let mut has_buttons = false;
+    for controller in controllers {
+        has_buttons |= !controller.buttons.is_empty();
         for (output, input) in axes.iter_mut().zip(controller.axes) {
             if input.abs() > output.abs() {
                 *output = input;
@@ -865,7 +895,7 @@ fn merged_controller_axes(frame: &DeviceFrame, settings: &ControlSettings) -> [f
     for axis in &mut axes[4..] {
         *axis = axis.clamp(-1.0, 1.0);
     }
-    axes
+    EvaluatedControllerState { axes, has_buttons }
 }
 
 fn radial_deadzone(value: [f32; 2], deadzone: f32) -> [f32; 2] {
