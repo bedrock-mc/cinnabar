@@ -1397,6 +1397,24 @@ fn focus_loss_is_a_neutral_barrier_before_physics_and_requires_rearm() {
 }
 
 #[test]
+fn focus_loss_frame_suppresses_its_own_mouse_motion() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_motion: [8.0, -4.0],
+                ..KeyboardMouseFrame::default()
+            }),
+            window_focus_lost: true,
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+
+    assert_eq!(router.finalize().unwrap().look_delta, [0.0, 0.0]);
+}
+
+#[test]
 fn actual_controller_disconnect_releases_once_and_reconnect_waits_for_neutral() {
     let mut router = SemanticInputRouter::default();
     router
@@ -1662,7 +1680,7 @@ fn held_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
 }
 
 #[test]
-fn quarantined_controller_axis_requires_neutral_across_sign_change() {
+fn quarantined_controller_axis_requires_deadzone_neutrality_across_sign_change() {
     let mut router = SemanticInputRouter::default();
     let positive = ControllerFrame {
         device_id: 7,
@@ -1701,10 +1719,41 @@ fn quarantined_controller_axis_requires_neutral_across_sign_change() {
     let sign_changed = router.finalize().unwrap();
     assert_eq!(sign_changed.movement, [0.0, 0.0]);
     assert!(sign_changed.phases.iter().all(|phase| !phase.held));
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 3,
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let deadzone_neutral = router.finalize().unwrap();
+    assert_eq!(deadzone_neutral.movement, [0.0, 0.0]);
+    assert!(deadzone_neutral.phases.iter().all(|phase| !phase.held));
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 4,
+                buttons: vec![0],
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert!(
+        router.finalize().unwrap().phases[Action::Jump as usize].pressed,
+        "a stick inside the configured deadzone must rearm the controller"
+    );
 }
 
 #[test]
-fn neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
+fn deadzone_neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
     let mut router = SemanticInputRouter::default();
     let keyboard = KeyboardMouseFrame {
         activity_sequence: 2,
@@ -1744,6 +1793,7 @@ fn neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
             controllers: vec![ControllerFrame {
                 device_id: 7,
                 activity_sequence: 3,
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 ..ControllerFrame::default()
             }],
             ..DeviceFrame::default()
@@ -1755,6 +1805,90 @@ fn neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() {
         semantic_input::InputMode::KeyboardMouse
     );
     assert_eq!(reconnect.movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 4,
+                buttons: vec![0],
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let fresh_button = router.finalize().unwrap();
+    assert_eq!(fresh_button.input_mode, semantic_input::InputMode::GamePad);
+    assert!(
+        fresh_button.phases[Action::Jump as usize].pressed,
+        "a sub-deadzone reconnect must rearm for a later button press"
+    );
+}
+
+#[test]
+fn post_reconnect_sub_deadzone_drift_cannot_take_mode_from_held_keyboard() {
+    let mut router = SemanticInputRouter::default();
+    let keyboard = KeyboardMouseFrame {
+        activity_sequence: 2,
+        keys: vec![0x1a],
+        ..KeyboardMouseFrame::default()
+    };
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 1,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            disconnected_controllers: vec![7],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    assert_eq!(router.finalize().unwrap().movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard.clone()),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 3,
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let neutral_reconnect = router.finalize().unwrap();
+    assert_eq!(
+        neutral_reconnect.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
+    assert_eq!(neutral_reconnect.movement, [0.0, 1.0]);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(keyboard),
+            controllers: vec![ControllerFrame {
+                device_id: 7,
+                activity_sequence: 4,
+                axes: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let drift = router.finalize().unwrap();
+    assert_eq!(drift.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(drift.movement, [0.0, 1.0]);
+    assert!(drift.phases[Action::MoveForward as usize].held);
 }
 
 #[test]
