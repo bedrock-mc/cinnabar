@@ -230,6 +230,13 @@ impl From<&PhysicsMovementSample> for HeldInput {
 /// There is intentionally no render-frame interpolation/enqueue path here:
 /// only a completed simulator tick carrying immutable collision identity may
 /// become a `PlayerAuthInput` candidate.
+///
+/// Production construction requires the network-owned authority epoch
+/// publisher, so a publisher-less ticker cannot silently skip invalidation.
+///
+/// ```compile_fail
+/// let _ticker = bedrock_client::movement::MovementTicker::default();
+/// ```
 #[derive(Resource, Debug, Clone)]
 pub struct MovementTicker {
     session_active: bool,
@@ -250,11 +257,19 @@ pub struct MovementTicker {
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
-    epoch_publisher: Option<watch::Sender<u64>>,
+    epoch_publisher: watch::Sender<u64>,
 }
 
+#[cfg(test)]
 impl Default for MovementTicker {
     fn default() -> Self {
+        let (epoch_publisher, _epoch_receiver) = watch::channel(0);
+        Self::with_epoch_publisher(epoch_publisher)
+    }
+}
+
+impl MovementTicker {
+    pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -274,16 +289,7 @@ impl Default for MovementTicker {
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
-            epoch_publisher: None,
-        }
-    }
-}
-
-impl MovementTicker {
-    pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
-        Self {
-            epoch_publisher: Some(epoch_publisher),
-            ..Self::default()
+            epoch_publisher,
         }
     }
 
@@ -598,11 +604,10 @@ impl MovementTicker {
             .pending_sends
             .pop_front()
             .expect("matching pending socket cancellation was checked");
-        // Terminal drain has permanently closed transmission. A definitely
-        // unsent retry can be retired safely, but must never be restored into
-        // the outbox that terminal drain refuses to flush.
+        // A definitely-unsent replay remains required work even when terminal
+        // drain has closed transmission. Restoring it keeps the existing
+        // terminal deadline fail-closed instead of manufacturing `Drained`.
         if pending.retry_after_cancellation
-            && !self.terminal_drain
             && self.physics_is_authorized()
             && pending.sample.session_generation == self.session_generation
             && self.retry_replayed_sample(pending.sample).is_err()
@@ -650,16 +655,14 @@ impl MovementTicker {
             pending.retry_after_cancellation = false;
         }
         self.sent_history.clear();
-        if let Some(publisher) = &self.epoch_publisher {
-            publisher.send_if_modified(|published| {
-                if *published == self.reanchor_epoch {
-                    false
-                } else {
-                    *published = self.reanchor_epoch;
-                    true
-                }
-            });
-        }
+        self.epoch_publisher.send_if_modified(|published| {
+            if *published == self.reanchor_epoch {
+                false
+            } else {
+                *published = self.reanchor_epoch;
+                true
+            }
+        });
         self.refresh_outbox_reconciliation();
     }
 

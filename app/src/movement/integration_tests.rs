@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{
     LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementOutboxReconciliation,
@@ -17,7 +17,10 @@ use sim::{
 };
 use ui::UserSettings;
 
-use crate::camera::CameraSettingsAuthority;
+use crate::{
+    acceptance::{AcceptanceRun, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
+    camera::CameraSettingsAuthority,
+};
 
 #[path = "transport_tests.rs"]
 mod transport_tests;
@@ -780,7 +783,7 @@ fn surface_spawn_reanchor_after_replay_drops_pre_anchor_retries() {
 }
 
 #[test]
-fn correction_during_terminal_drain_discards_definitely_unsent_retry() {
+fn correction_during_terminal_drain_keeps_definitely_unsent_retry_pending_and_times_out() {
     let (mut ticker, _physics, admitted) =
         replay_with_admitted_future_ticks(MovementTicker::default());
 
@@ -791,12 +794,25 @@ fn correction_during_terminal_drain_discards_definitely_unsent_retry() {
 
     assert_eq!(
         ticker.pending_count(),
-        0,
-        "terminal drain must not restore a retry into an outbox that cannot flush"
+        2,
+        "terminal drain must retain definitely-unsent replay work that it cannot flush"
     );
     assert_eq!(
         ticker.outbox_reconciliation(),
-        MovementOutboxReconciliation::Drained
+        MovementOutboxReconciliation::BudgetDeferred
+    );
+
+    let deadline = Instant::now();
+    let mut acceptance = AcceptanceRun::new(Some(60), None, false, false);
+    acceptance.deadline = Some(deadline);
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(
+            deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE,
+            true,
+            ticker.pending_count(),
+        ),
+        Phase3TerminalDrainDecision::TimedOut,
+        "stranded replay work must make terminal acceptance fail closed"
     );
 }
 
