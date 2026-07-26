@@ -664,10 +664,10 @@ impl BlobCacheResolver {
             }
         }
         for hash in transaction.unique_hashes.iter().copied() {
-            if decrement_authorization(&mut self.authorized_misses, hash) {
-                if !self.cache.contains(hash) {
-                    increment_authorization(&mut self.retired_authorized_misses, hash)?;
-                }
+            if decrement_authorization(&mut self.authorized_misses, hash)
+                && !self.cache.contains(hash)
+            {
+                increment_authorization(&mut self.retired_authorized_misses, hash)?;
             }
         }
         if self.authorized_misses.is_empty() {
