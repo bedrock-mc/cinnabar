@@ -595,7 +595,8 @@ Assert-Integer $terminal.free_camera_packet_count 'terminal.free_camera_packet_c
 Assert-Integer $terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 32
 if ($terminal.outbox_reconciliation -isnot [string] -or
     [string]$terminal.outbox_reconciliation -cnotin @(
-        'Drained', 'BudgetDeferred', 'TransportRestored', 'FullRestored', 'NotAuthoritative'
+        'Drained', 'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored',
+        'NotAuthoritative'
     )) {
     throw 'terminal outbox_reconciliation is unsupported'
 }

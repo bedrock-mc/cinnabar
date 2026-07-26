@@ -9,6 +9,7 @@ use crate::local_player::{
 use crate::movement::{
     MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
     PhysicsAuthorityFaultRecord, PhysicsCorrectionOutcome, PhysicsTickEvidence,
+    PhysicsTickEvidenceContext,
 };
 use crate::runtime::phase3_evidence::{
     MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
@@ -467,10 +468,24 @@ fn phase3_evidence_emits_one_frame_for_every_completed_catch_up_tick() {
         jump_started: true,
         jump_repeated: tick != 101,
         jump_released: false,
+        context: PhysicsTickEvidenceContext {
+            fifo_sequence: base.fifo_sequence,
+            pose_generation: base.pose_generation,
+            dimension: base.dimension,
+            perspective: base.perspective,
+            camera_blocked: base.camera_blocked,
+            camera_fallback: base.camera_fallback,
+            local_avatar_visible: base.local_avatar_visible,
+            look_delta: base.look_delta,
+            outbound_authorized: base.outbound_authorized,
+            outbox_depth: base.outbox_depth,
+            outbox_drops: base.outbox_drops,
+            free_camera_packet_count: base.free_camera_packet_count,
+        },
     });
     let mut evidence = Phase3EvidenceEmitter::default();
 
-    let markers = evidence.observe_completed_ticks(base, &ticks);
+    let markers = evidence.observe_completed_ticks(&ticks);
 
     assert_eq!(markers.len(), 3);
     assert_eq!(

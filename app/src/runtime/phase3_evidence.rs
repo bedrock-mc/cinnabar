@@ -12,15 +12,11 @@ use crate::{
         mutation::write_stdout_marker,
     },
     args::Phase3Target,
-    camera::{THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
-    local_player::LocalPlayerFrameCarrier,
     movement::{
         MovementOutboxReconciliation, MovementSource, MovementTicker, OUTBOX_CAPACITY,
         PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsCollisionRegistries,
         PhysicsCorrectionOutcome, PhysicsTickEvidence,
     },
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
 };
 
 pub(crate) const MAX_PHASE3_FRAME_RECORDS: usize = 12_000;
@@ -65,6 +61,10 @@ pub(crate) struct Phase3EvidenceIdentity {
 }
 
 impl Phase3EvidenceIdentity {
+    pub(crate) const fn candidate_physics(&self) -> bool {
+        self.candidate_physics
+    }
+
     pub(crate) fn new(
         build_commit: &'static str,
         target: Phase3Target,
@@ -674,26 +674,34 @@ impl Phase3EvidenceEmitter {
         sequence
     }
 
-    pub(crate) fn observe_completed_ticks(
-        &mut self,
-        base: Phase3EvidenceFrame,
-        ticks: &[PhysicsTickEvidence],
-    ) -> Vec<String> {
+    pub(crate) fn observe_completed_ticks(&mut self, ticks: &[PhysicsTickEvidence]) -> Vec<String> {
         let mut markers = Vec::with_capacity(ticks.len());
         for tick in ticks {
+            let context = tick.context;
             markers.extend(self.observe(Phase3EvidenceFrame {
                 session_generation: tick.session_generation,
+                fifo_sequence: context.fifo_sequence,
                 physics_tick: tick.tick,
+                pose_generation: context.pose_generation,
+                dimension: context.dimension,
                 network_position: tick.network_position,
                 input_mode: protocol_input_mode(tick.input_mode),
+                perspective: context.perspective,
+                camera_blocked: context.camera_blocked,
+                camera_fallback: context.camera_fallback,
+                local_avatar_visible: context.local_avatar_visible,
                 movement: tick.movement,
+                look_delta: context.look_delta,
                 jump_held: tick.jump_held,
+                outbound_authorized: context.outbound_authorized,
+                outbox_depth: context.outbox_depth,
+                outbox_drops: context.outbox_drops,
+                free_camera_packet_count: context.free_camera_packet_count,
                 grounded_before_tick: tick.grounded_before_tick,
                 grounded_after_tick: tick.grounded_after_tick,
                 jump_started: tick.jump_started,
                 jump_repeated: tick.jump_repeated,
                 jump_released: tick.jump_released,
-                ..base
             }));
         }
         markers
@@ -778,10 +786,7 @@ impl Phase3EvidenceEmitter {
 
 pub(crate) fn emit_phase3_evidence(
     acceptance: Res<AcceptanceRun>,
-    input: Res<SemanticInputSnapshot>,
-    local_frame: Res<LocalPlayerFrameCarrier>,
     mut movement: ResMut<MovementTicker>,
-    client_world: Res<ClientWorld>,
     identity_source: Option<Res<Phase3EvidenceIdentitySource>>,
     mut evidence: ResMut<Phase3EvidenceEmitter>,
 ) {
@@ -812,53 +817,13 @@ pub(crate) fn emit_phase3_evidence(
             write_stdout_marker(&mut stdout, &marker);
         }
     }
-    let (Some(input), Some(frame), Some(stream)) = (
-        input.snapshot(),
-        local_frame.snapshot(),
-        client_world.stream.as_ref(),
-    ) else {
-        return;
-    };
-    let identity = match identity_source.for_session(frame.session_generation()) {
+    let identity = match identity_source.for_session(movement.session_generation()) {
         Ok(identity) => identity,
         Err(_) => return,
     };
-    let third_person = frame.perspective() != PerspectiveMode::FirstPerson;
-    let camera_distance = frame.pose().translation.distance(frame.eye());
-    let camera_fallback = third_person && camera_distance <= THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
-    let camera_blocked = third_person
-        && !camera_fallback
-        && camera_distance + THIRD_PERSON_COLLISION_EPSILON_BLOCKS < THIRD_PERSON_RADIUS_BLOCKS;
-    let mut markers = evidence.observe_identity(identity);
     let completed_ticks = movement.take_tick_evidence();
-    markers.extend(evidence.observe_completed_ticks(
-        Phase3EvidenceFrame {
-            session_generation: frame.session_generation(),
-            fifo_sequence: frame.fifo_sequence(),
-            physics_tick: frame.physics_tick(),
-            pose_generation: frame.pose_generation(),
-            dimension: stream.current_dimension(),
-            network_position: frame.eye().to_array(),
-            input_mode: input.input_mode,
-            perspective: frame.perspective(),
-            camera_blocked,
-            camera_fallback,
-            local_avatar_visible: third_person,
-            movement: input.movement,
-            look_delta: input.look_delta,
-            jump_held: input.phases[semantic_input::Action::Jump as usize].held,
-            outbound_authorized: movement.physics_is_authorized(),
-            outbox_depth: movement.pending_count(),
-            outbox_drops: movement.dropped_tick_count(),
-            free_camera_packet_count: movement.sent_free_camera_packet_count(),
-            grounded_before_tick: false,
-            grounded_after_tick: false,
-            jump_started: false,
-            jump_repeated: false,
-            jump_released: false,
-        },
-        &completed_ticks,
-    ));
+    let mut markers = evidence.observe_identity(identity);
+    markers.extend(evidence.observe_completed_ticks(&completed_ticks));
     if markers.is_empty() {
         return;
     }

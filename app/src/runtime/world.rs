@@ -509,6 +509,7 @@ pub(crate) fn drive_world_stream(
         mut client_world,
         clock,
         mut local_physics,
+        mut movement,
         mut ui_runtime,
         time,
         ..
@@ -745,6 +746,7 @@ pub(crate) fn drive_world_stream(
         let tick = local_physics.state().map_or(0, |state| state.tick);
         // World publication runs after local physics. The next frame's delta
         // starts after this anchor, so it must remain eligible for simulation.
+        movement.reanchor_surface_spawn(tick, position);
         local_physics.reanchor_network_position(position, tick, true);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");

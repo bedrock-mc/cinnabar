@@ -11,8 +11,8 @@ use render::TransparentSortMetrics;
 use crate::metrics::TransparentSortMetricsSnapshot;
 use crate::{
     acceptance::{
-        AcceptanceExitDecision, AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE,
-        mutation::write_stdout_marker,
+        AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
+        TRANSPARENT_PRESENTATION_EXIT_GRACE, mutation::write_stdout_marker,
     },
     movement::MovementTicker,
     runtime::{
@@ -102,10 +102,29 @@ pub(crate) fn finish_acceptance_run(
         return;
     }
 
+    let phase3_identity = phase3.identity_source.as_deref().and_then(|source| {
+        source
+            .for_session(phase3.movement.session_generation())
+            .ok()
+    });
+    let drain_decision = if fatal {
+        Phase3TerminalDrainDecision::Drained
+    } else {
+        acceptance.phase3_terminal_drain_decision(
+            now,
+            phase3_identity
+                .as_ref()
+                .is_some_and(|identity| identity.candidate_physics()),
+            phase3.movement.pending_count(),
+        )
+    };
+    if drain_decision == Phase3TerminalDrainDecision::Wait {
+        return;
+    }
+    let phase3_drain_timed_out = drain_decision == Phase3TerminalDrainDecision::TimedOut;
+
     acceptance.finished = true;
-    if let Some(identity_source) = phase3.identity_source.as_deref()
-        && let Ok(identity) = identity_source.for_session(phase3.movement.session_generation())
-    {
+    if let Some(identity) = phase3_identity {
         let markers = phase3.evidence.observe_terminal(
             identity,
             phase3.movement.source(),
@@ -145,10 +164,20 @@ pub(crate) fn finish_acceptance_run(
             transparent_snapshot.ref_count,
         );
     }
+    if phase3_drain_timed_out {
+        error!(
+            "Phase 3 terminal movement acknowledgement drain timed out after {:.3}s: pending={} reconciliation={}",
+            TRANSPARENT_PRESENTATION_EXIT_GRACE.as_secs_f64(),
+            phase3.movement.pending_count(),
+            phase3.movement.outbox_reconciliation().as_str(),
+        );
+    }
     network.shutdown();
-    exit.write(if decision.is_error() || output_failed {
-        AppExit::error()
-    } else {
-        AppExit::Success
-    });
+    exit.write(
+        if decision.is_error() || output_failed || phase3_drain_timed_out {
+            AppExit::error()
+        } else {
+            AppExit::Success
+        },
+    );
 }

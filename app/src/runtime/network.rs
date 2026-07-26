@@ -458,6 +458,16 @@ pub(crate) fn receive_network_events(
                     );
                 }
             }
+            NetworkControlEvent::PhysicsPacketSent { identity } => {
+                if !movement.acknowledge_physics_send(identity) {
+                    warn!(
+                        session_generation = identity.session_generation,
+                        tick = identity.tick,
+                        admission_id = identity.admission_id,
+                        "ignored stale, duplicate, or out-of-order physics send acknowledgement"
+                    );
+                }
+            }
             NetworkControlEvent::BlobCacheTelemetry { enabled, stats } => {
                 client_world.client_blob_cache_enabled = enabled;
                 client_world.client_blob_cache = stats;

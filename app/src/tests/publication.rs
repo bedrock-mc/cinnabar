@@ -205,7 +205,7 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
             stage_node(graph, ClientFrameSet::NetworkSend),
             system_node(graph, finish_acceptance_run, "finish_acceptance_run"),
         ),
-        "the terminal evidence marker must sample the outbox only after the final send attempt",
+        "terminal evidence must sample the final acknowledgement-drain state after NetworkSend closes admissions",
     );
 }
 

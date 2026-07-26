@@ -13,7 +13,10 @@ use protocol::{
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
-use crate::{acceptance::mutation::write_stdout_marker, ui_runtime::FastTransferAction};
+use crate::{
+    acceptance::mutation::write_stdout_marker, movement::PhysicsSendIdentity,
+    ui_runtime::FastTransferAction,
+};
 
 pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
@@ -52,6 +55,9 @@ pub enum NetworkControlEvent {
         session: u64,
         sequence: u64,
         message: String,
+    },
+    PhysicsPacketSent {
+        identity: PhysicsSendIdentity,
     },
     BlobCacheTelemetry {
         enabled: bool,
@@ -93,6 +99,7 @@ enum NetworkCommand {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
         chat: Option<ChatPacketSend>,
+        physics: Option<PhysicsSendIdentity>,
     },
 }
 
@@ -173,8 +180,17 @@ impl NetworkHandle {
             .saturating_sub(self.commands.capacity())
     }
 
+    #[cfg(test)]
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None)
+    }
+
+    pub(crate) fn send_physics_packet(
+        &self,
+        identity: PhysicsSendIdentity,
+        packet: Packet,
+    ) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, Some(identity))
     }
 
     pub fn send_chat_packet(
@@ -192,6 +208,7 @@ impl NetworkHandle {
                 sequence,
                 fast_transfer_action,
             }),
+            None,
         )
     }
 
@@ -210,6 +227,7 @@ impl NetworkHandle {
                 count,
             }),
             None,
+            None,
         )
     }
 
@@ -218,12 +236,14 @@ impl NetworkHandle {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
         chat: Option<ChatPacketSend>,
+        physics: Option<PhysicsSendIdentity>,
     ) -> Result<(), PacketSendError> {
         self.commands
             .try_send(NetworkCommand::Send {
                 packet,
                 sub_chunk,
                 chat,
+                physics,
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
@@ -493,6 +513,7 @@ async fn run_network_pump<S: NetworkSession>(
                     packet,
                     sub_chunk,
                     chat,
+                    physics,
                 }) => {
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
@@ -512,6 +533,16 @@ async fn run_network_pump<S: NetworkSession>(
                         Some(Ok(())) => {
                             if trace_armed {
                                 session.rotate_blob_cache_pending_for_fast_transfer();
+                            }
+                            if let Some(identity) = physics
+                                && !send_control_event_or_cancel(
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                    NetworkControlEvent::PhysicsPacketSent { identity },
+                                )
+                                .await
+                            {
+                                return;
                             }
                             if let Some(marker) = chat.and_then(|chat| {
                                 chat.fast_transfer_action.map(|action| {

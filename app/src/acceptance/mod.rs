@@ -20,6 +20,7 @@ mod exit;
 pub(crate) mod markers;
 pub(crate) mod model_witness;
 pub(crate) mod mutation;
+mod phase3;
 pub(crate) mod proofs;
 pub(crate) mod remesh;
 pub(crate) mod teleport;
@@ -27,6 +28,7 @@ pub(crate) mod transparent_witness;
 pub(crate) mod world_ready;
 
 pub(crate) use exit::AcceptanceExitDecision;
+pub(crate) use phase3::Phase3TerminalDrainDecision;
 
 pub(crate) const PHASE0_REQUESTED_RADIUS_CHUNKS: i32 = 16;
 pub(crate) const TRANSPARENT_PRESENTATION_EXIT_GRACE: Duration = Duration::from_secs(2);
