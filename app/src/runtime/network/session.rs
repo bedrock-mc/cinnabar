@@ -861,14 +861,20 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
 }
 
 fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheStats) {
-    if bounded_counter_log_due(
+    let cached_packet_due = bounded_counter_log_due(
+        previous.skipped_cached_packets,
+        current.skipped_cached_packets,
+    );
+    let miss_response_due = bounded_counter_log_due(
         previous.skipped_miss_responses,
         current.skipped_miss_responses,
-    ) {
+    );
+    if cached_packet_due || miss_response_due {
         bevy::log::warn!(
             target: "bedrock_client::blob_cache",
+            skipped_cached_packets = current.skipped_cached_packets,
             skipped_miss_responses = current.skipped_miss_responses,
-            "skipped semantically invalid client blob-cache miss response"
+            "skipped semantically invalid client blob-cache packet"
         );
     }
 }

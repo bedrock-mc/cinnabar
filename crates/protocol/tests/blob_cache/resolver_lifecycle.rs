@@ -1,5 +1,93 @@
 use super::*;
 
+fn assert_semantic_cached_packet_is_skipped(
+    mut resolver: BlobCacheResolver,
+    packet: protocol::Packet,
+) {
+    let wanted = b"prior-fifo-head";
+    let wanted_hash = client_blob_hash(wanted);
+    resolver
+        .accept_cached_packet(cached_request_level(20, wanted_hash))
+        .expect("prior unresolved cached FIFO head");
+
+    resolver
+        .accept_cached_packet(packet)
+        .expect("well-formed semantic rejection is a recoverable skip");
+
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: wanted_hash,
+                payload: wanted.to_vec(),
+            }],
+        })
+        .expect("earlier transaction remains resolvable");
+    let resolved = pop_packet(&mut resolver, "earlier FIFO head");
+    assert!(matches!(resolved.data, McpePacketData::PacketLevelChunk(_)));
+}
+
+#[test]
+fn unexpected_level_chunk_count_is_skipped_without_resetting_fifo() {
+    let packet: protocol::Packet = LevelChunkPacket {
+        sub_chunk_count: -3,
+        blobs: Some(LevelChunkPacketBlobs {
+            hashes: vec![client_blob_hash(b"unexpected-count")],
+        }),
+        ..Default::default()
+    }
+    .into();
+
+    assert_semantic_cached_packet_is_skipped(
+        BlobCacheResolver::new(ClientBlobCache::default()),
+        packet,
+    );
+}
+
+#[test]
+fn mismatched_level_chunk_hash_count_is_skipped_without_resetting_fifo() {
+    let packet: protocol::Packet = LevelChunkPacket {
+        sub_chunk_count: 0,
+        blobs: Some(LevelChunkPacketBlobs {
+            hashes: vec![
+                client_blob_hash(b"mismatched-count-a"),
+                client_blob_hash(b"mismatched-count-b"),
+            ],
+        }),
+        ..Default::default()
+    }
+    .into();
+
+    assert_semantic_cached_packet_is_skipped(
+        BlobCacheResolver::new(ClientBlobCache::default()),
+        packet,
+    );
+}
+
+#[test]
+fn excessive_semantic_hash_count_is_skipped_without_resetting_fifo() {
+    let mut bounded = BlobCacheLimits::default();
+    bounded.max_hashes_per_packet = 2;
+    let packet: protocol::Packet = LevelChunkPacket {
+        sub_chunk_count: 2,
+        blobs: Some(LevelChunkPacketBlobs {
+            hashes: vec![
+                client_blob_hash(b"excessive-count-a"),
+                client_blob_hash(b"excessive-count-b"),
+                client_blob_hash(b"excessive-count-c"),
+            ],
+        }),
+        ..Default::default()
+    }
+    .into();
+
+    assert_semantic_cached_packet_is_skipped(
+        BlobCacheResolver::new(ClientBlobCache::with_limits(bounded)),
+        packet,
+    );
+}
+
 #[test]
 fn dropping_resolver_releases_pending_pins_for_other_resolvers() {
     let mut bounded = limits(1, 8);

@@ -31,6 +31,7 @@ use p384::{PublicKey, SecretKey};
 use protocol::{BedrockSession, ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use valentine::protocol::wire;
 
 type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 
@@ -69,13 +70,27 @@ enum SpawnOrder {
     SpawnThenRadius,
 }
 
+#[derive(Clone, Copy)]
+enum CachePlayScript {
+    ResolveValid,
+    TruncatedMissResponse,
+    InvalidMissResponseThenTraffic,
+}
+
 struct ScriptTransport {
     script: Arc<Mutex<ServerScript>>,
 }
 
 impl ScriptTransport {
     fn new(mode: CompressionMode, order: SpawnOrder, conflicting_start: bool) -> Self {
-        Self::new_with_options(mode, order, conflicting_start, false, false)
+        Self::new_with_options(
+            mode,
+            order,
+            conflicting_start,
+            false,
+            false,
+            CachePlayScript::ResolveValid,
+        )
     }
 
     fn new_with_pack_stack(
@@ -84,11 +99,26 @@ impl ScriptTransport {
         conflicting_start: bool,
         non_empty_pack_stack: bool,
     ) -> Self {
-        Self::new_with_options(mode, order, conflicting_start, non_empty_pack_stack, false)
+        Self::new_with_options(
+            mode,
+            order,
+            conflicting_start,
+            non_empty_pack_stack,
+            false,
+            CachePlayScript::ResolveValid,
+        )
     }
 
     fn new_with_cache(mode: CompressionMode, order: SpawnOrder) -> Self {
-        Self::new_with_options(mode, order, false, false, true)
+        Self::new_with_cache_script(mode, order, CachePlayScript::ResolveValid)
+    }
+
+    fn new_with_cache_script(
+        mode: CompressionMode,
+        order: SpawnOrder,
+        cache_play_script: CachePlayScript,
+    ) -> Self {
+        Self::new_with_options(mode, order, false, false, true, cache_play_script)
     }
 
     fn new_with_options(
@@ -97,6 +127,7 @@ impl ScriptTransport {
         conflicting_start: bool,
         non_empty_pack_stack: bool,
         cache_enabled: bool,
+        cache_play_script: CachePlayScript,
     ) -> Self {
         Self {
             script: Arc::new(Mutex::new(ServerScript::new(
@@ -105,6 +136,7 @@ impl ScriptTransport {
                 conflicting_start,
                 non_empty_pack_stack,
                 cache_enabled,
+                cache_play_script,
             ))),
         }
     }
@@ -150,6 +182,7 @@ struct ServerScript {
     conflicting_start: bool,
     non_empty_pack_stack: bool,
     cache_enabled: bool,
+    cache_play_script: CachePlayScript,
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
@@ -162,6 +195,7 @@ impl ServerScript {
         conflicting_start: bool,
         non_empty_pack_stack: bool,
         cache_enabled: bool,
+        cache_play_script: CachePlayScript,
     ) -> Self {
         Self {
             mode,
@@ -169,6 +203,7 @@ impl ServerScript {
             conflicting_start,
             non_empty_pack_stack,
             cache_enabled,
+            cache_play_script,
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
@@ -367,20 +402,41 @@ impl ServerScript {
                     ]
                 ));
                 if self.cache_enabled {
-                    let payload = b"cached-column";
-                    let hash = protocol::client_blob_hash(payload);
-                    self.enqueue_encrypted(&[
-                        McpePacket::from(LevelChunkPacket {
-                            x: 9,
-                            z: -11,
-                            dimension: 0,
-                            sub_chunk_count: 0,
-                            blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
-                            payload: b"tail".to_vec(),
-                            ..Default::default()
-                        }),
-                        McpePacket::from(SetTimePacket { time: 34_567 }),
-                    ]);
+                    match self.cache_play_script {
+                        CachePlayScript::ResolveValid => {
+                            let payload = b"cached-column";
+                            let hash = protocol::client_blob_hash(payload);
+                            self.enqueue_encrypted(&[
+                                McpePacket::from(LevelChunkPacket {
+                                    x: 9,
+                                    z: -11,
+                                    dimension: 0,
+                                    sub_chunk_count: 0,
+                                    blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
+                                    payload: b"tail".to_vec(),
+                                    ..Default::default()
+                                }),
+                                McpePacket::from(SetTimePacket { time: 34_567 }),
+                            ]);
+                        }
+                        CachePlayScript::TruncatedMissResponse => {
+                            self.enqueue_encrypted_raw_packet(
+                                McpePacketName::PacketClientCacheMissResponse,
+                                &[0x01],
+                            );
+                        }
+                        CachePlayScript::InvalidMissResponseThenTraffic => {
+                            let hash = protocol::client_blob_hash(b"semantic-response-wanted");
+                            self.enqueue_encrypted(&[McpePacket::from(LevelChunkPacket {
+                                x: 31,
+                                z: -47,
+                                dimension: 0,
+                                sub_chunk_count: 0,
+                                blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
+                                ..Default::default()
+                            })]);
+                        }
+                    }
                 } else {
                     // A malformed world packet (invalid sub-chunk count) must be
                     // skipped, not disconnect the session; the following SetTime
@@ -398,7 +454,17 @@ impl ServerScript {
             8 => {
                 let packets = self.decode_encrypted_client(frame);
                 if self.cache_enabled {
-                    let hash = protocol::client_blob_hash(b"cached-column");
+                    let expected_hash = match self.cache_play_script {
+                        CachePlayScript::ResolveValid => {
+                            protocol::client_blob_hash(b"cached-column")
+                        }
+                        CachePlayScript::InvalidMissResponseThenTraffic => {
+                            protocol::client_blob_hash(b"semantic-response-wanted")
+                        }
+                        CachePlayScript::TruncatedMissResponse => {
+                            panic!("truncated response script sends no cached request")
+                        }
+                    };
                     assert!(matches!(
                         packets.as_slice(),
                         [McpePacket {
@@ -406,14 +472,28 @@ impl ServerScript {
                                 ClientCacheBlobStatusPacket { missing, have }
                             ),
                             ..
-                        }] if missing == &[hash] && have.is_empty()
+                        }] if missing == &[expected_hash] && have.is_empty()
                     ));
-                    self.enqueue_encrypted(&[McpePacket::from(ClientCacheMissResponsePacket {
+                    let response_payload = match self.cache_play_script {
+                        CachePlayScript::ResolveValid => b"cached-column".as_slice(),
+                        CachePlayScript::InvalidMissResponseThenTraffic => {
+                            b"semantic-response-poison".as_slice()
+                        }
+                        CachePlayScript::TruncatedMissResponse => unreachable!(),
+                    };
+                    let mut response = vec![McpePacket::from(ClientCacheMissResponsePacket {
                         blobs: vec![Blob {
-                            hash,
-                            payload: b"cached-column".to_vec(),
+                            hash: expected_hash,
+                            payload: response_payload.to_vec(),
                         }],
-                    })]);
+                    })];
+                    if matches!(
+                        self.cache_play_script,
+                        CachePlayScript::InvalidMissResponseThenTraffic
+                    ) {
+                        response.push(McpePacket::from(SetTimePacket { time: 45_678 }));
+                    }
+                    self.enqueue_encrypted(&response);
                     self.stage = 9;
                     return;
                 }
@@ -448,6 +528,12 @@ impl ServerScript {
 
     fn enqueue_encrypted(&mut self, packets: &[McpePacket]) {
         let clear = encode_server_batch(packets, Some(self.mode));
+        let encrypted = self.crypto.as_mut().expect("crypto").encrypt_server(clear);
+        self.inbound.push_back(encrypted);
+    }
+
+    fn enqueue_encrypted_raw_packet(&mut self, id: McpePacketName, body: &[u8]) {
+        let clear = encode_server_raw_packet(id, body, self.mode);
         let encrypted = self.crypto.as_mut().expect("crypto").encrypt_server(clear);
         self.inbound.push_back(encrypted);
     }
@@ -535,7 +621,20 @@ fn encode_server_batch(packets: &[McpePacket], mode: Option<CompressionMode>) ->
             )
             .expect("encode server packet");
     }
+    encode_server_payload(&payload, mode)
+}
 
+fn encode_server_raw_packet(id: McpePacketName, body: &[u8], mode: CompressionMode) -> Bytes {
+    let mut packet = BytesMut::new();
+    wire::write_var_u32(&mut packet, id as u32);
+    packet.extend_from_slice(body);
+    let mut payload = BytesMut::new();
+    wire::write_var_u32(&mut payload, packet.len() as u32);
+    payload.extend_from_slice(&packet);
+    encode_server_payload(&payload, Some(mode))
+}
+
+fn encode_server_payload(payload: &[u8], mode: Option<CompressionMode>) -> Bytes {
     let mut frame = BytesMut::from(&b"\xfe"[..]);
     match mode {
         None => frame.extend_from_slice(&payload),
@@ -766,6 +865,87 @@ async fn encrypted_play_resolves_client_cached_level_chunk_and_preserves_world_f
     assert_eq!(stats.reconstructed_level_chunks, 1);
     assert_eq!(stats.pending_transactions, 0);
     assert_eq!(stats.pending_bytes, 0);
+}
+
+#[tokio::test]
+async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_alive() {
+    let transport = ScriptTransport::new_with_cache_script(
+        CompressionMode::Deflate,
+        SpawnOrder::RadiusThenSpawn,
+        CachePlayScript::TruncatedMissResponse,
+    );
+    let (mut malformed_session, _) = LoginSequence::connect_transport_with_blob_cache(
+        transport,
+        "RustClient",
+        ClientBlobCache::default(),
+    )
+    .await
+    .expect("cache-enabled malformed-wire session");
+    for expected in [
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
+        WorldEvent::ChunkRadiusUpdated(16),
+    ] {
+        assert_eq!(
+            malformed_session
+                .recv_world_event(0)
+                .await
+                .expect("login prelude"),
+            expected
+        );
+    }
+    let error = malformed_session
+        .recv_world_event(0)
+        .await
+        .expect_err("truncated miss-response wire must terminate the session");
+    assert!(matches!(error, ProtocolError::Session(_)));
+    assert_eq!(malformed_session.decode_error_count(), 1);
+
+    let transport = ScriptTransport::new_with_cache_script(
+        CompressionMode::Deflate,
+        SpawnOrder::RadiusThenSpawn,
+        CachePlayScript::InvalidMissResponseThenTraffic,
+    );
+    let (mut semantic_session, _) = LoginSequence::connect_transport_with_blob_cache(
+        transport,
+        "RustClient",
+        ClientBlobCache::default(),
+    )
+    .await
+    .expect("cache-enabled semantic-rejection session");
+    for expected in [
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
+        WorldEvent::ChunkRadiusUpdated(16),
+    ] {
+        assert_eq!(
+            semantic_session
+                .recv_world_event(0)
+                .await
+                .expect("login prelude"),
+            expected
+        );
+    }
+    assert!(matches!(
+        semantic_session
+            .recv_world_event(0)
+            .await
+            .expect("semantic rejection yields bounded recovery"),
+        WorldEvent::ChunkResync(protocol::ChunkResyncEvent { x: 31, z: -47, .. })
+    ));
+    assert_eq!(
+        semantic_session
+            .recv_world_event(0)
+            .await
+            .expect("traffic after semantic rejection"),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 45_678 })
+    );
+    let stats = semantic_session.blob_cache_stats();
+    assert_eq!(stats.skipped_miss_responses, 1);
+    assert_eq!(stats.rejected_blobs, 1);
+    assert_eq!(stats.retired_cached_transactions, 1);
+    assert_eq!(stats.pending_transactions, 0);
+    assert_eq!(semantic_session.decode_error_count(), 0);
 }
 
 #[tokio::test]

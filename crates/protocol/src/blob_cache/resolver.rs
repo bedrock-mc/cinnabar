@@ -194,6 +194,17 @@ impl BlobCacheResolver {
                 self.queue_level_chunk_resync(&pressure_packet)?;
                 Ok(skipped_cached_status(&self.cache, &pressure_packet))
             }
+            Err(
+                BlobCacheError::InvalidLevelChunkCount(_)
+                | BlobCacheError::InvalidLevelChunkHashCount { .. }
+                | BlobCacheError::TooManyHashes { .. },
+            ) => {
+                self.rollback_pressure_admission(pending_before, ready_before)?;
+                self.stats.skipped_cached_packets =
+                    self.stats.skipped_cached_packets.saturating_add(1);
+                self.queue_level_chunk_resync(&pressure_packet)?;
+                Ok(ClientCacheBlobStatusPacket::default())
+            }
             Err(error) => {
                 self.reset_pending();
                 Err(error)
