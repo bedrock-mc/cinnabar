@@ -176,6 +176,17 @@ fn malformed_cached_chunk_wire_remains_a_fatal_session_error() {
 }
 
 #[test]
+fn malformed_cache_miss_response_wire_remains_a_fatal_decode_error() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let truncated = raw_packet(McpePacketName::PacketClientCacheMissResponse, &[0x01]);
+
+    assert!(
+        truncated.decode(&session).is_err(),
+        "a declared blob without its hash and payload must fail closed in raw decode"
+    );
+}
+
+#[test]
 fn ignored_play_packet_is_not_materialized() {
     let raw = raw_packet(McpePacketName::PacketNetworkSettings, &[0x7f]);
     let decoder_called = Cell::new(false);

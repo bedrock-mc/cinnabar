@@ -1,6 +1,6 @@
 use protocol::{
-    BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheResolver, ClientBlobCache,
-    SetTimeEvent, WorldEvent, client_blob_hash,
+    BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver,
+    ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
 };
 use std::mem::size_of;
 use std::sync::{Arc, Barrier};
@@ -476,7 +476,7 @@ fn ordinary_packets_are_fifo_barriers_between_cached_transactions() {
 }
 
 #[test]
-fn invalid_miss_is_atomic_resets_pending_and_does_not_poison_cache() {
+fn invalid_miss_is_atomic_retires_pending_and_does_not_poison_cache() {
     let wanted = b"wanted";
     let hash = client_blob_hash(wanted);
     let cache = ClientBlobCache::with_limits(limits(4, 128));
@@ -485,19 +485,20 @@ fn invalid_miss_is_atomic_resets_pending_and_does_not_poison_cache() {
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b"tail"))
         .expect("pending transaction");
 
-    let error = resolver
+    resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
                 hash,
                 payload: b"poison".to_vec(),
             }],
         })
-        .expect_err("hash mismatch must fail");
-    assert!(error.to_string().contains("hash"));
+        .expect("hash mismatch is rejected without ending the session");
     assert!(!cache.contains(hash));
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().rejected_blobs, 1);
-    assert_eq!(resolver.stats().pending_resets, 1);
+    assert_eq!(resolver.stats().skipped_miss_responses, 1);
+    assert_eq!(resolver.stats().pending_resets, 0);
+    assert_eq!(resolver.stats().retired_cached_transactions, 1);
 }
 
 #[test]
@@ -822,7 +823,7 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
 }
 
 #[test]
-fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic() {
+fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips() {
     let wanted = b"wanted";
     let wanted_hash = client_blob_hash(wanted);
 
@@ -835,23 +836,25 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic() {
                 b"",
             ))
             .expect("pending wanted blob");
-        let error = resolver
+        resolver
             .accept_miss_response(ClientCacheMissResponsePacket { blobs })
-            .expect_err("poison response must fail");
+            .expect("semantically invalid response is a recoverable skip");
         assert!(!cache.contains(wanted_hash));
         assert_eq!(resolver.stats().pending_transactions, 0);
-        error
+        assert_eq!(resolver.stats().skipped_miss_responses, 1);
+        assert_eq!(resolver.stats().retired_cached_transactions, 1);
+        resolver.stats().rejected_blobs
     };
 
     let unsolicited = b"unsolicited";
-    assert!(matches!(
+    assert_eq!(
         exercise(vec![Blob {
             hash: client_blob_hash(unsolicited),
             payload: unsolicited.to_vec(),
         }]),
-        BlobCacheError::UnsolicitedBlob(_)
-    ));
-    assert!(matches!(
+        0
+    );
+    assert_eq!(
         exercise(vec![
             Blob {
                 hash: wanted_hash,
@@ -862,9 +865,9 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic() {
                 payload: b"different".to_vec(),
             },
         ]),
-        BlobCacheError::ConflictingDuplicate(hash) if hash == wanted_hash
-    ));
-    assert!(matches!(
+        2
+    );
+    assert_eq!(
         exercise(vec![
             Blob {
                 hash: wanted_hash,
@@ -875,8 +878,8 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic() {
                 payload: b"poison".to_vec(),
             },
         ]),
-        BlobCacheError::ConflictingDuplicate(_)
-    ));
+        2
+    );
 }
 
 #[test]

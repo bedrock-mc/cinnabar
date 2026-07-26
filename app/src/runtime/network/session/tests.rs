@@ -19,10 +19,11 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
     NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
-    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress, run_network_pump,
-    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
-    send_world_event_or_cancel, start_game_inventory_authority, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel, write_network_pump_terminal_marker,
+    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress,
+    bounded_counter_log_due, run_network_pump, send_control_event_or_cancel,
+    send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
+    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+    wait_for_send_or_cancel, write_network_pump_terminal_marker,
 };
 
 #[path = "physics_send_tests.rs"]
@@ -45,6 +46,19 @@ fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
         .expect("seed verified blob");
 
     assert!(reconnect.client_blob_cache.contains(hash));
+}
+
+#[test]
+fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
+    assert!(bounded_counter_log_due(0, 1));
+    assert!(bounded_counter_log_due(1, 2));
+    assert!(!bounded_counter_log_due(2, 3));
+    assert!(bounded_counter_log_due(3, 4));
+    assert!(!bounded_counter_log_due(4, 7));
+    assert!(bounded_counter_log_due(7, 8));
+    assert!(bounded_counter_log_due(8, 17));
+    assert!(!bounded_counter_log_due(17, 17));
+    assert!(!bounded_counter_log_due(17, 16));
 }
 
 #[test]

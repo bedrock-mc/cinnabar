@@ -18,11 +18,11 @@ pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 4_096;
 pub const MAX_CLIENT_BLOB_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_096;
-/// Provisional headroom after a vanilla BDS 1.26.32.2 join exceeded the old 256-transaction
-/// calibration while advertising 101 cache misses. The observed transaction high-water mark was
-/// not captured, so 2,048 is not an evidence-derived boundary; recording the peak simultaneous
-/// pending transaction count across joins, dimension changes, and fast transfers will settle it.
-/// Admission exhaustion is recoverable, and the independent 64 MiB ceiling remains binding.
+/// Measured headroom from local BDS 1.26.32.2 joins: `FreeCameraSilence` peaked at 1,194 pending
+/// transactions / 1,312,332 bytes, and `CandidatePhysics` at 845 / 788,212 bytes. The old 256
+/// transaction cap was about 4.7x smaller than the measured 1,194-transaction high-water mark.
+/// These measurements cover local BDS only; busier remote servers have not yet been measured.
+/// The 2,048 cap leaves local-join headroom, while the independent 64 MiB ceiling remains binding.
 pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
 
@@ -63,6 +63,7 @@ pub struct BlobCacheStats {
     pub skipped_packets: u64,
     pub skipped_world_events: u64,
     pub skipped_cached_packets: u64,
+    pub skipped_miss_responses: u64,
     pub retired_cached_transactions: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,

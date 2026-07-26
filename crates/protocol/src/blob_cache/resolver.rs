@@ -461,6 +461,19 @@ impl BlobCacheResolver {
             Err(BlobCacheError::TooManyPendingBytes { .. }) => {
                 self.recover_repeated_ready_byte_pressure()
             }
+            Err(BlobCacheError::EmptyMissResponse | BlobCacheError::UnsolicitedBlob(_)) => {
+                self.recover_skipped_miss_response()
+            }
+            Err(
+                BlobCacheError::TooManyHashes { .. }
+                | BlobCacheError::BlobTooLarge { .. }
+                | BlobCacheError::CacheCapacity { .. }
+                | BlobCacheError::HashMismatch { .. }
+                | BlobCacheError::ConflictingDuplicate(_),
+            ) => {
+                self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
+                self.recover_skipped_miss_response()
+            }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.reset_pending();
@@ -697,10 +710,30 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()
     }
 
+    fn recover_skipped_miss_response(&mut self) -> Result<(), BlobCacheError> {
+        self.stats.skipped_miss_responses =
+            self.stats.skipped_miss_responses.saturating_add(1);
+        let recovery = self.pending.front().and_then(|transaction| {
+            let PendingPacket::LevelChunk(packet) = &transaction.packet else {
+                return None;
+            };
+            level_chunk_resync_packet(packet)
+        });
+        if let Some(recovery) = recovery {
+            self.queue_chunk_resync(recovery)?;
+        }
+        let _ = self.retire_one_transaction_for_pressure()?;
+        self.drain_ready()
+    }
+
     fn queue_level_chunk_resync(&mut self, packet: &Packet) -> Result<(), BlobCacheError> {
         let Some(recovery) = level_chunk_resync(packet) else {
             return Ok(());
         };
+        self.queue_chunk_resync(recovery)
+    }
+
+    fn queue_chunk_resync(&mut self, recovery: ChunkResyncEvent) -> Result<(), BlobCacheError> {
         let recovery_limit = self.cache.limits.max_pending_transactions.max(1);
         if self.recovery_ready.len() >= recovery_limit {
             return Ok(());

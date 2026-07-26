@@ -36,6 +36,10 @@ pub(super) fn level_chunk_resync(packet: &Packet) -> Option<ChunkResyncEvent> {
     let McpePacketData::PacketLevelChunk(packet) = &packet.data else {
         return None;
     };
+    level_chunk_resync_packet(packet)
+}
+
+pub(super) fn level_chunk_resync_packet(packet: &LevelChunkPacket) -> Option<ChunkResyncEvent> {
     let requested_sub_chunks = match packet.sub_chunk_count {
         count if count >= 0 => usize::try_from(count).ok().map(Some)?,
         -2 => packet.highest_subchunk_count.map(usize::from).map(Some)?,

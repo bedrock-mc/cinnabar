@@ -809,6 +809,7 @@ fn try_emit_blob_cache_telemetry<S: NetworkSession>(
         })
         .is_ok()
     {
+        emit_bounded_blob_cache_warning(last_stats.unwrap_or_default(), stats);
         emit_blob_cache_telemetry(stats);
         *last_stats = Some(stats);
     }
@@ -851,11 +852,29 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         skipped_packets = stats.skipped_packets,
         skipped_world_events = stats.skipped_world_events,
         skipped_cached_packets = stats.skipped_cached_packets,
+        skipped_miss_responses = stats.skipped_miss_responses,
         retired_cached_transactions = stats.retired_cached_transactions,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
         "client blob cache counters"
     );
+}
+
+fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheStats) {
+    if bounded_counter_log_due(
+        previous.skipped_miss_responses,
+        current.skipped_miss_responses,
+    ) {
+        bevy::log::warn!(
+            target: "bedrock_client::blob_cache",
+            skipped_miss_responses = current.skipped_miss_responses,
+            "skipped semantically invalid client blob-cache miss response"
+        );
+    }
+}
+
+fn bounded_counter_log_due(previous: u64, current: u64) -> bool {
+    current != 0 && current > previous && (previous == 0 || current.ilog2() > previous.ilog2())
 }
 
 fn emit_network_pump_terminal_marker(stage: &'static str, message: &str, decode_errors: u64) {

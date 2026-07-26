@@ -90,7 +90,7 @@ fn armed_rotation_is_harmless_when_old_response_wins_the_race() {
 }
 
 #[test]
-fn retired_generation_does_not_authorize_unrelated_blobs() {
+fn retired_generation_does_not_admit_unrelated_blobs() {
     let old_hash = client_blob_hash(b"authorized-old");
     let unsolicited_payload = b"not-authorized";
     let unsolicited_hash = client_blob_hash(unsolicited_payload);
@@ -103,15 +103,139 @@ fn retired_generation_does_not_authorize_unrelated_blobs() {
         .rotate_pending_for_fast_transfer_candidate()
         .expect("retire old miss");
 
-    assert!(matches!(
-        resolver.accept_miss_response(ClientCacheMissResponsePacket {
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
                 hash: unsolicited_hash,
                 payload: unsolicited_payload.to_vec(),
             }],
-        }),
-        Err(BlobCacheError::UnsolicitedBlob(hash)) if hash == unsolicited_hash
+        })
+        .expect("unrelated well-formed response is skipped");
+    assert!(!resolver.cache().contains(unsolicited_hash));
+    assert_eq!(resolver.stats().skipped_miss_responses, 1);
+}
+
+#[test]
+fn empty_miss_response_retires_the_blocked_head_and_keeps_late_resolution_bounded() {
+    let payload = b"empty-response-wanted";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_request_level(21, hash))
+        .expect("unresolved cached FIFO head");
+    resolver
+        .accept_passthrough(SetTimePacket { time: 42 }.into(), 32)
+        .expect("ordinary packet queues behind the cached head");
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket { blobs: Vec::new() })
+        .expect("well-formed empty response is a recoverable skip");
+
+    assert_eq!(resolver.stats().skipped_miss_responses, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    let ordinary = pop_packet(&mut resolver, "ordinary FIFO work after retirement");
+    assert!(matches!(ordinary.data, McpePacketData::PacketSetTime(_)));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent { x: 21, .. }
+        )))
     ));
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("late valid response remains authorized and cacheable");
+    assert!(resolver.cache().contains(hash));
+    assert_eq!(resolver.stats().pending_transactions, 0);
+}
+
+#[test]
+fn wholly_unmatched_miss_response_is_skipped_without_poisoning_or_stalling_fifo() {
+    let wanted = b"unmatched-response-wanted";
+    let wanted_hash = client_blob_hash(wanted);
+    let unsolicited = b"unmatched-response-unsolicited";
+    let unsolicited_hash = client_blob_hash(unsolicited);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_request_level(22, wanted_hash))
+        .expect("unresolved cached FIFO head");
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: unsolicited_hash,
+                payload: unsolicited.to_vec(),
+            }],
+        })
+        .expect("well-formed unmatched response is a recoverable skip");
+
+    assert_eq!(resolver.stats().skipped_miss_responses, 1);
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    assert!(!resolver.cache().contains(unsolicited_hash));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent { x: 22, .. }
+        )))
+    ));
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: wanted_hash,
+                payload: wanted.to_vec(),
+            }],
+        })
+        .expect("late requested blob remains boundedly admissible");
+    assert!(resolver.cache().contains(wanted_hash));
+}
+
+#[test]
+fn well_formed_invalid_blob_content_is_rejected_without_ending_the_session() {
+    let payload = b"integrity-response-wanted";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_request_level(23, hash))
+        .expect("unresolved cached FIFO head");
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: b"integrity-response-poison".to_vec(),
+            }],
+        })
+        .expect("well-formed invalid content is rejected without a session error");
+
+    assert_eq!(resolver.stats().skipped_miss_responses, 1);
+    assert_eq!(resolver.stats().rejected_blobs, 1);
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().retired_cached_transactions, 1);
+    assert!(!resolver.cache().contains(hash));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+            ChunkResyncEvent { x: 23, .. }
+        )))
+    ));
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("late valid payload remains authorized after bounded retirement");
+    assert!(resolver.cache().contains(hash));
 }
 
 #[test]
@@ -151,7 +275,7 @@ fn fast_transfer_rotation_preserves_ready_prefix_and_releases_retired_pins() {
 }
 
 #[test]
-fn malformed_late_retired_response_fails_atomically_and_revokes_generation() {
+fn invalid_late_retired_response_is_atomic_and_keeps_generation_resolvable() {
     let payload = b"retired-authorized";
     let hash = client_blob_hash(payload);
     let cache = ClientBlobCache::default();
@@ -164,26 +288,24 @@ fn malformed_late_retired_response_fails_atomically_and_revokes_generation() {
         .rotate_pending_for_fast_transfer_candidate()
         .expect("retire old transaction");
 
-    assert!(
-        resolver
-            .accept_miss_response(ClientCacheMissResponsePacket {
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
                 blobs: vec![Blob {
                     hash,
                     payload: b"wrong-payload".to_vec(),
                 }],
             })
-            .is_err()
-    );
+        .expect("invalid well-formed response is skipped");
     assert!(!cache.contains(hash));
-    assert!(matches!(
-        resolver.accept_miss_response(ClientCacheMissResponsePacket {
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
                 hash,
                 payload: payload.to_vec(),
             }],
-        }),
-        Err(BlobCacheError::UnsolicitedBlob(candidate)) if candidate == hash
-    ));
+        })
+        .expect("retired authorization survives an invalid response");
+    assert!(cache.contains(hash));
 }
 
 #[test]
