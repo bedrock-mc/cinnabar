@@ -175,8 +175,20 @@ impl BlobCacheResolver {
         packet: Packet,
         raw_packet_bytes: Option<usize>,
     ) -> Result<ClientCacheBlobStatusPacket, BlobCacheError> {
+        let pressure_packet = packet.clone();
+        let pending_before = self.pending.len();
+        let ready_before = self.ready.len();
         match self.accept_cached_packet_inner(packet, raw_packet_bytes) {
             Ok(status) => Ok(status),
+            Err(
+                BlobCacheError::TooManyPendingTransactions { .. }
+                | BlobCacheError::TooManyPendingBytes { .. },
+            ) => {
+                self.rollback_pressure_admission(pending_before, ready_before)?;
+                self.stats.skipped_cached_packets =
+                    self.stats.skipped_cached_packets.saturating_add(1);
+                Ok(skipped_cached_status(&pressure_packet))
+            }
             Err(error) => {
                 self.reset_pending();
                 Err(error)
@@ -193,10 +205,8 @@ impl BlobCacheResolver {
         if self.pending.len().saturating_add(self.ready.len())
             >= self.cache.limits.max_pending_transactions
         {
-            self.reset_pending();
-            return Err(BlobCacheError::TooManyPendingTransactions {
-                max: self.cache.limits.max_pending_transactions,
-            });
+            self.stats.skipped_packets = self.stats.skipped_packets.saturating_add(1);
+            return Ok(());
         }
         if self
             .stats
@@ -205,10 +215,8 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)?
             > self.cache.limits.max_pending_bytes
         {
-            self.reset_pending();
-            return Err(BlobCacheError::TooManyPendingBytes {
-                max: self.cache.limits.max_pending_bytes,
-            });
+            self.stats.skipped_packets = self.stats.skipped_packets.saturating_add(1);
+            return Ok(());
         }
         self.pending.push_back(PendingTransaction {
             packet: PendingPacket::Ordinary(packet),
@@ -235,10 +243,8 @@ impl BlobCacheResolver {
         if self.pending.len().saturating_add(self.ready.len())
             >= self.cache.limits.max_pending_transactions
         {
-            self.reset_pending();
-            return Err(BlobCacheError::TooManyPendingTransactions {
-                max: self.cache.limits.max_pending_transactions,
-            });
+            self.stats.skipped_world_events = self.stats.skipped_world_events.saturating_add(1);
+            return Ok(());
         }
         if self
             .stats
@@ -247,10 +253,8 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)?
             > self.cache.limits.max_pending_bytes
         {
-            self.reset_pending();
-            return Err(BlobCacheError::TooManyPendingBytes {
-                max: self.cache.limits.max_pending_bytes,
-            });
+            self.stats.skipped_world_events = self.stats.skipped_world_events.saturating_add(1);
+            return Ok(());
         }
         self.pending.push_back(PendingTransaction {
             packet: PendingPacket::WorldEvent(event),
@@ -449,6 +453,10 @@ impl BlobCacheResolver {
         let rejected = u64::try_from(response.blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
             Ok(()) => Ok(()),
+            Err(BlobCacheError::TooManyPendingBytes { .. }) => {
+                self.retire_blocking_transaction_for_pressure()?;
+                self.drain_ready()
+            }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.reset_pending();
@@ -575,6 +583,74 @@ impl BlobCacheResolver {
         self.stats.pending_bytes = 0;
     }
 
+    fn rollback_pressure_admission(
+        &mut self,
+        pending_before: usize,
+        ready_before: usize,
+    ) -> Result<(), BlobCacheError> {
+        while self.pending.len() > pending_before {
+            let transaction = self.pending.pop_back().expect("new pending transaction");
+            for hash in transaction
+                .unique_hashes
+                .iter()
+                .copied()
+                .filter(|hash| !self.cache.contains(*hash))
+            {
+                let _ = decrement_authorization(&mut self.authorized_misses, hash);
+            }
+            self.cache.unpin_all(&transaction.unique_hashes);
+        }
+        while self.ready.len() > ready_before {
+            let _ = self.ready.pop_back();
+        }
+        if self.pending.is_empty() {
+            self.pending = VecDeque::new();
+        }
+        if self.ready.is_empty() {
+            self.ready = VecDeque::new();
+        }
+        if self.authorized_misses.is_empty() {
+            self.authorized_misses = Vec::new();
+        } else {
+            self.authorized_misses.shrink_to_fit();
+        }
+        self.refresh_pending_accounting()
+    }
+
+    fn retire_blocking_transaction_for_pressure(&mut self) -> Result<(), BlobCacheError> {
+        let Some(transaction) = self.pending.pop_front() else {
+            return Ok(());
+        };
+        match transaction.packet {
+            PendingPacket::LevelChunk(_) | PendingPacket::SubChunk(_) => {
+                self.stats.retired_cached_transactions =
+                    self.stats.retired_cached_transactions.saturating_add(1);
+            }
+            PendingPacket::Ordinary(_) => {
+                self.stats.skipped_packets = self.stats.skipped_packets.saturating_add(1);
+            }
+            PendingPacket::WorldEvent(_) => {
+                self.stats.skipped_world_events =
+                    self.stats.skipped_world_events.saturating_add(1);
+            }
+        }
+        for hash in transaction
+            .unique_hashes
+            .iter()
+            .copied()
+            .filter(|hash| !self.cache.contains(*hash))
+        {
+            if decrement_authorization(&mut self.authorized_misses, hash) {
+                increment_authorization(&mut self.retired_authorized_misses, hash)?;
+            }
+        }
+        self.cache.unpin_all(&transaction.unique_hashes);
+        if self.pending.is_empty() {
+            self.pending = VecDeque::new();
+        }
+        self.refresh_pending_accounting()
+    }
+
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
         let ready = self.ready.pop_front()?;
         if self.ready.is_empty() {
@@ -633,6 +709,34 @@ impl BlobCacheResolver {
         }
         self.refresh_pending_accounting()?;
         Ok(())
+    }
+}
+
+fn skipped_cached_status(packet: &Packet) -> ClientCacheBlobStatusPacket {
+    let hashes = match &packet.data {
+        McpePacketData::PacketLevelChunk(packet) => packet
+            .blobs
+            .as_ref()
+            .map_or_else(Vec::new, |blobs| stable_unique(&blobs.hashes)),
+        McpePacketData::PacketSubchunk(packet) => {
+            let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+                return ClientCacheBlobStatusPacket::default();
+            };
+            stable_unique(
+                &entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.result == SubChunkEntryWithCachingItemResult::Success
+                    })
+                    .map(|entry| entry.blob_id)
+                    .collect::<Vec<_>>(),
+            )
+        }
+        _ => Vec::new(),
+    };
+    ClientCacheBlobStatusPacket {
+        missing: Vec::new(),
+        have: hashes,
     }
 }
 

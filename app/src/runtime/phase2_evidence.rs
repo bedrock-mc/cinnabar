@@ -167,6 +167,10 @@ fn blob_cache_json(stats: BlobCacheStats) -> Value {
         "pending_transactions": stats.pending_transactions,
         "pending_bytes": stats.pending_bytes,
         "pending_resets": stats.pending_resets,
+        "skipped_packets": stats.skipped_packets,
+        "skipped_world_events": stats.skipped_world_events,
+        "skipped_cached_packets": stats.skipped_cached_packets,
+        "retired_cached_transactions": stats.retired_cached_transactions,
         "reconstructed_level_chunks": stats.reconstructed_level_chunks,
         "reconstructed_sub_chunks": stats.reconstructed_sub_chunks,
     })

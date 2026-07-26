@@ -1,6 +1,6 @@
 use protocol::{
     BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheResolver, ClientBlobCache,
-    client_blob_hash,
+    SetTimeEvent, WorldEvent, client_blob_hash,
 };
 use std::mem::size_of;
 use std::sync::{Arc, Barrier};
@@ -81,6 +81,92 @@ fn pop_packet(resolver: &mut BlobCacheResolver, label: &str) -> protocol::Packet
         .unwrap_or_else(|| panic!("{label}"))
         .into_packet()
         .unwrap_or_else(|| panic!("{label} was not a packet"))
+}
+
+#[test]
+fn well_formed_world_event_pressure_keeps_the_resolver_bounded_and_alive() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 2;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let missing = client_blob_hash(b"head-miss");
+    resolver
+        .accept_cached_packet(cached_request_level(1, missing))
+        .expect("unresolved cached FIFO head");
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 1 }), 8)
+        .expect("event at the exact transaction boundary");
+
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 2 }), 8)
+        .expect("well-formed event pressure must be recoverable");
+
+    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert!(resolver.stats().pending_bytes <= bounded.max_pending_bytes);
+    assert_eq!(resolver.stats().pending_resets, 0);
+    assert_eq!(resolver.stats().skipped_world_events, 1);
+}
+
+#[test]
+fn cache_miss_response_still_unblocks_the_fifo_under_admission_pressure() {
+    let payload = b"head-miss";
+    let hash = client_blob_hash(payload);
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 2;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    resolver
+        .accept_cached_packet(cached_request_level(1, hash))
+        .expect("unresolved cached FIFO head");
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 1 }), 8)
+        .expect("event at the exact transaction boundary");
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 2 }), 8)
+        .expect("pressure is a lenient skip");
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
+        })
+        .expect("authorized miss response remains admissible under pressure");
+
+    let resolved = pop_packet(&mut resolver, "resolved cached FIFO head");
+    assert!(matches!(
+        resolved.data,
+        McpePacketData::PacketLevelChunk(_)
+    ));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(protocol::BlobCacheReady::WorldEvent(WorldEvent::SetTime(
+            SetTimeEvent { time: 1 }
+        )))
+    ));
+    assert!(resolver.pop_ready().is_none());
+    assert_eq!(resolver.stats().skipped_world_events, 1);
+}
+
+#[test]
+fn cached_subchunk_pressure_is_skipped_for_the_bounded_request_retry_path() {
+    let mut bounded = limits(8, 256);
+    bounded.max_pending_transactions = 1;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
+    let head_hash = client_blob_hash(b"head-miss");
+    resolver
+        .accept_cached_packet(cached_request_level(1, head_hash))
+        .expect("unresolved cached FIFO head");
+
+    let skipped_hash = client_blob_hash(b"retry-subchunk");
+    let status = resolver
+        .accept_cached_packet(cached_subchunk(skipped_hash, b"tail"))
+        .expect("requested SubChunk pressure must not disconnect");
+
+    assert!(status.missing.is_empty());
+    assert_eq!(status.have, vec![skipped_hash]);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    assert!(resolver.stats().pending_bytes <= bounded.max_pending_bytes);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 }
 
 #[test]
@@ -465,13 +551,14 @@ fn ready_transactions_remain_counted_and_exactly_accounted_until_consumed() {
     assert_eq!(resolver.stats().pending_transactions, 2);
     assert_eq!(resolver.stats().pending_bytes, two_ready_bytes);
 
-    assert!(
-        resolver
-            .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
-            .is_err()
-    );
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().pending_bytes, 0);
+    let skipped = resolver
+        .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("cached pressure is recoverable");
+    assert_eq!(skipped.have, vec![hash]);
+    assert!(skipped.missing.is_empty());
+    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert_eq!(resolver.stats().pending_bytes, two_ready_bytes);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 }
 
 #[test]
@@ -575,7 +662,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
 }
 
 #[test]
-fn repeated_large_blob_expansion_is_rejected_before_reconstruction() {
+fn repeated_large_blob_expansion_retires_the_transaction_without_rejecting_the_blob() {
     let payload = [0x5a; 512];
     let hash = client_blob_hash(&payload);
     let mut probe_limits = limits(2, 2_048);
@@ -603,27 +690,25 @@ fn repeated_large_blob_expansion_is_rejected_before_reconstruction() {
     resolver
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
         .expect("retained transaction fits before expansion");
-    let error = resolver
+    resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
                 hash,
                 payload: payload.to_vec(),
             }],
         })
-        .expect_err("repeated expansion exceeds the exact ready ceiling");
+        .expect("authorized blob remains admissible under ready-byte pressure");
 
-    assert!(matches!(
-        error,
-        protocol::BlobCacheError::TooManyPendingBytes { max } if max == ready_bytes - 1
-    ));
     assert_eq!(
         resolver.stats().hashes_classified,
         1,
-        "the retained transaction must be admitted before exact ready-size rejection"
+        "the retained transaction was admitted before bounded retirement"
     );
+    assert!(resolver.cache().contains(hash));
     assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().retired_cached_transactions, 1);
 }
 
 #[test]
@@ -741,13 +826,12 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
         .accept_cached_packet(cached_level(vec![b, b, b], b"12345678"))
         .expect("exact transaction boundary");
     assert_eq!(resolver.stats().pending_transactions, 2);
-    assert!(
-        resolver
-            .accept_cached_packet(cached_level(vec![a, a, a], b""))
-            .is_err()
-    );
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().pending_bytes, 0);
+    resolver
+        .accept_cached_packet(cached_level(vec![a, a, a], b""))
+        .expect("count pressure skips only the new cached packet");
+    assert_eq!(resolver.stats().pending_transactions, 2);
+    assert!(resolver.stats().pending_bytes <= transaction_limits.max_pending_bytes);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 
     let probe_hash = client_blob_hash(b"pending-byte-boundary");
     let mut probe = BlobCacheResolver::new(ClientBlobCache::with_limits(limits(2, 128)));
@@ -761,11 +845,13 @@ fn every_configured_ceiling_accepts_its_exact_boundary_and_stays_bounded_afterwa
         .accept_cached_packet(cached_request_level(1, probe_hash))
         .expect("exact pending byte ceiling is accepted");
     exact_limits.max_pending_bytes -= 1;
-    assert!(matches!(
-        BlobCacheResolver::new(ClientBlobCache::with_limits(exact_limits))
-            .accept_cached_packet(cached_request_level(1, probe_hash)),
-        Err(BlobCacheError::TooManyPendingBytes { .. })
-    ));
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(exact_limits));
+    resolver
+        .accept_cached_packet(cached_request_level(1, probe_hash))
+        .expect("byte pressure skips the cached packet without disconnecting");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 }
 
 #[test]
@@ -1166,13 +1252,13 @@ fn cached_subchunk_heightmaps_and_carriers_are_exactly_bounded() {
     }
     .into();
 
-    assert!(matches!(
-        resolver.accept_cached_packet(packet),
-        Err(BlobCacheError::TooManyPendingBytes { .. })
-    ));
+    resolver
+        .accept_cached_packet(packet)
+        .expect("ready carrier byte pressure is recoverable");
     assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 }
 
 #[test]
@@ -1182,8 +1268,10 @@ fn raw_cached_packet_size_participates_in_pending_admission_once() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::with_limits(bounded));
     let hash = client_blob_hash(b"missing");
 
-    assert!(matches!(
-        resolver.accept_cached_packet_with_size(cached_request_level(1, hash), 1_024),
-        Err(BlobCacheError::TooManyPendingBytes { max: 1_023 })
-    ));
+    resolver
+        .accept_cached_packet_with_size(cached_request_level(1, hash), 1_024)
+        .expect("raw-size pressure is recoverable");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().pending_bytes, 0);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
 }

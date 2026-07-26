@@ -22,7 +22,7 @@ use super::{
     PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress, run_network_pump,
     send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
     send_world_event_or_cancel, start_game_inventory_authority, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    wait_for_network_work_or_cancel, wait_for_send_or_cancel, write_network_pump_terminal_marker,
 };
 
 #[path = "physics_send_tests.rs"]
@@ -43,6 +43,29 @@ fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
         .expect("seed verified blob");
 
     assert!(reconnect.client_blob_cache.contains(hash));
+}
+
+#[test]
+fn network_pump_terminal_marker_carries_the_unmasked_error() {
+    let mut output = Vec::new();
+    write_network_pump_terminal_marker(
+        &mut output,
+        "receive",
+        "socket read failed: \"peer reset\"",
+        7,
+    );
+    let line = String::from_utf8(output).expect("marker is UTF-8");
+    let payload = line
+        .trim()
+        .strip_prefix("RUST_MCBE_NETWORK_PUMP_TERMINAL=")
+        .expect("durable marker prefix");
+    let marker: serde_json::Value = serde_json::from_str(payload).expect("marker JSON");
+
+    assert_eq!(marker["schema"], "rust-mcbe-network-pump-terminal-v1");
+    assert_eq!(marker["outcome"], "failed");
+    assert_eq!(marker["stage"], "receive");
+    assert_eq!(marker["message"], "socket read failed: \"peer reset\"");
+    assert_eq!(marker["decode_error_count"], 7);
 }
 
 #[test]

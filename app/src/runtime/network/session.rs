@@ -1,4 +1,5 @@
 use std::{
+    io::Write,
     path::PathBuf,
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -22,6 +23,7 @@ pub(crate) const WORLD_EVENT_CAPACITY: usize = 32;
 const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
 const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
+const NETWORK_PUMP_TERMINAL_MARKER: &str = "RUST_MCBE_NETWORK_PUMP_TERMINAL";
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
@@ -718,6 +720,11 @@ async fn run_network_pump<S: NetworkSession>(
                                 )
                                 .await;
                             }
+                            emit_network_pump_terminal_marker(
+                                "send",
+                                &error.to_string(),
+                                session.decode_error_count(),
+                            );
                             send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
                                 &control_event_tx,
@@ -752,6 +759,11 @@ async fn run_network_pump<S: NetworkSession>(
                 pending_world_event = Some(sequencer.wrap(*event));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
+                emit_network_pump_terminal_marker(
+                    "receive",
+                    &error.to_string(),
+                    session.decode_error_count(),
+                );
                 send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
@@ -836,10 +848,36 @@ fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
         pending_transactions = stats.pending_transactions,
         pending_bytes = stats.pending_bytes,
         pending_resets = stats.pending_resets,
+        skipped_packets = stats.skipped_packets,
+        skipped_world_events = stats.skipped_world_events,
+        skipped_cached_packets = stats.skipped_cached_packets,
+        retired_cached_transactions = stats.retired_cached_transactions,
         reconstructed_level_chunks = stats.reconstructed_level_chunks,
         reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
         "client blob cache counters"
     );
+}
+
+fn emit_network_pump_terminal_marker(stage: &'static str, message: &str, decode_errors: u64) {
+    let mut stdout = std::io::stdout().lock();
+    write_network_pump_terminal_marker(&mut stdout, stage, message, decode_errors);
+    let _ = stdout.flush();
+}
+
+fn write_network_pump_terminal_marker(
+    writer: &mut impl Write,
+    stage: &'static str,
+    message: &str,
+    decode_errors: u64,
+) {
+    let marker = serde_json::json!({
+        "schema": "rust-mcbe-network-pump-terminal-v1",
+        "outcome": "failed",
+        "stage": stage,
+        "message": message,
+        "decode_error_count": decode_errors,
+    });
+    let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
 }
 
 fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {

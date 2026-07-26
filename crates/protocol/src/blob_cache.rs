@@ -18,9 +18,10 @@ pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 4_096;
 pub const MAX_CLIENT_BLOB_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_096;
-/// A 256-transaction burst covers Lunar's observed 177 request-mode columns while the independent
-/// 64 MiB byte ceiling keeps retained packet state bounded to a 256 KiB average at the count cap.
-pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 256;
+/// A 2,048-transaction budget covers the 1,089 columns in Cinnabar's bounded 16-chunk-radius
+/// active view plus ordered join traffic. A vanilla BDS 1.26.32.2 join exceeded the old 256
+/// calibration while advertising 101 cache misses; the independent 64 MiB ceiling remains binding.
+pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +58,10 @@ pub struct BlobCacheStats {
     pub pending_transactions: usize,
     pub pending_bytes: usize,
     pub pending_resets: u64,
+    pub skipped_packets: u64,
+    pub skipped_world_events: u64,
+    pub skipped_cached_packets: u64,
+    pub retired_cached_transactions: u64,
     pub reconstructed_level_chunks: u64,
     pub reconstructed_sub_chunks: u64,
 }

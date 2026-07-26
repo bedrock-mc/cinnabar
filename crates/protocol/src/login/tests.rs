@@ -165,6 +165,17 @@ fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
 }
 
 #[test]
+fn malformed_cached_chunk_wire_remains_a_fatal_session_error() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let malformed = raw_packet(McpePacketName::PacketLevelChunk, &[0xff]);
+
+    let error = decode_world_raw_with(malformed, 0, |raw| raw.decode(&session))
+        .expect_err("truncated cached LevelChunk wire must fail closed");
+
+    assert!(matches!(error, ProtocolError::Session(_)));
+}
+
+#[test]
 fn ignored_play_packet_is_not_materialized() {
     let raw = raw_packet(McpePacketName::PacketNetworkSettings, &[0x7f]);
     let decoder_called = Cell::new(false);
