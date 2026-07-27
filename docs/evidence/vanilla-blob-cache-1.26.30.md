@@ -332,6 +332,17 @@ dropped. Before this bound, the 256-retained-transaction ceiling constrained
 only the number of ready outputs and allowed their aggregate payload memory to
 grow far beyond one transaction's 32 MiB reconstruction ceiling.
 
+Cinnabar additionally caps aggregate pending transaction bytes at 64 MiB via
+`MAX_CLIENT_BLOB_PENDING_BYTES` (`crates/protocol/src/blob_cache.rs:34`),
+enforced in `crates/protocol/src/blob_cache/resolver.rs:330`. Vanilla has no
+corresponding limit. The accounting includes pending packet containers, inline
+payloads, hash indexes, and cached ready containers. Crossing the ceiling
+removes the new transaction non-fatally, releases all pins, increments
+pressure/abandonment telemetry, and returns LevelChunk recovery. A
+ready-transition overage uses the common abandonment path, which also releases
+pins and queues recovery. SubChunk recovery remains scheduler-owned. This is a
+Cinnabar memory-safety divergence.
+
 Cinnabar's cache is byte-bounded only, admits blobs without an entry-count or
 per-blob maximum, and uses a 100 MiB trigger, 80 MiB floor, and LRU last-touch
 ordering. Its current in-memory implementation trims synchronously and uses
