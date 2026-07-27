@@ -648,8 +648,8 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
 }
 
 #[test]
-fn blob_status_splits_at_4095_ids_without_omission_or_reclassification() {
-    let missing = (0..4_096_u64).collect::<Vec<_>>();
+fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
+    let missing = (0..4_095_u64).collect::<Vec<_>>();
     let cache = ClientBlobCache::default();
     let hit = cache.insert(b"split-hit").expect("seed split hit");
     let mut hashes = missing.clone();
@@ -658,7 +658,7 @@ fn blob_status_splits_at_4095_ids_without_omission_or_reclassification() {
     let status = resolver
         .accept_cached_packet(
             LevelChunkPacket {
-                sub_chunk_count: 4_096,
+                sub_chunk_count: 4_095,
                 blobs: Some(LevelChunkPacketBlobs { hashes }),
                 ..Default::default()
             }

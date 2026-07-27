@@ -3,10 +3,7 @@ use super::*;
 #[test]
 fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 256);
-    assert_eq!(
-        protocol::MAX_CLIENT_BLOB_PENDING_BYTES,
-        64 * 1024 * 1024
-    );
+    assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_BYTES, 64 * 1024 * 1024);
     assert_eq!(protocol::MAX_CLIENT_BLOB_HASHES_PER_PACKET, 4_095);
     assert_eq!(
         protocol::MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION,
@@ -78,7 +75,10 @@ fn two_hundred_fifty_six_large_inline_pending_packets_are_bounded_and_recovered(
 
     let (abandoned_hash, abandoned_payload) =
         last_abandoned.expect("at least one packet must route through recovery");
-    assert_eq!(client_blob_hash(abandoned_payload.as_bytes()), abandoned_hash);
+    assert_eq!(
+        client_blob_hash(abandoned_payload.as_bytes()),
+        abandoned_hash
+    );
     cache
         .insert(abandoned_payload.as_bytes())
         .expect("insert formerly abandoned hash");

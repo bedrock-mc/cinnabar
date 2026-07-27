@@ -255,7 +255,9 @@ fn phase2_publication_exposes_every_blob_cache_pressure_counter() {
     ];
     let mismatched = expected
         .into_iter()
-        .filter(|(field, value)| cache.get(*field).and_then(serde_json::Value::as_u64) != Some(*value))
+        .filter(|(field, value)| {
+            cache.get(*field).and_then(serde_json::Value::as_u64) != Some(*value)
+        })
         .collect::<Vec<_>>();
 
     assert!(

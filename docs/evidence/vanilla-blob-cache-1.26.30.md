@@ -271,6 +271,8 @@ the primary authority for this contract:
 
 ## Cinnabar divergences and known gaps
 
+Cinnabar rejects cached LevelChunk hash lists above 4,096 during wire decode, before resolver classification; this is a Cinnabar bound.
+
 Cinnabar deliberately retains blob-payload hash validation even though
 vanilla no longer performs it. This is a security-motivated divergence that
 protects against cache poisoning.
