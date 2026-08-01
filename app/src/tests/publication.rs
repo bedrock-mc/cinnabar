@@ -741,7 +741,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     assert_eq!(uploaded_terminal.allocation_manifest, vec![(key, 1)]);
     assert_eq!(allowance.live_permits(), 0);
 
-    allowance.begin_frame(2, 0, 0, 1);
+    allowance.begin_frame(2, 1, 0, 1);
     let removal_permit = allowance.try_admit_zero_byte().unwrap();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
@@ -828,7 +828,7 @@ fn adaptive_publication_diagnostic_is_deterministic_and_cohort_tagged() {
     let line = adaptive_publication_diagnostic_line(controller.diagnostics());
     assert_eq!(
         line,
-        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
+        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_payload_items=5 published_zero_items=0 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
     );
 }
 
@@ -988,7 +988,7 @@ fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() 
 }
 
 #[test]
-fn zero_byte_removals_never_masquerade_as_spent_payload_authority() {
+fn zero_byte_removals_trigger_pressure_from_their_prior_cap() {
     let mut controller = PublicationController::default();
     controller.begin_frame(Duration::from_millis(16));
     controller.finish_frame(PublicationFrameWork {
@@ -997,12 +997,37 @@ fn zero_byte_removals_never_masquerade_as_spent_payload_authority() {
         mesh_payloads_published: 0,
         mesh_bytes_published: 0,
         pending_mesh_jobs: 1,
+        in_flight_mesh_jobs: 1,
         ..PublicationFrameWork::healthy()
     });
 
     controller.begin_frame(Duration::from_millis(80));
 
-    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
+    assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 80);
+}
+
+#[test]
+fn three_second_zero_byte_saturation_collapses_the_next_cap_near_one() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
+    let mut controller = PublicationController::default();
+    controller.begin_frame(Duration::from_millis(16));
+    controller.finish_frame(PublicationFrameWork {
+        mesh_changes_published: controller.budget().max_zero_byte_operations_per_frame,
+        mesh_payloads_published: 0,
+        pending_mesh_jobs: 1,
+        in_flight_mesh_jobs: 1,
+        ..PublicationFrameWork::healthy()
+    });
+
+    controller.begin_frame(Duration::from_secs(3));
+
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        2.min(config.maximum_zero_byte_operations_per_frame)
+    );
+    assert!(controller.budget().max_zero_byte_operations_per_frame >= 1);
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
 }
 
 #[test]
@@ -1017,6 +1042,7 @@ fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
 
     assert!(controller.budget().max_per_frame <= 66);
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
+    assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 128);
 }
 
 #[test]
@@ -1028,6 +1054,7 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     });
     controller.begin_frame(Duration::from_millis(16));
     let reduced = controller.budget().max_per_frame;
+    let reduced_zero = controller.budget().max_zero_byte_operations_per_frame;
     let allowance = controller.allowance();
     while let Some(permit) = allowance.try_admit_payload(1) {
         assert!(permit.retire());
@@ -1037,6 +1064,7 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
         controller.finish_frame(PublicationFrameWork::default());
         controller.begin_frame(Duration::from_millis(16));
         assert!(controller.budget().max_per_frame <= reduced + 1);
+        assert!(controller.budget().max_zero_byte_operations_per_frame <= reduced_zero);
         while let Some(permit) = allowance.try_admit_payload(1) {
             assert!(permit.retire());
         }
@@ -1045,6 +1073,10 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     controller.finish_frame(PublicationFrameWork::default());
     controller.begin_frame(Duration::from_millis(16));
     assert!(controller.budget().max_per_frame >= 131);
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        reduced_zero + 1
+    );
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
     assert_eq!(controller.diagnostics().additive_increases, 1);
 }
@@ -1107,7 +1139,7 @@ fn eight_hz_frames_receive_two_seconds_of_bounded_service_without_runaway_burst(
 }
 
 #[test]
-fn paced_eight_hz_backlog_is_not_misclassified_as_publication_pressure() {
+fn paced_eight_hz_saturated_backlog_reduces_publication_pressure() {
     let mut controller = PublicationController::default();
     let mut serviced = 0_usize;
 
@@ -1135,7 +1167,7 @@ fn paced_eight_hz_backlog_is_not_misclassified_as_publication_pressure() {
     }
 
     assert!(serviced >= 6_951);
-    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
 }
 
 #[test]

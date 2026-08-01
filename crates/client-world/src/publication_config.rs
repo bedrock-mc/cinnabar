@@ -170,9 +170,16 @@ impl PublicationAllowance {
     #[must_use]
     pub fn try_admit_zero_byte(&self) -> Option<PublicationPermit> {
         let mut state = self.lock();
-        if state.live_zero_byte_operations >= state.config.maximum_zero_byte_operations_per_frame {
+        if state.remaining_zero_byte_operations == 0
+            || state.remaining_items == 0
+            || state.frame_remaining_items == 0
+            || state.live_zero_byte_operations
+                >= state.config.maximum_zero_byte_operations_per_frame
+        {
             return None;
         }
+        state.remaining_items = state.remaining_items.checked_sub(1)?;
+        state.frame_remaining_items = state.frame_remaining_items.checked_sub(1)?;
         state.remaining_zero_byte_operations =
             state.remaining_zero_byte_operations.checked_sub(1)?;
         Some(insert_permit(
@@ -460,23 +467,23 @@ mod tests {
     }
 
     #[test]
-    fn five_hundred_twelve_payload_and_zero_byte_attempts_enforce_distinct_exact_caps() {
+    fn five_hundred_twelve_mixed_payload_and_zero_byte_attempts_share_exact_item_caps() {
         let config = PublicationServiceConfig::PHASE2_GATE;
         let allowance = PublicationAllowance::new(config);
         allowance.begin_frame(1, 512, 512, config.maximum_zero_byte_operations_per_frame);
-        let payload = (0..512)
+        let payload = (0..256)
             .map(|_| allowance.try_admit_payload(1))
             .collect::<Vec<_>>();
         let zero_byte = (0..512)
             .map(|_| allowance.try_admit_zero_byte())
             .collect::<Vec<_>>();
 
-        assert_eq!(payload.iter().flatten().count(), 512);
+        assert_eq!(payload.iter().flatten().count(), 256);
         assert_eq!(zero_byte.iter().flatten().count(), 256);
         assert_eq!(allowance.remaining_items(), 0);
-        assert_eq!(allowance.remaining_bytes(), 0);
+        assert_eq!(allowance.frame_remaining_items(), 0);
+        assert_eq!(allowance.remaining_bytes(), 256);
         assert_eq!(allowance.remaining_zero_byte_operations(), 0);
-        allowance.begin_frame(2, 512, 512, config.maximum_zero_byte_operations_per_frame);
         assert!(allowance.try_admit_payload(1).is_none());
         assert!(allowance.try_admit_zero_byte().is_none());
         for permit in payload
@@ -487,6 +494,25 @@ mod tests {
             assert!(permit.retire());
         }
         assert_eq!(allowance.live_permits(), 0);
+    }
+
+    #[test]
+    fn rejected_zero_byte_attempts_preserve_shared_item_authority_with_zero_cap() {
+        let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
+        allowance.begin_frame(1, 1, 1, 0);
+
+        for _ in 0..8 {
+            assert!(allowance.try_admit_zero_byte().is_none());
+        }
+        assert_eq!(allowance.remaining_items(), 1);
+        assert_eq!(allowance.frame_remaining_items(), 1);
+
+        let payload = allowance
+            .try_admit_payload(1)
+            .expect("zero-byte rejection must not burn the shared item");
+        assert_eq!(allowance.remaining_items(), 0);
+        assert_eq!(allowance.frame_remaining_items(), 0);
+        assert!(payload.retire());
     }
 
     #[test]

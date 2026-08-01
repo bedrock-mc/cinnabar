@@ -98,7 +98,7 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
     let now = Instant::now();
     let config = client_world::PublicationServiceConfig::PHASE2_GATE;
     let allowance = client_world::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 0, 0, 512);
+    allowance.begin_frame(1, 256, 0, 512);
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -136,7 +136,7 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
         256
     );
     assert_eq!(allowance.live_permits(), 256);
-    allowance.begin_frame(2, 0, 0, 512);
+    allowance.begin_frame(2, 1, 0, 512);
     assert!(allowance.try_admit_zero_byte().is_none());
 
     drop(app);
@@ -155,7 +155,7 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 1);
+    allowance.begin_frame(1, 1, 0, 1);
     let permit = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -202,7 +202,7 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 1);
+    allowance.begin_frame(1, 1, 0, 1);
     let permit = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -240,7 +240,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 2);
+    allowance.begin_frame(1, 2, 0, 2);
     let first = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -533,7 +533,7 @@ fn render_handoff_rejects_a_permit_with_the_wrong_class_or_exact_bytes() {
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 1, 64, 1);
+    allowance.begin_frame(1, 2, 64, 1);
     let payload = allowance.try_admit_payload(64).unwrap();
     let zero = allowance.try_admit_zero_byte().unwrap();
     let mut queue = ChunkRenderQueue::default();

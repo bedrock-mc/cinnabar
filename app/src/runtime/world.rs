@@ -645,7 +645,6 @@ pub(crate) fn drive_world_stream(
     let mut published_items = 0_usize;
     let mut published_payload_items = 0_usize;
     let mut published_bytes = 0_u64;
-    let mut published_zero_byte_operations = 0_usize;
     if let Some(stream) = client_world.stream.as_mut() {
         while let Some(change) = stream.pop_mesh_change() {
             if !mesh_change_has_publication_permit(&change) {
@@ -740,10 +739,7 @@ pub(crate) fn drive_world_stream(
             };
             let Some(retry) = retry else {
                 published_items = published_items.saturating_add(1);
-                if change_bytes == 0 {
-                    published_zero_byte_operations =
-                        published_zero_byte_operations.saturating_add(1);
-                } else {
+                if change_bytes != 0 {
                     published_payload_items = published_payload_items.saturating_add(1);
                     published_bytes = published_bytes.saturating_add(change_bytes);
                 }

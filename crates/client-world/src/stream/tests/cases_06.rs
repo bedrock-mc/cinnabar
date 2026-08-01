@@ -215,7 +215,7 @@ fn removal_waits_for_source_authority_and_carries_its_zero_byte_permit() {
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
     assert!(stream.take_mesh_changes().is_empty());
 
-    allowance.begin_frame(2, 0, 0, 1);
+    allowance.begin_frame(2, 1, 0, 1);
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
     let mut changes = stream.take_mesh_changes();
     assert_eq!(changes.len(), 1);
