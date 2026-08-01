@@ -77,6 +77,7 @@ pub(crate) struct PublicationController {
     item_rate_per_second: u32,
     byte_rate_per_second: u64,
     zero_byte_operations_per_frame: usize,
+    item_operations_per_frame: usize,
     allowance: PublicationAllowance,
     item_numerator_remainder: u128,
     byte_numerator_remainder: u128,
@@ -99,12 +100,20 @@ impl PublicationController {
         assert!(config.maximum_frame_items <= config.maximum_burst_items);
         assert!(config.maximum_frame_bytes <= config.maximum_burst_bytes);
         let zero_byte_operations_per_frame = config.maximum_zero_byte_operations_per_frame;
-        let budget = frame_budget(config, 0, 0, zero_byte_operations_per_frame);
+        let item_operations_per_frame = config.maximum_frame_items;
+        let budget = frame_budget(
+            config,
+            item_operations_per_frame,
+            0,
+            0,
+            zero_byte_operations_per_frame,
+        );
         Self {
             config,
             item_rate_per_second: config.target_items_per_second,
             byte_rate_per_second: config.target_bytes_per_second,
             zero_byte_operations_per_frame,
+            item_operations_per_frame,
             allowance: PublicationAllowance::new(config),
             item_numerator_remainder: 0,
             byte_numerator_remainder: 0,
@@ -147,9 +156,11 @@ impl PublicationController {
             issued_items,
             issued_bytes,
             self.zero_byte_operations_per_frame,
+            self.item_operations_per_frame,
         );
         self.diagnostics.budget = frame_budget(
             self.config,
+            self.item_operations_per_frame,
             self.allowance.frame_remaining_items(),
             self.allowance.frame_remaining_bytes(),
             self.zero_byte_operations_per_frame,
@@ -205,20 +216,34 @@ impl PublicationController {
             && saturated_work
             && (work.pending_mesh_jobs > 0 || work.in_flight_mesh_jobs > 0);
         if gpu_backlog || elapsed_pressure {
-            if self.item_rate_per_second != self.config.minimum_items_per_second
-                || self.byte_rate_per_second != self.config.minimum_bytes_per_second
-            {
-                self.diagnostics.multiplicative_decreases =
-                    self.diagnostics.multiplicative_decreases.saturating_add(1);
-            }
+            let previous_item_rate = self.item_rate_per_second;
+            let previous_byte_rate = self.byte_rate_per_second;
+            let previous_zero_cap = self.zero_byte_operations_per_frame;
+            let previous_item_cap = self.item_operations_per_frame;
             self.item_rate_per_second = self.config.minimum_items_per_second;
             self.byte_rate_per_second = self.config.minimum_bytes_per_second;
             if elapsed_pressure {
                 self.zero_byte_operations_per_frame =
-                    proportional_zero_byte_cap(self.zero_byte_operations_per_frame, elapsed);
-            } else if self.zero_byte_operations_per_frame > 0 {
-                self.zero_byte_operations_per_frame =
-                    self.zero_byte_operations_per_frame.saturating_div(2).max(1);
+                    proportional_cap(self.zero_byte_operations_per_frame, elapsed);
+                self.item_operations_per_frame =
+                    proportional_cap(self.item_operations_per_frame, elapsed);
+            } else {
+                if self.zero_byte_operations_per_frame > 0 {
+                    self.zero_byte_operations_per_frame =
+                        self.zero_byte_operations_per_frame.saturating_div(2).max(1);
+                }
+                if self.item_operations_per_frame > 0 {
+                    self.item_operations_per_frame =
+                        self.item_operations_per_frame.saturating_div(2).max(1);
+                }
+            }
+            if self.item_rate_per_second != previous_item_rate
+                || self.byte_rate_per_second != previous_byte_rate
+                || self.zero_byte_operations_per_frame != previous_zero_cap
+                || self.item_operations_per_frame != previous_item_cap
+            {
+                self.diagnostics.multiplicative_decreases =
+                    self.diagnostics.multiplicative_decreases.saturating_add(1);
             }
             self.diagnostics.under_target_streak = 0;
             return;
@@ -227,7 +252,8 @@ impl PublicationController {
         let recovering = self.item_rate_per_second != self.config.target_items_per_second
             || self.byte_rate_per_second != self.config.target_bytes_per_second
             || self.zero_byte_operations_per_frame
-                < self.config.maximum_zero_byte_operations_per_frame;
+                < self.config.maximum_zero_byte_operations_per_frame
+            || self.item_operations_per_frame < self.config.maximum_frame_items;
         if !recovering {
             self.diagnostics.under_target_streak = 0;
             return;
@@ -251,7 +277,13 @@ impl PublicationController {
             .zero_byte_operations_per_frame
             .saturating_add(1)
             .min(self.config.maximum_zero_byte_operations_per_frame);
-        if rates_recovered || self.zero_byte_operations_per_frame != previous_zero_cap {
+        let previous_item_cap = self.item_operations_per_frame;
+        self.item_operations_per_frame =
+            geometric_item_cap_recovery(previous_item_cap, self.config.maximum_frame_items);
+        if rates_recovered
+            || self.zero_byte_operations_per_frame != previous_zero_cap
+            || self.item_operations_per_frame != previous_item_cap
+        {
             self.diagnostics.additive_increases =
                 self.diagnostics.additive_increases.saturating_add(1);
         }
@@ -304,18 +336,24 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
 
 fn frame_budget(
     config: PublicationServiceConfig,
+    item_operations_per_frame: usize,
     accrued_items: usize,
     accrued_bytes: u64,
     zero_byte_operations_per_frame: usize,
 ) -> ChunkUploadBudget {
     ChunkUploadBudget::new(
-        accrued_items.min(config.maximum_frame_items),
+        accrued_items
+            .min(item_operations_per_frame)
+            .min(config.maximum_frame_items),
         accrued_bytes.min(config.maximum_frame_bytes),
     )
     .with_zero_byte_operations_per_frame(zero_byte_operations_per_frame)
 }
 
-fn proportional_zero_byte_cap(current: usize, elapsed: Duration) -> usize {
+fn proportional_cap(current: usize, elapsed: Duration) -> usize {
+    if current == 0 {
+        return 0;
+    }
     let reduced = u128::try_from(current)
         .unwrap_or(u128::MAX)
         .saturating_mul(PRESSURE_FRAME_TIME.as_nanos())
@@ -324,6 +362,16 @@ fn proportional_zero_byte_cap(current: usize, elapsed: Duration) -> usize {
         .unwrap_or(usize::MAX)
         .max(1)
         .min(current)
+}
+
+fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usize {
+    if current == 0 || current >= configured_maximum {
+        return configured_maximum;
+    }
+    current
+        .saturating_mul(2)
+        .max(current.saturating_add(1))
+        .min(configured_maximum)
 }
 
 fn accrue_tokens(

@@ -686,7 +686,13 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
     let allowance = client_world::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 1, config.maximum_frame_bytes, 0);
+    allowance.begin_frame(
+        1,
+        1,
+        config.maximum_frame_bytes,
+        0,
+        config.maximum_frame_items,
+    );
     let upload_permit = allowance.try_admit_payload(bytes).unwrap();
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let initial_budget =
@@ -741,7 +747,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     assert_eq!(uploaded_terminal.allocation_manifest, vec![(key, 1)]);
     assert_eq!(allowance.live_permits(), 0);
 
-    allowance.begin_frame(2, 1, 0, 1);
+    allowance.begin_frame(2, 1, 0, 1, config.maximum_frame_items);
     let removal_permit = allowance.try_admit_zero_byte().unwrap();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
@@ -951,7 +957,7 @@ fn fifo_jitter_accrues_wall_clock_service_without_frame_count_bias() {
     assert!(u128::try_from(serviced).unwrap() >= minimum);
 }
 #[test]
-fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() {
+fn eighty_millisecond_saturated_frame_reduces_proportional_item_and_zero_caps() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.begin_frame(Duration::from_millis(16));
@@ -967,13 +973,7 @@ fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() 
         ..PublicationFrameWork::default()
     });
     controller.begin_frame(Duration::from_millis(80));
-    let expected_items = usize::try_from(
-        u64::from(config.minimum_items_per_second)
-            .checked_mul(80)
-            .unwrap()
-            / 1_000,
-    )
-    .unwrap();
+    let expected_items = config.maximum_frame_items * 25 / 80;
     let expected_bytes = carried_bytes
         .checked_add(config.minimum_bytes_per_second.checked_mul(80).unwrap() / 1_000)
         .unwrap();
@@ -1001,7 +1001,7 @@ fn zero_byte_removals_trigger_pressure_from_their_prior_cap() {
     assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 80);
 }
 #[test]
-fn three_second_zero_byte_saturation_collapses_the_next_cap_near_one() {
+fn three_second_zero_byte_saturation_reduces_item_and_zero_caps() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.begin_frame(Duration::from_millis(16));
@@ -1013,6 +1013,7 @@ fn three_second_zero_byte_saturation_collapses_the_next_cap_near_one() {
         ..PublicationFrameWork::healthy()
     });
     controller.begin_frame(Duration::from_secs(3));
+    assert_eq!(controller.budget().max_per_frame, 4);
 
     assert_eq!(
         controller.budget().max_zero_byte_operations_per_frame,
@@ -1030,20 +1031,21 @@ fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
         ..PublicationFrameWork::default()
     });
 
-    controller.begin_frame(Duration::from_millis(16));
+    controller.begin_frame(Duration::from_millis(125));
 
-    assert!(controller.budget().max_per_frame <= 66);
+    assert_eq!(controller.budget().max_per_frame, 256);
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
     assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 128);
 }
 #[test]
 fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
         upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
-    controller.begin_frame(Duration::from_millis(16));
+    controller.begin_frame(Duration::from_millis(125));
     let reduced = controller.budget().max_per_frame;
     let reduced_zero = controller.budget().max_zero_byte_operations_per_frame;
     let allowance = controller.allowance();
@@ -1052,16 +1054,19 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     }
     for _ in 0..119 {
         controller.finish_frame(PublicationFrameWork::default());
-        controller.begin_frame(Duration::from_millis(16));
-        assert!(controller.budget().max_per_frame <= reduced + 1);
+        controller.begin_frame(Duration::from_millis(125));
+        assert_eq!(controller.budget().max_per_frame, reduced);
         assert!(controller.budget().max_zero_byte_operations_per_frame <= reduced_zero);
         while let Some(permit) = allowance.try_admit_payload(1) {
             assert!(permit.retire());
         }
     }
     controller.finish_frame(PublicationFrameWork::default());
-    controller.begin_frame(Duration::from_millis(16));
-    assert!(controller.budget().max_per_frame >= 131);
+    controller.begin_frame(Duration::from_millis(125));
+    assert_eq!(
+        controller.budget().max_per_frame,
+        reduced.saturating_mul(2).min(config.maximum_frame_items)
+    );
     assert_eq!(
         controller.budget().max_zero_byte_operations_per_frame,
         reduced_zero + 1
@@ -1150,8 +1155,9 @@ fn paced_eight_hz_saturated_backlog_reduces_publication_pressure() {
         assert_eq!(published, budget.max_per_frame);
     }
 
-    assert!(serviced >= 6_951);
-    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
+    assert_eq!(serviced, 650);
+    assert_eq!(controller.budget().max_per_frame, 1);
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 4);
 }
 #[test]
 fn publication_frame_is_explicitly_ordered_before_world_poll_and_handoff() {

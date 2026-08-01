@@ -116,6 +116,7 @@ impl PublicationAllowance {
         issued_items: usize,
         issued_bytes: u64,
         issued_zero_byte_operations: usize,
+        frame_item_limit: usize,
     ) {
         let mut state = self.lock();
         if frame_sequence <= state.frame_sequence {
@@ -132,7 +133,10 @@ impl PublicationAllowance {
             .checked_add(issued_bytes)
             .unwrap_or(state.config.maximum_burst_bytes)
             .min(state.config.maximum_burst_bytes);
-        state.frame_remaining_items = state.remaining_items.min(state.config.maximum_frame_items);
+        state.frame_remaining_items = state
+            .remaining_items
+            .min(state.config.maximum_frame_items)
+            .min(frame_item_limit);
         state.frame_remaining_bytes = state.remaining_bytes.min(state.config.maximum_frame_bytes);
         state.remaining_zero_byte_operations =
             issued_zero_byte_operations.min(state.config.maximum_zero_byte_operations_per_frame);
@@ -427,7 +431,13 @@ mod tests {
     #[test]
     fn one_linear_permit_transfers_across_every_stage() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
-        allowance.begin_frame(1, 1, 1, 1);
+        allowance.begin_frame(
+            1,
+            1,
+            1,
+            1,
+            PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        );
         let permit = allowance
             .try_admit_payload(1)
             .expect("one payload token is available");
@@ -444,7 +454,13 @@ mod tests {
     #[test]
     fn stale_or_dropped_permit_is_retired_without_refunding_spent_authority() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
-        allowance.begin_frame(1, 1, 64, 1);
+        allowance.begin_frame(
+            1,
+            1,
+            64,
+            1,
+            PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        );
         let permit = allowance.try_admit_payload(64).unwrap();
 
         let permit = permit.into_render_entity().unwrap_err();
@@ -458,7 +474,13 @@ mod tests {
     #[test]
     fn dropping_the_linear_carrier_retires_the_live_permit_without_refund() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
-        allowance.begin_frame(1, 1, 64, 0);
+        allowance.begin_frame(
+            1,
+            1,
+            64,
+            0,
+            PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        );
         let permit = allowance.try_admit_payload(64).unwrap();
         drop(permit);
         assert_eq!(allowance.live_permits(), 0);
@@ -470,7 +492,13 @@ mod tests {
     fn five_hundred_twelve_mixed_payload_and_zero_byte_attempts_share_exact_item_caps() {
         let config = PublicationServiceConfig::PHASE2_GATE;
         let allowance = PublicationAllowance::new(config);
-        allowance.begin_frame(1, 512, 512, config.maximum_zero_byte_operations_per_frame);
+        allowance.begin_frame(
+            1,
+            512,
+            512,
+            config.maximum_zero_byte_operations_per_frame,
+            config.maximum_frame_items,
+        );
         let payload = (0..256)
             .map(|_| allowance.try_admit_payload(1))
             .collect::<Vec<_>>();
@@ -495,11 +523,38 @@ mod tests {
         }
         assert_eq!(allowance.live_permits(), 0);
     }
+    #[test]
+    fn carried_item_authority_respects_dynamic_frame_item_limit() {
+        let config = PublicationServiceConfig::PHASE2_GATE;
+        let allowance = PublicationAllowance::new(config);
+        allowance.begin_frame(1, 512, 4, 4, config.maximum_frame_items);
+        allowance.begin_frame(2, 512, 4, 4, 4);
+
+        assert_eq!(allowance.remaining_items(), 1_024);
+        assert_eq!(allowance.frame_remaining_items(), 4);
+        let payload = allowance.try_admit_payload(1).unwrap();
+        let zero_byte = (0..4)
+            .map(|_| allowance.try_admit_zero_byte())
+            .collect::<Vec<_>>();
+        assert_eq!(zero_byte.iter().flatten().count(), 3);
+        assert!(allowance.try_admit_zero_byte().is_none());
+        assert_eq!(allowance.frame_remaining_items(), 0);
+        assert!(payload.retire());
+        for permit in zero_byte.into_iter().flatten() {
+            assert!(permit.retire());
+        }
+    }
 
     #[test]
     fn rejected_zero_byte_attempts_preserve_shared_item_authority_with_zero_cap() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
-        allowance.begin_frame(1, 1, 1, 0);
+        allowance.begin_frame(
+            1,
+            1,
+            1,
+            0,
+            PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        );
 
         for _ in 0..8 {
             assert!(allowance.try_admit_zero_byte().is_none());
@@ -519,12 +574,24 @@ mod tests {
     fn live_payload_bytes_never_cross_the_literal_64_mib_boundary_across_frames() {
         let config = PublicationServiceConfig::PHASE2_GATE;
         let allowance = PublicationAllowance::new(config);
-        allowance.begin_frame(1, 1, config.maximum_frame_bytes, 0);
+        allowance.begin_frame(
+            1,
+            1,
+            config.maximum_frame_bytes,
+            0,
+            config.maximum_frame_items,
+        );
         let permit = allowance
             .try_admit_payload(config.maximum_frame_bytes)
             .expect("the literal boundary itself is permitted");
 
-        allowance.begin_frame(2, 512, config.maximum_frame_bytes, 0);
+        allowance.begin_frame(
+            2,
+            512,
+            config.maximum_frame_bytes,
+            0,
+            config.maximum_frame_items,
+        );
         assert!(allowance.try_admit_payload(1).is_none());
         let permit = permit.into_handoff().unwrap().into_render_entity().unwrap();
         let permit = permit
@@ -538,8 +605,20 @@ mod tests {
         let config = PublicationServiceConfig::PHASE2_GATE;
         let allowance = PublicationAllowance::new(config);
 
-        allowance.begin_frame(1, 512, 1024, config.maximum_zero_byte_operations_per_frame);
-        allowance.begin_frame(2, 512, 1024, config.maximum_zero_byte_operations_per_frame);
+        allowance.begin_frame(
+            1,
+            512,
+            1024,
+            config.maximum_zero_byte_operations_per_frame,
+            config.maximum_frame_items,
+        );
+        allowance.begin_frame(
+            2,
+            512,
+            1024,
+            config.maximum_zero_byte_operations_per_frame,
+            config.maximum_frame_items,
+        );
         assert_eq!(allowance.remaining_items(), 1_024);
         assert_eq!(allowance.remaining_bytes(), 2_048);
 
@@ -549,6 +628,7 @@ mod tests {
                 config.maximum_frame_items,
                 config.maximum_frame_bytes,
                 config.maximum_zero_byte_operations_per_frame,
+                config.maximum_frame_items,
             );
         }
         assert_eq!(allowance.remaining_items(), config.maximum_burst_items);
@@ -558,7 +638,13 @@ mod tests {
     #[test]
     fn arena_growth_charges_bytes_to_the_existing_item_without_an_item_redebit() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
-        allowance.begin_frame(1, 1, 96, 0);
+        allowance.begin_frame(
+            1,
+            1,
+            96,
+            0,
+            PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        );
         let permit = allowance.try_admit_payload(64).unwrap();
 
         let permit = permit.into_handoff().unwrap().into_render_entity().unwrap();
