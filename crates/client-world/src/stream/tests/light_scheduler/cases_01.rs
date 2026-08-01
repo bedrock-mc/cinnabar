@@ -886,7 +886,7 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
 }
 
 #[test]
-fn one_completion_releases_one_independent_worker_slot() {
+fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     let mut stream = lit_stream(1);
     let capacity = super::super::MAX_IN_FLIGHT_LIGHT_JOBS;
     let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
