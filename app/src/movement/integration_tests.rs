@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use super::runtime_system::physics_authority_fault_for_frame;
 use super::{
     LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementOutboxReconciliation,
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,

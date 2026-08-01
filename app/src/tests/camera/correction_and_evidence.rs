@@ -782,6 +782,60 @@ fn phase3_authority_fault_evidence_survives_deauthorization_and_is_bounded() {
 }
 
 #[test]
+fn phase3_simulation_fault_evidence_preserves_frame_and_error_context() {
+    let fault = PhysicsAuthorityFaultRecord {
+        session_generation: 7,
+        fault: PhysicsAuthorityFault::PhysicsSimulationError {
+            due: 5,
+            tick_index: 2,
+            error: sim::SimulationError::NonFiniteInput { field: "forward" },
+        },
+        next_tick: 41,
+        pending_count: 3,
+    };
+    let mut evidence = Phase3EvidenceEmitter::default();
+
+    let markers = evidence.observe_authority_fault(fault);
+    let json: serde_json::Value =
+        serde_json::from_str(markers[0].strip_prefix("RUST_MCBE_PHASE3_EVENT=").unwrap())
+            .unwrap();
+    assert_eq!(json["fault"], "physics_simulation_error");
+    assert_eq!(json["detail"]["due"], 5);
+    assert_eq!(json["detail"]["tick_index"], 2);
+    assert_eq!(
+        json["detail"]["simulation_error"]["kind"],
+        "non_finite_input"
+    );
+    assert_eq!(json["detail"]["simulation_error"]["field"], "forward");
+    assert_eq!(
+        json["detail"]["simulation_error"]["message"],
+        "movement input field forward is not finite"
+    );
+}
+
+#[test]
+fn phase3_tick_overflow_evidence_preserves_due_and_dropped_counts() {
+    let fault = PhysicsAuthorityFaultRecord {
+        session_generation: 7,
+        fault: PhysicsAuthorityFault::PhysicsTickOverflow {
+            due: 200,
+            dropped: 192,
+        },
+        next_tick: 41,
+        pending_count: 0,
+    };
+    let mut evidence = Phase3EvidenceEmitter::default();
+
+    let markers = evidence.observe_authority_fault(fault);
+    let json: serde_json::Value =
+        serde_json::from_str(markers[0].strip_prefix("RUST_MCBE_PHASE3_EVENT=").unwrap())
+            .unwrap();
+    assert_eq!(json["fault"], "physics_tick_overflow");
+    assert_eq!(json["detail"]["due"], 200);
+    assert_eq!(json["detail"]["dropped"], 192);
+}
+
+#[test]
 fn phase3_evidence_producer_stays_bounded_after_record_limits() {
     let frame = |physics_tick| Phase3EvidenceFrame {
         session_generation: 7,

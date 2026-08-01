@@ -20,6 +20,16 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// catch-up spike. Outbound movement remains independently disabled.
 pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 8;
 
+pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
+    matches!(
+        error,
+        SimulationError::World(
+            sim::WorldQueryError::UnloadedChunk(_)
+                | sim::WorldQueryError::UnknownRuntimeId { .. }
+        )
+    )
+}
+
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
 #[must_use]
 pub fn physics_movement_input(
@@ -259,8 +269,10 @@ pub(super) struct PhysicsCorrectionPlan {
 
 #[derive(Debug, Default)]
 pub struct LocalPhysicsFrame {
+    pub due_ticks: u64,
     pub completed_ticks: usize,
     pub dropped_ticks: u64,
+    pub blocked_tick_index: Option<usize>,
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
 }
@@ -419,6 +431,7 @@ impl LocalPhysicsController {
         self.accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
         let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
         let mut frame = LocalPhysicsFrame {
+            due_ticks: due,
             dropped_ticks: due.saturating_sub(allowed as u64),
             samples: Vec::with_capacity(allowed),
             ..LocalPhysicsFrame::default()
@@ -477,11 +490,30 @@ impl LocalPhysicsController {
                     input.jump_pressed = false;
                 }
                 Err(error) => {
-                    self.previous_position = state.position;
-                    self.accumulated_seconds = 0.0;
-                    frame.dropped_ticks = frame
-                        .dropped_ticks
-                        .saturating_add((allowed - tick_index) as u64);
+                    let transient_collision_blocked = matches!(
+                        &error,
+                        sim::PredictionError::Simulation(error)
+                            if is_transient_collision_unavailability(error)
+                    );
+                    if transient_collision_blocked {
+                        // Prediction is transactional: the failed tick did
+                        // not mutate state or history. Discard all elapsed
+                        // time in this blocked frame instead of retaining a
+                        // retry backlog that could become a false overflow
+                        // or a large catch-up burst when collision data
+                        // returns. New elapsed time starts a fresh tick.
+                        self.previous_position = state.position;
+                        self.accumulated_seconds = 0.0;
+                        frame.dropped_ticks = 0;
+                    } else {
+                        // Keep a failed non-transient tick pending. The
+                        // existing overflow count remains authoritative for
+                        // genuine overload with usable collision data.
+                        let unconsumed_ticks = allowed - tick_index;
+                        self.accumulated_seconds +=
+                            unconsumed_ticks as f64 * LOCAL_PHYSICS_TICK_SECONDS;
+                    }
+                    frame.blocked_tick_index = Some(tick_index);
                     frame.blocked = Some(match error {
                         sim::PredictionError::Simulation(error) => error,
                         sim::PredictionError::ZeroCapacity
