@@ -161,6 +161,7 @@ fn blob_cache_json(stats: BlobCacheStats) -> Value {
         "hashes_classified": stats.hashes_classified,
         "hits": stats.hits,
         "misses": stats.misses,
+        "redundant_missing_requests": stats.redundant_missing_requests,
         "admitted_blobs": stats.admitted_blobs,
         "rejected_blobs": stats.rejected_blobs,
         "evictions": stats.evictions,

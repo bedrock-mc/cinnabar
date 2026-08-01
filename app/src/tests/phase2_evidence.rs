@@ -136,6 +136,7 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             hashes_classified: 7,
             hits: 3,
             misses: 4,
+            redundant_missing_requests: 24,
             admitted_blobs: 4,
             retained_cached_transactions: 16,
             ordinary_ready_events: 17,
@@ -256,6 +257,7 @@ fn phase2_publication_exposes_every_blob_cache_pressure_counter() {
         .expect("client blob-cache evidence object");
     let expected = [
         ("retained_cached_transactions", 16),
+        ("redundant_missing_requests", 24),
         ("ordinary_ready_events", 17),
         ("ordinary_ready_bytes", 18),
         ("recovery_ready_events", 19),

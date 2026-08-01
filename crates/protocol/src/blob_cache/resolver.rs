@@ -767,6 +767,17 @@ impl BlobCacheResolver {
         pin: bool,
     ) -> BlobCacheStatus {
         let status = BlobCacheStatus::classify(&self.cache, packet, recovery, pin);
+        let redundant_missing_requests = status
+            .missing()
+            .iter()
+            .filter(|hash| {
+                self.pending_by_hash.get(hash).is_some_and(|transactions| {
+                    transactions
+                        .iter()
+                        .any(|sequence| self.pending.contains_key(sequence))
+                })
+            })
+            .count();
         self.stats.hashes_classified = self
             .stats
             .hashes_classified
@@ -779,6 +790,10 @@ impl BlobCacheResolver {
             .stats
             .misses
             .saturating_add(u64::try_from(status.missing().len()).unwrap_or(u64::MAX));
+        self.stats.redundant_missing_requests = self
+            .stats
+            .redundant_missing_requests
+            .saturating_add(u64::try_from(redundant_missing_requests).unwrap_or(u64::MAX));
         status
     }
 

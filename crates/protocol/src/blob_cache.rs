@@ -77,6 +77,7 @@ pub struct BlobCacheStats {
     pub hashes_classified: u64,
     pub hits: u64,
     pub misses: u64,
+    pub redundant_missing_requests: u64,
     pub admitted_blobs: u64,
     pub rejected_blobs: u64,
     pub evictions: u64,

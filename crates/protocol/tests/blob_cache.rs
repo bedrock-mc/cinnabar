@@ -901,6 +901,61 @@ fn one_response_resolves_every_transaction_waiting_for_the_same_blob() {
 }
 
 #[test]
+fn redundant_missing_requests_count_each_pending_hash_once_and_preserve_status_bytes() {
+    let payload = b"shared-response";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    let first = resolver
+        .accept_cached_packet(cached_request_level(1, hash))
+        .expect("authorize first shared miss");
+    assert_eq!(first.missing(), [hash]);
+    assert_eq!(resolver.stats().redundant_missing_requests, 0);
+
+    let second = resolver
+        .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
+        .expect("authorize second shared miss");
+    assert_eq!(second.missing(), [hash]);
+    assert_eq!(resolver.stats().redundant_missing_requests, 1);
+
+    let session = BedrockSession { shield_item_id: 0 };
+    let first_bytes = protocol::encode(&first.into_packets()[0].clone().into(), &session)
+        .expect("encode first status");
+    let second_bytes = protocol::encode(&second.into_packets()[0].clone().into(), &session)
+        .expect("encode second status");
+    assert_eq!(
+        second_bytes, first_bytes,
+        "observing a redundant miss must not alter the emitted status bytes"
+    );
+}
+
+#[test]
+fn plain_cache_misses_do_not_increment_redundant_missing_requests() {
+    let shared_payload = b"shared-response";
+    let shared_hash = client_blob_hash(shared_payload);
+    let plain_hash = client_blob_hash(b"plain-cache-miss");
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    resolver
+        .accept_cached_packet(cached_request_level(1, shared_hash))
+        .expect("authorize shared miss owner");
+    resolver
+        .accept_cached_packet(cached_request_level(2, shared_hash))
+        .expect("authorize redundant shared miss");
+    assert_eq!(resolver.stats().redundant_missing_requests, 1);
+
+    let plain = resolver
+        .accept_cached_packet(cached_request_level(3, plain_hash))
+        .expect("authorize plain cache miss");
+    assert_eq!(plain.missing(), [plain_hash]);
+    assert_eq!(
+        resolver.stats().redundant_missing_requests,
+        1,
+        "a miss without an outstanding owner is not redundant"
+    );
+}
+
+#[test]
 fn resolver_accepts_authorized_response_after_another_resolver_fills_shared_cache() {
     let payload = b"cross-resolver";
     let hash = client_blob_hash(payload);

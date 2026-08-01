@@ -77,6 +77,7 @@ fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
         "ordinary_ready_bytes",
         "recovery_ready_events",
         "recovery_ready_bytes",
+        "redundant_missing_requests",
         "abandoned_cached_transactions",
         "recovery_requests",
         "ordinary_backpressure",
