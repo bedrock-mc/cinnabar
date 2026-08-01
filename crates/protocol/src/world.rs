@@ -265,17 +265,21 @@ pub struct LevelChunkEvent {
     pub payload: Vec<u8>,
 }
 
-/// Requests a fresh, ordinary SubChunk column after one cached transaction was abandoned.
+/// Requests fresh, ordinary SubChunk data after one cached transaction was abandoned.
 ///
 /// This is recovery control data, not substitute chunk content. The world streamer routes it
-/// through the normal bounded request and retry scheduler.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// through the normal bounded request and retry scheduler. When `requested_sub_chunk_ys` is
+/// present, it names the exact absolute section Ys to request for this column and takes
+/// precedence over `requested_sub_chunks`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkResyncEvent {
     pub dimension: i32,
     pub x: i32,
     pub z: i32,
     /// `None` requests the dimension's full vanilla vertical range.
     pub requested_sub_chunks: Option<usize>,
+    /// Exact absolute section Ys to request for this column.
+    pub requested_sub_chunk_ys: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

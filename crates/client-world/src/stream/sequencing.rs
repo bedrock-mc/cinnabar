@@ -406,11 +406,15 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
                     return;
                 }
-                let count = event
-                    .requested_sub_chunks
-                    .unwrap_or(range.sub_chunk_count)
-                    .min(range.sub_chunk_count);
-                self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+                if let Some(ys) = event.requested_sub_chunk_ys.as_deref() {
+                    self.enqueue_exact_recovery_requests(key, range, ys, sequence);
+                } else {
+                    let count = event
+                        .requested_sub_chunks
+                        .unwrap_or(range.sub_chunk_count)
+                        .min(range.sub_chunk_count);
+                    self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+                }
             }
             WorldEvent::BlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")

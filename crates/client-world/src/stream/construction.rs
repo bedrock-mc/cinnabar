@@ -157,6 +157,7 @@ impl WorldStream {
             admitted_sub_chunk_replies: HashMap::new(),
             deferred_retries: VecDeque::new(),
             deferred_retry_set: HashSet::new(),
+            deferred_recovery_requests: VecDeque::new(),
             connectivity: HashMap::new(),
             connectivity_generation: 0,
             requests: RequestQueue::default(),
@@ -260,7 +261,10 @@ impl WorldStream {
                 mode: LevelChunkMode::LimitlessRequests,
                 ..
             }) => true,
-            WorldEvent::ChunkResync(event) => event.requested_sub_chunks != Some(0),
+            WorldEvent::ChunkResync(event) => event
+                .requested_sub_chunk_ys
+                .as_ref()
+                .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
             _ => false,
         };
         if creates_request && self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {

@@ -940,6 +940,7 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
             x: 31,
             z: -47,
             requested_sub_chunks: None,
+            requested_sub_chunk_ys: None,
         })
     );
     assert_eq!(

@@ -87,11 +87,19 @@ impl BlobCacheResolver {
         self.stats.ordinary_ready_events = self.immediate_ready.len();
         self.stats.ordinary_ready_bytes = self.retained_ordinary_bytes()?;
         self.stats.recovery_ready_events = self.recovery_ready.len();
-        self.stats.recovery_ready_bytes = self
-            .recovery_ready
-            .len()
-            .checked_mul(size_of::<ChunkResyncEvent>())
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        self.stats.recovery_ready_bytes =
+            self.recovery_ready
+                .values()
+                .try_fold(0_usize, |bytes, recovery| {
+                    let ys_bytes = recovery
+                        .requested_sub_chunk_ys
+                        .as_ref()
+                        .map_or(0, |ys| ys.len().saturating_mul(size_of::<i32>()));
+                    bytes
+                        .checked_add(size_of::<RecoveryReady>())
+                        .and_then(|bytes| bytes.checked_add(ys_bytes))
+                        .ok_or(BlobCacheError::ByteCountOverflow)
+                })?;
         Ok(())
     }
 }

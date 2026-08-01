@@ -77,6 +77,7 @@ pub struct BlobCacheStats {
     pub hashes_classified: u64,
     pub hits: u64,
     pub misses: u64,
+    /// Absent hash references suppressed because another pending transaction already owns them.
     pub redundant_missing_requests: u64,
     pub admitted_blobs: u64,
     pub rejected_blobs: u64,
@@ -272,6 +273,7 @@ struct PendingTransaction {
     packet: PendingPacket,
     hashes: Vec<u64>,
     unique_hashes: Vec<u64>,
+    owned_hashes: Vec<u64>,
     unresolved_hashes: usize,
     staged_bytes: usize,
     columns: Vec<ColumnKey>,
@@ -302,6 +304,50 @@ struct ColumnKey {
 }
 
 #[derive(Debug)]
+struct RecoveryReady {
+    dimension: i32,
+    x: i32,
+    z: i32,
+    requested_sub_chunks: Option<usize>,
+    requested_sub_chunk_ys: Option<BTreeSet<i32>>,
+}
+
+impl RecoveryReady {
+    fn from_event(event: ChunkResyncEvent) -> (ColumnKey, Self) {
+        let key = ColumnKey {
+            dimension: event.dimension,
+            x: event.x,
+            z: event.z,
+        };
+        let ys = event
+            .requested_sub_chunk_ys
+            .map(|ys| ys.into_iter().collect());
+        (
+            key,
+            Self {
+                dimension: event.dimension,
+                x: event.x,
+                z: event.z,
+                requested_sub_chunks: event.requested_sub_chunks,
+                requested_sub_chunk_ys: ys,
+            },
+        )
+    }
+
+    fn into_event(self) -> ChunkResyncEvent {
+        ChunkResyncEvent {
+            dimension: self.dimension,
+            x: self.x,
+            z: self.z,
+            requested_sub_chunks: self.requested_sub_chunks,
+            requested_sub_chunk_ys: self
+                .requested_sub_chunk_ys
+                .map(|ys| ys.into_iter().collect()),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
     pending: HashMap<u64, PendingTransaction>,
@@ -310,7 +356,7 @@ pub struct BlobCacheResolver {
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,
-    recovery_ready: VecDeque<ChunkResyncEvent>,
+    recovery_ready: BTreeMap<ColumnKey, RecoveryReady>,
     fast_transfer_reset_armed: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,

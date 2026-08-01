@@ -266,6 +266,7 @@ impl WorldStream {
         debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
     }
     pub(super) fn pump_deferred_retries(&mut self) {
+        self.pump_deferred_recovery_requests();
         while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
             let Some(key) = self.deferred_retries.pop_front() else {
                 break;
@@ -277,6 +278,26 @@ impl WorldStream {
             if !self.enqueue_exact_retry(key) {
                 self.complete_requested_sub_chunk(key, false);
             }
+        }
+    }
+
+    pub(super) fn pump_deferred_recovery_requests(&mut self) {
+        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+            let Some(request) = self.deferred_recovery_requests.pop_front() else {
+                break;
+            };
+            let has_expected = (0..request.count).any(|offset| {
+                self.is_expected_sub_chunk(SubChunkKey::from_chunk(
+                    request.chunk,
+                    request
+                        .base_sub_chunk_y
+                        .saturating_add(i32::try_from(offset).unwrap_or(i32::MAX)),
+                ))
+            });
+            if !has_expected {
+                continue;
+            }
+            self.requests.push_ready(request, true);
         }
     }
     pub(super) fn cancel_sub_chunk_retry(&mut self, key: SubChunkKey) {
@@ -319,6 +340,8 @@ impl WorldStream {
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
         self.deferred_retry_set
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+        self.deferred_recovery_requests
+            .retain(|request| request.chunk != chunk);
         self.correlated_sub_chunk_attempts
             .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
         self.admitted_sub_chunk_replies
@@ -340,6 +363,8 @@ impl WorldStream {
                         .is_some_and(|pending| pending.retry_attempts != 0)
             })
             .count();
-        outbound.saturating_add(self.deferred_retries.len())
+        outbound
+            .saturating_add(self.deferred_retries.len())
+            .saturating_add(self.deferred_recovery_requests.len())
     }
 }

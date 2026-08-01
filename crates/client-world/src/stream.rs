@@ -19,10 +19,10 @@ use assets::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::{
     ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, RespawnEvent,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap,
-    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
+    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
+    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent,
+    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -175,6 +175,7 @@ pub struct WorldStream {
     admitted_sub_chunk_replies: HashMap<SubChunkKey, u8>,
     deferred_retries: VecDeque<SubChunkKey>,
     deferred_retry_set: HashSet<SubChunkKey>,
+    deferred_recovery_requests: VecDeque<PendingSubChunkRequest>,
     connectivity: HashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
     requests: RequestQueue,

@@ -69,6 +69,40 @@ fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
     .into()
 }
 
+fn cached_subchunk_multi_column(hash: u64, tail: &[u8]) -> protocol::Packet {
+    SubchunkPacket {
+        dimension: 0,
+        origin: Vec3I { x: 4, y: -4, z: 9 },
+        entries: SubchunkPacketEntries::SubChunkEntryWithCaching(vec![
+            SubChunkEntryWithCachingItem {
+                dx: 0,
+                dy: 1,
+                dz: 0,
+                result: SubChunkEntryWithCachingItemResult::Success,
+                payload: Some(tail.to_vec()),
+                heightmap_type: HeightMapDataType::NoData,
+                heightmap: None,
+                render_heightmap_type: HeightMapDataType::NoData,
+                render_heightmap: None,
+                blob_id: hash,
+            },
+            SubChunkEntryWithCachingItem {
+                dx: 3,
+                dy: 3,
+                dz: 4,
+                result: SubChunkEntryWithCachingItemResult::Success,
+                payload: Some(tail.to_vec()),
+                heightmap_type: HeightMapDataType::NoData,
+                heightmap: None,
+                render_heightmap_type: HeightMapDataType::NoData,
+                render_heightmap: None,
+                blob_id: hash,
+            },
+        ]),
+    }
+    .into()
+}
+
 fn cached_request_level(x: i32, hash: u64) -> protocol::Packet {
     LevelChunkPacket {
         x,
@@ -877,12 +911,19 @@ fn one_response_resolves_every_transaction_waiting_for_the_same_blob() {
     let payload = b"shared-response";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    for x in [1, 2] {
+    for (index, x) in [1, 2].into_iter().enumerate() {
         let status = resolver
             .accept_cached_packet(cached_request_level(x, hash))
             .expect("authorize shared miss");
-        assert_eq!(status.missing(), [hash]);
+        if index == 0 {
+            assert_eq!(status.missing(), [hash]);
+        } else {
+            assert!(status.missing().is_empty());
+            assert!(status.have().is_empty());
+            assert!(status.into_packets().is_empty());
+        }
     }
+    assert_eq!(resolver.stats().redundant_missing_requests, 1);
 
     let response = || ClientCacheMissResponsePacket {
         blobs: vec![Blob {
@@ -901,7 +942,173 @@ fn one_response_resolves_every_transaction_waiting_for_the_same_blob() {
 }
 
 #[test]
-fn redundant_missing_requests_count_each_pending_hash_once_and_preserve_status_bytes() {
+fn abandoning_a_hash_owner_abandons_waiters_with_recovery() {
+    let payload = b"orphaned-waiter";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    resolver
+        .accept_cached_packet(cached_request_level(21, hash))
+        .expect("authorize the real hash owner");
+    let waiter = resolver
+        .accept_cached_packet(cached_request_level(22, hash))
+        .expect("register a waiter without re-requesting the hash");
+    assert!(waiter.into_packets().is_empty());
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [21 * 16, 0, 0],
+                layer: 0,
+                network_id: 0,
+            }]),
+            1,
+        )
+        .expect("retain the ordinary event that abandons only the owner column");
+
+    assert!(
+        resolver
+            .unblock_ordinary_lane()
+            .expect("owner abandonment remains non-fatal")
+    );
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    let recoveries = [21, 22]
+        .into_iter()
+        .map(|x| match resolver.pop_ready() {
+            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => {
+                assert_eq!(recovery.x, x);
+                assert_eq!(recovery.requested_sub_chunks, None);
+                assert_eq!(recovery.requested_sub_chunk_ys, None);
+                recovery
+            }
+            other => panic!("expected recovery for column {x}, got {other:?}"),
+        })
+        .count();
+    assert_eq!(recoveries, 2);
+    assert!(
+        resolver.pop_ready().is_some(),
+        "the ordinary event follows recovery"
+    );
+    assert_eq!(resolver.stats().recovery_requests, 2);
+}
+
+#[test]
+fn abandoned_subchunk_recovery_covers_every_column_and_only_referenced_sections() {
+    let payload = b"subchunk-recovery";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_subchunk_multi_column(hash, payload))
+        .expect("authorize the cached SubChunk packet");
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [4 * 16, 0, 9 * 16],
+                layer: 0,
+                network_id: 0,
+            }]),
+            1,
+        )
+        .expect("retain the ordinary event that abandons the cached packet");
+    resolver
+        .unblock_ordinary_lane()
+        .expect("SubChunk abandonment remains non-fatal");
+
+    let first = match resolver.pop_ready() {
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => recovery,
+        other => panic!("expected first SubChunk recovery, got {other:?}"),
+    };
+    let second = match resolver.pop_ready() {
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => recovery,
+        other => panic!("expected second SubChunk recovery, got {other:?}"),
+    };
+    assert_eq!(
+        (first.x, first.z, first.requested_sub_chunk_ys.as_deref()),
+        (4, 9, Some([-3].as_slice()))
+    );
+    assert_eq!(
+        (second.x, second.z, second.requested_sub_chunk_ys.as_deref()),
+        (7, 13, Some([-1].as_slice()))
+    );
+    assert!(
+        resolver.pop_ready().is_some(),
+        "the ordinary event follows recovery"
+    );
+}
+
+#[test]
+fn recovery_coalescing_scales_with_indexed_columns() {
+    let payload = b"recovery-aggregation";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    for transaction in 0..256_i32 {
+        let entries = (-128_i16..=127)
+            .map(|dx| SubChunkEntryWithCachingItem {
+                dx: i8::try_from(dx).unwrap(),
+                dy: 1,
+                dz: 0,
+                result: SubChunkEntryWithCachingItemResult::Success,
+                payload: Some(payload.to_vec()),
+                heightmap_type: HeightMapDataType::NoData,
+                heightmap: None,
+                render_heightmap_type: HeightMapDataType::NoData,
+                render_heightmap: None,
+                blob_id: hash,
+            })
+            .collect();
+        resolver
+            .accept_cached_packet(
+                SubchunkPacket {
+                    dimension: 0,
+                    origin: Vec3I {
+                        x: transaction.saturating_mul(512),
+                        y: -4,
+                        z: 0,
+                    },
+                    entries: SubchunkPacketEntries::SubChunkEntryWithCaching(entries),
+                }
+                .into(),
+            )
+            .expect("large indexed recovery fixture remains bounded");
+    }
+
+    let updates = (0..256_i32)
+        .flat_map(|transaction| {
+            (-128_i32..=127).map(move |dx| BlockUpdateEvent {
+                dimension: 0,
+                position: [
+                    (transaction.saturating_mul(512).saturating_add(dx)).saturating_mul(16),
+                    0,
+                    0,
+                ],
+                layer: 0,
+                network_id: 0,
+            })
+        })
+        .collect();
+    resolver
+        .accept_world_event(WorldEvent::BlockUpdates(updates), 0)
+        .expect("retain the blocker for every referenced column");
+
+    let started = std::time::Instant::now();
+    assert!(
+        resolver
+            .unblock_ordinary_lane()
+            .expect("indexed recovery aggregation remains non-fatal")
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "recovery aggregation exceeded the bounded-work witness"
+    );
+    assert_eq!(resolver.stats().recovery_ready_events, 256 * 256);
+    assert_eq!(resolver.stats().recovery_requests, 256 * 256);
+    assert_eq!(resolver.stats().pending_transactions, 0);
+}
+
+#[test]
+fn redundant_missing_requests_count_each_pending_hash_once_and_omit_status_hashes() {
     let payload = b"shared-response";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -915,18 +1122,12 @@ fn redundant_missing_requests_count_each_pending_hash_once_and_preserve_status_b
     let second = resolver
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
         .expect("authorize second shared miss");
-    assert_eq!(second.missing(), [hash]);
+    assert!(second.missing().is_empty());
+    assert!(second.have().is_empty());
     assert_eq!(resolver.stats().redundant_missing_requests, 1);
 
-    let session = BedrockSession { shield_item_id: 0 };
-    let first_bytes = protocol::encode(&first.into_packets()[0].clone().into(), &session)
-        .expect("encode first status");
-    let second_bytes = protocol::encode(&second.into_packets()[0].clone().into(), &session)
-        .expect("encode second status");
-    assert_eq!(
-        second_bytes, first_bytes,
-        "observing a redundant miss must not alter the emitted status bytes"
-    );
+    assert_eq!(first.into_packets().len(), 1);
+    assert!(second.into_packets().is_empty());
 }
 
 #[test]
