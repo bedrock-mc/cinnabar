@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -101,7 +101,7 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
-const MAX_RESIDENT_MESH_READINESS_CANDIDATES: usize = 128;
+const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 fn effective_light_job_cap() -> usize {
     MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(2).max(1))
@@ -109,6 +109,55 @@ fn effective_light_job_cap() -> usize {
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
+
+#[derive(Debug, Clone, Copy)]
+struct PendingSchedulerCandidate {
+    distance_squared: f32,
+    key: SubChunkKey,
+    revision: u64,
+}
+
+impl PendingSchedulerCandidate {
+    fn new(key: SubChunkKey, revision: u64, camera_position: [f32; 3]) -> Self {
+        Self {
+            distance_squared: distance_squared(key, camera_position),
+            key,
+            revision,
+        }
+    }
+}
+
+impl PartialEq for PendingSchedulerCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.distance_squared
+            .total_cmp(&other.distance_squared)
+            .is_eq()
+            && self.key == other.key
+            && self.revision == other.revision
+    }
+}
+
+impl Eq for PendingSchedulerCandidate {}
+
+impl PartialOrd for PendingSchedulerCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PendingSchedulerCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .distance_squared
+            .total_cmp(&self.distance_squared)
+            .then_with(|| other.key.cmp(&self.key))
+            .then_with(|| other.revision.cmp(&self.revision))
+    }
+}
+
+fn scheduler_camera_cell(camera_position: [f32; 3]) -> [i32; 3] {
+    camera_position.map(|value| floor_to_i32(value).div_euclid(16))
+}
 
 use model::{
     BlockMutationBatch, CorrelatedSubChunkAttempts, DecodeCompletion, DecodeJob, MeshCompletion,
@@ -160,6 +209,9 @@ pub struct WorldStream {
     light_failures: HashMap<SubChunkKey, LightFailure>,
     light_revisions: RevisionTracker,
     pending_light: HashMap<SubChunkKey, PendingLight>,
+    pending_light_scan: VecDeque<(SubChunkKey, u64)>,
+    pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
+    light_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
@@ -168,6 +220,10 @@ pub struct WorldStream {
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
     pending_mesh: HashMap<SubChunkKey, PendingMesh>,
+    pending_mesh_scan: VecDeque<(SubChunkKey, u64)>,
+    pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
+    pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
+    mesh_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,

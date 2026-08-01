@@ -85,6 +85,7 @@ impl WorldStream {
         self.remove_light_waiter_target(key);
         let queued_at = Instant::now();
         let revision = self.light_revisions.mark_dirty(key, queued_at);
+        self.pending_light_scan.push_back((key, revision));
         self.pending_light.insert(
             key,
             PendingLight {

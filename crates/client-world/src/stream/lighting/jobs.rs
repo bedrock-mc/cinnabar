@@ -11,57 +11,85 @@ impl WorldStream {
         if self.fatal_light_failure || solve_budget == 0 {
             return 0;
         }
-        let mut candidates = self
-            .pending_light
-            .iter()
-            .map(|(&key, &pending)| {
-                (
-                    distance_squared(key, camera_position),
-                    key,
-                    pending.revision,
-                    pending.queued_at,
-                )
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| {
-            left.0
-                .total_cmp(&right.0)
-                .then_with(|| left.1.cmp(&right.1))
-        });
+
+        let camera_cell = scheduler_camera_cell(camera_position);
+        if self.light_scheduler_camera_cell != Some(camera_cell) {
+            self.pending_light_ready = self
+                .pending_light
+                .iter()
+                .map(|(&key, pending)| {
+                    PendingSchedulerCandidate::new(key, pending.revision, camera_position)
+                })
+                .collect();
+            self.pending_light_scan.clear();
+            self.light_scheduler_camera_cell = Some(camera_cell);
+        } else {
+            let ingress_budget = self
+                .pending_light_scan
+                .len()
+                .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+            for _ in 0..ingress_budget {
+                let Some((key, queued_revision)) = self.pending_light_scan.pop_front() else {
+                    break;
+                };
+                if self
+                    .pending_light
+                    .get(&key)
+                    .is_some_and(|pending| pending.revision == queued_revision)
+                {
+                    self.pending_light_ready
+                        .push(PendingSchedulerCandidate::new(
+                            key,
+                            queued_revision,
+                            camera_position,
+                        ));
+                }
+            }
+        }
 
         let mut prepared = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
-        for (_, key, revision, queued_at) in candidates {
-            if prepared.len() >= solve_budget {
+        let mut deferred = Vec::new();
+        let mut scanned = 0;
+        while prepared.len() < solve_budget && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+            let Some(candidate) = self.pending_light_ready.pop() else {
                 break;
+            };
+            scanned += 1;
+            let key = candidate.key;
+            let revision = candidate.revision;
+            let Some(pending) = self.pending_light.get(&key).copied() else {
+                continue;
+            };
+            if pending.revision != revision {
+                continue;
             }
             if !self.light_revisions.is_current(key, revision)
                 || self.in_flight_light.contains_key(&key)
                 || !self.resident.contains(&key)
                 || !self.light_dispatch_ready(key)
+                || key
+                    .mesh_dependents()
+                    .filter(|candidate| *candidate != key)
+                    .any(|neighbour| {
+                        selected.contains(&neighbour)
+                            || self.in_flight_light.contains_key(&neighbour)
+                    })
             {
+                deferred.push(candidate);
                 continue;
             }
             let Some(block_generation) = self.block_generations.get(&key).copied() else {
+                deferred.push(candidate);
                 continue;
             };
-            let initial_unsolved = !self.light_ownership.contains_key(&key);
-            if initial_unsolved {
-                debug_assert!(self.light_store.light(key).is_some());
-            }
-            if key
-                .mesh_dependents()
-                .filter(|candidate| *candidate != key)
-                .any(|neighbour| {
-                    selected.contains(&neighbour) || self.in_flight_light.contains_key(&neighbour)
-                })
-            {
-                continue;
-            }
             let Some(bounds) = light_bounds(key) else {
                 self.pending_light.remove(&key);
                 continue;
             };
+            if !self.light_ownership.contains_key(&key) {
+                debug_assert!(self.light_store.light(key).is_some());
+            }
             let blocks = self.light_block_snapshot(key);
             self.register_untrusted_light_waiters(key);
             let prior = self.light_prior_snapshot(key);
@@ -81,10 +109,11 @@ impl WorldStream {
                 blocks,
                 prior,
                 bounds,
-                queued_at,
+                queued_at: pending.queued_at,
             });
             selected.insert(key);
         }
+        self.pending_light_ready.extend(deferred);
 
         let dispatched = prepared.len();
         self.stats.phase2_stages.light_jobs_dispatched = self
@@ -166,6 +195,8 @@ impl WorldStream {
                 self.fatal_light_failure = true;
                 self.fatal_error = Some(fatal);
                 self.pending_light.clear();
+                self.pending_light_scan.clear();
+                self.pending_light_ready.clear();
                 self.light_waiters.clear();
                 self.stats.light_solve_failures = self.stats.light_solve_failures.saturating_add(1);
                 return;

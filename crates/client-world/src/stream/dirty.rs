@@ -79,6 +79,7 @@ impl WorldStream {
     pub(super) fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
+        self.pending_mesh_scan.push_back((key, revision));
         self.pending_mesh.insert(
             key,
             PendingMesh {
@@ -103,6 +104,7 @@ impl WorldStream {
     }
     pub(super) fn mark_forced_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let revision = self.revisions.force_dirty_since(key, now);
+        self.pending_mesh_scan.push_back((key, revision));
         self.pending_mesh.insert(
             key,
             PendingMesh {
