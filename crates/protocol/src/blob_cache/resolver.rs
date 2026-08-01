@@ -810,6 +810,12 @@ impl BlobCacheResolver {
         let mut recoveries = recoveries.into_iter();
         let first = recoveries.next();
         self.enqueue_recoveries(recoveries);
+        // `first` is delivered inline on the outgoing status rather than queued, so
+        // `enqueue_recovery` never sees it. Count it here or every recovery raised by the
+        // admission-skip path — the common one under pressure — is invisible.
+        if first.is_some() {
+            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+        }
         first
     }
 
