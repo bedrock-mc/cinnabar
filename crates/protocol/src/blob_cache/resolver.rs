@@ -938,22 +938,10 @@ fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
-        PendingPacket::SubChunk(_) => {
-            let mut by_column = BTreeMap::<ColumnKey, BTreeSet<i32>>::new();
-            for (column, y) in pending_packet_sub_chunks(packet) {
-                by_column.entry(column).or_default().insert(y);
-            }
-            by_column
-                .into_iter()
-                .map(|(ColumnKey { dimension, x, z }, ys)| ChunkResyncEvent {
-                    dimension,
-                    x,
-                    z,
-                    requested_sub_chunks: None,
-                    requested_sub_chunk_ys: Some(ys.into_iter().collect()),
-                })
-                .collect()
-        }
+        // Cached SubChunk packets are responses to scheduler-owned requests. Discarding one
+        // leaves that request outstanding so its existing deadline and bounded retry path owns
+        // recovery; do not synthesize an exact-Y ChunkResyncEvent here.
+        PendingPacket::SubChunk(_) => Vec::new(),
     }
 }
 

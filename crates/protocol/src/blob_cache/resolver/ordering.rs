@@ -20,21 +20,6 @@ pub(super) fn pending_packet_columns(packet: &PendingPacket) -> Vec<ColumnKey> {
     }
 }
 
-pub(super) fn pending_packet_sub_chunks(packet: &PendingPacket) -> Vec<(ColumnKey, i32)> {
-    let PendingPacket::SubChunk(packet) = packet else {
-        return Vec::new();
-    };
-    let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
-        return Vec::new();
-    };
-    stable_unique_sub_chunks(entries.iter().map(|entry| {
-        (
-            pending_sub_chunk_column(packet, entry.dx, entry.dz),
-            packet.origin.y.saturating_add(i32::from(entry.dy)),
-        )
-    }))
-}
-
 fn pending_sub_chunk_column(packet: &SubchunkPacket, dx: i8, dz: i8) -> ColumnKey {
     ColumnKey {
         dimension: packet.dimension,
@@ -81,15 +66,5 @@ fn stable_unique_columns(columns: impl IntoIterator<Item = ColumnKey>) -> Vec<Co
     columns
         .into_iter()
         .filter(|column| seen.insert(*column))
-        .collect()
-}
-
-fn stable_unique_sub_chunks(
-    sub_chunks: impl IntoIterator<Item = (ColumnKey, i32)>,
-) -> Vec<(ColumnKey, i32)> {
-    let mut seen = HashSet::new();
-    sub_chunks
-        .into_iter()
-        .filter(|sub_chunk| seen.insert(*sub_chunk))
         .collect()
 }

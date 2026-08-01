@@ -1,13 +1,14 @@
 use super::*;
 
 #[test]
-fn abandoned_subchunk_recovery_covers_every_column_and_only_referenced_sections() {
+fn abandoned_subchunk_keeps_scheduler_owned_recovery_empty() {
     let payload = b"subchunk-recovery";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    resolver
+    let status = resolver
         .accept_cached_packet(cached_subchunk_multi_column(hash, payload))
         .expect("authorize the cached SubChunk packet");
+    assert!(status.recovery.is_none());
     resolver
         .accept_world_event(
             WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
@@ -23,30 +24,117 @@ fn abandoned_subchunk_recovery_covers_every_column_and_only_referenced_sections(
         .unblock_ordinary_lane()
         .expect("SubChunk abandonment remains non-fatal");
 
-    let first = match resolver.pop_ready() {
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => recovery,
-        other => panic!("expected first SubChunk recovery, got {other:?}"),
-    };
-    let second = match resolver.pop_ready() {
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => recovery,
-        other => panic!("expected second SubChunk recovery, got {other:?}"),
-    };
-    assert_eq!(
-        (first.x, first.z, first.requested_sub_chunk_ys.as_deref()),
-        (4, 9, Some([-3].as_slice()))
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
+    assert_eq!(resolver.stats().recovery_ready_events, 0);
+    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
+    ));
+    assert!(resolver.pop_ready().is_none());
+}
+
+#[test]
+fn transaction_pressure_drops_subchunk_without_recovery_but_keeps_levelchunk_recovery() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    for x in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
+        let payload = format!("bound-{x}");
+        resolver
+            .accept_cached_packet(cached_request_level(
+                i32::try_from(x).expect("transaction coordinate fits"),
+                client_blob_hash(payload.as_bytes()),
+            ))
+            .expect("transactions through the safety bound remain accepted");
+    }
+
+    let subchunk_payload = b"subchunk-at-bound";
+    let subchunk_hash = client_blob_hash(subchunk_payload);
+    let subchunk_status = resolver
+        .accept_cached_packet(cached_subchunk(subchunk_hash, subchunk_payload))
+        .expect("transaction-pressure SubChunk skip remains non-fatal");
+    assert_eq!(subchunk_status.missing(), [subchunk_hash]);
+    assert!(
+        subchunk_status.recovery.is_none(),
+        "scheduler-owned SubChunk request must not receive inline recovery"
     );
+    assert_eq!(resolver.stats().pending_transactions, 256);
+    assert_eq!(resolver.stats().skipped_cached_packets, 1);
+    assert_eq!(resolver.stats().cached_packet_transaction_pressure, 1);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
+    assert_eq!(resolver.stats().recovery_ready_events, 0);
+    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert!(
+        resolver.pop_ready().is_none(),
+        "discarded SubChunk must not enqueue a recovery event"
+    );
+
+    let level_status = resolver
+        .accept_cached_packet(cached_request_level(
+            999,
+            client_blob_hash(b"level-at-bound"),
+        ))
+        .expect("transaction-pressure LevelChunk skip remains non-fatal");
     assert_eq!(
-        (second.x, second.z, second.requested_sub_chunk_ys.as_deref()),
-        (7, 13, Some([-1].as_slice()))
+        level_status.missing(),
+        [client_blob_hash(b"level-at-bound")]
     );
     assert!(
-        resolver.pop_ready().is_some(),
-        "the ordinary event follows recovery"
+        level_status.recovery.is_some(),
+        "full-column LevelChunk recovery remains inline"
+    );
+    assert_eq!(resolver.stats().skipped_cached_packets, 2);
+    assert_eq!(resolver.stats().cached_packet_transaction_pressure, 2);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
+    assert!(
+        resolver.pop_ready().is_none(),
+        "single LevelChunk recovery remains inline rather than queued"
     );
 }
 
 #[test]
-fn recovery_coalescing_scales_with_indexed_columns() {
+fn abandoned_levelchunk_recovery_does_not_stop_cached_intake() {
+    let payload = b"intake-under-recovery";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    resolver
+        .accept_cached_packet(cached_request_level(4, hash))
+        .expect("authorize the transaction that will be abandoned");
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [4 * 16, 0, 0],
+                layer: 0,
+                network_id: 0,
+            }]),
+            0,
+        )
+        .expect("retain the blocker");
+    resolver
+        .unblock_ordinary_lane()
+        .expect("abandonment remains non-fatal");
+    assert!(resolver.stats().recovery_ready_events > 0);
+
+    let skipped_before = resolver.stats().skipped_cached_packets;
+    let pending_before = resolver.stats().pending_transactions;
+    resolver
+        .accept_cached_packet(cached_request_level(9, client_blob_hash(b"fresh-intake")))
+        .expect("cached intake continues while recovery is queued");
+    assert_eq!(
+        resolver.stats().skipped_cached_packets,
+        skipped_before,
+        "a queued recovery must not skip an admissible cached packet"
+    );
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        pending_before + 1,
+        "the packet is admitted as a pending transaction"
+    );
+}
+
+#[test]
+fn abandoned_subchunks_do_not_build_recovery_index_work() {
     let payload = b"recovery-aggregation";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -79,7 +167,7 @@ fn recovery_coalescing_scales_with_indexed_columns() {
                 }
                 .into(),
             )
-            .expect("large indexed recovery fixture remains bounded");
+            .expect("large indexed SubChunk fixture remains bounded");
     }
 
     let updates = (0..256_i32)
@@ -103,15 +191,21 @@ fn recovery_coalescing_scales_with_indexed_columns() {
     assert!(
         resolver
             .unblock_ordinary_lane()
-            .expect("indexed recovery aggregation remains non-fatal")
+            .expect("indexed SubChunk abandonment remains non-fatal")
     );
-    assert_eq!(resolver.stats().recovery_ready_events, 256 * 256);
-    assert_eq!(resolver.stats().recovery_requests, 256 * 256);
+    assert_eq!(resolver.stats().recovery_ready_events, 0);
+    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
+    ));
+    assert!(resolver.pop_ready().is_none());
 }
 
 #[test]
-fn recovery_requests_count_coalesced_emissions() {
+fn abandoned_subchunks_do_not_emit_coalesced_recovery() {
     let payload = b"coalesced-recovery";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -136,17 +230,15 @@ fn recovery_requests_count_coalesced_emissions() {
 
     resolver
         .unblock_ordinary_lane()
-        .expect("coalesced recovery remains non-fatal");
-    // `cached_subchunk` references two columns, (4,8) and (5,9), so abandoning both
-    // transactions raises four recovery contributions. Coalescing by column collapses
-    // them to two queued events and two counted emissions; without coalescing this
-    // would be four.
-    assert_eq!(resolver.stats().recovery_ready_events, 2);
-    assert_eq!(resolver.stats().recovery_requests, 2);
+        .expect("SubChunk abandonment remains non-fatal");
+    assert_eq!(resolver.stats().recovery_ready_events, 0);
+    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
     assert!(matches!(
         resolver.pop_ready(),
-        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+        Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
     ));
+    assert!(resolver.pop_ready().is_none());
 }
 
 #[test]
@@ -223,50 +315,4 @@ fn resolver_accepts_authorized_response_after_another_resolver_fills_shared_cach
         .accept_miss_response(response())
         .expect("second resolver retains independent authorization");
     let _ = pop_packet(&mut second, "second resolver transaction");
-}
-
-#[test]
-fn queued_recovery_does_not_stop_cached_intake() {
-    let payload = b"intake-under-recovery";
-    let hash = client_blob_hash(payload);
-    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-
-    // Abandon one transaction so recovery is queued but far below its bound.
-    resolver
-        .accept_cached_packet(cached_subchunk(hash, payload))
-        .expect("authorize the transaction that will be abandoned");
-    resolver
-        .accept_world_event(
-            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
-                dimension: 0,
-                position: [4 * 16, 0, 8 * 16],
-                layer: 0,
-                network_id: 0,
-            }]),
-            0,
-        )
-        .expect("retain the blocker");
-    resolver
-        .unblock_ordinary_lane()
-        .expect("abandonment remains non-fatal");
-    assert!(resolver.stats().recovery_ready_events > 0);
-
-    // Live regression: gating intake on a non-empty recovery queue stopped every
-    // subsequent cached packet, and each skip refilled the queue, so intake never
-    // resumed. Admission must still succeed well below the queue bound.
-    let skipped_before = resolver.stats().skipped_cached_packets;
-    let pending_before = resolver.stats().pending_transactions;
-    resolver
-        .accept_cached_packet(cached_request_level(9, client_blob_hash(b"fresh-intake")))
-        .expect("cached intake continues while recovery is queued");
-    assert_eq!(
-        resolver.stats().skipped_cached_packets,
-        skipped_before,
-        "a queued recovery must not skip an admissible cached packet"
-    );
-    assert_eq!(
-        resolver.stats().pending_transactions,
-        pending_before + 1,
-        "the packet is admitted as a pending transaction"
-    );
 }
