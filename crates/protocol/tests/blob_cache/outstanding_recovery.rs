@@ -132,13 +132,17 @@ fn recovery_requests_count_coalesced_emissions() {
             }]),
             0,
         )
-        .expect("retain the blocker for both same-column recoveries");
+        .expect("retain the blocker for both transactions");
 
     resolver
         .unblock_ordinary_lane()
         .expect("coalesced recovery remains non-fatal");
-    assert_eq!(resolver.stats().recovery_ready_events, 1);
-    assert_eq!(resolver.stats().recovery_requests, 1);
+    // `cached_subchunk` references two columns, (4,8) and (5,9), so abandoning both
+    // transactions raises four recovery contributions. Coalescing by column collapses
+    // them to two queued events and two counted emissions; without coalescing this
+    // would be four.
+    assert_eq!(resolver.stats().recovery_ready_events, 2);
+    assert_eq!(resolver.stats().recovery_requests, 2);
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
