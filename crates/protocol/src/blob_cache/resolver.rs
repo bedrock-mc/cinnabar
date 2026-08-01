@@ -296,7 +296,15 @@ impl BlobCacheResolver {
             return Ok(status);
         }
         let missing = status.missing().to_vec();
-        let outstanding = status.outstanding().to_vec();
+        let unresolved_hashes = missing.len().saturating_add(status.outstanding().len());
+        let accounted_bytes = accounted_bytes
+            .checked_add(
+                missing
+                    .capacity()
+                    .checked_mul(size_of::<u64>())
+                    .ok_or(BlobCacheError::ByteCountOverflow)?,
+            )
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
         let columns = pending_packet_columns(&packet);
         let sequence = self.take_ready_sequence()?;
         self.pending.insert(
@@ -305,15 +313,19 @@ impl BlobCacheResolver {
                 packet,
                 hashes,
                 unique_hashes,
-                owned_hashes: missing.clone(),
-                unresolved_hashes: missing.len().saturating_add(outstanding.len()),
+                owned_hashes: missing,
+                unresolved_hashes,
                 staged_bytes,
                 columns: columns.clone(),
                 accounted_bytes,
             },
         );
         self.pending_order.insert(sequence);
-        for hash in missing.iter().chain(outstanding.iter()) {
+        for hash in status
+            .missing()
+            .iter()
+            .chain(status.outstanding().iter())
+        {
             self.pending_by_hash
                 .entry(*hash)
                 .or_default()
@@ -322,12 +334,12 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()?;
         if self.stats.pending_bytes > MAX_CLIENT_BLOB_PENDING_BYTES {
             self.record_pending_skip();
-            let recovery = self.abandon_pending_transaction_with_recovery(sequence, true);
+            let recovery = self.abandon_pending_transaction_with_recovery(sequence, true)?;
             status.set_recovery(recovery);
             self.refresh_pending_accounting()?;
             return Ok(status);
         }
-        if missing.is_empty() && outstanding.is_empty() {
+        if unresolved_hashes == 0 {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
         }
@@ -425,7 +437,7 @@ impl BlobCacheResolver {
             .collect::<Vec<_>>();
         for sequence in staged_excess {
             self.record_staged_skip();
-            self.abandon_pending_transaction(sequence);
+            self.abandon_pending_transaction(sequence)?;
         }
         for (sequence, addition) in staged_additions {
             if let Some(transaction) = self.pending.get_mut(&sequence) {
@@ -500,7 +512,7 @@ impl BlobCacheResolver {
             .copied()
             .collect::<BTreeSet<_>>();
         for sequence in sequences {
-            self.abandon_pending_transaction(sequence);
+            self.abandon_pending_transaction(sequence)?;
         }
         self.refresh_pending_accounting()
     }
@@ -581,7 +593,7 @@ impl BlobCacheResolver {
             .map(|(sequence, _)| *sequence)
             .collect::<Vec<_>>();
         for sequence in &blockers {
-            self.abandon_pending_transaction(*sequence);
+            self.abandon_pending_transaction(*sequence)?;
         }
         self.refresh_pending_accounting()?;
         Ok(!blockers.is_empty())
@@ -606,7 +618,7 @@ impl BlobCacheResolver {
         };
         if projected_bytes > MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES {
             self.record_reconstruction_skip();
-            self.abandon_pending_transaction(sequence);
+            self.abandon_pending_transaction(sequence)?;
             return self.refresh_pending_accounting();
         }
         let (packet, ready_bytes) = {
@@ -624,7 +636,7 @@ impl BlobCacheResolver {
             .is_none_or(|bytes| bytes > MAX_CLIENT_BLOB_READY_BYTES)
         {
             self.record_ready_skip();
-            self.abandon_pending_transaction(sequence);
+            self.abandon_pending_transaction(sequence)?;
             return self.refresh_pending_accounting();
         }
         let projected_retained_bytes = self
@@ -640,7 +652,7 @@ impl BlobCacheResolver {
             .ok_or(BlobCacheError::ByteCountOverflow)?;
         if projected_retained_bytes > MAX_CLIENT_BLOB_PENDING_BYTES {
             self.record_pending_skip();
-            self.abandon_pending_transaction(sequence);
+            self.abandon_pending_transaction(sequence)?;
             return self.refresh_pending_accounting();
         }
         let transaction = self
@@ -693,59 +705,80 @@ impl BlobCacheResolver {
         Some(transaction)
     }
 
-    fn abandoned_transactions(&mut self, sequence: u64) -> Vec<PendingTransaction> {
-        let mut to_abandon = VecDeque::from([sequence]);
-        let mut abandoned = HashSet::new();
-        let mut transactions = Vec::new();
-        while let Some(sequence) = to_abandon.pop_front() {
-            if !abandoned.insert(sequence) {
-                continue;
-            }
-            let Some(transaction) = self.remove_pending_transaction(sequence) else {
-                continue;
-            };
-
-            // A transaction whose hash was the first miss classification is the real owner of
-            // that outstanding request. If it dies before the response arrives, every waiter
-            // left in the hash bucket would otherwise remain permanently unresolved. Abandoning
-            // those waiters with their own recovery is bounded and makes the loss explicit.
-            let orphaned_waiters = transaction
-                .owned_hashes
-                .iter()
-                .filter_map(|hash| self.pending_by_hash.get(hash))
-                .flatten()
-                .copied()
-                .filter(|waiter| !abandoned.contains(waiter))
-                .collect::<BTreeSet<_>>();
-            to_abandon.extend(orphaned_waiters);
-
-            transactions.push(transaction);
-        }
-        transactions
-    }
-
-    fn abandon_pending_transaction(&mut self, sequence: u64) {
-        let _ = self.abandon_pending_transaction_with_recovery(sequence, false);
+    fn abandon_pending_transaction(&mut self, sequence: u64) -> Result<(), BlobCacheError> {
+        self.abandon_pending_transaction_with_recovery(sequence, false)
+            .map(|_| ())
     }
 
     fn abandon_pending_transaction_with_recovery(
         &mut self,
         sequence: u64,
         return_first: bool,
-    ) -> Option<ChunkResyncEvent> {
-        let transactions = self.abandoned_transactions(sequence);
-        let mut recoveries = Vec::new();
-        for transaction in transactions {
-            self.cache.unpin_all(&transaction.unique_hashes);
-            self.stats.abandoned_cached_transactions =
-                self.stats.abandoned_cached_transactions.saturating_add(1);
-            recoveries.extend(pending_packet_recovery(&transaction.packet));
+    ) -> Result<Option<ChunkResyncEvent>, BlobCacheError> {
+        self.promote_waiters(sequence)?;
+        let Some(transaction) = self.remove_pending_transaction(sequence) else {
+            return Ok(None);
+        };
+        self.cache.unpin_all(&transaction.unique_hashes);
+        self.stats.abandoned_cached_transactions =
+            self.stats.abandoned_cached_transactions.saturating_add(1);
+        let recoveries = pending_packet_recovery(&transaction.packet);
+        if return_first {
+            Ok(self.prepare_recovery(recoveries))
+        } else {
+            self.enqueue_recoveries(recoveries);
+            Ok(None)
         }
-        let first = self.prepare_recovery(recoveries);
-        if !return_first && let Some(recovery) = first.clone() {
-            self.enqueue_recovery(recovery);
+    }
+
+    fn promote_waiters(&mut self, owner: u64) -> Result<(), BlobCacheError> {
+        let promotions = self
+            .pending
+            .get(&owner)
+            .into_iter()
+            .flat_map(|transaction| transaction.owned_hashes.iter())
+            .filter_map(|hash| {
+                self.pending_by_hash.get(hash).and_then(|transactions| {
+                    transactions
+                        .iter()
+                        .filter(|sequence| **sequence != owner)
+                        .min()
+                        .copied()
+                        .map(|waiter| (*hash, waiter))
+                })
+            })
+            .collect::<Vec<_>>();
+        for (hash, waiter) in promotions {
+            self.add_owned_hash(waiter, hash)?;
         }
-        first
+        Ok(())
+    }
+
+    fn add_owned_hash(&mut self, sequence: u64, hash: u64) -> Result<(), BlobCacheError> {
+        let Some(transaction) = self.pending.get_mut(&sequence) else {
+            return Ok(());
+        };
+        if transaction.owned_hashes.contains(&hash) {
+            return Ok(());
+        }
+        let previous_capacity = transaction.owned_hashes.capacity();
+        transaction
+            .owned_hashes
+            .try_reserve(1)
+            .map_err(|_| BlobCacheError::ByteCountOverflow)?;
+        let added_capacity = transaction
+            .owned_hashes
+            .capacity()
+            .saturating_sub(previous_capacity);
+        let added_bytes = added_capacity
+            .checked_mul(size_of::<u64>())
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        transaction.accounted_bytes = transaction
+            .accounted_bytes
+            .checked_add(added_bytes)
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        transaction.owned_hashes.push(hash);
+        Ok(())
     }
 
     fn retained_cached_transaction_count(&self) -> usize {
@@ -792,7 +825,6 @@ impl BlobCacheResolver {
 
     fn enqueue_recoveries(&mut self, recoveries: impl IntoIterator<Item = ChunkResyncEvent>) {
         for recovery in recoveries {
-            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
             self.enqueue_recovery(recovery);
         }
     }
@@ -801,6 +833,7 @@ impl BlobCacheResolver {
         let (key, incoming) = RecoveryReady::from_event(recovery);
         let Some(existing) = self.recovery_ready.get_mut(&key) else {
             self.recovery_ready.insert(key, incoming);
+            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
             return;
         };
 
@@ -814,6 +847,11 @@ impl BlobCacheResolver {
         if incoming_is_full {
             existing.requested_sub_chunks = incoming.requested_sub_chunks;
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enqueue_recovery_for_test(&mut self, recovery: ChunkResyncEvent) {
+        self.enqueue_recovery(recovery);
     }
 
     /// The only constructor for `BlobCacheStatus`: extracts the complete reference set from the

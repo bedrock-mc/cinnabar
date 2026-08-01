@@ -63,6 +63,77 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
 }
 
 #[test]
+fn pending_accounting_includes_owned_hash_capacity() {
+    let hashes = vec![
+        client_blob_hash(b"owned-0"),
+        client_blob_hash(b"owned-1"),
+        client_blob_hash(b"owned-2"),
+    ];
+    let mut payload = Vec::with_capacity(17);
+    payload.extend_from_slice(b"retained-payload");
+    let packet = LevelChunkPacket {
+        sub_chunk_count: 2,
+        blobs: Some(valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+            hashes: hashes.clone(),
+        }),
+        payload,
+        ..Default::default()
+    };
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(packet.into())
+        .expect("retain the unresolved transaction");
+
+    let transaction = resolver
+        .pending
+        .values()
+        .next()
+        .expect("the missing hashes remain pending");
+    let PendingPacket::LevelChunk(packet) = &transaction.packet else {
+        panic!("expected a pending LevelChunk");
+    };
+    let packet_bytes = size_of::<LevelChunkPacket>()
+        + packet.payload.capacity()
+        + packet
+            .blobs
+            .as_ref()
+            .expect("cached packet retains its blobs")
+            .hashes
+            .capacity()
+            * size_of::<u64>();
+    let expected = packet_bytes
+        + transaction.hashes.capacity() * size_of::<u64>()
+        + transaction.unique_hashes.capacity() * size_of::<u64>()
+        + transaction.owned_hashes.capacity() * size_of::<u64>();
+    assert_eq!(transaction.accounted_bytes, expected);
+    assert_eq!(transaction.owned_hashes, hashes);
+}
+
+#[test]
+fn recovery_index_has_deterministically_bounded_ordering_work() {
+    const RECOVERY_COUNT: usize = 4_096;
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    RECOVERY_ORDER_COMPARISONS.store(0, AtomicOrdering::Relaxed);
+
+    for x in 0..RECOVERY_COUNT {
+        resolver.enqueue_recovery_for_test(ChunkResyncEvent {
+            dimension: 0,
+            x: i32::try_from(x).expect("test coordinate fits"),
+            z: 0,
+            requested_sub_chunks: None,
+            requested_sub_chunk_ys: None,
+        });
+    }
+
+    let comparisons = RECOVERY_ORDER_COMPARISONS.load(AtomicOrdering::Relaxed);
+    assert_eq!(resolver.recovery_ready.len(), RECOVERY_COUNT);
+    assert!(
+        comparisons < RECOVERY_COUNT * 64,
+        "recovery index ordering work grew unexpectedly: {comparisons} comparisons"
+    );
+}
+
+#[test]
 fn classify_and_pin_is_one_cache_operation() {
     let limits = BlobCacheLimits {
         trim_trigger_bytes: 4,

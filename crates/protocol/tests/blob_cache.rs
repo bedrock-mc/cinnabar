@@ -942,7 +942,7 @@ fn one_response_resolves_every_transaction_waiting_for_the_same_blob() {
 }
 
 #[test]
-fn abandoning_a_hash_owner_abandons_waiters_with_recovery() {
+fn abandoning_a_hash_owner_promotes_waiter_and_keeps_late_response_authorized() {
     let payload = b"orphaned-waiter";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -971,25 +971,36 @@ fn abandoning_a_hash_owner_abandons_waiters_with_recovery() {
             .unblock_ordinary_lane()
             .expect("owner abandonment remains non-fatal")
     );
-    assert_eq!(resolver.stats().pending_transactions, 0);
-    let recoveries = [21, 22]
-        .into_iter()
-        .map(|x| match resolver.pop_ready() {
-            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => {
-                assert_eq!(recovery.x, x);
-                assert_eq!(recovery.requested_sub_chunks, None);
-                assert_eq!(recovery.requested_sub_chunk_ys, None);
-                recovery
-            }
-            other => panic!("expected recovery for column {x}, got {other:?}"),
+    assert_eq!(resolver.stats().pending_transactions, 1);
+    match resolver.pop_ready() {
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(recovery))) => {
+            assert_eq!(recovery.x, 21);
+            assert_eq!(recovery.requested_sub_chunks, None);
+            assert_eq!(recovery.requested_sub_chunk_ys, None);
+        }
+        other => panic!("expected recovery for abandoned owner, got {other:?}"),
+    }
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash,
+                payload: payload.to_vec(),
+            }],
         })
-        .count();
-    assert_eq!(recoveries, 2);
-    assert!(
-        resolver.pop_ready().is_some(),
-        "the ordinary event follows recovery"
-    );
-    assert_eq!(resolver.stats().recovery_requests, 2);
+        .expect("a late response remains authorized by the promoted waiter");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    let packet = pop_packet(&mut resolver, "promoted waiter column");
+    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+        panic!("expected the promoted waiter to reconstruct as a LevelChunk");
+    };
+    assert_eq!(packet.x, 22);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
+    ));
+    assert!(resolver.pop_ready().is_none());
+    assert_eq!(resolver.stats().recovery_requests, 1);
 }
 
 #[test]
@@ -1092,19 +1103,49 @@ fn recovery_coalescing_scales_with_indexed_columns() {
         .accept_world_event(WorldEvent::BlockUpdates(updates), 0)
         .expect("retain the blocker for every referenced column");
 
-    let started = std::time::Instant::now();
     assert!(
         resolver
             .unblock_ordinary_lane()
             .expect("indexed recovery aggregation remains non-fatal")
     );
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(5),
-        "recovery aggregation exceeded the bounded-work witness"
-    );
     assert_eq!(resolver.stats().recovery_ready_events, 256 * 256);
     assert_eq!(resolver.stats().recovery_requests, 256 * 256);
     assert_eq!(resolver.stats().pending_transactions, 0);
+}
+
+#[test]
+fn recovery_requests_count_coalesced_emissions() {
+    let payload = b"coalesced-recovery";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    for (index, _) in [1, 2].into_iter().enumerate() {
+        resolver
+            .accept_cached_packet(cached_subchunk(hash, payload))
+            .expect("authorize a cached SubChunk transaction");
+        assert_eq!(resolver.stats().pending_transactions, index + 1);
+    }
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [4 * 16, 0, 8 * 16],
+                layer: 0,
+                network_id: 0,
+            }]),
+            0,
+        )
+        .expect("retain the blocker for both same-column recoveries");
+
+    resolver
+        .unblock_ordinary_lane()
+        .expect("coalesced recovery remains non-fatal");
+    assert_eq!(resolver.stats().recovery_ready_events, 1);
+    assert_eq!(resolver.stats().recovery_requests, 1);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
 }
 
 #[test]

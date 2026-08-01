@@ -1,6 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
@@ -10,6 +12,9 @@ use valentine::bedrock::version::v1_26_30::{
 };
 
 use crate::{ChunkResyncEvent, Packet, WorldEvent};
+
+#[cfg(test)]
+static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -105,6 +110,11 @@ pub struct BlobCacheStats {
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
     pub abandoned_cached_transactions: u64,
+    /// Recovery contributions raised before coalescing, not outbound requests.
+    ///
+    /// Two abandoned transactions recovering the same column increment this
+    /// twice while producing one `recovery_ready` event and one outbound
+    /// request, so this counts recovery demand rather than live traffic.
     pub recovery_requests: u64,
     pub ordinary_backpressure: u64,
     pub reconstructed_level_chunks: u64,
@@ -296,11 +306,28 @@ struct ImmediateReady {
     sequence: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ColumnKey {
     dimension: i32,
     x: i32,
     z: i32,
+}
+
+impl Ord for ColumnKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        #[cfg(test)]
+        RECOVERY_ORDER_COMPARISONS.fetch_add(1, AtomicOrdering::Relaxed);
+        self.dimension
+            .cmp(&other.dimension)
+            .then_with(|| self.x.cmp(&other.x))
+            .then_with(|| self.z.cmp(&other.z))
+    }
+}
+
+impl PartialOrd for ColumnKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Debug)]
