@@ -271,6 +271,11 @@ the primary authority for this contract:
 
 ## Cinnabar divergences and known gaps
 
+The implementation defects tracked separately from vanilla behavior are
+listed in the [Cinnabar blob-cache open-defects ledger](blob-cache-open-defects.md).
+That ledger covers current-head loss/accounting gaps and a parked, unmerged
+outstanding-deduplication design; it is not evidence of vanilla behavior.
+
 Cinnabar rejects cached LevelChunk hash lists above 4,096 during wire decode, before resolver classification; this is a Cinnabar bound.
 
 Cinnabar deliberately retains blob-payload hash validation even though
@@ -308,19 +313,23 @@ Cinnabar adds the uncached LevelChunk tail or successful SubChunk tails to the
 known cached-blob length for every reference. Duplicate references are charged
 once per occurrence because reconstruction copies every occurrence. A sum
 above 32 MiB is abandoned non-fatally with truthful hit/miss classification and
-the existing LevelChunk resync or scheduler-owned SubChunk recovery. The check
-runs both for immediately ready cache hits and after the last miss response, so
-unknown blob sizes cannot bypass it.
+the existing LevelChunk resync or scheduler-owned SubChunk retry path. The
+SubChunk path has the abandonment gap documented in the
+[open-defects ledger](blob-cache-open-defects.md#1-subchunk-abandonment-has-no-recovery-path).
+The check runs both for immediately ready cache hits and after the last miss
+response, so unknown blob sizes cannot bypass it.
 
 Cinnabar separately caps staged pinned blob payload at 32 MiB per unresolved
 transaction. Vanilla has no corresponding limit. Cinnabar charges each unique
 cached referenced blob on initial classification and each newly supplied
 solicited miss before admitting that response to the cache. Crossing the
 ceiling abandons the transaction non-fatally, releases every transaction pin,
-and routes the affected LevelChunk or SubChunk through its existing recovery
-path. Before this bound, a transaction with any missing reference bypassed the
-final reconstruction projection while successive miss responses accumulated
-pinned cache entries that trimming could not evict.
+and routes the affected LevelChunk or SubChunk through its current recovery or
+retry path; the SubChunk abandonment gap is tracked in the
+[open-defects ledger](blob-cache-open-defects.md#1-subchunk-abandonment-has-no-recovery-path).
+Before this bound, a transaction with any missing reference bypassed the final
+reconstruction projection while successive miss responses accumulated pinned
+cache entries that trimming could not evict.
 
 Cinnabar also caps aggregate accounted bytes across retained reconstructed
 outputs at 32 MiB. Vanilla has no corresponding limit. The accounting includes
@@ -340,8 +349,11 @@ payloads, hash indexes, and cached ready containers. Crossing the ceiling
 removes the new transaction non-fatally, releases all pins, increments
 pressure/abandonment telemetry, and returns LevelChunk recovery. A
 ready-transition overage uses the common abandonment path, which also releases
-pins and queues recovery. SubChunk recovery remains scheduler-owned. This is a
-Cinnabar memory-safety divergence.
+pins and queues recovery. SubChunk handling remains scheduler-owned and has the
+abandonment gap recorded in the
+[open-defects ledger](blob-cache-open-defects.md#1-subchunk-abandonment-has-no-recovery-path).
+This is a Cinnabar memory-safety divergence with an open defect in the
+SubChunk terminal path.
 
 Cinnabar's cache is byte-bounded only, admits blobs without an entry-count or
 per-blob maximum, and uses a 100 MiB trigger, 80 MiB floor, and LRU last-touch
