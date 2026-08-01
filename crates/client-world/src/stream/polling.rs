@@ -2,6 +2,7 @@ use super::*;
 
 impl WorldStream {
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
+        let profile_started = Instant::now();
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_request_player_chunk = Some(ChunkKey::new(
                 self.current_dimension,
@@ -18,6 +19,7 @@ impl WorldStream {
         self.expire_sub_chunk_deadlines(Instant::now());
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();
+        let profile_decode = profile_started.elapsed();
 
         while let Ok(completion) = self.light_rx.try_recv() {
             report.light_results += 1;
@@ -25,6 +27,7 @@ impl WorldStream {
         }
         report.light_jobs_dispatched =
             self.dispatch_light_jobs(camera_position, LIGHT_DISPATCH_BUDGET_PER_POLL);
+        let profile_light = profile_started.elapsed();
 
         while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
             let Ok(completion) = self.mesh_rx.try_recv() else {
@@ -43,6 +46,27 @@ impl WorldStream {
                 .min(live_publication_items)
                 .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
         );
+        let profile_total = profile_started.elapsed();
+        static PROFILE_WORLD_POLL: std::sync::LazyLock<bool> =
+            std::sync::LazyLock::new(|| std::env::var_os("RUST_MCBE_PROFILE_WORLD_POLL").is_some());
+        if *PROFILE_WORLD_POLL && profile_total > Duration::from_millis(10) {
+            eprintln!(
+                "WORLD_POLL_PROFILE total_us={} decode_us={} light_us={} mesh_us={} decoded={} light_results={} light_dispatched={} mesh_results={} mesh_dispatched={} pending_light={} in_flight_light={} pending_mesh={} in_flight_mesh={}",
+                profile_total.as_micros(),
+                profile_decode.as_micros(),
+                profile_light.saturating_sub(profile_decode).as_micros(),
+                profile_total.saturating_sub(profile_light).as_micros(),
+                report.decoded_results,
+                report.light_results,
+                report.light_jobs_dispatched,
+                report.mesh_results,
+                report.mesh_jobs_dispatched,
+                self.pending_light.len(),
+                self.in_flight_light.len(),
+                self.pending_mesh.len(),
+                self.in_flight.len(),
+            );
+        }
         report
     }
     pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {
