@@ -7,6 +7,7 @@ use bevy::{
 };
 use protocol::PlayerInputMode;
 use semantic_input::Action;
+use sim::{SimulationError, WorldQueryError};
 
 use crate::{
     acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
@@ -86,10 +87,10 @@ pub(crate) fn advance_local_physics(
         }
         *previous_blocker = blocker;
     }
-    if frame.dropped_ticks != 0 && movement_ticker.physics_is_authorized() {
-        movement_ticker.record_physics_fault(PhysicsAuthorityFault::PhysicsTickOverflow {
-            dropped: frame.dropped_ticks,
-        });
+    if let Some(fault) = physics_authority_fault_for_frame(&frame)
+        && movement_ticker.physics_is_authorized()
+    {
+        movement_ticker.record_physics_fault(fault);
         physics.deactivate();
         return;
     }
@@ -103,4 +104,34 @@ pub(crate) fn advance_local_physics(
     if let Some(position) = physics.render_eye_position() {
         view.set_eye_translation(Vec3::from_array(position));
     }
+}
+
+pub(crate) fn physics_authority_fault_for_frame(
+    frame: &super::LocalPhysicsFrame,
+) -> Option<PhysicsAuthorityFault> {
+    if frame.dropped_ticks != 0 {
+        return Some(PhysicsAuthorityFault::PhysicsTickOverflow {
+            due: frame.due_ticks,
+            dropped: frame.dropped_ticks,
+        });
+    }
+
+    let error = frame.blocked.as_ref()?;
+    if is_transient_collision_unavailability(error) {
+        return None;
+    }
+    Some(PhysicsAuthorityFault::PhysicsSimulationError {
+        due: frame.due_ticks,
+        tick_index: frame.blocked_tick_index.unwrap_or(frame.completed_ticks),
+        error: error.clone(),
+    })
+}
+
+fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
+    matches!(
+        error,
+        SimulationError::World(
+            WorldQueryError::UnloadedChunk(_) | WorldQueryError::UnknownRuntimeId { .. }
+        )
+    )
 }

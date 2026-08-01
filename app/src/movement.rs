@@ -82,7 +82,7 @@ pub(crate) struct PhysicsSendIdentity {
     pub(crate) reanchor_epoch: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhysicsAuthorityFaultRecord {
     pub session_generation: u64,
     pub fault: PhysicsAuthorityFault,
@@ -282,12 +282,12 @@ impl MovementTicker {
                 expected: self.next_tick,
                 actual: completed.tick,
             };
-            self.fail_physics_authority(fault);
+            self.fail_physics_authority(&fault);
             return Err(fault);
         }
         if self.pending_count() == OUTBOX_CAPACITY {
             let fault = PhysicsAuthorityFault::OutboxOverflow;
-            self.fail_physics_authority(fault);
+            self.fail_physics_authority(&fault);
             return Err(fault);
         }
         if !completed.position.into_iter().all(f32::is_finite)
@@ -298,7 +298,7 @@ impl MovementTicker {
                 .all(f32::is_finite)
         {
             let fault = PhysicsAuthorityFault::InvalidCompletedSample;
-            self.fail_physics_authority(fault);
+            self.fail_physics_authority(&fault);
             return Err(fault);
         }
         let snapshot = self.snapshot(&completed);
@@ -326,11 +326,11 @@ impl MovementTicker {
         Ok(())
     }
 
-    fn fail_physics_authority(&mut self, fault: PhysicsAuthorityFault) {
+    fn fail_physics_authority(&mut self, fault: &PhysicsAuthorityFault) {
         if self.pending_fault.is_none() {
             self.pending_fault = Some(PhysicsAuthorityFaultRecord {
                 session_generation: self.session_generation,
-                fault,
+                fault: fault.clone(),
                 next_tick: self.next_tick,
                 pending_count: self.pending_count(),
             });
@@ -469,7 +469,7 @@ impl MovementTicker {
         }
         if self.tick_evidence.len() == OUTBOX_CAPACITY {
             self.pending_sends.pop_front();
-            self.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
+            self.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             return false;
         }
         let pending = self
@@ -502,7 +502,7 @@ impl MovementTicker {
         }
         if !definitely_unsent {
             self.pending_sends.pop_front();
-            self.fail_physics_authority(PhysicsAuthorityFault::IndeterminatePhysicsSend {
+            self.fail_physics_authority(&PhysicsAuthorityFault::IndeterminatePhysicsSend {
                 tick: identity.tick,
             });
             return true;
@@ -519,7 +519,7 @@ impl MovementTicker {
             && pending.sample.session_generation == self.session_generation
             && self.retry_replayed_sample(pending.sample).is_err()
         {
-            self.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
+            self.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             return true;
         }
         self.refresh_outbox_reconciliation();
@@ -694,8 +694,8 @@ impl MovementTicker {
     }
 
     #[must_use]
-    pub(crate) const fn pending_authority_fault(&self) -> Option<PhysicsAuthorityFaultRecord> {
-        self.pending_fault
+    pub(crate) fn pending_authority_fault(&self) -> Option<&PhysicsAuthorityFaultRecord> {
+        self.pending_fault.as_ref()
     }
 
     #[cfg(test)]
@@ -704,7 +704,7 @@ impl MovementTicker {
     }
 
     pub(crate) fn record_physics_fault(&mut self, fault: PhysicsAuthorityFault) {
-        self.fail_physics_authority(fault);
+        self.fail_physics_authority(&fault);
     }
 
     fn apply_correction_plan(
@@ -865,7 +865,7 @@ pub fn reconcile_candidate_physics_correction(
         *ticker = candidate_ticker;
         Ok(outcome)
     });
-    if let Err(fault) = result {
+    if let Err(ref fault) = result {
         ticker.fail_physics_authority(fault);
         physics.deactivate();
     }
@@ -893,7 +893,7 @@ pub(crate) fn flush_player_auth_inputs<E>(
     let mut sent = 0;
     for _ in 0..budget {
         if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
-            ticker.fail_physics_authority(PhysicsAuthorityFault::OutboxOverflow);
+            ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             break;
         }
         let Some(sample) = ticker.pop_pending() else {

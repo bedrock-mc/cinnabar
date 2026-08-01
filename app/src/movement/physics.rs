@@ -259,8 +259,10 @@ pub(super) struct PhysicsCorrectionPlan {
 
 #[derive(Debug, Default)]
 pub struct LocalPhysicsFrame {
+    pub due_ticks: u64,
     pub completed_ticks: usize,
     pub dropped_ticks: u64,
+    pub blocked_tick_index: Option<usize>,
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
 }
@@ -419,6 +421,7 @@ impl LocalPhysicsController {
         self.accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
         let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
         let mut frame = LocalPhysicsFrame {
+            due_ticks: due,
             dropped_ticks: due.saturating_sub(allowed as u64),
             samples: Vec::with_capacity(allowed),
             ..LocalPhysicsFrame::default()
@@ -477,11 +480,16 @@ impl LocalPhysicsController {
                     input.jump_pressed = false;
                 }
                 Err(error) => {
-                    self.previous_position = state.position;
-                    self.accumulated_seconds = 0.0;
-                    frame.dropped_ticks = frame
-                        .dropped_ticks
-                        .saturating_add((allowed - tick_index) as u64);
+                    // `PredictionHistory::predict` is transactional: the
+                    // failed tick did not consume simulation time or mutate
+                    // the retained state. Keep that tick, and any later
+                    // allowed tick, pending for the next frame. The only
+                    // elapsed time that is dropped here is the separate
+                    // render-frame catch-up overflow recorded above.
+                    let unconsumed_ticks = allowed - tick_index;
+                    self.accumulated_seconds +=
+                        unconsumed_ticks as f64 * LOCAL_PHYSICS_TICK_SECONDS;
+                    frame.blocked_tick_index = Some(tick_index);
                     frame.blocked = Some(match error {
                         sim::PredictionError::Simulation(error) => error,
                         sim::PredictionError::ZeroCapacity

@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
@@ -85,12 +87,72 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert!((eye[1] - 71.62).abs() < 1.0e-5);
 }
 
+#[derive(Default)]
+struct DeferredCollisionWorld {
+    available: Cell<bool>,
+}
+
+impl DeferredCollisionWorld {
+    fn set_available(&self) {
+        self.available.set(true);
+    }
+}
+
+impl CollisionWorld for DeferredCollisionWorld {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        if !self.available.get() {
+            return Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(0, 0, 0)));
+        }
+        Floor.collision_boxes(query)
+    }
+}
+
 #[test]
-fn unavailable_collision_fails_closed_without_advancing_or_drifting_the_camera() {
+fn unavailable_collision_defers_without_dropping_or_mutating_then_retries() {
+    let world = DeferredCollisionWorld::default();
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([4.0, 65.620_01, 6.0], 7, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 7, [4.0, 65.620_01, 6.0]);
+    ticker.set_source(MovementSource::Physics);
     let before = physics.state().unwrap().clone();
     let before_eye = physics.render_eye_position();
+
+    let frame = physics.advance(
+        Duration::from_millis(250),
+        forward_physics_input(),
+        &world,
+    );
+
+    assert_eq!(frame.due_ticks, 5);
+    assert_eq!(frame.completed_ticks, 0);
+    assert_eq!(frame.dropped_ticks, 0);
+    assert!(matches!(
+        frame.blocked,
+        Some(sim::SimulationError::World(
+            WorldQueryError::UnloadedChunk(_)
+        ))
+    ));
+    assert!(physics.is_active());
+    assert!(ticker.physics_is_authorized());
+    assert_eq!(physics_authority_fault_for_frame(&frame), None);
+    assert_eq!(physics.state(), Some(&before));
+    assert_eq!(physics.render_eye_position(), before_eye);
+    assert_eq!(physics.history_len(), 0);
+
+    world.set_available();
+    let retry = physics.advance(Duration::ZERO, forward_physics_input(), &world);
+    assert!(retry.blocked.is_none());
+    assert_eq!(retry.completed_ticks, 5);
+    assert_eq!(retry.dropped_ticks, 0);
+    assert_eq!(physics.state().unwrap().tick, before.tick + 5);
+    assert_eq!(physics.history_len(), 5);
+}
+
+#[test]
+fn unknown_runtime_id_collision_data_is_also_deferred_as_transient() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([4.0, 65.620_01, 6.0], 7, true);
 
     let frame = physics.advance(
         Duration::from_millis(50),
@@ -98,30 +160,93 @@ fn unavailable_collision_fails_closed_without_advancing_or_drifting_the_camera()
         &UnavailableWorld,
     );
 
+    assert_eq!(frame.dropped_ticks, 0);
     assert!(matches!(
         frame.blocked,
         Some(sim::SimulationError::World(
             WorldQueryError::UnknownRuntimeId { runtime_id: 99, .. }
         ))
     ));
-    assert_eq!(physics.state(), Some(&before));
-    assert_eq!(physics.render_eye_position(), before_eye);
-    assert_eq!(physics.history_len(), 0);
+    assert!(physics.is_active());
+    assert_eq!(physics_authority_fault_for_frame(&frame), None);
 }
 
 #[test]
-fn local_physics_catch_up_and_prediction_history_are_bounded() {
+fn local_physics_catch_up_overflow_remains_fatal_and_reports_due_ticks() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
 
     let frame = physics.advance(Duration::from_secs(10), MovementInput::default(), &Floor);
 
     assert_eq!(frame.completed_ticks, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME);
+    assert_eq!(frame.due_ticks, 200);
     assert_eq!(
         frame.dropped_ticks,
         200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64
     );
     assert!(physics.history_len() <= 32);
+
+    let fault = physics_authority_fault_for_frame(&frame).expect("catch-up overflow fault");
+    assert_eq!(
+        fault,
+        PhysicsAuthorityFault::PhysicsTickOverflow {
+            due: 200,
+            dropped: 200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64,
+        }
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 0, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.record_physics_fault(fault);
+    assert!(!ticker.physics_is_authorized());
+    assert!(matches!(
+        ticker.take_authority_fault().unwrap().fault,
+        PhysicsAuthorityFault::PhysicsTickOverflow {
+            due: 200,
+            dropped: 192
+        }
+    ));
+}
+
+#[test]
+fn non_retryable_simulation_errors_fail_closed_with_distinct_diagnostics() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let invalid_input = MovementInput {
+        forward: f64::NAN,
+        ..MovementInput::default()
+    };
+
+    let frame = physics.advance(Duration::from_millis(50), invalid_input, &Floor);
+    assert_eq!(frame.due_ticks, 1);
+    assert_eq!(frame.dropped_ticks, 0);
+    assert!(matches!(
+        frame.blocked,
+        Some(sim::SimulationError::NonFiniteInput { field: "forward" })
+    ));
+
+    let fault = physics_authority_fault_for_frame(&frame).expect("simulation error fault");
+    assert_eq!(
+        fault,
+        PhysicsAuthorityFault::PhysicsSimulationError {
+            due: 1,
+            tick_index: 0,
+            error: sim::SimulationError::NonFiniteInput { field: "forward" },
+        }
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 0, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.record_physics_fault(fault);
+    assert!(!ticker.physics_is_authorized());
+    assert!(matches!(
+        ticker.take_authority_fault().unwrap().fault,
+        PhysicsAuthorityFault::PhysicsSimulationError {
+            due: 1,
+            tick_index: 0,
+            error: sim::SimulationError::NonFiniteInput { field: "forward" }
+        }
+    ));
 }
 
 #[test]
