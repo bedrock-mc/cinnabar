@@ -37,6 +37,14 @@ pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 256;
 /// charges decoded packet containers and inline payload capacities retained while cache misses are
 /// unresolved, even when reconstruction size is unknown and no cached payload is staged.
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
+/// Cinnabar's maximum queued chunk-resync events awaiting emission.
+///
+/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. Cached intake pauses
+/// only once the queue reaches this depth, never merely because it is non-empty: a skipped cached
+/// packet itself raises recovery, so gating on non-emptiness lets one queued event stop all intake
+/// permanently while every subsequent skip refills the queue. `pop_ready` drains recovery ahead of
+/// cached output, so ordering does not depend on the intake gate.
+pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 256;
 /// Ordinary decoded work is retained independently from cache transactions. The session receive
 /// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
 /// keeps direct resolver users bounded too.

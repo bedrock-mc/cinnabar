@@ -269,7 +269,7 @@ impl BlobCacheResolver {
             return Ok(self.classify_status(&packet, recovery, false));
         }
         if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
-            || !self.recovery_ready.is_empty()
+            || self.recovery_ready.len() >= MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
         {
             self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
             self.stats.cached_packet_transaction_pressure = self

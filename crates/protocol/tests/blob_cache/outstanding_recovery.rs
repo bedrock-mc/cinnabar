@@ -224,3 +224,49 @@ fn resolver_accepts_authorized_response_after_another_resolver_fills_shared_cach
         .expect("second resolver retains independent authorization");
     let _ = pop_packet(&mut second, "second resolver transaction");
 }
+
+#[test]
+fn queued_recovery_does_not_stop_cached_intake() {
+    let payload = b"intake-under-recovery";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+
+    // Abandon one transaction so recovery is queued but far below its bound.
+    resolver
+        .accept_cached_packet(cached_subchunk(hash, payload))
+        .expect("authorize the transaction that will be abandoned");
+    resolver
+        .accept_world_event(
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [4 * 16, 0, 8 * 16],
+                layer: 0,
+                network_id: 0,
+            }]),
+            0,
+        )
+        .expect("retain the blocker");
+    resolver
+        .unblock_ordinary_lane()
+        .expect("abandonment remains non-fatal");
+    assert!(resolver.stats().recovery_ready_events > 0);
+
+    // Live regression: gating intake on a non-empty recovery queue stopped every
+    // subsequent cached packet, and each skip refilled the queue, so intake never
+    // resumed. Admission must still succeed well below the queue bound.
+    let skipped_before = resolver.stats().skipped_cached_packets;
+    let pending_before = resolver.stats().pending_transactions;
+    resolver
+        .accept_cached_packet(cached_request_level(9, client_blob_hash(b"fresh-intake")))
+        .expect("cached intake continues while recovery is queued");
+    assert_eq!(
+        resolver.stats().skipped_cached_packets,
+        skipped_before,
+        "a queued recovery must not skip an admissible cached packet"
+    );
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        pending_before + 1,
+        "the packet is admitted as a pending transaction"
+    );
+}
