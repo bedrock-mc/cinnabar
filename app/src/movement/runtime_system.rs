@@ -7,8 +7,6 @@ use bevy::{
 };
 use protocol::PlayerInputMode;
 use semantic_input::Action;
-use sim::{SimulationError, WorldQueryError};
-
 use crate::{
     acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
     runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
@@ -18,6 +16,7 @@ use super::{
     LocalPhysicsController, MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries,
     PhysicsSampleContext, physics_movement_input,
 };
+use super::physics::is_transient_collision_unavailability;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
@@ -81,13 +80,16 @@ pub(crate) fn advance_local_physics(
         &world,
     );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
+    let authority_fault = physics_authority_fault_for_frame(&frame);
     if blocker != *previous_blocker {
-        if let Some(blocker) = blocker.as_deref() {
+        if authority_fault.is_none()
+            && let Some(blocker) = blocker.as_deref()
+        {
             debug!(%blocker, "local physics is waiting for authoritative collision data");
         }
         *previous_blocker = blocker;
     }
-    if let Some(fault) = physics_authority_fault_for_frame(&frame)
+    if let Some(fault) = authority_fault
         && movement_ticker.physics_is_authorized()
     {
         movement_ticker.record_physics_fault(fault);
@@ -109,6 +111,13 @@ pub(crate) fn advance_local_physics(
 pub(crate) fn physics_authority_fault_for_frame(
     frame: &super::LocalPhysicsFrame,
 ) -> Option<PhysicsAuthorityFault> {
+    if frame
+        .blocked
+        .as_ref()
+        .is_some_and(is_transient_collision_unavailability)
+    {
+        return None;
+    }
     if frame.dropped_ticks != 0 {
         return Some(PhysicsAuthorityFault::PhysicsTickOverflow {
             due: frame.due_ticks,
@@ -117,21 +126,9 @@ pub(crate) fn physics_authority_fault_for_frame(
     }
 
     let error = frame.blocked.as_ref()?;
-    if is_transient_collision_unavailability(error) {
-        return None;
-    }
     Some(PhysicsAuthorityFault::PhysicsSimulationError {
         due: frame.due_ticks,
         tick_index: frame.blocked_tick_index.unwrap_or(frame.completed_ticks),
         error: error.clone(),
     })
-}
-
-fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
-    matches!(
-        error,
-        SimulationError::World(
-            WorldQueryError::UnloadedChunk(_) | WorldQueryError::UnknownRuntimeId { .. }
-        )
-    )
 }
