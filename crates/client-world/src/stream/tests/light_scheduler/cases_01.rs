@@ -888,7 +888,8 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
 #[test]
 fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     let mut stream = lit_stream(1);
-    let capacity = super::super::MAX_IN_FLIGHT_LIGHT_JOBS;
+    let capacity = super::super::effective_light_job_cap();
+    assert!((1..=super::super::MAX_IN_FLIGHT_LIGHT_JOBS).contains(&capacity));
     let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
     let keys = (-radius..=radius)
         .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
@@ -907,12 +908,19 @@ fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
         capacity
     );
     assert_eq!(stream.in_flight_light.len(), capacity);
+    assert_eq!(stream.pending_light.len(), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 0);
+    assert_eq!(stream.in_flight_light.len(), capacity);
+    assert_eq!(stream.pending_light.len(), 1);
     let completion = stream
         .light_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("independent light completion");
     stream.accept_light_completion(completion);
+    assert_eq!(stream.in_flight_light.len(), capacity - 1);
+    assert_eq!(stream.pending_light.len(), 1);
 
     assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 1);
     assert_eq!(stream.in_flight_light.len(), capacity);
+    assert!(stream.pending_light.is_empty());
 }

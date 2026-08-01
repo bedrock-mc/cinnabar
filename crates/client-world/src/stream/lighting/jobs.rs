@@ -6,7 +6,7 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        let worker_budget = MAX_IN_FLIGHT_LIGHT_JOBS.saturating_sub(self.in_flight_light.len());
+        let worker_budget = effective_light_job_cap().saturating_sub(self.in_flight_light.len());
         let solve_budget = budget.min(worker_budget);
         if self.fatal_light_failure || solve_budget == 0 {
             return 0;
