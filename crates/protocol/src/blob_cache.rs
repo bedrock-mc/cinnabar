@@ -110,11 +110,12 @@ pub struct BlobCacheStats {
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
     pub abandoned_cached_transactions: u64,
-    /// Recovery contributions raised before coalescing, not outbound requests.
+    /// Distinct recovery events queued after coalescing.
     ///
-    /// Two abandoned transactions recovering the same column increment this
-    /// twice while producing one `recovery_ready` event and one outbound
-    /// request, so this counts recovery demand rather than live traffic.
+    /// Two abandoned transactions recovering the same column produce one
+    /// `recovery_ready` entry and increment this once, so it tracks live
+    /// recovery traffic rather than pre-coalescing demand. A recovery returned
+    /// inline on a status packet is counted when it is queued.
     pub recovery_requests: u64,
     pub ordinary_backpressure: u64,
     pub reconstructed_level_chunks: u64,

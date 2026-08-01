@@ -119,9 +119,6 @@ impl BlobCacheResolver {
                 self.stats.cached_packet_semantic_shape =
                     self.stats.cached_packet_semantic_shape.saturating_add(1);
                 let recovery = chunk_recovery(&skipped_packet);
-                if recovery.is_some() {
-                    self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
-                }
                 Ok(self.classify_status(&skipped_packet, recovery, false))
             }
             Err(error) => {
@@ -817,9 +814,6 @@ impl BlobCacheResolver {
         let mut recoveries = recoveries.into_iter();
         let first = recoveries.next();
         self.enqueue_recoveries(recoveries);
-        if first.is_some() {
-            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
-        }
         first
     }
 
@@ -847,11 +841,6 @@ impl BlobCacheResolver {
         if incoming_is_full {
             existing.requested_sub_chunks = incoming.requested_sub_chunks;
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn enqueue_recovery_for_test(&mut self, recovery: ChunkResyncEvent) {
-        self.enqueue_recovery(recovery);
     }
 
     /// The only constructor for `BlobCacheStatus`: extracts the complete reference set from the

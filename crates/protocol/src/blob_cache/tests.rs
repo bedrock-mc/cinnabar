@@ -116,7 +116,7 @@ fn recovery_index_has_deterministically_bounded_ordering_work() {
     RECOVERY_ORDER_COMPARISONS.store(0, AtomicOrdering::Relaxed);
 
     for x in 0..RECOVERY_COUNT {
-        resolver.enqueue_recovery_for_test(ChunkResyncEvent {
+        resolver.enqueue_recovery(ChunkResyncEvent {
             dimension: 0,
             x: i32::try_from(x).expect("test coordinate fits"),
             z: 0,
