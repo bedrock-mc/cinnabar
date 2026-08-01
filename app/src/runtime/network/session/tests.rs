@@ -62,7 +62,7 @@ fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
 }
 
 #[test]
-fn blob_cache_log_line_exposes_every_pressure_counter() {
+fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
     let source = include_str!("../session.rs");
     let telemetry = source
         .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
@@ -72,6 +72,14 @@ fn blob_cache_log_line_exposes_every_pressure_counter() {
         .expect("blob-cache telemetry function body")
         .0;
     let expected = [
+        "retained_cached_transactions",
+        "ordinary_ready_events",
+        "ordinary_ready_bytes",
+        "recovery_ready_events",
+        "recovery_ready_bytes",
+        "abandoned_cached_transactions",
+        "recovery_requests",
+        "ordinary_backpressure",
         "cached_packet_transaction_pressure",
         "cached_packet_pending_pressure",
         "cached_packet_staged_pressure",

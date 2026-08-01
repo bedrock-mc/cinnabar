@@ -137,11 +137,19 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             hits: 3,
             misses: 4,
             admitted_blobs: 4,
+            retained_cached_transactions: 16,
+            ordinary_ready_events: 17,
+            ordinary_ready_bytes: 18,
+            recovery_ready_events: 19,
+            recovery_ready_bytes: 20,
             cached_packet_transaction_pressure: 11,
             cached_packet_pending_pressure: 12,
             cached_packet_staged_pressure: 13,
             cached_packet_reconstruction_pressure: 14,
             cached_packet_ready_pressure: 15,
+            abandoned_cached_transactions: 21,
+            recovery_requests: 22,
+            ordinary_backpressure: 23,
             reconstructed_level_chunks: 2,
             reconstructed_sub_chunks: 1,
             ..Default::default()
@@ -247,11 +255,19 @@ fn phase2_publication_exposes_every_blob_cache_pressure_counter() {
         .and_then(serde_json::Value::as_object)
         .expect("client blob-cache evidence object");
     let expected = [
+        ("retained_cached_transactions", 16),
+        ("ordinary_ready_events", 17),
+        ("ordinary_ready_bytes", 18),
+        ("recovery_ready_events", 19),
+        ("recovery_ready_bytes", 20),
         ("cached_packet_transaction_pressure", 11),
         ("cached_packet_pending_pressure", 12),
         ("cached_packet_staged_pressure", 13),
         ("cached_packet_reconstruction_pressure", 14),
         ("cached_packet_ready_pressure", 15),
+        ("abandoned_cached_transactions", 21),
+        ("recovery_requests", 22),
+        ("ordinary_backpressure", 23),
     ];
     let mismatched = expected
         .into_iter()
