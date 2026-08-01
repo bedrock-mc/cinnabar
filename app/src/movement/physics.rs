@@ -24,8 +24,7 @@ pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> 
     matches!(
         error,
         SimulationError::World(
-            sim::WorldQueryError::UnloadedChunk(_)
-                | sim::WorldQueryError::UnknownRuntimeId { .. }
+            sim::WorldQueryError::UnloadedChunk(_) | sim::WorldQueryError::UnknownRuntimeId { .. }
         )
     )
 }

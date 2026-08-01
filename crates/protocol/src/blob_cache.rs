@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
-use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{

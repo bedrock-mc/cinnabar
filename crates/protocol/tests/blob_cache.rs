@@ -1004,4 +1004,3 @@ fn abandoning_a_hash_owner_promotes_waiter_and_keeps_late_response_authorized() 
     assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().recovery_requests, 1);
 }
-

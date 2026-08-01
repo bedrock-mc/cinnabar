@@ -73,9 +73,11 @@ fn pending_accounting_includes_owned_hash_capacity() {
     payload.extend_from_slice(b"retained-payload");
     let packet = LevelChunkPacket {
         sub_chunk_count: 2,
-        blobs: Some(valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
-            hashes: hashes.clone(),
-        }),
+        blobs: Some(
+            valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                hashes: hashes.clone(),
+            },
+        ),
         payload,
         ..Default::default()
     };

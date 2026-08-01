@@ -318,11 +318,7 @@ impl BlobCacheResolver {
             },
         );
         self.pending_order.insert(sequence);
-        for hash in status
-            .missing()
-            .iter()
-            .chain(status.outstanding().iter())
-        {
+        for hash in status.missing().iter().chain(status.outstanding().iter()) {
             self.pending_by_hash
                 .entry(*hash)
                 .or_default()
@@ -823,7 +819,7 @@ impl BlobCacheResolver {
         }
     }
 
-    fn enqueue_recovery(&mut self, recovery: ChunkResyncEvent) {
+    pub(super) fn enqueue_recovery(&mut self, recovery: ChunkResyncEvent) {
         let (key, incoming) = RecoveryReady::from_event(recovery);
         let Some(existing) = self.recovery_ready.get_mut(&key) else {
             self.recovery_ready.insert(key, incoming);
