@@ -121,6 +121,51 @@ status. The telemetry likewise publishes aggregate counters but no status or
 response correlation. Code analysis therefore cannot determine whether those
 empty responses followed missing-bearing statuses or have-only statuses.
 
-`9b7085d` adds `redundant_missing_requests` to test one hypothesis. Its result
-is not known here; this document records the question without drawing a
-conclusion.
+`9b7085d` adds `redundant_missing_requests` to test one hypothesis.
+
+## Live measurement at `9b7085d`
+
+A 60-second `FreeCameraSilence` run against local BDS 1.26.32.2, artifact
+`.local/acceptance/phase3-4ee8cd2a79214c4e94cc3bbcf76cdac4`, build commit
+`9b7085d7eeb85b04beeb92412d3eb9487ea6a17c`, recorded:
+
+| counter | value |
+| --- | --- |
+| `hashes_classified` | 7233 |
+| `hits` | 1605 |
+| `misses` | 5628 |
+| `redundant_missing_requests` | 2438 |
+| `pending_transactions` | 255 |
+| `retained_cached_transactions` | 255 |
+| `pending_bytes` | 591208 |
+| `skipped_cached_packets` | 2710 |
+| `cached_packet_transaction_pressure` | 2710 |
+| `empty_miss_responses` | 606 |
+| `abandoned_cached_transactions` | 2721 |
+| `recovery_requests` | 1 |
+| `recovery_ready_events` | 0 |
+| `reconstructed_level_chunks` | 331 |
+| `reconstructed_sub_chunks` | 1619 |
+| `skipped_world_events` | 0 |
+
+Two conclusions follow directly.
+
+The redundancy hypothesis is **supported**: 2438 of 5628 miss classifications
+(43%) re-declared a hash already outstanding for a different still-pending
+transaction. This does not by itself prove redundancy causes the saturation,
+because the counter does not establish causation — only that the redundant
+traffic is large.
+
+Defect 1 above is **not latent**. 2721 transactions were abandoned while only
+one recovery request was issued, and no recovery event became ready. Since
+`pending_packet_recovery` returns `None` for `PendingPacket::SubChunk`, the
+abandoned SubChunk payloads were discarded with nothing requested to replace
+them. At `9a4ef4a` neither counter was published, so this was not observable.
+
+The run produced no `RUST_MCBE_WORLD_READY` marker, no violation markers, and
+no `app-metrics.json`, so Phase 3 validation failed before the aggregator ran
+and no verdict was produced.
+
+The underlying BDS question remains open: 606 empty miss responses are recorded,
+but the telemetry still does not correlate a response with its originating
+status, so whether those answered missing-bearing statuses is undetermined.
