@@ -1782,6 +1782,33 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     "collision data unavailable, wait" and "cannot keep up, dropped time" are conflated in
     `dropped_ticks`, and any nonzero value revokes authority. This is not fixed.
 
+- **PR #6 resumed closure record (2026-08-02, local commit `17d3627`).** The previously open
+  resolver, transport, collision-readiness, and movement-admission defects above are fixed in the
+  PR worktree, but the commit is not pushed and Phase 3 remains incomplete.
+  - Blob-cache cached, ordinary, and recovery lanes are independently bounded; pressure no longer
+    pins ordinary intake. Cached SubChunk admission is explicitly rolled back with exact-Y
+    recovery only when client-world recorded that admission. Coalesced and stale admissions clear
+    all markers before one bounded retry. Pending and reconstructed-but-unpublished transactions
+    preserve rollback across semantic and transfer resets.
+  - Cached status delivery is cancellation-safe. Socket transport retains the exact encrypted
+    frame, the session drains that frame before exposing admission, and transfer rollback is
+    emitted before any replacement-candidate status or admission.
+  - Production defaults to server-authoritative `Physics`; bounded fixed-tick catch-up, collision
+    readiness, reanchor, send cancellation, and terminal-drain paths now retain or fail closed
+    instead of silently dropping movement authority.
+  - Deterministic verification at this commit passed 2,472 workspace tests (13 ignored),
+    strict workspace Clippy, formatting, 106 Phase 3/FastTransfer Pester contracts, focused
+    rollback/reset/cancellation regressions, and the debug client build. Independent latest-diff
+    review returned correct with no blocking findings.
+  - The committed local BDS `FreeCameraSilence` run
+    `phase3-020595ebff304770b201765b51070585` did **not** close live acceptance. It timed out:
+    terminal telemetry reported 256 retained cache transactions, 5,626 pressure skips,
+    31 recovery requests, 12,770 pending mesh jobs, a one-item publication cap, and no clean
+    shutdown. The run rendered 477 resident meshes but remained under sustained load.
+    Release-budget evidence, a version-matched native lighting comparison, clean live shutdown,
+    integration, and final PR acceptance therefore remain open. The Linux acceptance shell suite
+    also remains unexecuted on this workstation because no usable Python/WSL runtime is installed.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
