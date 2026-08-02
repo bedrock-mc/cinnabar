@@ -135,8 +135,15 @@ impl WorldReadyWork {
         }
     }
 
-    pub(crate) fn is_empty(self) -> bool {
-        self.without_transport_depth() == Self::default()
+    fn without_ingress_depth(self) -> Self {
+        Self {
+            readiness_events: 0,
+            ..self.without_transport_depth()
+        }
+    }
+
+    pub(crate) fn is_empty_after_ingress_fence(self) -> bool {
+        self.without_ingress_depth() == Self::default()
     }
 }
 
@@ -161,15 +168,21 @@ pub(crate) struct WorldReadySnapshot {
     pub(crate) mutation_target_visible: bool,
     pub(crate) mutation_target_clean: bool,
     pub(crate) work: WorldReadyWork,
+    pub(crate) readiness_produced: u64,
+    pub(crate) readiness_consumed: u64,
 }
 
 impl WorldReadySnapshot {
     fn same_readiness_state(self, other: Self) -> bool {
         Self {
-            work: self.work.without_transport_depth(),
+            readiness_produced: 0,
+            readiness_consumed: 0,
+            work: self.work.without_ingress_depth(),
             ..self
         } == Self {
-            work: other.work.without_transport_depth(),
+            readiness_produced: 0,
+            readiness_consumed: 0,
+            work: other.work.without_ingress_depth(),
             ..other
         }
     }
@@ -178,6 +191,7 @@ impl WorldReadySnapshot {
 #[derive(Debug, Default)]
 pub(crate) struct WorldReadySettler {
     pub(crate) candidate: Option<(WorldReadySnapshot, Instant)>,
+    pub(crate) ingress_fence: Option<u64>,
     pub(crate) presentation: Option<WorldReadyPresentationCandidate>,
     pub(crate) next_view_generation: u64,
     pub(crate) last_diagnostic_at: Option<Instant>,
@@ -192,6 +206,13 @@ pub(crate) struct WorldReadyPresentationCandidate {
 }
 
 impl WorldReadySettler {
+    fn ingress_fence_satisfied(&mut self, snapshot: WorldReadySnapshot) -> bool {
+        let fence = *self
+            .ingress_fence
+            .get_or_insert(snapshot.readiness_produced);
+        snapshot.readiness_consumed >= fence
+    }
+
     pub(crate) fn reconcile_presentation(
         &mut self,
         snapshot: WorldReadySnapshot,
@@ -199,6 +220,11 @@ impl WorldReadySettler {
         now: Instant,
     ) -> Option<TargetRenderExpectation> {
         if world_ready_markers(snapshot).is_none() || proposed.manifest.is_empty() {
+            self.ingress_fence = None;
+            self.presentation = None;
+            return None;
+        }
+        if !self.ingress_fence_satisfied(snapshot) {
             self.presentation = None;
             return None;
         }
@@ -266,6 +292,11 @@ impl WorldReadySettler {
     ) -> Option<[String; 2]> {
         let markers = world_ready_markers(snapshot);
         if markers.is_none() {
+            self.ingress_fence = None;
+            self.candidate = None;
+            return None;
+        }
+        if !self.ingress_fence_satisfied(snapshot) {
             self.candidate = None;
             return None;
         }
@@ -336,6 +367,7 @@ pub(crate) fn emit_world_ready(
         retries_scheduled: stats.sub_chunk_retries_scheduled,
         retry_exhaustions: stats.sub_chunk_retry_exhaustions,
     };
+    let (readiness_produced, readiness_consumed) = network.readiness_ingress_progress();
     let work = WorldReadyWork {
         network_events: network.pending_event_count(),
         readiness_events: network.pending_readiness_event_count(),
@@ -385,6 +417,8 @@ pub(crate) fn emit_world_ready(
             last_mesh_completion_at: stats.last_mesh_completion_at,
             last_mesh_ack_at: stats.last_mesh_ack_at,
             work,
+            readiness_produced,
+            readiness_consumed,
         };
         let observed_at = Instant::now();
         let frame_count = metrics.0.frame_count();
@@ -621,6 +655,8 @@ pub(crate) fn emit_world_ready(
         mutation_target_visible: mutation_target.is_some_and(|target| cache.is_visible(target)),
         mutation_target_clean: mutation_target.is_some_and(|target| stream.is_mesh_clean(target)),
         work,
+        readiness_produced,
+        readiness_consumed,
     };
     let ready_at = Instant::now();
     if acceptance

@@ -122,9 +122,15 @@ impl ReadinessIngressCounter {
         }
     }
 
+    fn progress(&self) -> (u64, u64) {
+        (
+            self.produced.load(Ordering::Acquire),
+            self.consumed.load(Ordering::Acquire),
+        )
+    }
+
     fn pending(&self) -> usize {
-        let produced = self.produced.load(Ordering::Acquire);
-        let consumed = self.consumed.load(Ordering::Acquire);
+        let (produced, consumed) = self.progress();
         usize::try_from(produced.saturating_sub(consumed)).unwrap_or(usize::MAX)
     }
 }
@@ -280,6 +286,11 @@ impl NetworkHandle {
     #[must_use]
     pub(crate) fn pending_readiness_event_count(&self) -> usize {
         self.readiness_ingress.pending()
+    }
+
+    #[must_use]
+    pub(crate) fn readiness_ingress_progress(&self) -> (u64, u64) {
+        self.readiness_ingress.progress()
     }
 
     pub(crate) fn record_readiness_event_consumed(&self, event: &WorldEvent) {

@@ -75,6 +75,42 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
 }
 
 #[test]
+fn presentation_waits_until_the_captured_readiness_ingress_fence_is_consumed() {
+    let started = Instant::now();
+    let mut snapshot = settled_world_snapshot();
+    snapshot.work.readiness_events = 1;
+    snapshot.readiness_produced = 8;
+    snapshot.readiness_consumed = 7;
+    let key = SubChunkKey::new(0, 64, 65, 65);
+    let proposed = proposed_render_expectation(started, [(key, 7)]);
+    let mut settler = WorldReadySettler::default();
+
+    assert!(
+        settler
+            .reconcile_presentation(snapshot, proposed.clone(), started)
+            .is_none(),
+        "the exact candidate must wait for readiness work produced before its fence"
+    );
+
+    snapshot.work.readiness_events = 0;
+    snapshot.readiness_consumed = 8;
+    let expectation = settler
+        .reconcile_presentation(
+            snapshot,
+            proposed.clone(),
+            started + Duration::from_millis(1),
+        )
+        .expect("consuming the captured fence should arm presentation");
+
+    snapshot.work.readiness_events = 1;
+    snapshot.readiness_produced = 9;
+    let same_expectation = settler
+        .reconcile_presentation(snapshot, proposed, started + Duration::from_millis(2))
+        .expect("traffic produced after the explicit fence belongs to a later boundary");
+    assert_eq!(same_expectation.view_generation, expectation.view_generation);
+}
+
+#[test]
 fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_resolution() {
     let correction = PlayerMovementCorrectionEvent {
         position: [-1351.25, 92.62, 1647.75],

@@ -32,13 +32,15 @@ pub(crate) struct TeleportReadySnapshot {
     pub(crate) last_mesh_completion_at: Option<Instant>,
     pub(crate) last_mesh_ack_at: Option<Instant>,
     pub(crate) work: WorldReadyWork,
+    pub(crate) readiness_produced: u64,
+    pub(crate) readiness_consumed: u64,
 }
 
 impl TeleportReadySnapshot {
     pub(crate) fn is_binding_ready(self) -> bool {
         authoritative_received_radius(self.received_radius_chunks).is_some()
             && self.cohort.is_some_and(ViewCohortStatus::is_exact)
-            && self.work.is_empty()
+            && self.work.is_empty_after_ingress_fence()
     }
 
     pub(crate) fn is_ready(self) -> bool {
@@ -74,6 +76,7 @@ pub(crate) struct PendingFullViewTeleport {
     pub(crate) last_sub_chunk_latency: Option<Duration>,
     pub(crate) sub_chunk_events: u64,
     pub(crate) peak_network_events: usize,
+    pub(crate) readiness_ingress_fence: Option<u64>,
     pub(crate) presented_candidate: Option<TeleportPresentedCandidate>,
     pub(crate) last_progress_at: Option<Instant>,
 }
@@ -358,6 +361,7 @@ impl FullViewTeleportTracker {
             last_sub_chunk_latency: None,
             sub_chunk_events: 0,
             peak_network_events: 0,
+            readiness_ingress_fence: None,
             presented_candidate: None,
             last_progress_at: None,
         });
@@ -420,6 +424,14 @@ impl FullViewTeleportTracker {
             || proposed.source_cohort != Some(source)
             || proposed.manifest.is_empty()
         {
+            pending.readiness_ingress_fence = None;
+            pending.presented_candidate = None;
+            return None;
+        }
+        let fence = *pending
+            .readiness_ingress_fence
+            .get_or_insert(snapshot.readiness_produced);
+        if snapshot.readiness_consumed < fence {
             pending.presented_candidate = None;
             return None;
         }

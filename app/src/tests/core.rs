@@ -643,6 +643,8 @@ pub(super) fn settled_world_snapshot() -> WorldReadySnapshot {
         mutation_target_visible: true,
         mutation_target_clean: true,
         work: WorldReadyWork::default(),
+        readiness_produced: 0,
+        readiness_consumed: 0,
     }
 }
 

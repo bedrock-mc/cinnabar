@@ -255,6 +255,42 @@ fn write_buffer_ack_alone_never_settles_binding_teleport() {
 }
 
 #[test]
+fn binding_teleport_waits_for_its_captured_readiness_ingress_fence() {
+    let started = Instant::now();
+    let mut tracker = destination_tracker(started);
+    let key = SubChunkKey::new(0, 64, 65, 65);
+    let proposal = proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]);
+    let mut snapshot = settled_teleport_snapshot();
+    snapshot.work.readiness_events = 1;
+    snapshot.readiness_produced = 8;
+    snapshot.readiness_consumed = 7;
+
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                proposal.clone(),
+                started + Duration::from_millis(200),
+            )
+            .is_none(),
+        "teleport presentation must wait for readiness work produced before its fence"
+    );
+
+    snapshot.work.readiness_events = 0;
+    snapshot.readiness_consumed = 8;
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                proposal,
+                started + Duration::from_millis(201),
+            )
+            .is_some(),
+        "consuming the teleport fence should arm presentation"
+    );
+}
+
+#[test]
 fn non_empty_leaf_forest_never_binds_an_empty_target_expectation() {
     let started = Instant::now();
     let mut tracker = destination_tracker(started);

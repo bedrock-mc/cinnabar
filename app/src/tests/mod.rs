@@ -146,6 +146,8 @@ fn settled_teleport_snapshot() -> TeleportReadySnapshot {
         last_mesh_completion_at: None,
         last_mesh_ack_at: None,
         work: WorldReadyWork::default(),
+        readiness_produced: 0,
+        readiness_consumed: 0,
     }
 }
 
