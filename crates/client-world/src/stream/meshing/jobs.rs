@@ -79,6 +79,12 @@ impl WorldStream {
                 removal_candidates.push((candidate, pending));
             }
         }
+        let removal_authority = self
+            .publication_allowance
+            .as_ref()
+            .map_or(budget, PublicationAllowance::zero_byte_admission_capacity)
+            .min(budget)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
         for _ in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
             let Some(candidate) = self.pending_mesh_removal_ready.pop() else {
                 break;
@@ -94,6 +100,9 @@ impl WorldStream {
                 removal_deferred.push(candidate);
             } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
                 resident_candidates.push((candidate, pending));
+            } else if removal_candidates.len() >= removal_authority {
+                removal_deferred.push(candidate);
+                break;
             } else {
                 removal_candidates.push((candidate, pending));
             }
@@ -162,13 +171,9 @@ impl WorldStream {
             dispatched += 1;
         }
 
-        let mut removals_queued = 0;
-        for (candidate, pending) in removal_candidates {
+        let mut removal_candidates = removal_candidates.into_iter();
+        while let Some((candidate, pending)) = removal_candidates.next() {
             let key = candidate.key;
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || removals_queued >= budget {
-                removal_deferred.push(candidate);
-                continue;
-            }
             if !self.revisions.is_current(key, pending.revision) {
                 removal_deferred.push(candidate);
                 continue;
@@ -177,7 +182,8 @@ impl WorldStream {
                 Some(allowance) => {
                     let Some(permit) = allowance.try_admit_zero_byte() else {
                         removal_deferred.push(candidate);
-                        continue;
+                        removal_deferred.extend(removal_candidates.map(|(candidate, _)| candidate));
+                        break;
                     };
                     Some(permit)
                 }
@@ -207,7 +213,6 @@ impl WorldStream {
                 .phase2_stages
                 .mesh_changes_queued
                 .saturating_add(1);
-            removals_queued += 1;
         }
         self.pending_resident_mesh_ready.extend(resident_deferred);
         self.pending_mesh_removal_ready.extend(removal_deferred);

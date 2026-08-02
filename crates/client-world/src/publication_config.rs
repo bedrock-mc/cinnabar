@@ -209,6 +209,21 @@ impl PublicationAllowance {
     }
 
     #[must_use]
+    pub fn zero_byte_admission_capacity(&self) -> usize {
+        let state = self.lock();
+        state
+            .remaining_zero_byte_operations
+            .min(state.remaining_items)
+            .min(state.frame_remaining_items)
+            .min(
+                state
+                    .config
+                    .maximum_zero_byte_operations_per_frame
+                    .saturating_sub(state.live_zero_byte_operations),
+            )
+    }
+
+    #[must_use]
     pub fn frame_remaining_items(&self) -> usize {
         self.lock().frame_remaining_items
     }
@@ -499,6 +514,7 @@ mod tests {
             config.maximum_zero_byte_operations_per_frame,
             config.maximum_frame_items,
         );
+        assert_eq!(allowance.zero_byte_admission_capacity(), 256);
         let payload = (0..256)
             .map(|_| allowance.try_admit_payload(1))
             .collect::<Vec<_>>();
@@ -512,6 +528,7 @@ mod tests {
         assert_eq!(allowance.frame_remaining_items(), 0);
         assert_eq!(allowance.remaining_bytes(), 256);
         assert_eq!(allowance.remaining_zero_byte_operations(), 0);
+        assert_eq!(allowance.zero_byte_admission_capacity(), 0);
         assert!(allowance.try_admit_payload(1).is_none());
         assert!(allowance.try_admit_zero_byte().is_none());
         for permit in payload

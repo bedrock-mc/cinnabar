@@ -343,6 +343,39 @@ fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
 }
 
 #[test]
+fn exhausted_removal_authority_still_reclassifies_ready_resident_work() {
+    let mut stream = stream();
+    let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
+    allowance.begin_frame(
+        1,
+        0,
+        0,
+        0,
+        PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
+    stream.set_publication_allowance(allowance);
+
+    let stale = SubChunkKey::new(0, 2, 0, 0);
+    let resident = SubChunkKey::new(0, 1, 0, 0);
+    let removal = SubChunkKey::new(0, 3, 0, 0);
+    for key in [stale, resident, removal] {
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+
+    stream.mark_dirty_exact(stale, Instant::now());
+    stream
+        .store
+        .commit_sub_chunk(resident, super::uniform_sub_chunk(1))
+        .unwrap();
+    install_current_light(&mut stream, resident, 0, 0, false);
+    let resident_revision = stream.pending_mesh[&resident].revision;
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert_eq!(stream.in_flight.get(&resident), Some(&resident_revision));
+}
+
+#[test]
 fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
     let mut stream = stream();
     let center = SubChunkKey::new(0, 0, -4, 0);

@@ -578,9 +578,7 @@ pub(crate) fn emit_world_ready(
         mutation_coordinate,
         received_radius_chunks: stats.received_radius_chunks,
         publisher_radius_chunks: stats.publisher_radius_chunks,
-        cohort: stream
-            .committed_view_cohort()
-            .map(|target| stream.cohort_status(target)),
+        cohort: committed_cohort,
         rendered_sub_chunks: cache.rendered.len(),
         resident_sub_chunks: stats.resident_sub_chunks,
         visible_sub_chunks: cache.visible_rendered,
