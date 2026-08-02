@@ -13,9 +13,10 @@ pub fn cave_visible_sub_chunks(
         return connectivity.keys().copied().collect();
     }
 
-    let mut visible = HashSet::from([camera]);
-    let mut visited = HashSet::from([(camera, None)]);
-    let mut queue = VecDeque::from([(camera, None)]);
+    let mut visited = HashMap::<SubChunkKey, u8>::with_capacity(connectivity.len());
+    visited.insert(camera, 1 << 6);
+    let mut queue = VecDeque::with_capacity(connectivity.len());
+    queue.push_back((camera, None));
     while let Some((key, entered_from)) = queue.pop_front() {
         let Some(connections) = connectivity.get(&key).copied() else {
             continue;
@@ -34,10 +35,11 @@ pub fn cave_visible_sub_chunks(
             if !connectivity.contains_key(&next) {
                 continue;
             }
-            visible.insert(next);
-            let state = (next, Some(opposite(exit)));
-            if visited.insert(state) {
-                queue.push_back(state);
+            let entered_bit = 1_u8 << (opposite(exit) as u8);
+            let visited_faces = visited.entry(next).or_default();
+            if *visited_faces & entered_bit == 0 {
+                *visited_faces |= entered_bit;
+                queue.push_back((next, Some(opposite(exit))));
             }
         }
     }
@@ -46,8 +48,8 @@ pub fn cave_visible_sub_chunks(
     // are drawn too. Keep exactly one loaded neighbour shell visible so those
     // models cannot float over support geometry hidden in an adjacent entity.
     // Snapshot first: newly added shell nodes must not recursively expand.
-    let reachable = visible.iter().copied().collect::<Vec<_>>();
-    for key in reachable {
+    let mut visible = visited.keys().copied().collect::<HashSet<_>>();
+    for &key in visited.keys() {
         for face in Face::ALL {
             let Some(neighbour) = adjacent(key, face) else {
                 continue;
