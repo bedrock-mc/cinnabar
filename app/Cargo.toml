@@ -18,10 +18,6 @@ bevy = { workspace = true, default-features = false, features = [
     "keyboard",
     "mouse",
     "std",
-    "trace",
-    "trace_chrome",
-    "detailed_trace",
-    "debug",
 ] }
 crossbeam-channel = "0.5"
 client-world = { path = "../crates/client-world" }
