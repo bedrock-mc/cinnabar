@@ -185,6 +185,10 @@ impl NetworkHandle {
             physics_reanchor_rx,
         )
     }
+    #[cfg(test)]
+    pub(crate) fn shutdown_requested(&self) -> bool {
+        *self.shutdown.borrow()
+    }
 
     pub(crate) fn movement_ticker(&self) -> MovementTicker {
         MovementTicker::with_epoch_publisher(self.physics_reanchor.clone())

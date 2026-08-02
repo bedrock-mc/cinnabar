@@ -126,10 +126,12 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
         terminated.send(code).unwrap();
     });
+    let (network, _reanchor) = NetworkHandle::stub();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<WindowCloseRequested>()
         .insert_resource(watchdog)
+        .insert_resource(network)
         .add_systems(Update, exit_on_window_close_requested);
     let window = app.world_mut().spawn_empty().id();
 
@@ -138,6 +140,10 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     app.update();
 
     assert_eq!(app.should_exit(), Some(AppExit::Success));
+    assert!(
+        !app.world().resource::<NetworkHandle>().shutdown_requested(),
+        "window-close handling must leave the network alive until Bevy returns"
+    );
     assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
 }
 

@@ -8,7 +8,6 @@ use client_world::{PublicationAllowance, PublicationServiceConfig};
 use render::ChunkUploadBudget;
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
-const PRESSURE_FRAME_TIME: Duration = Duration::from_millis(25);
 const RECOVERY_STREAK_FRAMES: u32 = 120;
 const RENDER_QUEUE_PRESSURE_ITEMS: usize = 512;
 
@@ -127,7 +126,7 @@ impl PublicationController {
     pub(crate) fn begin_frame(&mut self, elapsed: Duration) {
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
-        self.update_pressure_state(elapsed);
+        self.update_pressure_state();
 
         let (items, item_remainder) = accrue_tokens(
             u128::from(self.item_rate_per_second),
@@ -198,44 +197,24 @@ impl PublicationController {
         self.diagnostics
     }
 
-    fn update_pressure_state(&mut self, elapsed: Duration) {
+    fn update_pressure_state(&mut self) {
         let work = self.diagnostics.last_work;
-        let previous_budget = self.diagnostics.budget;
         let gpu_backlog = work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
             || work.upload_queue_bytes >= self.config.maximum_frame_bytes;
-        let published_zero_items = work
-            .mesh_changes_published
-            .saturating_sub(work.mesh_payloads_published);
-        let saturated_work = (previous_budget.max_per_frame > 0
-            && work.mesh_changes_published >= previous_budget.max_per_frame)
-            || (previous_budget.max_bytes_per_frame > 0
-                && work.mesh_bytes_published >= previous_budget.max_bytes_per_frame)
-            || (previous_budget.max_zero_byte_operations_per_frame > 0
-                && published_zero_items >= previous_budget.max_zero_byte_operations_per_frame);
-        let elapsed_pressure = elapsed > PRESSURE_FRAME_TIME
-            && saturated_work
-            && (work.pending_mesh_jobs > 0 || work.in_flight_mesh_jobs > 0);
-        if gpu_backlog || elapsed_pressure {
+        if gpu_backlog {
             let previous_item_rate = self.item_rate_per_second;
             let previous_byte_rate = self.byte_rate_per_second;
             let previous_zero_cap = self.zero_byte_operations_per_frame;
             let previous_item_cap = self.item_operations_per_frame;
             self.item_rate_per_second = self.config.minimum_items_per_second;
             self.byte_rate_per_second = self.config.minimum_bytes_per_second;
-            if elapsed_pressure {
+            if self.zero_byte_operations_per_frame > 0 {
                 self.zero_byte_operations_per_frame =
-                    proportional_cap(self.zero_byte_operations_per_frame, elapsed);
+                    self.zero_byte_operations_per_frame.saturating_div(2).max(1);
+            }
+            if self.item_operations_per_frame > 0 {
                 self.item_operations_per_frame =
-                    proportional_cap(self.item_operations_per_frame, elapsed);
-            } else {
-                if self.zero_byte_operations_per_frame > 0 {
-                    self.zero_byte_operations_per_frame =
-                        self.zero_byte_operations_per_frame.saturating_div(2).max(1);
-                }
-                if self.item_operations_per_frame > 0 {
-                    self.item_operations_per_frame =
-                        self.item_operations_per_frame.saturating_div(2).max(1);
-                }
+                    self.item_operations_per_frame.saturating_div(2).max(1);
             }
             if self.item_rate_per_second != previous_item_rate
                 || self.byte_rate_per_second != previous_byte_rate
@@ -348,20 +327,6 @@ fn frame_budget(
         accrued_bytes.min(config.maximum_frame_bytes),
     )
     .with_zero_byte_operations_per_frame(zero_byte_operations_per_frame)
-}
-
-fn proportional_cap(current: usize, elapsed: Duration) -> usize {
-    if current == 0 {
-        return 0;
-    }
-    let reduced = u128::try_from(current)
-        .unwrap_or(u128::MAX)
-        .saturating_mul(PRESSURE_FRAME_TIME.as_nanos())
-        / elapsed.as_nanos();
-    usize::try_from(reduced)
-        .unwrap_or(usize::MAX)
-        .max(1)
-        .min(current)
 }
 
 fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usize {
