@@ -149,6 +149,35 @@ order:
    layer, tint, animation, and occlusion data are available. Re-review, verify, integrate, and
    measure the production diagnostic ratchet family-by-family; do not infer ambiguous mappings.
 
+### PR 6 cache-enabled live-validation handoff (2026-08-01)
+
+The local `agent/track-phase3-movement` implementation through `415f07c` is ahead
+of its pushed remote (`d8637a2`) and is **not yet reviewed, integrated, or cleared to push**.
+Cache-enabled BDS load exposed and fixed a self-sustaining blob-recovery loop,
+unbounded publication-authority scans, repeated per-frame cohort hashing, and
+blocked light/mesh scheduler-prefix starvation. The latest debug live run
+(`.local/acceptance/phase3-54b649a2c3e942b08d082637d9816732`) restored visible
+publication: the inspected Windows frame showed real terrain, foliage, clouds,
+HUD, and progressive chunk arrival; the final sampled snapshot recorded 302
+resident meshes, 215 submitted/GPU-completed meshes, and 3,054,396 upload bytes.
+This closes the blank-window regression only. The partial scene, roughly 14 FPS
+debug capture, and remaining 10,607 light plus 20,849 mesh jobs do not close the
+release-performance or vanilla-parity gates.
+
+An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
+this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
+1.16.201 recovery notes are a potentially authoritative native Bedrock reference,
+but the repository declares no license and targets protocol 422. Do not copy its
+source or redistribute it; obtain the author's explicit permission, cite the exact
+reference revision/address evidence, verify version stability, and independently
+implement any adopted contract. Its recovered original-lighting path uses a
+retained 3x3-column transaction and one priority-32 center-column task rather than
+the current provisional per-subchunk scheduler. Audit that architecture before
+further queue-cap tuning. Remaining measured follow-ups are generation-gated
+render-expectation reuse, telemetry identity caching, a release build with complete
+visible-radius convergence, version-matched native comparison, and independent
+review.
+
 ---
 
 ## Phase 0 — Spike: prove the stack end-to-end (DETAILED, executable now)
