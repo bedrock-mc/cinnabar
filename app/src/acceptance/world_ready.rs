@@ -1,7 +1,7 @@
 use std::{io::Write, time::Instant};
 
 use bevy::{
-    log::{error, info},
+    log::{debug, error, info},
     prelude::{Query, Res, ResMut, Transform, Vec3, With},
 };
 use client_world::ViewCohortStatus;
@@ -257,6 +257,26 @@ impl WorldReadySettler {
             &candidate.expectation,
             &acknowledgement,
         ) {
+            debug!(
+                cohort_match = acknowledgement.cohort == candidate.expectation.cohort,
+                expected_view_generation = candidate.expectation.view_generation,
+                acknowledged_view_generation = acknowledgement.view_generation,
+                render_ready_match =
+                    acknowledgement.render_ready_at == candidate.expectation.render_ready_at,
+                expected_manifest_len = candidate.expectation.manifest.len(),
+                acknowledged_manifest_len = acknowledgement.allocation_manifest.len(),
+                manifest_match =
+                    acknowledgement.allocation_manifest == candidate.expectation.manifest,
+                exact = acknowledgement.is_exact(),
+                frame_sequence = acknowledgement.frame_sequence,
+                missing_target_instances = acknowledgement.missing_target_instances,
+                unexpected_target_instances = acknowledgement.unexpected_target_instances,
+                source_instances = acknowledgement.source_instances,
+                foreign_instances = acknowledgement.foreign_instances,
+                stale_generation_instances = acknowledgement.stale_generation_instances,
+                orphan_allocations = acknowledgement.orphan_allocations,
+                "world-ready presented frame rejected"
+            );
             candidate.first_frame = None;
             candidate.stable = false;
             return false;
@@ -265,6 +285,13 @@ impl WorldReadySettler {
         candidate.stable = first
             .as_ref()
             .is_some_and(|first| first.forms_stable_exact_pair_with(&acknowledgement));
+        debug!(
+            frame_sequence = acknowledgement.frame_sequence,
+            previous_frame_sequence = first.as_ref().map(|frame| frame.frame_sequence),
+            transparent_sort_generation = acknowledgement.transparent_sort_generation,
+            stable = candidate.stable,
+            "world-ready presented frame observed"
+        );
         candidate.first_frame = Some(acknowledgement);
         candidate.stable
     }
