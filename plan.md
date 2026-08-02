@@ -151,21 +151,23 @@ order:
 
 ### PR 6 cache-enabled live-validation handoff (2026-08-01)
 
-The local `agent/track-phase3-movement` implementation through `1e40a24` is ahead
-of its pushed remote (`d8637a2`) and is **not yet independently reviewed,
-integrated, or cleared to push**. Cache-enabled BDS load exposed and fixed a
-self-sustaining blob-recovery loop, unbounded publication-authority scans,
-repeated per-frame cohort hashing, blocked light/mesh scheduler-prefix starvation,
-and a permanent lighting stall at the requested-cohort boundary. The final
-optimized-dev BDS run
-(`.local/acceptance/phase3-2b533bdda6c24397abb023fe2fcd30f3`) reached zero
-pending/in-flight light and mesh work across the stable 939/939-column cohort:
-8,021 resident meshes, 5,203 submitted/GPU-completed meshes, 62,033 accepted
-light jobs, and zero stale light jobs. The inspected Windows window showed the
-complete loaded terrain scene at 17.2 FPS after convergence; sampled median frame
-time was 49.628 ms and p95 was 187.596 ms. This closes the blank-window and
-visible-radius convergence regressions. It does **not** close release-performance
-or vanilla-lighting-parity gates.
+The local `agent/track-phase3-movement` implementation through `7d89ff5` is ahead
+of its pushed remote (`d8637a2`), independently approved, and ready to push for
+CI/merge; it is not yet pushed or integrated. Cache-enabled BDS load exposed and
+fixed a self-sustaining blob-recovery loop, unbounded publication-authority scans,
+repeated per-frame cohort hashing, scheduler starvation, intra-transaction relight
+cascades, and the requested-cohort boundary stall. Optimized-dev BDS run
+`.local/acceptance/phase3-018ae154de9b40cb8f12aea378c48752` reached zero
+pending/in-flight light and mesh work across a stable 939/939-column cohort:
+8,130 resident meshes, 5,416 submitted/GPU-completed meshes, 33,205 accepted
+light jobs, and zero stale light jobs. The inspected Windows scene was complete.
+After the final visibility-cache optimizations, run
+`.local/acceptance/phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
+frames at 10.272 ms median (the 100 FPS VSync ceiling), zero-byte publication at
+23.061 ms median, and payload publication at 29.836 ms median. Active chunk
+publication still causes visible frame drops and remains explicit follow-up work.
+This closes the blank-window and visible-radius convergence regressions; it does
+**not** close release-performance or vanilla-lighting-parity gates.
 
 An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
 this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
@@ -184,8 +186,8 @@ cohort-edge columns without waiting forever for unrequested neighbours. It does
 or 500 ms lock-contention retry, so it remains an explicitly incomplete
 convergence architecture and cannot close the native lighting-parity gate.
 Audit the full architecture before further queue-cap tuning. Remaining measured
-follow-ups are release-mode performance, version-matched native comparison, and
-independent review.
+follow-ups are active-publication frame pacing, release-mode performance,
+version-matched native comparison, and the native atomic lighting architecture.
 
 ---
 
