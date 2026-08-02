@@ -131,6 +131,7 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     app.add_plugins(MinimalPlugins)
         .add_message::<WindowCloseRequested>()
         .insert_resource(watchdog)
+        .insert_resource(AcceptanceRun::new(None, None, false, false))
         .insert_resource(network)
         .add_systems(Update, exit_on_window_close_requested);
     let window = app.world_mut().spawn_empty().id();
@@ -143,6 +144,20 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     assert!(
         !app.world().resource::<NetworkHandle>().shutdown_requested(),
         "window-close handling must leave the network alive until Bevy returns"
+    );
+    let acceptance = app.world().resource::<AcceptanceRun>();
+    assert!(acceptance.shutdown_requested);
+    assert_eq!(
+        acceptance.exit_decision(
+            Instant::now(),
+            false,
+            TransparentSortMetricsSnapshot::default()
+        ),
+        AcceptanceExitDecision::Complete
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(Instant::now(), true, 1),
+        Phase3TerminalDrainDecision::Drained
     );
     assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
 }

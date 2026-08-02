@@ -48,6 +48,7 @@ pub(crate) struct AcceptanceRun {
     pub(crate) full_view_remesh: FullViewRemeshTracker,
     pub(crate) world_ready: bool,
     pub(crate) require_transparent_presentation: bool,
+    pub(crate) shutdown_requested: bool,
     pub(crate) finished: bool,
 }
 
@@ -72,8 +73,12 @@ impl AcceptanceRun {
             full_view_remesh: FullViewRemeshTracker::default(),
             world_ready: false,
             require_transparent_presentation,
+            shutdown_requested: false,
             finished: false,
         }
+    }
+    pub(crate) fn request_shutdown(&mut self) {
+        self.shutdown_requested = true;
     }
 
     pub(crate) fn exit_decision(
@@ -84,6 +89,9 @@ impl AcceptanceRun {
     ) -> AcceptanceExitDecision {
         if fatal {
             return AcceptanceExitDecision::Fatal;
+        }
+        if self.shutdown_requested {
+            return AcceptanceExitDecision::Complete;
         }
         let Some(deadline) = self.deadline else {
             return AcceptanceExitDecision::Continue;

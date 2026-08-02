@@ -39,6 +39,7 @@ pub(crate) fn window_close_exit(requested: bool) -> Option<AppExit> {
 
 pub(crate) fn exit_on_window_close_requested(
     mut close_requests: MessageReader<WindowCloseRequested>,
+    mut acceptance: ResMut<AcceptanceRun>,
     watchdog: Res<ShutdownWatchdog>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -46,6 +47,7 @@ pub(crate) fn exit_on_window_close_requested(
         return;
     };
     begin_bounded_shutdown(&watchdog, &exit_status);
+    acceptance.request_shutdown();
     exit.write(exit_status);
 }
 

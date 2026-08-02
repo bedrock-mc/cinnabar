@@ -20,6 +20,9 @@ impl AcceptanceRun {
         candidate_physics: bool,
         pending_count: usize,
     ) -> Phase3TerminalDrainDecision {
+        if self.shutdown_requested {
+            return Phase3TerminalDrainDecision::Drained;
+        }
         if !candidate_physics || pending_count == 0 {
             return Phase3TerminalDrainDecision::Drained;
         }
