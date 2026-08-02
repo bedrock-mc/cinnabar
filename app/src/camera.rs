@@ -286,6 +286,7 @@ fn segment_entry_fraction(origin: SimVec3, delta: SimVec3, bounds: Aabb) -> Opti
 pub struct AutoFly {
     enabled: bool,
     capture_pending: bool,
+    presentation_paused: bool,
     path_anchor: Option<Vec3>,
     last_path_position: Option<Vec3>,
     look_target: Option<Vec3>,
@@ -298,6 +299,7 @@ impl AutoFly {
         Self {
             enabled,
             capture_pending: enabled,
+            presentation_paused: false,
             path_anchor: None,
             last_path_position: None,
             look_target: None,
@@ -306,12 +308,30 @@ impl AutoFly {
     }
 
     #[must_use]
+    const fn presentation_paused(&self) -> bool {
+        self.presentation_paused
+    }
+    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
 
     pub fn set_look_target(&mut self, target: Vec3) {
         self.look_target = Some(target);
+    }
+
+    pub(crate) fn pause_for_stable_presentation(&mut self) {
+        if self.enabled {
+            self.enabled = false;
+            self.presentation_paused = true;
+        }
+    }
+
+    pub(crate) fn resume_after_stable_presentation(&mut self) {
+        if self.presentation_paused {
+            self.enabled = true;
+            self.presentation_paused = false;
+        }
     }
 }
 
@@ -565,18 +585,33 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if mouse_buttons.just_pressed(MouseButton::Left) || auto_fly.capture_pending {
+    let recapture_click =
+        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
+        if recapture_click {
+            // The click that transitions from an absolute UI cursor to
+            // captured gameplay input is UI authority, not an attack. Remove
+            // its held state so it cannot become gameplay input on the next
+            // scheduled sample; the platform must deliver a later physical
+            // release and press before attack can rearm.
+            mouse_buttons.release(MouseButton::Left);
+            mouse_motion.delta = Vec2::ZERO;
+        }
         auto_fly.capture_pending = false;
     }
 }
 
 fn update_look(
     input: Res<SemanticInputSnapshot>,
+    auto_fly: Res<AutoFly>,
     settings: Res<CameraSettingsAuthority>,
     camera: Single<&FlyCamera>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    if auto_fly.presentation_paused() {
+        return;
+    }
     let look_delta = Vec2::from_array(input.look_delta());
     if look_delta == Vec2::ZERO {
         return;
@@ -596,6 +631,9 @@ fn update_movement(
     camera: Single<&FlyCamera>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    if auto_fly.presentation_paused() {
+        return;
+    }
     if auto_fly.enabled() {
         let externally_moved = auto_fly
             .last_path_position

@@ -8,8 +8,6 @@ use client_world::{PublicationAllowance, PublicationServiceConfig};
 use render::ChunkUploadBudget;
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
-const PRESSURE_FRAME_TIME: Duration = Duration::from_millis(25);
-const PACED_LOW_FREQUENCY_FRAME_TIME: Duration = Duration::from_millis(100);
 const RECOVERY_STREAK_FRAMES: u32 = 120;
 const RENDER_QUEUE_PRESSURE_ITEMS: usize = 512;
 
@@ -77,6 +75,8 @@ pub(crate) struct PublicationController {
     config: PublicationServiceConfig,
     item_rate_per_second: u32,
     byte_rate_per_second: u64,
+    zero_byte_operations_per_frame: usize,
+    item_operations_per_frame: usize,
     allowance: PublicationAllowance,
     item_numerator_remainder: u128,
     byte_numerator_remainder: u128,
@@ -98,11 +98,21 @@ impl PublicationController {
         assert!(config.minimum_bytes_per_second <= config.target_bytes_per_second);
         assert!(config.maximum_frame_items <= config.maximum_burst_items);
         assert!(config.maximum_frame_bytes <= config.maximum_burst_bytes);
-        let budget = frame_budget(config, 0, 0);
+        let zero_byte_operations_per_frame = config.maximum_zero_byte_operations_per_frame;
+        let item_operations_per_frame = config.maximum_frame_items;
+        let budget = frame_budget(
+            config,
+            item_operations_per_frame,
+            0,
+            0,
+            zero_byte_operations_per_frame,
+        );
         Self {
             config,
             item_rate_per_second: config.target_items_per_second,
             byte_rate_per_second: config.target_bytes_per_second,
+            zero_byte_operations_per_frame,
+            item_operations_per_frame,
             allowance: PublicationAllowance::new(config),
             item_numerator_remainder: 0,
             byte_numerator_remainder: 0,
@@ -116,7 +126,7 @@ impl PublicationController {
     pub(crate) fn begin_frame(&mut self, elapsed: Duration) {
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
-        self.update_pressure_state(elapsed);
+        self.update_pressure_state();
 
         let (items, item_remainder) = accrue_tokens(
             u128::from(self.item_rate_per_second),
@@ -144,12 +154,15 @@ impl PublicationController {
             self.diagnostics.frame_sequence,
             issued_items,
             issued_bytes,
-            self.config.maximum_zero_byte_operations_per_frame,
+            self.zero_byte_operations_per_frame,
+            self.item_operations_per_frame,
         );
         self.diagnostics.budget = frame_budget(
             self.config,
+            self.item_operations_per_frame,
             self.allowance.frame_remaining_items(),
             self.allowance.frame_remaining_bytes(),
+            self.zero_byte_operations_per_frame,
         );
     }
 
@@ -184,33 +197,42 @@ impl PublicationController {
         self.diagnostics
     }
 
-    fn update_pressure_state(&mut self, elapsed: Duration) {
+    fn update_pressure_state(&mut self) {
         let work = self.diagnostics.last_work;
         let gpu_backlog = work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
             || work.upload_queue_bytes >= self.config.maximum_frame_bytes;
-        let spent_frame_allowance = (self.diagnostics.budget.max_per_frame > 0
-            && work.mesh_payloads_published >= self.diagnostics.budget.max_per_frame)
-            || (self.diagnostics.budget.max_bytes_per_frame > 0
-                && work.mesh_bytes_published >= self.diagnostics.budget.max_bytes_per_frame);
-        let saturated_slow_frame = elapsed > PRESSURE_FRAME_TIME
-            && elapsed <= PACED_LOW_FREQUENCY_FRAME_TIME
-            && spent_frame_allowance
-            && (work.pending_mesh_jobs > 0 || work.in_flight_mesh_jobs > 0);
-        if gpu_backlog || saturated_slow_frame {
-            if self.item_rate_per_second != self.config.minimum_items_per_second
-                || self.byte_rate_per_second != self.config.minimum_bytes_per_second
+        if gpu_backlog {
+            let previous_item_rate = self.item_rate_per_second;
+            let previous_byte_rate = self.byte_rate_per_second;
+            let previous_zero_cap = self.zero_byte_operations_per_frame;
+            let previous_item_cap = self.item_operations_per_frame;
+            self.item_rate_per_second = self.config.minimum_items_per_second;
+            self.byte_rate_per_second = self.config.minimum_bytes_per_second;
+            if self.zero_byte_operations_per_frame > 0 {
+                self.zero_byte_operations_per_frame =
+                    self.zero_byte_operations_per_frame.saturating_div(2).max(1);
+            }
+            if self.item_operations_per_frame > 0 {
+                self.item_operations_per_frame =
+                    self.item_operations_per_frame.saturating_div(2).max(1);
+            }
+            if self.item_rate_per_second != previous_item_rate
+                || self.byte_rate_per_second != previous_byte_rate
+                || self.zero_byte_operations_per_frame != previous_zero_cap
+                || self.item_operations_per_frame != previous_item_cap
             {
                 self.diagnostics.multiplicative_decreases =
                     self.diagnostics.multiplicative_decreases.saturating_add(1);
             }
-            self.item_rate_per_second = self.config.minimum_items_per_second;
-            self.byte_rate_per_second = self.config.minimum_bytes_per_second;
             self.diagnostics.under_target_streak = 0;
             return;
         }
 
         let recovering = self.item_rate_per_second != self.config.target_items_per_second
-            || self.byte_rate_per_second != self.config.target_bytes_per_second;
+            || self.byte_rate_per_second != self.config.target_bytes_per_second
+            || self.zero_byte_operations_per_frame
+                < self.config.maximum_zero_byte_operations_per_frame
+            || self.item_operations_per_frame < self.config.maximum_frame_items;
         if !recovering {
             self.diagnostics.under_target_streak = 0;
             return;
@@ -225,9 +247,25 @@ impl PublicationController {
             return;
         }
         self.diagnostics.under_target_streak = 0;
+        let rates_recovered = self.item_rate_per_second != self.config.target_items_per_second
+            || self.byte_rate_per_second != self.config.target_bytes_per_second;
         self.item_rate_per_second = self.config.target_items_per_second;
         self.byte_rate_per_second = self.config.target_bytes_per_second;
-        self.diagnostics.additive_increases = self.diagnostics.additive_increases.saturating_add(1);
+        let previous_zero_cap = self.zero_byte_operations_per_frame;
+        self.zero_byte_operations_per_frame = self
+            .zero_byte_operations_per_frame
+            .saturating_add(1)
+            .min(self.config.maximum_zero_byte_operations_per_frame);
+        let previous_item_cap = self.item_operations_per_frame;
+        self.item_operations_per_frame =
+            geometric_item_cap_recovery(previous_item_cap, self.config.maximum_frame_items);
+        if rates_recovered
+            || self.zero_byte_operations_per_frame != previous_zero_cap
+            || self.item_operations_per_frame != previous_item_cap
+        {
+            self.diagnostics.additive_increases =
+                self.diagnostics.additive_increases.saturating_add(1);
+        }
     }
 }
 
@@ -243,8 +281,11 @@ pub(crate) fn begin_publication_frame(
 #[must_use]
 pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagnostics) -> String {
     let work = diagnostics.last_work;
+    let published_zero_items = work
+        .mesh_changes_published
+        .saturating_sub(work.mesh_payloads_published);
     format!(
-        "ADAPTIVE_PUBLICATION frame={} frame_us={} cap_items={} cap_bytes={} cap_zero={} under_target_streak={} decreases={} increases={} dispatched={} published={} published_bytes={} pending={} in_flight={} upload_items={} upload_bytes={} cohort_loaded={} cohort_expected={} resident={} cave={} frustum={} submitted={} gpu_completed={}",
+        "ADAPTIVE_PUBLICATION frame={} frame_us={} cap_items={} cap_bytes={} cap_zero={} under_target_streak={} decreases={} increases={} dispatched={} published={} published_payload_items={} published_zero_items={} published_bytes={} pending={} in_flight={} upload_items={} upload_bytes={} cohort_loaded={} cohort_expected={} resident={} cave={} frustum={} submitted={} gpu_completed={}",
         diagnostics.frame_sequence,
         diagnostics.observed_frame_time.as_micros(),
         diagnostics.budget.max_per_frame,
@@ -255,6 +296,8 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
         diagnostics.additive_increases,
         work.mesh_jobs_dispatched,
         work.mesh_changes_published,
+        work.mesh_payloads_published,
+        published_zero_items,
         work.mesh_bytes_published,
         work.pending_mesh_jobs,
         work.in_flight_mesh_jobs,
@@ -272,14 +315,28 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
 
 fn frame_budget(
     config: PublicationServiceConfig,
+    item_operations_per_frame: usize,
     accrued_items: usize,
     accrued_bytes: u64,
+    zero_byte_operations_per_frame: usize,
 ) -> ChunkUploadBudget {
     ChunkUploadBudget::new(
-        accrued_items.min(config.maximum_frame_items),
+        accrued_items
+            .min(item_operations_per_frame)
+            .min(config.maximum_frame_items),
         accrued_bytes.min(config.maximum_frame_bytes),
     )
-    .with_zero_byte_operations_per_frame(config.maximum_zero_byte_operations_per_frame)
+    .with_zero_byte_operations_per_frame(zero_byte_operations_per_frame)
+}
+
+fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usize {
+    if current == 0 || current >= configured_maximum {
+        return configured_maximum;
+    }
+    current
+        .saturating_mul(2)
+        .max(current.saturating_add(1))
+        .min(configured_maximum)
 }
 
 fn accrue_tokens(

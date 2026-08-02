@@ -1,7 +1,7 @@
 use std::{io::Write, time::Instant};
 
 use bevy::{
-    log::error,
+    log::{debug, error, info},
     prelude::{Query, Res, ResMut, Transform, Vec3, With},
 };
 use client_world::ViewCohortStatus;
@@ -30,12 +30,13 @@ use crate::{
     runtime::{
         network::NetworkHandle,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::ClientWorld,
+        world::{ClientWorld, WorldStreamFramePoll},
     },
 };
 
 pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(2);
+const WORLD_READY_DIAGNOSTIC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl AcceptanceRun {
     pub(crate) fn revoke_world_ready_if_cohort_changed(
@@ -106,6 +107,7 @@ pub(crate) fn orient_mutation_camera(
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WorldReadyWork {
     pub(crate) network_events: usize,
+    pub(crate) readiness_events: usize,
     pub(crate) network_commands: usize,
     pub(crate) admitted_world_events: usize,
     pub(crate) queued_decode_jobs: usize,
@@ -126,8 +128,22 @@ pub(crate) struct WorldReadyWork {
 }
 
 impl WorldReadyWork {
-    pub(crate) fn is_empty(self) -> bool {
-        self == Self::default()
+    fn without_transport_depth(self) -> Self {
+        Self {
+            network_events: 0,
+            ..self
+        }
+    }
+
+    fn without_ingress_depth(self) -> Self {
+        Self {
+            readiness_events: 0,
+            ..self.without_transport_depth()
+        }
+    }
+
+    pub(crate) fn is_empty_after_ingress_fence(self) -> bool {
+        self.without_ingress_depth() == Self::default()
     }
 }
 
@@ -152,13 +168,33 @@ pub(crate) struct WorldReadySnapshot {
     pub(crate) mutation_target_visible: bool,
     pub(crate) mutation_target_clean: bool,
     pub(crate) work: WorldReadyWork,
+    pub(crate) readiness_produced: u64,
+    pub(crate) readiness_consumed: u64,
+}
+
+impl WorldReadySnapshot {
+    fn same_readiness_state(self, other: Self) -> bool {
+        Self {
+            readiness_produced: 0,
+            readiness_consumed: 0,
+            work: self.work.without_ingress_depth(),
+            ..self
+        } == Self {
+            readiness_produced: 0,
+            readiness_consumed: 0,
+            work: other.work.without_ingress_depth(),
+            ..other
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct WorldReadySettler {
     pub(crate) candidate: Option<(WorldReadySnapshot, Instant)>,
+    pub(crate) ingress_fence: Option<u64>,
     pub(crate) presentation: Option<WorldReadyPresentationCandidate>,
     pub(crate) next_view_generation: u64,
+    pub(crate) last_diagnostic_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +206,13 @@ pub(crate) struct WorldReadyPresentationCandidate {
 }
 
 impl WorldReadySettler {
+    fn ingress_fence_satisfied(&mut self, snapshot: WorldReadySnapshot) -> bool {
+        let fence = *self
+            .ingress_fence
+            .get_or_insert(snapshot.readiness_produced);
+        snapshot.readiness_consumed >= fence
+    }
+
     pub(crate) fn reconcile_presentation(
         &mut self,
         snapshot: WorldReadySnapshot,
@@ -177,11 +220,16 @@ impl WorldReadySettler {
         now: Instant,
     ) -> Option<TargetRenderExpectation> {
         if world_ready_markers(snapshot).is_none() || proposed.manifest.is_empty() {
+            self.ingress_fence = None;
+            self.presentation = None;
+            return None;
+        }
+        if !self.ingress_fence_satisfied(snapshot) {
             self.presentation = None;
             return None;
         }
         if let Some(candidate) = &self.presentation
-            && candidate.snapshot == snapshot
+            && candidate.snapshot.same_readiness_state(snapshot)
             && candidate.expectation.cohort == proposed.cohort
             && candidate.expectation.source_cohort == proposed.source_cohort
             && candidate.expectation.manifest == proposed.manifest
@@ -209,6 +257,30 @@ impl WorldReadySettler {
             &candidate.expectation,
             &acknowledgement,
         ) {
+            debug!(
+                cohort_match = acknowledgement.cohort == candidate.expectation.cohort,
+                expected_view_generation = candidate.expectation.view_generation,
+                acknowledged_view_generation = acknowledgement.view_generation,
+                render_ready_match =
+                    acknowledgement.render_ready_at == candidate.expectation.render_ready_at,
+                expected_manifest_len = candidate.expectation.manifest.len(),
+                acknowledged_manifest_len = acknowledgement.allocation_manifest.len(),
+                manifest_match =
+                    acknowledgement.allocation_manifest == candidate.expectation.manifest,
+                visible_manifest_len = acknowledgement.visible_allocation_manifest.len(),
+                drawn_manifest_len = acknowledgement.drawn_manifest.len(),
+                visible_drawn_match =
+                    acknowledgement.visible_allocation_manifest == acknowledgement.drawn_manifest,
+                exact = acknowledgement.is_exact(),
+                frame_sequence = acknowledgement.frame_sequence,
+                missing_target_instances = acknowledgement.missing_target_instances,
+                unexpected_target_instances = acknowledgement.unexpected_target_instances,
+                source_instances = acknowledgement.source_instances,
+                foreign_instances = acknowledgement.foreign_instances,
+                stale_generation_instances = acknowledgement.stale_generation_instances,
+                orphan_allocations = acknowledgement.orphan_allocations,
+                "world-ready presented frame rejected"
+            );
             candidate.first_frame = None;
             candidate.stable = false;
             return false;
@@ -217,14 +289,31 @@ impl WorldReadySettler {
         candidate.stable = first
             .as_ref()
             .is_some_and(|first| first.forms_stable_exact_pair_with(&acknowledgement));
+        debug!(
+            frame_sequence = acknowledgement.frame_sequence,
+            previous_frame_sequence = first.as_ref().map(|frame| frame.frame_sequence),
+            transparent_sort_generation = acknowledgement.transparent_sort_generation,
+            stable = candidate.stable,
+            "world-ready presented frame observed"
+        );
         candidate.first_frame = Some(acknowledgement);
         candidate.stable
     }
 
     pub(crate) fn has_stable_presentation(&self, snapshot: WorldReadySnapshot) -> bool {
-        self.presentation
-            .as_ref()
-            .is_some_and(|candidate| candidate.snapshot == snapshot && candidate.stable)
+        self.presentation.as_ref().is_some_and(|candidate| {
+            candidate.snapshot.same_readiness_state(snapshot) && candidate.stable
+        })
+    }
+
+    pub(crate) fn pending_diagnostic_due(&mut self, now: Instant) -> bool {
+        if self.last_diagnostic_at.is_some_and(|last| {
+            now.saturating_duration_since(last) < WORLD_READY_DIAGNOSTIC_INTERVAL
+        }) {
+            return false;
+        }
+        self.last_diagnostic_at = Some(now);
+        true
     }
 
     pub(crate) fn observe(
@@ -234,13 +323,19 @@ impl WorldReadySettler {
     ) -> Option<[String; 2]> {
         let markers = world_ready_markers(snapshot);
         if markers.is_none() {
+            self.ingress_fence = None;
+            self.candidate = None;
+            return None;
+        }
+        if !self.ingress_fence_satisfied(snapshot) {
             self.candidate = None;
             return None;
         }
         match self.candidate {
-            Some((stable, since)) if stable == snapshot => (now.saturating_duration_since(since)
-                >= WORLD_READY_QUIET_INTERVAL)
-                .then_some(markers.expect("settled snapshots have markers")),
+            Some((stable, since)) if stable.same_readiness_state(snapshot) => {
+                (now.saturating_duration_since(since) >= WORLD_READY_QUIET_INTERVAL)
+                    .then_some(markers.expect("settled snapshots have markers"))
+            }
             _ => {
                 self.candidate = Some((snapshot, now));
                 None
@@ -279,6 +374,7 @@ impl GalleryAnchorEmitter {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_world_ready(
     network: Res<NetworkHandle>,
+    frame_poll: Res<WorldStreamFramePoll>,
     mut client_world: ResMut<ClientWorld>,
     cache: Res<CaveVisibilityCache>,
     diagnostic_quads: Res<DiagnosticQuads>,
@@ -302,8 +398,10 @@ pub(crate) fn emit_world_ready(
         retries_scheduled: stats.sub_chunk_retries_scheduled,
         retry_exhaustions: stats.sub_chunk_retry_exhaustions,
     };
+    let (readiness_produced, readiness_consumed) = network.readiness_ingress_progress();
     let work = WorldReadyWork {
         network_events: network.pending_event_count(),
+        readiness_events: network.pending_readiness_event_count(),
         network_commands: network.pending_command_count(),
         admitted_world_events: stats.admitted_world_events,
         queued_decode_jobs: stats.queued_decode_jobs,
@@ -322,19 +420,18 @@ pub(crate) fn emit_world_ready(
         pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
         unacknowledged_meshes: stream.unacknowledged_mesh_count(),
     };
-    let committed_cohort = stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target));
+    let committed_cohort = frame_poll.cohort;
     if acceptance.revoke_world_ready_if_cohort_changed(committed_cohort) {
         presented_frames.clear();
         return;
     }
     let required_columns = stream.required_columns().clone();
     if acceptance.world_ready {
-        let cohort = acceptance
-            .full_view_teleport
-            .target_cohort()
-            .map(|target| stream.cohort_status(target));
+        let cohort = acceptance.full_view_teleport.target_cohort().map(|target| {
+            committed_cohort
+                .filter(|status| status.target == target)
+                .unwrap_or_else(|| stream.cohort_status(target))
+        });
         if let Some(status) = cohort {
             debug_assert_eq!(stream.committed_view_cohort(), status.committed);
         }
@@ -351,6 +448,8 @@ pub(crate) fn emit_world_ready(
             last_mesh_completion_at: stats.last_mesh_completion_at,
             last_mesh_ack_at: stats.last_mesh_ack_at,
             work,
+            readiness_produced,
+            readiness_consumed,
         };
         let observed_at = Instant::now();
         let frame_count = metrics.0.frame_count();
@@ -578,9 +677,7 @@ pub(crate) fn emit_world_ready(
         mutation_coordinate,
         received_radius_chunks: stats.received_radius_chunks,
         publisher_radius_chunks: stats.publisher_radius_chunks,
-        cohort: stream
-            .committed_view_cohort()
-            .map(|target| stream.cohort_status(target)),
+        cohort: committed_cohort,
         rendered_sub_chunks: cache.rendered.len(),
         resident_sub_chunks: stats.resident_sub_chunks,
         visible_sub_chunks: cache.visible_rendered,
@@ -589,8 +686,16 @@ pub(crate) fn emit_world_ready(
         mutation_target_visible: mutation_target.is_some_and(|target| cache.is_visible(target)),
         mutation_target_clean: mutation_target.is_some_and(|target| stream.is_mesh_clean(target)),
         work,
+        readiness_produced,
+        readiness_consumed,
     };
     let ready_at = Instant::now();
+    if acceptance
+        .world_ready_settler
+        .pending_diagnostic_due(ready_at)
+    {
+        info!(?snapshot, "world-ready gate status");
+    }
     let proposed = snapshot.cohort.and_then(|status| {
         render_queue.freeze_target_expectation_for_columns(
             render_view_cohort(status.target),
@@ -605,6 +710,9 @@ pub(crate) fn emit_world_ready(
             .world_ready_settler
             .reconcile_presentation(snapshot, proposed, ready_at)
     });
+    if expectation.is_some() {
+        auto_fly.pause_for_stable_presentation();
+    }
     if let Some(expectation) = expectation {
         presented_frames.set_expectation(expectation);
     } else {
@@ -663,4 +771,5 @@ pub(crate) fn emit_world_ready(
         stream.resolved_server_position().position,
         stream.local_player_runtime_id(),
     );
+    auto_fly.resume_after_stable_presentation();
 }

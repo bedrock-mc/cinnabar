@@ -26,6 +26,7 @@ pub(crate) struct PendingFullViewRemesh {
     pub(crate) binding_manifest: Arc<[(SubChunkKey, u64)]>,
     pub(crate) binding_view_generation: u64,
     pub(crate) started_frame_count: u64,
+    pub(crate) readiness_ingress_fence: Option<u64>,
     pub(crate) candidate: Option<FullViewRemeshPresentedCandidate>,
 }
 
@@ -92,6 +93,7 @@ impl FullViewRemeshTracker {
             binding_manifest: Arc::clone(&binding.expectation.manifest),
             binding_view_generation: binding.view_generation,
             started_frame_count: frame_count,
+            readiness_ingress_fence: None,
             candidate: None,
         });
         true
@@ -117,17 +119,36 @@ impl FullViewRemeshTracker {
         if manifest_state == client_world::ForcedRemeshManifestState::Pending
             || !snapshot.is_ready()
         {
-            self.pending
+            let pending = self
+                .pending
                 .as_mut()
-                .expect("validated forced remesh remains pending")
-                .candidate = None;
+                .expect("validated forced remesh remains pending");
+            pending.readiness_ingress_fence = None;
+            pending.candidate = None;
             return None;
+        }
+        {
+            let pending = self
+                .pending
+                .as_mut()
+                .expect("validated forced remesh remains pending");
+            let fence = *pending
+                .readiness_ingress_fence
+                .get_or_insert(snapshot.readiness_produced);
+            if snapshot.readiness_consumed < fence {
+                pending.candidate = None;
+                return None;
+            }
         }
         let Some(mut proposed) = proposed else {
             self.invalidate();
             return None;
         };
 
+        let pending = self
+            .pending
+            .as_ref()
+            .expect("validated forced remesh remains pending");
         if let Some(candidate) = &pending.candidate {
             if proposed.cohort != candidate.expectation.cohort
                 || proposed.source_cohort != candidate.expectation.source_cohort

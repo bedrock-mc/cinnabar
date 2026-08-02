@@ -140,6 +140,25 @@ fn absent_column_fails_closed_even_though_sparse_lookup_looks_like_air() {
 }
 
 #[test]
+fn request_mode_sub_chunk_is_collision_authoritative_before_its_column_completes() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let key = SubChunkKey::from_chunk(chunk, 0);
+    let mut store = ChunkStore::new();
+    store.apply_request_mode_air(key).unwrap();
+    assert!(store.mark_sub_chunk_loaded(key).unwrap());
+    assert!(!store.is_chunk_loaded(chunk));
+
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+    assert_eq!(world.block_physics([1, 1, 1]).unwrap().layers.len(), 1);
+    assert_eq!(
+        world.block_physics([1, 16, 1]),
+        Err(WorldQueryError::UnloadedChunk(chunk))
+    );
+}
+
+#[test]
 fn palette_adapter_reads_runtime_specific_surface_friction_without_flattening() {
     let chunk = ChunkKey::new(0, 0, 0);
     let store = loaded_uniform_store(chunk, 9);

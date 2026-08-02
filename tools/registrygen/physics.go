@@ -25,6 +25,18 @@ const (
 	maxPhysicsBoxes       = 32
 	defaultFrictionQ1E8   = 60_000_000
 	defaultSpeedQ1E8      = 100_000_000
+	// soulSandSpeedQ1E8 is the pinned bedsim v0.1.3 grounded movement-speed
+	// multiplier for "minecraft:soul_sand" (simulation.go: `mSpeed *= 0.543`),
+	// applied at the same point in the force law that crates/sim applies this
+	// factor. bedsim is this repository's selected Bedrock movement authority.
+	// The Java Edition value is 0.4 and must not be substituted for it.
+	soulSandSpeedQ1E8 = 54_300_000
+	// unprovenHoneySpeedQ1E8 is a Java-derived approximation retained only
+	// because bedsim v0.1.3 implements no honey stratum, so no Bedrock oracle
+	// exists to correct it. It is deliberately not aliased onto soul sand's
+	// value and must be replaced once an authoritative Bedrock reference for
+	// honey movement is identified. Tracked in docs/tracking/phase3-movement.md.
+	unprovenHoneySpeedQ1E8 = 40_000_000
 )
 
 const (
@@ -385,10 +397,10 @@ func applyPhysicsOverride(record Record, override reviewedPhysicsOverride, entry
 	case behaviorSlime:
 		entry.SurfaceResponse = SurfaceSlime
 	case behaviorHoney:
-		entry.HorizontalSpeedQ1E8 = 40_000_000
+		entry.HorizontalSpeedQ1E8 = unprovenHoneySpeedQ1E8
 		entry.SurfaceResponse = SurfaceHoney
 	case behaviorSoulSand:
-		entry.HorizontalSpeedQ1E8 = 40_000_000
+		entry.HorizontalSpeedQ1E8 = soulSandSpeedQ1E8
 		entry.SurfaceResponse = SurfaceSoulSand
 	case behaviorBubble:
 		dragDown, err := strictBubbleDragDown(record.StateJSON)

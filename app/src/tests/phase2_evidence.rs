@@ -136,7 +136,21 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             hashes_classified: 7,
             hits: 3,
             misses: 4,
+            redundant_missing_requests: 24,
             admitted_blobs: 4,
+            retained_cached_transactions: 16,
+            ordinary_ready_events: 17,
+            ordinary_ready_bytes: 18,
+            recovery_ready_events: 19,
+            recovery_ready_bytes: 20,
+            cached_packet_transaction_pressure: 11,
+            cached_packet_pending_pressure: 12,
+            cached_packet_staged_pressure: 13,
+            cached_packet_reconstruction_pressure: 14,
+            cached_packet_ready_pressure: 15,
+            abandoned_cached_transactions: 21,
+            recovery_requests: 22,
+            ordinary_backpressure: 23,
             reconstructed_level_chunks: 2,
             reconstructed_sub_chunks: 1,
             ..Default::default()
@@ -179,7 +193,7 @@ fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
         .split("pub(crate) fn record_metrics_and_title")
         .nth(1)
         .expect("record_metrics_and_title source")
-        .split("\n    if let Some(stream) = client_world.stream.as_ref() {")
+        .split("\n    if client_world.stream.is_some() {")
         .next()
         .expect("record_metrics_and_title body");
 
@@ -226,6 +240,48 @@ fn phase2_publication_emits_once_per_changed_combined_identity() {
     let mut changed = snapshot;
     changed.publication.stages.mesh_changes_dequeued = 1;
     assert!(phase2_publication_line_if_changed(&mut previous, changed).is_some());
+}
+
+#[test]
+fn phase2_publication_exposes_every_blob_cache_pressure_counter() {
+    let mut previous = None;
+    let line = phase2_publication_line_if_changed(&mut previous, combined_snapshot()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(
+        line.strip_prefix("PHASE2_PUBLICATION=")
+            .expect("phase-2 publication prefix"),
+    )
+    .expect("phase-2 publication JSON");
+    let cache = json
+        .get("client_blob_cache")
+        .and_then(serde_json::Value::as_object)
+        .expect("client blob-cache evidence object");
+    let expected = [
+        ("retained_cached_transactions", 16),
+        ("redundant_missing_requests", 24),
+        ("ordinary_ready_events", 17),
+        ("ordinary_ready_bytes", 18),
+        ("recovery_ready_events", 19),
+        ("recovery_ready_bytes", 20),
+        ("cached_packet_transaction_pressure", 11),
+        ("cached_packet_pending_pressure", 12),
+        ("cached_packet_staged_pressure", 13),
+        ("cached_packet_reconstruction_pressure", 14),
+        ("cached_packet_ready_pressure", 15),
+        ("abandoned_cached_transactions", 21),
+        ("recovery_requests", 22),
+        ("ordinary_backpressure", 23),
+    ];
+    let mismatched = expected
+        .into_iter()
+        .filter(|(field, value)| {
+            cache.get(*field).and_then(serde_json::Value::as_u64) != Some(*value)
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatched.is_empty(),
+        "blob-cache evidence JSON is missing or misreporting pressure counters: {mismatched:?}"
+    );
 }
 
 #[test]

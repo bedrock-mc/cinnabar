@@ -6,86 +6,167 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
+        if budget == 0 {
+            return 0;
+        }
+
+        let camera_cell = scheduler_camera_cell(camera_position);
+        if self.mesh_scheduler_camera_cell != Some(camera_cell) {
+            let mut deferred = std::mem::take(&mut self.pending_resident_mesh_deferred)
+                .into_iter()
+                .chain(std::mem::take(&mut self.pending_mesh_removal_deferred))
+                .filter_map(|candidate| {
+                    self.pending_mesh
+                        .get(&candidate.key)
+                        .is_some_and(|pending| pending.revision == candidate.revision)
+                        .then_some((candidate.key, candidate.revision))
+                })
+                .collect::<HashSet<_>>();
+            deferred.extend(self.pending_mesh_scan.iter().copied());
+            let mut resident = Vec::new();
+            let mut removals = Vec::new();
+            let mut resident_deferred = Vec::new();
+            let mut removals_deferred = Vec::new();
+            for (&key, pending) in &self.pending_mesh {
+                let candidate =
+                    PendingSchedulerCandidate::new(key, pending.revision, camera_position);
+                let (ready, next_round) =
+                    if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                        (&mut resident, &mut resident_deferred)
+                    } else {
+                        (&mut removals, &mut removals_deferred)
+                    };
+                if deferred.contains(&(key, pending.revision)) {
+                    next_round.push(candidate);
+                } else {
+                    ready.push(candidate);
+                }
+            }
+            self.pending_resident_mesh_ready = BinaryHeap::from(resident);
+            self.pending_mesh_removal_ready = BinaryHeap::from(removals);
+            self.pending_resident_mesh_deferred = BinaryHeap::from(resident_deferred);
+            self.pending_mesh_removal_deferred = BinaryHeap::from(removals_deferred);
+            self.pending_mesh_scan.clear();
+            self.mesh_scheduler_camera_cell = Some(camera_cell);
+        } else {
+            let ingress_budget = self
+                .pending_mesh_scan
+                .len()
+                .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+            for _ in 0..ingress_budget {
+                let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
+                    break;
+                };
+                if self
+                    .pending_mesh
+                    .get(&key)
+                    .is_none_or(|pending| pending.revision != queued_revision)
+                {
+                    continue;
+                }
+                let candidate =
+                    PendingSchedulerCandidate::new(key, queued_revision, camera_position);
+                if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                } else {
+                    self.pending_mesh_removal_deferred.push(candidate);
+                }
+            }
+        }
+        if self.pending_resident_mesh_ready.is_empty() {
+            std::mem::swap(
+                &mut self.pending_resident_mesh_ready,
+                &mut self.pending_resident_mesh_deferred,
+            );
+        }
+        if self.pending_mesh_removal_ready.is_empty() {
+            std::mem::swap(
+                &mut self.pending_mesh_removal_ready,
+                &mut self.pending_mesh_removal_deferred,
+            );
+        }
+
         let worker_budget = budget.min(WORK_RESULT_CAPACITY.saturating_sub(self.in_flight.len()));
-        let mut candidates = self
-            .pending_mesh
-            .iter()
-            .map(|(&key, &pending)| {
-                (
-                    self.store.sub_chunk(key).is_none(),
-                    distance_squared(key, camera_position),
-                    key,
-                    pending.revision,
-                    pending.since,
-                    pending.queued_at,
-                )
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| {
-            left.0
-                .cmp(&right.0)
-                .then_with(|| left.1.total_cmp(&right.1))
-                .then_with(|| left.2.cmp(&right.2))
-        });
+        let mut resident_candidates = Vec::new();
+        let mut removal_candidates = Vec::new();
+        for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+            let Some(candidate) = self.pending_resident_mesh_ready.pop() else {
+                break;
+            };
+            let key = candidate.key;
+            let Some(pending) = self.pending_mesh.get(&key).copied() else {
+                continue;
+            };
+            if pending.revision != candidate.revision {
+                continue;
+            }
+            if !self.revisions.is_current(key, pending.revision)
+                || self.in_flight.contains_key(&key)
+            {
+                self.pending_resident_mesh_deferred.push(candidate);
+            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                resident_candidates.push((candidate, pending));
+            } else {
+                self.pending_mesh_removal_ready.push(candidate);
+            }
+        }
+        let removal_authority = self
+            .publication_allowance
+            .as_ref()
+            .map_or(budget, PublicationAllowance::zero_byte_admission_capacity)
+            .min(budget)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        if removal_authority != 0 {
+            self.pending_mesh_removal_ready
+                .append(&mut self.pending_mesh_removal_deferred);
+        }
+        for _ in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+            let Some(candidate) = self.pending_mesh_removal_ready.pop() else {
+                break;
+            };
+            let key = candidate.key;
+            let Some(pending) = self.pending_mesh.get(&key).copied() else {
+                continue;
+            };
+            if pending.revision != candidate.revision {
+                continue;
+            }
+            if !self.revisions.is_current(key, pending.revision) {
+                self.pending_mesh_removal_deferred.push(candidate);
+            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                self.pending_resident_mesh_ready.push(candidate);
+            } else if removal_candidates.len() >= removal_authority {
+                self.pending_mesh_removal_deferred.push(candidate);
+                break;
+            } else {
+                removal_candidates.push((candidate, pending));
+            }
+        }
 
         let mut dispatched = 0;
-        let mut removals_queued = 0;
-        for (_, _, key, revision, dirty_since, queued_at) in candidates {
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
-                break;
+        for (candidate, pending) in resident_candidates {
+            let key = candidate.key;
+            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || dispatched >= worker_budget {
+                self.pending_resident_mesh_ready.push(candidate);
+                continue;
             }
-            if !self.revisions.is_current(key, revision) {
+            if !self.revisions.is_current(key, pending.revision)
+                || self.in_flight.contains_key(&key)
+            {
+                self.pending_resident_mesh_deferred.push(candidate);
                 continue;
             }
             let Some(center) = self.store.sub_chunk(key) else {
-                if removals_queued >= budget {
-                    continue;
-                }
-                let permit = match &self.publication_allowance {
-                    Some(allowance) => {
-                        let Some(permit) = allowance.try_admit_zero_byte() else {
-                            continue;
-                        };
-                        Some(permit)
-                    }
-                    None => None,
-                };
-                self.pending_mesh.remove(&key);
-                if self.known_air.contains(&key) {
-                    self.set_connectivity(key, Some(FaceConnectivity::all()));
-                    let registered = self.register_mesh_dependency_mask(
-                        key,
-                        revision,
-                        MeshDependencyMask::default(),
-                    );
-                    debug_assert!(registered);
-                } else {
-                    self.set_connectivity(key, None);
-                    self.mesh_dependency_masks.remove(&key);
-                }
-                self.mesh_changes.push_back(WorldMeshChange::Remove {
-                    key,
-                    generation: revision,
-                    dirty_since,
-                    permit,
-                });
-                self.stats.phase2_stages.mesh_changes_queued = self
-                    .stats
-                    .phase2_stages
-                    .mesh_changes_queued
-                    .saturating_add(1);
-                removals_queued += 1;
+                self.pending_resident_mesh_deferred.push(candidate);
                 continue;
             };
-            if dispatched >= worker_budget || self.in_flight.contains_key(&key) {
-                continue;
-            }
             let Some(light_halo) = self.mesh_light_halo(key) else {
+                self.pending_resident_mesh_deferred.push(candidate);
                 continue;
             };
             let snapshot = self.mesh_snapshot(key, center, light_halo);
             self.pending_mesh.remove(&key);
-            self.in_flight.insert(key, revision);
+            self.in_flight.insert(key, pending.revision);
             let tx = self.mesh_tx.clone();
             let classifier = self.classifier;
             let network_id_mode = self.network_id_mode;
@@ -94,7 +175,7 @@ impl WorldStream {
             let tint_identity = self.biome_tint_identity();
             rayon::spawn(move || {
                 let started = Instant::now();
-                let queue_wait = queue_wait(queued_at, started);
+                let queue_wait = queue_wait(pending.queued_at, started);
                 let source = Arc::clone(&snapshot.center);
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
@@ -104,7 +185,7 @@ impl WorldStream {
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode);
                 let _ = tx.send(MeshCompletion {
                     key,
-                    revision,
+                    revision: pending.revision,
                     source,
                     biome_sources,
                     biome,
@@ -123,6 +204,51 @@ impl WorldStream {
                 .mesh_jobs_dispatched
                 .saturating_add(1);
             dispatched += 1;
+        }
+
+        let mut removal_candidates = removal_candidates.into_iter();
+        while let Some((candidate, pending)) = removal_candidates.next() {
+            let key = candidate.key;
+            if !self.revisions.is_current(key, pending.revision) {
+                self.pending_mesh_removal_deferred.push(candidate);
+                continue;
+            }
+            let permit = match &self.publication_allowance {
+                Some(allowance) => {
+                    let Some(permit) = allowance.try_admit_zero_byte() else {
+                        self.pending_mesh_removal_deferred.push(candidate);
+                        self.pending_mesh_removal_deferred
+                            .extend(removal_candidates.map(|(candidate, _)| candidate));
+                        break;
+                    };
+                    Some(permit)
+                }
+                None => None,
+            };
+            self.pending_mesh.remove(&key);
+            if self.known_air.contains(&key) {
+                self.set_connectivity(key, Some(FaceConnectivity::all()));
+                let registered = self.register_mesh_dependency_mask(
+                    key,
+                    pending.revision,
+                    MeshDependencyMask::default(),
+                );
+                debug_assert!(registered);
+            } else {
+                self.set_connectivity(key, None);
+                self.mesh_dependency_masks.remove(&key);
+            }
+            self.mesh_changes.push_back(WorldMeshChange::Remove {
+                key,
+                generation: pending.revision,
+                dirty_since: pending.since,
+                permit,
+            });
+            self.stats.phase2_stages.mesh_changes_queued = self
+                .stats
+                .phase2_stages
+                .mesh_changes_queued
+                .saturating_add(1);
         }
         dispatched
     }
@@ -224,11 +350,14 @@ impl WorldStream {
         else {
             return;
         };
-        self.pending_mesh.entry(key).or_insert(PendingMesh {
-            revision,
-            since: dirty.since,
-            queued_at: Instant::now(),
-        });
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.pending_mesh.entry(key) {
+            entry.insert(PendingMesh {
+                revision,
+                since: dirty.since,
+                queued_at: Instant::now(),
+            });
+            self.pending_mesh_scan.push_back((key, revision));
+        }
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, completion: MeshCompletion) {
         self.stats.phase2_stages.mesh_jobs_completed = self

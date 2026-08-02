@@ -306,6 +306,160 @@ fn mesh_light_halo_samples_center_face_edge_corner_and_absent_fallback() {
 }
 
 #[test]
+fn light_dispatch_rotates_past_a_blocked_nearest_window() {
+    let mut stream = lit_stream(0);
+    for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        let key = SubChunkKey::new(0, index as i32 * 3, 0, 0);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.record_known_air(SubChunkKey::new(0, key.x, 1, key.z));
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    let farther = SubChunkKey::new(0, MAX_PENDING_SCHEDULER_SCANS_PER_POLL as i32 * 3, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(farther, super::uniform_sub_chunk(1))
+        .unwrap();
+    install_current_light(&mut stream, farther, 0, 0, false);
+    let farther_revision = stream.mark_light_dirty_exact(farther).unwrap();
+
+    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 0);
+    for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        let key = SubChunkKey::new(0, index as i32 * 3, 0, 3);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.record_known_air(SubChunkKey::new(0, key.x, 1, key.z));
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    assert_eq!(stream.dispatch_light_jobs([16.0, 0.0, 0.0], 1), 1);
+    assert_eq!(
+        stream.in_flight_light.get(&farther).map(|job| job.revision),
+        Some(farther_revision)
+    );
+}
+
+#[test]
+fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
+    let mut stream = stream();
+    let blocked = (0..128)
+        .map(|index| SubChunkKey::new(0, index * 3, 0, 0))
+        .collect::<Vec<_>>();
+    for key in blocked.iter().copied() {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_light_dirty_exact(key);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let farther = SubChunkKey::new(0, 128 * 3, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(farther, super::uniform_sub_chunk(1))
+        .unwrap();
+    install_current_light(&mut stream, farther, 0, 0, false);
+    let farther_revision = stream.mark_dirty_exact(farther, Instant::now());
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+    assert!(!stream.in_flight.contains_key(&farther));
+    assert!(stream.pending_mesh.contains_key(&farther));
+    for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        let key = SubChunkKey::new(0, index as i32 * 3, 0, 3);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_light_dirty_exact(key);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+
+    assert_eq!(stream.dispatch_mesh_jobs([16.0, 0.0, 0.0], 1), 1);
+    assert_eq!(stream.in_flight.get(&farther), Some(&farther_revision));
+}
+
+#[test]
+fn exhausted_removal_authority_still_reclassifies_ready_resident_work() {
+    let mut stream = stream();
+    let allowance = PublicationAllowance::new(PublicationServiceConfig::PHASE2_GATE);
+    allowance.begin_frame(
+        1,
+        0,
+        0,
+        0,
+        PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
+    stream.set_publication_allowance(allowance);
+
+    let stale = SubChunkKey::new(0, 2, 0, 0);
+    let resident = SubChunkKey::new(0, 1, 0, 0);
+    let removal = SubChunkKey::new(0, 3, 0, 0);
+    for key in [stale, resident, removal] {
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+
+    stream.mark_dirty_exact(stale, Instant::now());
+    stream
+        .store
+        .commit_sub_chunk(resident, super::uniform_sub_chunk(1))
+        .unwrap();
+    install_current_light(&mut stream, resident, 0, 0, false);
+    stream.mark_dirty_exact(resident, Instant::now());
+    let resident_revision = stream.pending_mesh[&resident].revision;
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert_eq!(stream.in_flight.get(&resident), Some(&resident_revision));
+}
+
+#[test]
+fn mesh_worker_budget_keeps_unscanned_residents_behind_nearer_ready_work() {
+    let mut stream = stream();
+    let keys = (0..=MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+        .map(|index| SubChunkKey::new(0, index as i32 * 3, 0, 0))
+        .collect::<Vec<_>>();
+    for key in keys.iter().copied() {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert!(stream.in_flight.contains_key(&keys[0]));
+    stream.in_flight.remove(&keys[0]);
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert!(stream.in_flight.contains_key(&keys[1]));
+    assert!(!stream.in_flight.contains_key(keys.last().unwrap()));
+}
+
+#[test]
+fn renewed_removal_authority_restores_nearest_first_order() {
+    let mut stream = stream();
+    let keys = (0..3)
+        .map(|x| SubChunkKey::new(0, x, 0, 0))
+        .collect::<Vec<_>>();
+    for key in keys.iter().copied() {
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+
+    for expected in keys {
+        assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+        assert_eq!(stream.pop_mesh_change().unwrap().key(), expected);
+    }
+}
+
+#[test]
 fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
     let mut stream = stream();
     let center = SubChunkKey::new(0, 0, -4, 0);
@@ -450,6 +604,92 @@ fn light_change_invalidation_only_dirties_renderable_dependents_once() {
             .values()
             .all(|pending| pending.since == first)
     );
+}
+
+#[test]
+fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
+    let mut stream = lit_stream(0);
+    let source = SubChunkKey::new(0, 4, 5, 6);
+    let east = SubChunkKey::new(0, 5, 5, 6);
+    let up = SubChunkKey::new(0, 4, 6, 6);
+    let east_up = SubChunkKey::new(0, 5, 6, 6);
+    let west = SubChunkKey::new(0, 3, 5, 6);
+    for key in [source, east, up, east_up, west] {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        stream.resident.insert(key);
+    }
+
+    stream.mark_changed_light_mesh_dependents(
+        source,
+        [false, true, false, true, false, false],
+        Instant::now(),
+    );
+    let revisions = stream
+        .pending_mesh
+        .iter()
+        .map(|(&key, pending)| (key, pending.revision))
+        .collect::<BTreeMap<_, _>>();
+    stream.mark_changed_light_mesh_dependents(
+        source,
+        [false, true, false, true, false, false],
+        Instant::now(),
+    );
+
+    assert_eq!(
+        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([source, east, up, east_up])
+    );
+    assert_eq!(
+        stream
+            .pending_mesh
+            .iter()
+            .map(|(&key, pending)| (key, pending.revision))
+            .collect::<BTreeMap<_, _>>(),
+        revisions,
+        "a queued mesh observes the latest light when it is prepared and must not be revised again"
+    );
+}
+
+#[test]
+fn original_column_lighting_waits_for_the_loaded_three_by_three_context() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 4, 0, 6);
+    stream.record_known_air(key);
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            stream
+                .required_columns
+                .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
+        }
+    }
+    stream.loaded_columns.insert(key.chunk());
+    stream.mark_changed(key, Instant::now());
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 0);
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            stream
+                .loaded_columns
+                .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
+        }
+    }
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 1);
+}
+
+#[test]
+fn original_column_lighting_treats_unrequested_neighbours_as_the_view_boundary() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 4, 0, 6);
+    stream.record_known_air(key);
+    stream.required_columns.insert(key.chunk());
+    stream.loaded_columns.insert(key.chunk());
+    stream.mark_changed(key, Instant::now());
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 1);
 }
 
 #[test]
@@ -638,8 +878,7 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
     stream.mark_changed(below, Instant::now());
     let blocks = stream.light_block_snapshot(below);
     assert_eq!(blocks.sky_seed(BlockPos::new(0, 303, 0)), 0);
-    complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
-    complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
+    settle_light(&mut stream, [8.0, 296.0, 8.0]);
     assert_eq!(
         stream
             .light_store
@@ -652,17 +891,20 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
 
+    install_current_light(&mut stream, below, 1, 15, true);
     stream.mark_light_dirty_exact(top);
     stream.mark_light_dirty_exact(below);
-    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 2);
     assert!(stream.in_flight_light.contains_key(&top));
-    assert!(!stream.in_flight_light.contains_key(&below));
-    let completion = stream
-        .light_rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap();
-    stream.accept_light_completion(completion);
-    complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
+    assert!(stream.in_flight_light.contains_key(&below));
+    assert!(stream.light_waiters.is_empty());
+    for _ in 0..2 {
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        stream.accept_light_completion(completion);
+    }
     assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
     assert_eq!(
         stream
@@ -672,6 +914,33 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
             .get(LightChannel::Sky, 0, 0, 0),
         Some(15)
     );
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_is_current(top));
+    assert!(stream.light_is_current(below));
+}
+
+#[test]
+fn retained_column_batch_does_not_requeue_accepted_members() {
+    let mut stream = lit_stream(1);
+    let top = SubChunkKey::new(1, 0, 7, 0);
+    let below = SubChunkKey::new(1, 0, 6, 0);
+    for key in [top, below] {
+        stream.record_known_air(key);
+        install_current_light(&mut stream, key, 1, 0, false);
+        stream.mark_light_dirty_exact(key);
+    }
+
+    assert_eq!(stream.dispatch_light_jobs([8.0, 120.0, 8.0], 1), 2);
+    assert!(stream.light_waiters.is_empty());
+    for _ in 0..2 {
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        stream.accept_light_completion(completion);
+    }
+
     assert!(stream.pending_light.is_empty());
     assert!(stream.in_flight_light.is_empty());
     assert!(stream.light_is_current(top));
@@ -696,9 +965,7 @@ fn limited_empty_column_propagates_direct_sky_into_the_mesh_light_sidecar() {
     super::complete_pending_decode_jobs(&mut stream);
 
     assert!(stream.take_requests().is_empty());
-    for y in (-4..=19).rev() {
-        complete_one_light(&mut stream, [8.0, y as f32 * 16.0 + 8.0, 8.0]);
-    }
+    settle_light(&mut stream, [8.0, 312.0, 8.0]);
 
     let bottom = SubChunkKey::new(0, 0, -4, 0);
     assert_eq!(
@@ -873,22 +1140,30 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
     assert_eq!(stream.pending_light.len(), keys.len());
     assert_ne!(stream.pending_light[&keys[5]].revision, latest);
 
-    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 3);
-    assert_eq!(stream.in_flight_light.len(), 3);
+    let expected = effective_light_job_cap().min(3);
+    assert_eq!(
+        stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
+        expected
+    );
+    assert_eq!(stream.in_flight_light.len(), expected);
     assert_eq!(
         stream
             .in_flight_light
             .keys()
             .copied()
             .collect::<BTreeSet<_>>(),
-        [keys[0], keys[2], keys[4]].into_iter().collect()
+        [keys[0], keys[2], keys[4]]
+            .into_iter()
+            .take(expected)
+            .collect()
     );
 }
 
 #[test]
-fn one_completion_releases_one_independent_worker_slot() {
+fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     let mut stream = lit_stream(1);
-    let capacity = super::super::MAX_IN_FLIGHT_LIGHT_JOBS;
+    let capacity = super::super::effective_light_job_cap();
+    assert!((1..=super::super::MAX_IN_FLIGHT_LIGHT_JOBS).contains(&capacity));
     let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
     let keys = (-radius..=radius)
         .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
@@ -907,12 +1182,19 @@ fn one_completion_releases_one_independent_worker_slot() {
         capacity
     );
     assert_eq!(stream.in_flight_light.len(), capacity);
+    assert_eq!(stream.pending_light.len(), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 0);
+    assert_eq!(stream.in_flight_light.len(), capacity);
+    assert_eq!(stream.pending_light.len(), 1);
     let completion = stream
         .light_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("independent light completion");
     stream.accept_light_completion(completion);
+    assert_eq!(stream.in_flight_light.len(), capacity - 1);
+    assert_eq!(stream.pending_light.len(), 1);
 
     assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 1);
     assert_eq!(stream.in_flight_light.len(), capacity);
+    assert!(stream.pending_light.is_empty());
 }

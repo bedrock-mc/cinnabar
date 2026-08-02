@@ -17,6 +17,53 @@ fn forced_remesh_starts_only_after_binding_teleport_completion() {
 }
 
 #[test]
+fn forced_remesh_waits_for_its_captured_readiness_ingress_fence() {
+    let teleport_started = Instant::now();
+    let binding = binding_teleport_completion(teleport_started, Duration::from_millis(1_500));
+    let started = teleport_started + Duration::from_millis(1_501);
+    let key = SubChunkKey::new(0, 64, 65, 65);
+    let manifest = ForcedRemeshManifest {
+        started_at: started,
+        entries: Arc::from([(key, 8)]),
+    };
+    let mut tracker = FullViewRemeshTracker::default();
+    assert!(tracker.start(Some(&binding), exact_destination_status(), manifest, 90));
+    let proposed = proposed_render_expectation(started + Duration::from_millis(10), [(key, 8)]);
+    let mut snapshot = settled_teleport_snapshot();
+    snapshot.work.readiness_events = 1;
+    snapshot.readiness_produced = 8;
+    snapshot.readiness_consumed = 7;
+
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                ForcedRemeshManifestState::Complete,
+                Some(proposed.clone()),
+                started + Duration::from_millis(10),
+                91,
+            )
+            .is_none(),
+        "forced-remesh presentation must wait for readiness work produced before its fence"
+    );
+
+    snapshot.work.readiness_events = 0;
+    snapshot.readiness_consumed = 8;
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                ForcedRemeshManifestState::Complete,
+                Some(proposed),
+                started + Duration::from_millis(11),
+                92,
+            )
+            .is_some(),
+        "consuming the forced-remesh fence should arm presentation"
+    );
+}
+
+#[test]
 fn fast_forced_remesh_does_not_replace_or_fix_a_slow_binding_teleport() {
     let teleport_started = Instant::now();
     let binding = binding_teleport_completion(teleport_started, Duration::from_millis(2_400));
@@ -437,13 +484,6 @@ fn gallery_anchor_is_one_shot_mode_scoped_and_only_requires_the_clean_rendered_t
 fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_target() {
     let pending_stages = [
         (
-            "network ingress",
-            WorldReadyWork {
-                network_events: 1,
-                ..Default::default()
-            },
-        ),
-        (
             "network commands",
             WorldReadyWork {
                 network_commands: 1,
@@ -569,6 +609,13 @@ fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_targe
         assert_eq!(world_ready_markers(snapshot), None, "pending {stage}");
     }
 
+    let mut transport_backlog = settled_world_snapshot();
+    transport_backlog.work.network_events = crate::runtime::network::WORLD_EVENT_CAPACITY;
+    assert!(
+        world_ready_markers(transport_backlog).is_some(),
+        "a concurrently refilled socket FIFO is not admitted client-world work"
+    );
+
     let mut target_not_rendered = settled_world_snapshot();
     target_not_rendered.mutation_target_rendered = false;
     assert_eq!(world_ready_markers(target_not_rendered), None);
@@ -616,6 +663,27 @@ fn world_ready_requires_a_stable_quiet_interval_and_resets_when_work_reappears()
     assert_eq!(
         settler.observe(changed, restarted + WORLD_READY_QUIET_INTERVAL * 2),
         world_ready_markers(changed)
+    );
+}
+
+#[test]
+fn world_ready_quiet_interval_ignores_transport_and_readiness_ingress_depth() {
+    let started = Instant::now();
+    let mut snapshot = settled_world_snapshot();
+    snapshot.work.network_events = 31;
+    let mut settler = WorldReadySettler::default();
+
+    assert_eq!(settler.observe(snapshot, started), None);
+    snapshot.work.network_events = 32;
+    assert_eq!(
+        settler.observe(snapshot, started + WORLD_READY_QUIET_INTERVAL),
+        world_ready_markers(snapshot)
+    );
+
+    snapshot.work.readiness_events = 1;
+    assert_eq!(
+        settler.observe(snapshot, started + WORLD_READY_QUIET_INTERVAL * 2),
+        world_ready_markers(snapshot)
     );
 }
 
@@ -1153,15 +1221,5 @@ fn cumulative_counter_delta_tolerates_a_counter_reset() {
     assert_eq!(cumulative_counter_delta(2, 9), 2);
 }
 
-#[test]
-fn bedrock_yaw_and_pitch_map_to_bevys_negative_z_camera() {
-    let south = bedrock_camera_rotation(0.0, 0.0) * Vec3::NEG_Z;
-    let west = bedrock_camera_rotation(90.0, 0.0) * Vec3::NEG_Z;
-    let looking_down = bedrock_camera_rotation(180.0, 45.0) * Vec3::NEG_Z;
-
-    assert!(south.abs_diff_eq(Vec3::Z, 0.0001));
-    assert!(west.abs_diff_eq(Vec3::NEG_X, 0.0001));
-    assert!(looking_down.y < -0.7);
-}
-
+include!("finish/camera_mapping.rs");
 include!("finish/completion.rs");

@@ -198,6 +198,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
+literal = "RUST_MCBE_NETWORK_PUMP_TERMINAL"
+kind = "parsed"
+producer = "app/src/runtime/network/session.rs"
+consumer = "scripts/acceptance/Phase3.ps1"
+
+[[markers]]
 literal = "RUST_MCBE_PHASE3_TERMINAL"
 kind = "parsed"
 producer = "app/src/acceptance/markers.rs"

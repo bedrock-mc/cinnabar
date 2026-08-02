@@ -205,7 +205,7 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
             stage_node(graph, ClientFrameSet::NetworkSend),
             system_node(graph, finish_acceptance_run, "finish_acceptance_run"),
         ),
-        "the terminal evidence marker must sample the outbox only after the final send attempt",
+        "terminal evidence must sample the final acknowledgement-drain state after NetworkSend closes admissions",
     );
 }
 
@@ -686,7 +686,13 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
     let allowance = client_world::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 1, config.maximum_frame_bytes, 0);
+    allowance.begin_frame(
+        1,
+        1,
+        config.maximum_frame_bytes,
+        0,
+        config.maximum_frame_items,
+    );
     let upload_permit = allowance.try_admit_payload(bytes).unwrap();
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let initial_budget =
@@ -741,7 +747,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     assert_eq!(uploaded_terminal.allocation_manifest, vec![(key, 1)]);
     assert_eq!(allowance.live_permits(), 0);
 
-    allowance.begin_frame(2, 0, 0, 1);
+    allowance.begin_frame(2, 1, 0, 1, config.maximum_frame_items);
     let removal_permit = allowance.try_admit_zero_byte().unwrap();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
@@ -828,7 +834,7 @@ fn adaptive_publication_diagnostic_is_deterministic_and_cohort_tagged() {
     let line = adaptive_publication_diagnostic_line(controller.diagnostics());
     assert_eq!(
         line,
-        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
+        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_payload_items=5 published_zero_items=0 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
     );
 }
 
@@ -928,7 +934,6 @@ fn fifo_jitter_accrues_wall_clock_service_without_frame_count_bias() {
         Duration::from_micros(16_200),
     ];
     let mut serviced = 0_usize;
-
     for frame in 0..240 {
         controller.begin_frame(jitter[frame % jitter.len()]);
         let allowance = controller.allowance();
@@ -938,7 +943,6 @@ fn fifo_jitter_accrues_wall_clock_service_without_frame_count_bias() {
         }
         controller.finish_frame(PublicationFrameWork::default());
     }
-
     assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
     let elapsed_nanos = jitter
         .iter()
@@ -952,9 +956,8 @@ fn fifo_jitter_accrues_wall_clock_service_without_frame_count_bias() {
         / 1_000_000_000;
     assert!(u128::try_from(serviced).unwrap() >= minimum);
 }
-
 #[test]
-fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() {
+fn slow_saturated_frame_without_gpu_backlog_preserves_service_caps() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.begin_frame(Duration::from_millis(16));
@@ -962,7 +965,6 @@ fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() 
     while let Some(permit) = allowance.try_admit_payload(1) {
         assert!(permit.retire());
     }
-    let carried_bytes = allowance.remaining_bytes();
     controller.finish_frame(PublicationFrameWork {
         pending_mesh_jobs: 1,
         mesh_changes_published: controller.budget().max_per_frame,
@@ -972,39 +974,43 @@ fn one_eighty_millisecond_saturated_frame_reduces_to_the_literal_minimum_rate() 
 
     controller.begin_frame(Duration::from_millis(80));
 
-    let expected_items = usize::try_from(
-        u64::from(config.minimum_items_per_second)
-            .checked_mul(80)
-            .unwrap()
-            / 1_000,
-    )
-    .unwrap();
-    let expected_bytes = carried_bytes
-        .checked_add(config.minimum_bytes_per_second.checked_mul(80).unwrap() / 1_000)
-        .unwrap();
-    assert_eq!(controller.budget().max_per_frame, expected_items);
-    assert_eq!(controller.budget().max_bytes_per_frame, expected_bytes);
-    assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
-}
-
-#[test]
-fn zero_byte_removals_never_masquerade_as_spent_payload_authority() {
-    let mut controller = PublicationController::default();
-    controller.begin_frame(Duration::from_millis(16));
-    controller.finish_frame(PublicationFrameWork {
-        mesh_changes_published: PublicationServiceConfig::PHASE2_GATE
-            .maximum_zero_byte_operations_per_frame,
-        mesh_payloads_published: 0,
-        mesh_bytes_published: 0,
-        pending_mesh_jobs: 1,
-        ..PublicationFrameWork::healthy()
-    });
-
-    controller.begin_frame(Duration::from_millis(80));
-
+    assert_eq!(
+        controller.budget().max_per_frame,
+        config.maximum_frame_items
+    );
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        config.maximum_zero_byte_operations_per_frame
+    );
     assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
 }
 
+#[test]
+fn zero_byte_saturation_without_gpu_backlog_preserves_service_caps() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
+    let mut controller = PublicationController::default();
+    controller.begin_frame(Duration::from_millis(16));
+    controller.finish_frame(PublicationFrameWork {
+        mesh_changes_published: config.maximum_zero_byte_operations_per_frame,
+        mesh_payloads_published: 0,
+        mesh_bytes_published: 0,
+        pending_mesh_jobs: 1,
+        in_flight_mesh_jobs: 1,
+        ..PublicationFrameWork::healthy()
+    });
+
+    controller.begin_frame(Duration::from_secs(3));
+
+    assert_eq!(
+        controller.budget().max_per_frame,
+        config.maximum_frame_items
+    );
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        config.maximum_zero_byte_operations_per_frame
+    );
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+}
 #[test]
 fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
     let mut controller = PublicationController::default();
@@ -1013,42 +1019,49 @@ fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
         ..PublicationFrameWork::default()
     });
 
-    controller.begin_frame(Duration::from_millis(16));
+    controller.begin_frame(Duration::from_millis(125));
 
-    assert!(controller.budget().max_per_frame <= 66);
+    assert_eq!(controller.budget().max_per_frame, 256);
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
+    assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 128);
 }
-
 #[test]
 fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
         upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
-    controller.begin_frame(Duration::from_millis(16));
+    controller.begin_frame(Duration::from_millis(125));
     let reduced = controller.budget().max_per_frame;
+    let reduced_zero = controller.budget().max_zero_byte_operations_per_frame;
     let allowance = controller.allowance();
     while let Some(permit) = allowance.try_admit_payload(1) {
         assert!(permit.retire());
     }
-
     for _ in 0..119 {
         controller.finish_frame(PublicationFrameWork::default());
-        controller.begin_frame(Duration::from_millis(16));
-        assert!(controller.budget().max_per_frame <= reduced + 1);
+        controller.begin_frame(Duration::from_millis(125));
+        assert_eq!(controller.budget().max_per_frame, reduced);
+        assert!(controller.budget().max_zero_byte_operations_per_frame <= reduced_zero);
         while let Some(permit) = allowance.try_admit_payload(1) {
             assert!(permit.retire());
         }
     }
-
     controller.finish_frame(PublicationFrameWork::default());
-    controller.begin_frame(Duration::from_millis(16));
-    assert!(controller.budget().max_per_frame >= 131);
+    controller.begin_frame(Duration::from_millis(125));
+    assert_eq!(
+        controller.budget().max_per_frame,
+        reduced.saturating_mul(2).min(config.maximum_frame_items)
+    );
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        reduced_zero + 1
+    );
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
     assert_eq!(controller.diagnostics().additive_increases, 1);
 }
-
 #[test]
 fn byte_tokens_follow_elapsed_time_and_never_cross_frame_or_burst_ceilings() {
     let config = PublicationServiceConfig::PHASE2_GATE;
@@ -1057,7 +1070,6 @@ fn byte_tokens_follow_elapsed_time_and_never_cross_frame_or_burst_ceilings() {
     controller.begin_frame(Duration::from_millis(125));
     assert_eq!(controller.budget().max_bytes_per_frame, 16 * 1024 * 1024);
     assert!(controller.budget().max_bytes_per_frame <= config.maximum_frame_bytes);
-
     controller.finish_frame(PublicationFrameWork::default());
     controller.begin_frame(Duration::MAX);
     assert!(controller.budget().max_per_frame <= config.maximum_frame_items);
@@ -1065,12 +1077,10 @@ fn byte_tokens_follow_elapsed_time_and_never_cross_frame_or_burst_ceilings() {
     assert!(controller.accrued_items() <= config.maximum_burst_items);
     assert!(controller.accrued_bytes() <= config.maximum_burst_bytes);
 }
-
 #[test]
 fn idle_wall_time_never_accumulates_more_than_the_one_second_burst_ceiling() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
-
     controller.begin_frame(Duration::from_secs(10));
     assert_eq!(controller.accrued_items(), config.maximum_burst_items);
     assert_eq!(controller.accrued_bytes(), config.maximum_burst_bytes);
@@ -1105,9 +1115,9 @@ fn eight_hz_frames_receive_two_seconds_of_bounded_service_without_runaway_burst(
     assert!(controller.budget().max_per_frame <= config.maximum_frame_items);
     assert!(controller.accrued_items() <= config.maximum_burst_items);
 }
-
 #[test]
-fn paced_eight_hz_backlog_is_not_misclassified_as_publication_pressure() {
+fn paced_eight_hz_saturated_backlog_preserves_bounded_publication_service() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     let mut serviced = 0_usize;
 
@@ -1134,10 +1144,13 @@ fn paced_eight_hz_backlog_is_not_misclassified_as_publication_pressure() {
         assert_eq!(published, budget.max_per_frame);
     }
 
-    assert!(serviced >= 6_951);
+    assert_eq!(serviced, config.maximum_frame_items * 16);
+    assert_eq!(
+        controller.budget().max_per_frame,
+        config.maximum_frame_items
+    );
     assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
 }
-
 #[test]
 fn publication_frame_is_explicitly_ordered_before_world_poll_and_handoff() {
     let source = include_str!("../app.rs");
@@ -1149,7 +1162,6 @@ fn publication_frame_is_explicitly_ordered_before_world_poll_and_handoff() {
     assert!(registration.contains(".before(receive_network_events)"));
     assert!(registration.contains(".before(drive_world_stream)"));
 }
-
 #[test]
 fn controller_credits_shared_allowance_and_only_admitted_work_spends_it() {
     let mut controller = PublicationController::default();

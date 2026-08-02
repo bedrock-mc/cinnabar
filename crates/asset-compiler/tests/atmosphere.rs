@@ -590,14 +590,22 @@ fn assetc_atmosphere_rejects_absent_case_variant_outputs_on_every_platform() {
 
 #[test]
 fn assetc_case_variant_guard_is_not_platform_gated() {
-    let source = include_str!("../src/bin/assetc.rs");
+    let sources = [
+        include_str!("../src/bin/assetc.rs"),
+        include_str!("../src/bin/assetc/output_validation.rs"),
+    ];
     assert_eq!(
-        source.matches("fn paths_alias(").count(),
+        sources
+            .iter()
+            .map(|source| source.matches("fn paths_alias(").count())
+            .sum::<usize>(),
         1,
         "case-fold alias comparison must have one platform-independent implementation"
     );
-    assert!(!source.contains("#[cfg(windows)]\nfn paths_alias"));
-    assert!(!source.contains("#[cfg(not(windows))]\nfn paths_alias"));
+    for source in sources {
+        assert!(!source.contains("#[cfg(windows)]\nfn paths_alias"));
+        assert!(!source.contains("#[cfg(not(windows))]\nfn paths_alias"));
+    }
 }
 
 #[test]

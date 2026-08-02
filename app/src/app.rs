@@ -49,7 +49,7 @@ use crate::{
     },
     metrics::MetricsCollector,
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsAuthorityGate, PhysicsCollisionRegistries,
+        LocalPhysicsController, PhysicsAuthorityGate, PhysicsCollisionRegistries,
         advance_local_physics,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
@@ -348,6 +348,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_blob_cache: protocol::ClientBlobCache::default(),
     })
     .context("spawn Bedrock network worker")?;
+    let movement_ticker = network.movement_ticker();
     let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let present_mode_runtime =
@@ -407,7 +408,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(environment::CameraMediumState::default())
         .insert_resource(EnvironmentContext::default())
         .insert_resource(EnvironmentProfileRoute::default())
-        .insert_resource(MovementTicker::default())
+        .insert_resource(movement_ticker)
         .insert_resource(if args.phase3_candidate_physics {
             PhysicsAuthorityGate::CandidateEvidence
         } else {
@@ -511,11 +512,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
-    shutdown_watchdog.complete();
-    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
+    drop(app);
+    shutdown_watchdog.complete();
+    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");
     }

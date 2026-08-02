@@ -370,16 +370,18 @@ pub(crate) fn receive_network_events(
                     initial_tick,
                     false,
                 );
-                match physics_authority.authorize(auto_fly.enabled(), collisions.is_complete()) {
-                    Ok(source) => movement.set_source(source),
-                    Err(fault) => {
-                        movement.set_source(MovementSource::FreeCamera);
-                        local_physics.deactivate();
-                        record_fatal_error(
-                            &mut client_world.fatal_error,
-                            format!("candidate Physics authority failed closed: {fault:?}"),
-                        );
-                    }
+                if let Err(fault) = physics_authority.apply_start_game(
+                    auto_fly.enabled(),
+                    collisions.is_complete(),
+                    &mut movement,
+                    &mut local_physics,
+                ) {
+                    movement.set_source(MovementSource::FreeCamera);
+                    local_physics.deactivate();
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!("candidate Physics authority failed closed: {fault:?}"),
+                    );
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
@@ -458,6 +460,32 @@ pub(crate) fn receive_network_events(
                     );
                 }
             }
+            NetworkControlEvent::PhysicsPacketSent { identity } => {
+                if !movement.acknowledge_physics_send(identity) {
+                    warn!(
+                        session_generation = identity.session_generation,
+                        tick = identity.tick,
+                        admission_id = identity.admission_id,
+                        reanchor_epoch = identity.reanchor_epoch,
+                        "ignored stale, duplicate, or out-of-order physics send acknowledgement"
+                    );
+                }
+            }
+            NetworkControlEvent::PhysicsPacketCancelled {
+                identity,
+                definitely_unsent,
+            } => {
+                if !movement.resolve_cancelled_physics_send(identity, definitely_unsent) {
+                    warn!(
+                        session_generation = identity.session_generation,
+                        tick = identity.tick,
+                        admission_id = identity.admission_id,
+                        reanchor_epoch = identity.reanchor_epoch,
+                        definitely_unsent,
+                        "ignored stale, duplicate, or out-of-order physics cancellation"
+                    );
+                }
+            }
             NetworkControlEvent::BlobCacheTelemetry { enabled, stats } => {
                 client_world.client_blob_cache_enabled = enabled;
                 client_world.client_blob_cache = stats;
@@ -502,7 +530,10 @@ pub(crate) fn receive_network_events(
     );
     for ingress in events {
         let sequenced = match ingress {
-            session::WorldIngress::Event(sequenced) => sequenced,
+            session::WorldIngress::Event(sequenced) => {
+                network.record_readiness_event_consumed(&sequenced.event);
+                sequenced
+            }
             session::WorldIngress::FastTransferBarrier {
                 session_generation,
                 sequence,

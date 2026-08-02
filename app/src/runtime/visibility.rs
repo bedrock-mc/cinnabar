@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use bevy::prelude::{Add, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With};
 use render::ChunkRenderInstance;
@@ -14,7 +14,7 @@ use crate::{
 pub(crate) struct CaveVisibilityCache {
     pub(crate) camera: Option<SubChunkKey>,
     pub(crate) graph_generation: Option<u64>,
-    pub(crate) visible: BTreeSet<SubChunkKey>,
+    pub(crate) visible: HashSet<SubChunkKey>,
     pub(crate) rendered: HashSet<SubChunkKey>,
     pub(crate) visible_rendered: usize,
     pub(crate) initialized: bool,
@@ -50,21 +50,26 @@ pub(crate) fn refresh_cave_visibility(
         return;
     }
 
-    cache.visible = stream.cave_visible_sub_chunks(camera_key);
+    let visible = stream.cave_visible_sub_chunks(camera_key);
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
+    if cache.initialized && cache.visible == visible {
+        return;
+    }
+    cache.visible = visible;
     cache.initialized = true;
-    cache.rendered.clear();
     cache.visible_rendered = 0;
     for (instance, mut visibility) in &mut chunks {
         let key = instance.key();
-        cache.rendered.insert(key);
         let is_visible = cache.visible.contains(&key);
-        *visibility = if is_visible {
+        let desired = if is_visible {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         };
+        if *visibility != desired {
+            *visibility = desired;
+        }
         cache.visible_rendered += usize::from(is_visible);
     }
 }

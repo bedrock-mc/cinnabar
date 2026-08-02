@@ -126,10 +126,13 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
         terminated.send(code).unwrap();
     });
+    let (network, _reanchor) = NetworkHandle::stub();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<WindowCloseRequested>()
         .insert_resource(watchdog)
+        .insert_resource(AcceptanceRun::new(None, None, false, false))
+        .insert_resource(network)
         .add_systems(Update, exit_on_window_close_requested);
     let window = app.world_mut().spawn_empty().id();
 
@@ -138,6 +141,24 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     app.update();
 
     assert_eq!(app.should_exit(), Some(AppExit::Success));
+    assert!(
+        !app.world().resource::<NetworkHandle>().shutdown_requested(),
+        "window-close handling must leave the network alive until Bevy returns"
+    );
+    let acceptance = app.world().resource::<AcceptanceRun>();
+    assert!(acceptance.shutdown_requested);
+    assert_eq!(
+        acceptance.exit_decision(
+            Instant::now(),
+            false,
+            TransparentSortMetricsSnapshot::default()
+        ),
+        AcceptanceExitDecision::Complete
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(Instant::now(), true, 1),
+        Phase3TerminalDrainDecision::Drained
+    );
     assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
 }
 
@@ -622,6 +643,8 @@ pub(super) fn settled_world_snapshot() -> WorldReadySnapshot {
         mutation_target_visible: true,
         mutation_target_clean: true,
         work: WorldReadyWork::default(),
+        readiness_produced: 0,
+        readiness_consumed: 0,
     }
 }
 
@@ -1063,6 +1086,34 @@ fn fatal_error_exits_immediately_even_before_timed_deadline() {
         AcceptanceExitDecision::Fatal
     );
     assert!(AcceptanceExitDecision::Fatal.is_error());
+}
+
+#[test]
+fn phase3_terminal_ack_drain_is_bounded_by_the_existing_acceptance_grace() {
+    let deadline = Instant::now();
+    let mut acceptance = AcceptanceRun::new(Some(60), None, false, false);
+    acceptance.deadline = Some(deadline);
+
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(deadline, true, 1),
+        Phase3TerminalDrainDecision::Wait
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(
+            deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE - Duration::from_millis(1),
+            true,
+            0,
+        ),
+        Phase3TerminalDrainDecision::Drained
+    );
+    assert_eq!(
+        acceptance.phase3_terminal_drain_decision(
+            deadline + TRANSPARENT_PRESENTATION_EXIT_GRACE,
+            true,
+            1,
+        ),
+        Phase3TerminalDrainDecision::TimedOut
+    );
 }
 
 #[test]

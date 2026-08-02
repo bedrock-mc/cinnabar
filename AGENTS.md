@@ -106,6 +106,21 @@ and BDS binaries never enter git. Store captures under temporary or ignored path
 and commit only compact lawful rules, provenance and checksums, and independently
 authored evidence descriptions.
 
+## Verify before pushing, not after
+
+CI is a backstop, not a compiler. Before pushing a shared branch, run what the push
+will trigger: the focused tests, `cargo fmt --all`, clippy, and
+`cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml`.
+The architecture gate is the one most often skipped and the one that most often
+fails, because nothing else catches its rules — per-file line limits, forbidden
+test-only public API, and marker registration are invisible to every test.
+
+When local verification is genuinely unavailable — a machine killing builds, a
+sandbox denying the toolchain — that does not convert CI into the check. Say the
+state is unverified, and either wait, hand the run to the user, or push while
+labeling it unverified in the same breath. A red CI run must never be the first
+thing that discovers whether the code compiles.
+
 ## Report state precisely
 
 Distinguish pushed work, locally committed work, test-green uncommitted work, and

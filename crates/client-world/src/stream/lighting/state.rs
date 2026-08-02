@@ -64,8 +64,33 @@ impl WorldStream {
         self.light_failures.remove(&key);
         self.light_revisions.entries.remove(&key);
         self.pending_light.remove(&key);
-        self.in_flight_light.remove(&key);
+        self.light_priority_wakeups.remove(&key);
+        self.remove_in_flight_light(key, None);
+        self.last_dispatched_light_batch.remove(&key);
         self.remove_light_waiters_for(key);
+    }
+    pub(in crate::stream) fn remove_in_flight_light(
+        &mut self,
+        key: SubChunkKey,
+        expected: Option<LightJobIdentity>,
+    ) -> bool {
+        let Some(identity) = self.in_flight_light.get(&key).copied() else {
+            return false;
+        };
+        if expected.is_some_and(|expected| expected != identity) {
+            return false;
+        }
+        self.in_flight_light.remove(&key);
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.in_flight_light_batches.entry(identity.batch_id)
+        {
+            if *entry.get() <= 1 {
+                entry.remove();
+            } else {
+                *entry.get_mut() -= 1;
+            }
+        }
+        true
     }
     pub(in crate::stream) fn remove_light_waiters_for(&mut self, key: SubChunkKey) {
         self.light_waiters.remove(&key);
@@ -82,9 +107,11 @@ impl WorldStream {
             return None;
         }
         self.light_failures.remove(&key);
+        self.light_priority_wakeups.remove(&key);
         self.remove_light_waiter_target(key);
         let queued_at = Instant::now();
         let revision = self.light_revisions.mark_dirty(key, queued_at);
+        self.pending_light_scan.push_back((key, revision));
         self.pending_light.insert(
             key,
             PendingLight {
@@ -222,13 +249,42 @@ impl WorldStream {
             .collect();
         LightPriorSnapshot {
             light: self.light_store.snapshot_keys(keys),
+
             direct_sky,
             trusted_boundaries,
         }
     }
-    pub(in crate::stream) fn register_untrusted_light_waiters(&mut self, target: SubChunkKey) {
+    pub(in crate::stream) fn original_light_column_context_ready(&self, key: SubChunkKey) -> bool {
+        let center = key.chunk();
+        if !self.required_columns.contains(&center) {
+            return true;
+        }
+        for dx in -1_i32..=1 {
+            for dz in -1_i32..=1 {
+                let Some(x) = center.x.checked_add(dx) else {
+                    continue;
+                };
+                let Some(z) = center.z.checked_add(dz) else {
+                    continue;
+                };
+                let neighbour = ChunkKey::new(center.dimension, x, z);
+                if self.required_columns.contains(&neighbour)
+                    && !self.loaded_columns.contains(&neighbour)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    pub(in crate::stream) fn register_untrusted_light_waiters(
+        &mut self,
+        target: SubChunkKey,
+        retained_batch: &HashSet<SubChunkKey>,
+    ) {
         for neighbour in target.mesh_dependents().filter(|key| *key != target) {
-            if self.light_source_is_known(neighbour)
+            if !retained_batch.contains(&neighbour)
+                && self.light_source_is_known(neighbour)
                 && !self.light_is_current(neighbour)
                 && self.light_store.light(neighbour).is_some()
                 && self.prior_light_may_seed(target, neighbour)
@@ -239,6 +295,28 @@ impl WorldStream {
                     .insert(target);
             }
         }
+    }
+    pub(in crate::stream) fn highest_pending_light_in_column(
+        &self,
+        key: SubChunkKey,
+    ) -> Option<(SubChunkKey, PendingLight)> {
+        let Some(range) = vanilla_dimension_range(key.dimension) else {
+            return self
+                .pending_light
+                .get(&key)
+                .copied()
+                .map(|pending| (key, pending));
+        };
+        (0..range.sub_chunk_count).rev().find_map(|offset| {
+            let y = range
+                .base_sub_chunk_y
+                .checked_add(i32::try_from(offset).ok()?)?;
+            let candidate = SubChunkKey::new(key.dimension, key.x, y, key.z);
+            self.pending_light
+                .get(&candidate)
+                .copied()
+                .map(|pending| (candidate, pending))
+        })
     }
     pub(in crate::stream) fn prior_light_may_seed(
         &self,

@@ -79,6 +79,7 @@ impl WorldStream {
     pub(super) fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
+        self.pending_mesh_scan.push_back((key, revision));
         self.pending_mesh.insert(
             key,
             PendingMesh {
@@ -89,9 +90,36 @@ impl WorldStream {
         );
         revision
     }
+    #[cfg(test)]
     pub(super) fn mark_light_mesh_dependents(&mut self, source: SubChunkKey, now: Instant) {
         for dependent in source.mesh_neighbourhood_dependents() {
             if self.resident.contains(&dependent) && self.store.sub_chunk(dependent).is_some() {
+                self.mark_dirty_exact(dependent, now);
+            }
+        }
+    }
+    pub(super) fn mark_changed_light_mesh_dependents(
+        &mut self,
+        source: SubChunkKey,
+        changed_faces: [bool; 6],
+        now: Instant,
+    ) {
+        for dependent in source.mesh_neighbourhood_dependents() {
+            let dx = dependent.x - source.x;
+            let dy = dependent.y - source.y;
+            let dz = dependent.z - source.z;
+            let samples_changed_light = (dx == 0 || changed_faces[usize::from(dx > 0)])
+                && (dy == 0 || changed_faces[2 + usize::from(dy > 0)])
+                && (dz == 0 || changed_faces[4 + usize::from(dz > 0)]);
+            if samples_changed_light
+                && self.resident.contains(&dependent)
+                && self.store.sub_chunk(dependent).is_some()
+            {
+                if self.pending_mesh.contains_key(&dependent)
+                    && !self.in_flight.contains_key(&dependent)
+                {
+                    continue;
+                }
                 self.mark_dirty_exact(dependent, now);
             }
         }
@@ -103,6 +131,7 @@ impl WorldStream {
     }
     pub(super) fn mark_forced_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let revision = self.revisions.force_dirty_since(key, now);
+        self.pending_mesh_scan.push_back((key, revision));
         self.pending_mesh.insert(
             key,
             PendingMesh {

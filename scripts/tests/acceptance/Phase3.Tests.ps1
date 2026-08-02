@@ -119,7 +119,8 @@ Describe 'Phase 3 production marker evidence validation' {
         )
         $script:ScenarioManifest = [ordered]@{
             schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
-            required_input_modes = @('KeyboardMouse', 'GamePad', 'Touch')
+            required_input_modes = @('KeyboardMouse', 'GamePad'); deferred_input_modes = @('Touch')
+            input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
             required_perspective_sequence = @(
                 'FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront', 'FirstPerson'
             )
@@ -210,10 +211,11 @@ Describe 'Phase 3 production marker evidence validation' {
     }
 
     It 'accepts one bounded production-derived consecutive tick sequence' {
-        $result = Invoke-Validator (Write-MarkerLog 'valid.log')
-        $result.ExitCode | Should Be 0
+        $logPath = Write-MarkerLog 'valid.log'; Add-Content -LiteralPath $logPath -Encoding utf8 -Value 'RUST_MCBE_NETWORK_PUMP_TERMINAL={"schema":"rust-mcbe-network-pump-terminal-v1","outcome":"failed","stage":"receive_packet","message":"connection reset","decode_error_count":0}'; $result = Invoke-Validator $logPath
+        $result.ExitCode | Should Be 0; $result.Output | Should Match 'Phase 3 network pump terminal diagnostic:'; $result.Output | Should Match 'connection\s+reset'
         $result.Output | Should Match 'PHASE3_EVIDENCE_VALID target=Bds .* frames=5 events=3'
         $aggregate = Get-Content -Raw -LiteralPath $result.Aggregate | ConvertFrom-Json
+        $aggregate.candidate.production_physics_default_enabled | Should Be $false
         $aggregate.movement.held_jump_longest_run | Should Be 2
         $aggregate.camera_avatar.perspective_sequence -join ',' | Should Be 'FirstPerson,ThirdPersonBack,ThirdPersonFront,FirstPerson'
         $aggregate.evidence.terminal_pending_outbox_depth | Should Be 0
@@ -236,8 +238,8 @@ Describe 'Phase 3 production marker evidence validation' {
         $script:Terminals[0].physics_packet_count = 0
         $script:Terminals[0].outbox_reconciliation = 'NotAuthoritative'
         $script:ScenarioManifest.scenario = 'FreeCameraSilence'
-        $script:ScenarioManifest.required_input_modes = @()
-        $script:ScenarioManifest.required_perspective_sequence = @()
+        $script:ScenarioManifest.required_input_modes = @(); $script:ScenarioManifest.deferred_input_modes = @()
+        $script:ScenarioManifest.required_perspective_sequence = @(); $script:ScenarioManifest.input_witness_deferral_reason = ''
         $script:ScenarioManifest.require_replay = $false
         $script:ScenarioManifest.require_snap = $false
         $script:ScenarioManifest.require_held_jump_rejump = $false
@@ -270,6 +272,7 @@ Describe 'Phase 3 production marker evidence validation' {
             Lunar = 'pvp.lunarbedrock.com:19134'
             Zeqa = 'zeqa.net:19132'
             Lbsg = 'play.lbsg.net:19132'
+            Zeno = 'zenomc.org:19197'
             Bds = '127.0.0.1:19132'
         }
         foreach ($target in $targets.Keys) {
@@ -288,16 +291,16 @@ Describe 'Phase 3 production marker evidence validation' {
         }
     }
 
-    It 'forbids missing authentication on Lunar Zeqa and LBSG plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg')) {
+    It 'forbids missing authentication on all external plans' {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 300 -Scenario CandidatePhysics } | Should Throw
         }
     }
 
-    It 'forbids sub-five-minute Lunar Zeqa and LBSG plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg')) {
+    It 'forbids sub-five-minute external plans' {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 299 -Scenario CandidatePhysics -AuthCache token.json } | Should Throw
@@ -311,10 +314,14 @@ Describe 'Phase 3 production marker evidence validation' {
         ($bds.CoreArguments -ccontains '-auth-cache') | Should Be $false
     }
 
-    It 'builds a distinct network-silent FreeCamera scenario without candidate physics frames' {
-        $plan = New-Phase3LaunchPlan -Target Lunar -Endpoint (Get-Phase3TargetEndpoint Lunar) `
+    It 'builds a case-insensitive network-silent FreeCamera scenario without candidate physics frames' {
+        $plan = New-Phase3LaunchPlan -Target lunar -Endpoint (Get-Phase3TargetEndpoint lunar) `
             -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-            -DurationSeconds 300 -Scenario FreeCameraSilence -AuthCache token.json
+            -DurationSeconds 300 -Scenario freecamerasilence -AuthCache token.json
+        $plan.Target | Should Be 'Lunar'
+        $plan.Scenario | Should Be 'FreeCameraSilence'
+        $targetIndex = [Array]::IndexOf($plan.AppArguments, '--phase3-evidence-target')
+        $plan.AppArguments[$targetIndex + 1] | Should Be 'Lunar'
         ($plan.AppArguments -ccontains '--auto-fly') | Should Be $true
         ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $false
         ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
@@ -328,6 +335,8 @@ Describe 'Phase 3 production marker evidence validation' {
         $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'
         $launcher | Should Match '-ScenarioManifestPath \$scenarioManifestPath'
+        $launcher | Should Match '\$Target = ConvertTo-Phase3Target -Target \$Target'
+        $launcher | Should Match '\$Scenario = ConvertTo-Phase3Scenario -Scenario \$Scenario'
     }
 
     It 'rejects an untracked source file when proving a clean candidate HEAD' {
@@ -699,6 +708,14 @@ Describe 'Phase 3 production marker evidence validation' {
         (Invoke-Validator (Write-MarkerLog 'terminal-full-restored.log')).ExitCode | Should Not Be 0
     }
 
+    It 'parses SocketPending as typed terminal state but rejects the Candidate terminal gate' {
+        $script:Terminals[0].outbox_reconciliation = 'SocketPending'
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-socket-pending.log')
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'CandidatePhysics terminal does not prove Physics packet production'
+        $result.Output | Should Not Match 'terminal outbox_reconciliation is unsupported'
+    }
+
     It 'rejects a nonzero app process exit as the only changed condition' {
         $script:RunMetadata.app_exit_code = 9
         (Invoke-Validator (Write-MarkerLog 'process-app-exit.log')).ExitCode | Should Not Be 0
@@ -761,30 +778,6 @@ Describe 'Phase 3 production marker evidence validation' {
         (Invoke-Validator (Write-MarkerLog 'post-dimension-tick-gap.log')).ExitCode | Should Not Be 0
     }
 
-    It 'rejects an event session mismatch as the only changed condition' {
-        $script:Events[0].session_generation = 8
-        (Invoke-Validator (Write-MarkerLog 'event-session.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'rejects an event FIFO mismatch as the only changed condition' {
-        $script:Events[0].fifo_sequence = 99
-        (Invoke-Validator (Write-MarkerLog 'event-fifo.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'rejects an event physics-tick mismatch as the only changed condition' {
-        $script:Events[0].physics_tick = 99
-        (Invoke-Validator (Write-MarkerLog 'event-tick.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'rejects an event dimension mismatch as the only changed condition' {
-        $script:Events[0].dimension = 1
-        (Invoke-Validator (Write-MarkerLog 'event-dimension.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'rejects an out-of-range movement vector as the only changed condition' {
-        $script:Frames[0].movement = @(2.0, 0.0)
-        (Invoke-Validator (Write-MarkerLog 'bound-movement.log')).ExitCode | Should Not Be 0
-    }
-
+    . (Join-Path $PSScriptRoot 'Phase3.EventCases.ps1')
     . (Join-Path $PSScriptRoot 'Phase3.BoundaryCases.ps1')
 }

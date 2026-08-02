@@ -110,15 +110,18 @@ fn light_test_assets() -> RuntimeAssets {
 }
 
 fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
-    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
-    let completion = stream
-        .light_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("light worker completion");
-    stream.accept_light_completion(completion);
+    let dispatched = stream.dispatch_light_jobs(camera, 1);
+    assert!(dispatched > 0);
+    for _ in 0..dispatched {
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("light worker completion");
+        stream.accept_light_completion(completion);
+    }
 }
 
-fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
+pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
@@ -191,6 +194,7 @@ fn synthetic_light_completion(
             .light_store
             .light(key)
             .map(|light| light.generation()),
+        batch_id: 0,
     };
     stream.pending_light.remove(&key);
     stream.in_flight_light.insert(key, identity);

@@ -71,6 +71,11 @@ impl<S: State, R: Role, T: Transport> BedrockStream<S, R, T> {
         self.transport.flush().await
     }
 
+    /// Completes a transport-owned send retained across cancellation.
+    pub async fn drain_send(&mut self) -> Result<(), JolyneError> {
+        self.transport.drain_send().await
+    }
+
     /// Sends a list of packets as a single batch with specified reliability.
     ///
     /// This bypasses the internal `write_buffer` and sends immediately.

@@ -99,7 +99,7 @@ Phase status at this audit:
 | Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
 | Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
-| Phase 3 movement | Packet/simulation foundations plus app input, fixed-step simulation, collision registries, camera interpolation, and correction/session reanchors are integrated through `e370880`. Production outbound movement remains intentionally off in FreeCamera mode; remaining bedsim movement strata and live server-authoritative acceptance are still open |
+| Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
 | Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, distinct per-frame render interpolation, and the bounded MCBEENT3 geometry/bone/cube carrier are complete. Runtime rig consumption, animations/Molang, persona/custom rendering, legacy/outer skin layers, and remaining entity families are still open |
 
 Nine other patch-unique branch heads were audited as superseded/reimplemented and were
@@ -148,6 +148,46 @@ order:
    visual families only when further authoritative state selectors, geometry/UV, rotation,
    layer, tint, animation, and occlusion data are available. Re-review, verify, integrate, and
    measure the production diagnostic ratchet family-by-family; do not infer ambiguous mappings.
+
+### PR 6 cache-enabled live-validation handoff (2026-08-01)
+
+The local `agent/track-phase3-movement` implementation through `7d89ff5` is ahead
+of its pushed remote (`d8637a2`), independently approved, and ready to push for
+CI/merge; it is not yet pushed or integrated. Cache-enabled BDS load exposed and
+fixed a self-sustaining blob-recovery loop, unbounded publication-authority scans,
+repeated per-frame cohort hashing, scheduler starvation, intra-transaction relight
+cascades, and the requested-cohort boundary stall. Optimized-dev BDS run
+`.local/acceptance/phase3-018ae154de9b40cb8f12aea378c48752` reached zero
+pending/in-flight light and mesh work across a stable 939/939-column cohort:
+8,130 resident meshes, 5,416 submitted/GPU-completed meshes, 33,205 accepted
+light jobs, and zero stale light jobs. The inspected Windows scene was complete.
+After the final visibility-cache optimizations, run
+`.local/acceptance/phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
+frames at 10.272 ms median (the 100 FPS VSync ceiling), zero-byte publication at
+23.061 ms median, and payload publication at 29.836 ms median. Active chunk
+publication still causes visible frame drops and remains explicit follow-up work.
+This closes the blank-window and visible-radius convergence regressions; it does
+**not** close release-performance or vanilla-lighting-parity gates.
+
+An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
+this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
+1.16.201 recovery notes are a potentially authoritative native Bedrock reference,
+but the repository declares no license and targets protocol 422. Do not copy its
+source or redistribute it; obtain the author's explicit permission, cite the exact
+reference revision/address evidence, verify version stability, and independently
+implement any adopted contract. Its recovered original-lighting path uses a
+retained 3x3-column transaction and one priority-32 center-column task rather than
+the current provisional per-subchunk scheduler.
+
+The current column transaction solves contiguous vertical work against retained
+3x3 subchunk snapshots, retains immutable generations, and admits requested
+cohort-edge columns without waiting forever for unrequested neighbours. It does
+**not** yet reproduce vanilla's atomic 3x3-column ownership, cross-column writes,
+or 500 ms lock-contention retry, so it remains an explicitly incomplete
+convergence architecture and cannot close the native lighting-parity gate.
+Audit the full architecture before further queue-cap tuning. Remaining measured
+follow-ups are active-publication frame pacing, release-mode performance,
+version-matched native comparison, and the native atomic lighting architecture.
 
 ---
 
@@ -1653,7 +1693,205 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   production remains `FreeCamera` and sends no local position updates. Enabling `Physics`
   authority requires the remaining movement strata plus live server-authoritative verification.
 
+- **PR #6 Phase 3 integration record (2026-07-26).** Both independently reviewed lanes landed
+  with history preserved. The input-parity lane `codex/pr6-input-parity` was approved at
+  `c1bb584` after five independent Sol-high review rounds and four fix rounds, with final
+  decision `APPROVE` and no findings, then landed as merge `cfdf897`. The correction and
+  acceptance lane `agent/pr6-phase3-completion` was approved at `e099529` after six independent
+  Sol-high review rounds and five fix rounds, with final decision `APPROVE` and no findings,
+  then landed as merge `a9593e7`.
+  - Post-integration deterministic verification on the merged tree passed:
+    `cargo test -p semantic-input --locked` (53 passed);
+    `cargo test -p bedrock-client --locked` (lib 420, assets 41, hud_assets 9,
+    inventory_router 3, physics_assets 2, doctest 1; all passed);
+    `cargo test -p protocol --locked` (21 test binaries, all passed);
+    `cargo test -p client-world --locked` (lib 236 passed / 1 ignored,
+    entity_runtime 11, item_actions 14; all passed);
+    `cargo fmt --all -- --check` passed;
+    `git diff --check` passed;
+    `cargo clippy --workspace --all-targets --locked -- -D warnings` passed with zero
+    warnings and is CI's exact Clippy command; and
+    `Invoke-Pester -Script 'scripts/tests/acceptance/Phase3.Tests.ps1' -PassThru` passed
+    89/89.
+  - `cargo test --workspace --locked` was not run locally as a single invocation. The
+    per-crate suites above were run instead; CI runs the workspace form.
+  - Implementation and deterministic verification are complete. Native/live and performance
+    acceptance remain open and are **not** closed; Phase 3 is not complete. No native/live
+    acceptance checkbox is closed by this integration.
+  - Production outbound `Physics` transmission remains intentionally disabled. Enabling it is
+    a separate reviewed change.
+  - The network lifecycle emits one bootstrap per `NetworkHandle`; same-handle session
+    replacement remains a known uncovered lifecycle.
+  - Follow-up harness correction: by owner decision touch parity is deprioritized and does
+    not gate Phase 3 acceptance. `CandidatePhysics` requires keyboard/mouse and gamepad
+    witnesses, while its manifest and final evidence name Touch as `Deferred`, attribute the
+    deferral to the owner decision, and leave touch parity open rather than treating it as
+    observed or satisfied.
+  - `Phase3Launcher.ps1` now supports authenticated `Zeno` runs at
+    `zenomc.org:19197`, following the same candidate/free-camera scenario and five-minute
+    minimum used by the other external targets. Zeno is the low-population official-BDS
+    server-authority target for movement rejection and correction checks.
+  - Pre-existing, out-of-scope observation: adding `--all-features` to Clippy fails in the
+    vendored `crates/protocol/vendor/jolyne` crate because optional dependencies are not
+    vendored. This work did not cause that failure, and CI does not use `--all-features`.
+
+- **Phase 3 local BDS smoke findings (2026-07-26, four runs at BDS 1.26.32.2).**
+  These runs found defects; they did not validate native parity, remote-server behavior, or
+  Phase 3 acceptance and do not advance Phase 3 closure. Phase 3 remains incomplete; native/live
+  and performance acceptance remain open.
+  - Fixed and confirmed only against local BDS 1.26.32.2: blob-cache admission exhaustion at
+    the former 256-transaction cap was fatal and is now recoverable, improving session survival
+    from 9.1 seconds to 114–187 seconds. Zero-blob cache-miss responses were incorrectly treated
+    as invalid, causing arbitrary FIFO retirement and a feedback loop; they are now successful
+    no-ops, with live runs reporting `skipped_miss_responses = 0`,
+    `retired_cached_transactions = 0`, and 283 / 4,666 empty responses handled cleanly.
+    Skip telemetry is now separated by reason and resync lifecycle counters exist; this
+    observability isolated the remaining defect in one run. Before the loop fix, measured join
+    high-water marks were 1,194 / 845 pending transactions, independently showing that the old
+    256 cap was under-calibrated.
+  - Open, root-caused, and not fixed: blob-cache FIFO head-of-line blocking in
+    `crates/protocol/src/blob_cache/resolver.rs`. Cached chunks, ordinary packets, and world
+    events share one `pending + ready` budget (`resolver.rs:153`, `:249-254`, `:287-292`,
+    `:454-459`), while draining requires the front transaction to have every hash cached
+    (`:811-817`). One unresolved cached transaction therefore blocks hash-free world events and
+    all later work. At capacity cached packets are skipped (`:387-392`), and world events are
+    silently and permanently discarded without stored retry or resync (`:271-275`).
+  - Live evidence at `b29966d`: pending transactions pinned at 2,047/2,048 in both scenarios;
+    `skipped_world_events` was 9,139 / 15,002 and cached transaction-pressure skips were
+    2,312 / 3,953. Byte-pressure, semantic-shape, unsolicited, and integrity skips were all
+    zero, as were all resync lifecycle counters.
+  - Pressure-skipped `SubChunk` packets receive no resync because
+    `queue_level_chunk_resync` returns `None` for non-`LevelChunk` packets
+    (`resolver/helpers.rs:35-40`). They fall back to two client-world retries
+    (`stream.rs:101-102`), then finish with `collision_authoritative = false`
+    (`stream/retries.rs:247-255`) while the column is still added to `loaded_columns`
+    (`retries.rs:39-47`), so cohort completeness can be misleading. Consequently
+    `mutation_coordinate` remains `null` (`app-metrics.json:7`);
+    `RUST_MCBE_WORLD_READY` never fires (`app/src/acceptance/mutation.rs:270-272`), the
+    60-second acceptance clock never arms, and runs hang until the launcher's 180-second bound.
+    **No `phase3-final.json` has ever been produced; there is no Phase 3 acceptance verdict of
+    any kind.**
+  - Open separate defect: the local Go bridge reported
+    `invalid checksum of packet 6217`, then the local listener was forcibly closed
+    (OS error 10054). Saturation is neither its cause nor consequence: FreeCamera saturated
+    well before it, while CandidatePhysics saturated more severely without a checksum error.
+    Likely investigation targets are cipher-counter divergence, send-buffer reuse, or frame
+    corruption in the Rust-to-Go bridge; this needs a separate instrumented investigation.
+  - Open and unchanged: every CandidatePhysics run still reports `physics_tick_overflow` with
+    `detail.dropped = 5` and an authority-fault violation. The prior diagnosis is that
+    "collision data unavailable, wait" and "cannot keep up, dropped time" are conflated in
+    `dropped_ticks`, and any nonzero value revokes authority. This is not fixed.
+
+- **PR #6 resumed closure record (2026-08-02, local commit `17d3627`).** The previously open
+  resolver, transport, collision-readiness, and movement-admission defects above are fixed in the
+  PR worktree, but the commit is not pushed and Phase 3 remains incomplete.
+  - Blob-cache cached, ordinary, and recovery lanes are independently bounded; pressure no longer
+    pins ordinary intake. Cached SubChunk admission is explicitly rolled back with exact-Y
+    recovery only when client-world recorded that admission. Coalesced and stale admissions clear
+    all markers before one bounded retry. Pending and reconstructed-but-unpublished transactions
+    preserve rollback across semantic and transfer resets.
+  - Cached status delivery is cancellation-safe. Socket transport retains the exact encrypted
+    frame, the session drains that frame before exposing admission, and transfer rollback is
+    emitted before any replacement-candidate status or admission.
+  - This interim commit defaulted production to server-authoritative `Physics`; the final
+    integration head recorded below restores the binding candidate-only gate. Its bounded
+    fixed-tick catch-up, collision readiness, reanchor, send cancellation, and terminal-drain
+    paths retain or fail closed instead of silently dropping movement authority.
+  - Deterministic verification at this commit passed 2,472 workspace tests (13 ignored),
+    strict workspace Clippy, formatting, 106 Phase 3/FastTransfer Pester contracts, focused
+    rollback/reset/cancellation regressions, and the debug client build. Independent latest-diff
+    review returned correct with no blocking findings.
+  - The committed local BDS `FreeCameraSilence` run
+    `phase3-020595ebff304770b201765b51070585` did **not** close live acceptance. It timed out:
+    terminal telemetry reported 256 retained cache transactions, 5,626 pressure skips,
+    31 recovery requests, 12,770 pending mesh jobs, a one-item publication cap, and no clean
+    shutdown. The run rendered 477 resident meshes but remained under sustained load.
+    Release-budget evidence, a version-matched native lighting comparison, clean live shutdown,
+    integration, and final PR acceptance therefore remain open. The Linux acceptance shell suite
+    also remains unexecuted on this workstation because no usable Python/WSL runtime is installed.
+
+- **PR #6 blob-pressure convergence follow-up (2026-08-02, local commit `4726be0`).**
+  The cache-pressure deadlock exposed by the committed run above is fixed and independently
+  reviewed, but Phase 3 acceptance remains open.
+  - The terminal state at `676719f` retained 255 unresolved transactions plus one same-column
+    reconstructed transaction, then later all 256 slots as unresolved work. New cached packets
+    were skipped indefinitely, so incomplete columns could not enter `loaded_columns`; the
+    unmodified 3x3 lighting-context gate correctly retained 1,968 light jobs with no worker able
+    to dispatch them.
+  - At the transaction or aggregate recovery-slot bound, the resolver now rotates the
+    deterministic oldest unresolved transaction through its existing exact recovery and
+    hash-owner promotion path. LevelChunk replacement can use the released slot immediately.
+    SubChunk replacement waits until the prior exact recovery is observable, preventing a new
+    admission from being erased by an older rollback. Distinct and coalesced secondary recoveries
+    retain exact request/accounting counts, including staged- and pending-byte rejection.
+  - Deterministic verification passed all 282 protocol tests. Focused regressions cover both
+    transitions to the transaction bound, eventual multi-column SubChunk admission, same-position
+    recovery-before-admission ordering, and distinct/coalesced recovery accounting. Independent
+    latest-diff review found no remaining blocker.
+  - Clean committed BDS run `phase3-3e439a915ab648619f496236364297c8` proved the deadlock removed:
+    the required cohort reached 314/314; pending light work fell to zero; pending mesh work fell to
+    zero; transparent sorting committed and presented generation 1,020; and shutdown completed
+    with app exit code 0. Cache occupancy continued bounded 255/256 rotation instead of pinning
+    publication.
+  - The launcher still timed out and `world_ready` remained false, so this is not Phase 3
+    acceptance. The remaining world-ready predicate, release-budget evidence, version-matched
+    native lighting comparison, integration, and final PR acceptance remain open.
+
+- **PR #6 world-ready acceptance follow-up (2026-08-02, local commit `a8d0866`).**
+  The cache-enabled BDS `FreeCameraSilence` path now produces a clean, attributable
+  verdict, but this debug run does not close Phase 3 performance or native-parity gates.
+  - `phase3-180d6ca5fd7e4dd2b28999c10cabe8c1` is a clean 60-second run built from
+    `a8d0866`: `phase3-final.json` is `valid`, `WORLD_READY` was emitted, the app and
+    core both exited 0, and the launcher did not time out.
+  - Vanilla BDS load peaked at 1,695 retained/pending blob transactions after raising
+    the client admission bound to the measured server burst. Intake never skipped a
+    packet, no cached transaction was abandoned, and no recovery request was needed;
+    the prior 256-entry pressure loop is absent. Redundant missing requests and empty
+    miss responses remain measured efficiency work, not a demonstrated correctness
+    failure in this run.
+  - World-ready presentation now accepts a stable drawn superset of the visible
+    allocation manifest while requiring identical drawn manifests across the two
+    frames. Relevant admitted network ingress, forced-remesh evidence, and world-ready
+    presentation each carry an independent monotonic fence, and camera input is frozen
+    only while the presentation gate is armed.
+  - Deterministic verification at this commit passed 2,487 workspace tests (13 ignored),
+    strict workspace Clippy, formatting, 93 Phase 3 Pester contracts, focused render and
+    world-ready suites, and the debug client build. Independent latest-diff review
+    approved each behavioral tranche.
+  - This was a debug `FreeCameraSilence` smoke, averaging 7.62 FPS while the world
+    streamed. It is not release-performance evidence. CandidatePhysics, external-server
+    matrices, version-matched native comparison, release budgets, integration, and final
+    PR acceptance remain open.
+
+- **PR #6 final integration follow-up (2026-08-02, local commit `f381a19`).**
+  The final local head is not yet pushed or integrated.
+  - Normal production sessions again install `PhysicsAuthorityGate::ProductionDisabled`.
+    `CandidatePhysics` and authenticated `FastTransferWitness` are the only attributable
+    harness lanes that add `--phase3-candidate-physics`; `FreeCameraSilence` remains
+    candidate-free and adds only `--auto-fly`. Dry-run and final evidence both report
+    `production_physics_default_enabled=false`.
+  - The first pushed-head CI run exposed ten architecture-size violations. Coherent private
+    module/test extractions now restore the unchanged policy without deleting coverage or
+    relaxing a limit; the exact local architecture check passes.
+  - A final live run exposed a nondeterministic process hang after `app.run()` returned.
+    The bounded shutdown watchdog had been completed before synchronous network/App cleanup.
+    The watchdog now remains armed through `NetworkHandle::shutdown()` and explicit App drop;
+    `SHUTDOWN_COMPLETED` is emitted only after both return.
+  - Clean BDS run `phase3-1326f452cbe34833b1d5da44c81b6ca0` at `f381a19` produced a
+    `valid` 60-second `FreeCameraSilence` verdict, `WORLD_READY`, app/core exit code 0, no
+    launcher timeout, no watchdog firing, and an ordered `SHUTDOWN_WATCHDOG_ARMED` then
+    `SHUTDOWN_COMPLETED` tail.
+  - The final safety integration passes formatting, the architecture checker, all 496
+    bedrock-client tests, strict bedrock-client Clippy, and all 106 Phase 3/FastTransfer
+    Pester contracts. The preceding integrated head passed all 2,487 workspace tests and
+    strict workspace Clippy. Linux acceptance remains delegated to CI because this workstation
+    has no WSL distribution.
+  - This is one BDS FreeCamera smoke, not CandidatePhysics, external-server, native-parity,
+    release-performance, or Phase 3 closure evidence. Those gates remain open after PR merge.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
+  Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
+  not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
 
 ## Phase 4 — Entities and other players
 

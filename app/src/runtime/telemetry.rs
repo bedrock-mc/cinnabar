@@ -40,13 +40,15 @@ use crate::{
         },
         mutation::write_stdout_marker,
     },
-    camera::{self, FlyCamera},
+    camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
     metrics::{
         DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
-    movement::{MovementSendError, MovementTicker, flush_player_auth_inputs},
+    movement::{
+        MovementSendError, MovementTicker, PhysicsTickEvidenceContext, flush_player_auth_inputs,
+    },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase2_evidence::{
@@ -60,8 +62,9 @@ use crate::{
         },
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::ClientWorld,
+        world::{ClientWorld, WorldStreamFramePoll},
     },
+    semantic_controls::SemanticInputSnapshot,
 };
 
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
@@ -78,6 +81,7 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     diagnostics: Res<'w, DiagnosticsStore>,
     publication: ResMut<'w, PublicationController>,
     local_player: Res<'w, LocalPlayerFrameCarrier>,
+    frame_poll: Res<'w, WorldStreamFramePoll>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -297,13 +301,49 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
 
 pub(crate) fn send_player_auth_inputs(
     network: Res<NetworkHandle>,
+    acceptance: Res<AcceptanceRun>,
+    input: Res<SemanticInputSnapshot>,
+    local_frame: Res<LocalPlayerFrameCarrier>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
-    let result =
-        flush_player_auth_inputs(&mut movement, OUTBOUND_SEND_BUDGET_PER_FRAME, |packet| {
-            network.send_packet(packet)
+    if acceptance.deadline_reached(Instant::now()) {
+        movement.begin_terminal_drain();
+    }
+    let evidence_context = input
+        .snapshot()
+        .zip(local_frame.snapshot())
+        .zip(client_world.stream.as_ref())
+        .map(|((input, frame), stream)| {
+            let third_person = frame.perspective() != semantic_input::PerspectiveMode::FirstPerson;
+            let camera_distance = frame.pose().translation.distance(frame.eye());
+            let camera_fallback =
+                third_person && camera_distance <= THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+            let camera_blocked = third_person
+                && !camera_fallback
+                && camera_distance + THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+                    < THIRD_PERSON_RADIUS_BLOCKS;
+            PhysicsTickEvidenceContext {
+                fifo_sequence: frame.fifo_sequence(),
+                pose_generation: frame.pose_generation(),
+                dimension: stream.current_dimension(),
+                perspective: frame.perspective(),
+                camera_blocked,
+                camera_fallback,
+                local_avatar_visible: third_person,
+                look_delta: input.look_delta,
+                outbound_authorized: movement.physics_is_authorized(),
+                outbox_depth: movement.pending_count(),
+                outbox_drops: movement.dropped_tick_count(),
+                free_camera_packet_count: movement.sent_free_camera_packet_count(),
+            }
         });
+    let result = flush_player_auth_inputs(
+        &mut movement,
+        OUTBOUND_SEND_BUDGET_PER_FRAME,
+        evidence_context,
+        |identity, packet| network.send_physics_packet(identity, packet),
+    );
     match result {
         Ok(_) => {}
         Err(MovementSendError::Transport(
@@ -330,6 +370,13 @@ pub(crate) fn send_player_auth_inputs(
             record_fatal_error(
                 &mut client_world.fatal_error,
                 "failed to restore backpressured PlayerAuthInput".to_owned(),
+            );
+        }
+        Err(MovementSendError::MissingEvidenceContext) => {
+            movement.deactivate();
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                "failed to stage immutable Phase 3 evidence for PlayerAuthInput".to_owned(),
             );
         }
     }
@@ -572,10 +619,8 @@ pub(crate) fn record_metrics_and_title(
             );
         }
     }
-    if let Some(stream) = client_world.stream.as_ref() {
-        let cohort = stream
-            .committed_view_cohort()
-            .map(|target| stream.cohort_status(target));
+    if client_world.stream.is_some() {
+        let cohort = render_metrics.frame_poll.cohort;
         let count = |digest: Option<render::VisibilityKeyDigest>| {
             digest
                 .and_then(|digest| usize::try_from(digest.count).ok())

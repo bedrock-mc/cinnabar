@@ -85,7 +85,7 @@ fn hidden_target_allocations_do_not_block_exact_presented_evidence() {
         generation: 8,
     };
     let expectation = target_expectation(render_ready_at, [(visible_key, 7), (hidden_key, 8)]);
-    let completed_frame = |frame_sequence| {
+    let completed_frame = |frame_sequence, draw_hidden| {
         let probe = FrameProbe::begin(
             expectation.clone(),
             [
@@ -104,12 +104,15 @@ fn hidden_target_allocations_do_not_block_exact_presented_evidence() {
         );
         assert!(probe.record_visible(visible_entity, visible_allocation));
         assert!(probe.record_direct_draw(visible_entity, visible_allocation));
+        if draw_hidden {
+            assert!(probe.record_direct_draw(hidden_entity, hidden_allocation));
+        }
         let mut completed = probe.complete();
         completed.frame_sequence = frame_sequence;
         completed
     };
     let first = build_presented_frame_ack(
-        completed_frame(10),
+        completed_frame(10, true),
         FrameCompletionEvidence {
             present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(1)),
             submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(2)),
@@ -117,13 +120,21 @@ fn hidden_target_allocations_do_not_block_exact_presented_evidence() {
     )
     .expect("the first presented frame should publish evidence");
     let second = build_presented_frame_ack(
-        completed_frame(11),
+        completed_frame(11, true),
         FrameCompletionEvidence {
             present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(3)),
             submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(4)),
         },
     )
     .expect("the second presented frame should publish evidence");
+    let changed_hidden_draws = build_presented_frame_ack(
+        completed_frame(12, false),
+        FrameCompletionEvidence {
+            present_returned_at: Some(render_ready_at + std::time::Duration::from_millis(5)),
+            submitted_work_done_at: Some(render_ready_at + std::time::Duration::from_millis(6)),
+        },
+    )
+    .expect("the changed hidden draw frame should publish exact evidence");
 
     assert_eq!(
         first.allocation_manifest.as_ref(),
@@ -133,12 +144,18 @@ fn hidden_target_allocations_do_not_block_exact_presented_evidence() {
         first.visible_allocation_manifest.as_ref(),
         &[(visible_key, 7)]
     );
-    assert_eq!(first.drawn_manifest, first.visible_allocation_manifest);
+    assert_eq!(first.drawn_manifest, first.allocation_manifest);
+    assert_ne!(first.drawn_manifest, first.visible_allocation_manifest);
     assert!(
         first.is_exact(),
         "a hidden but correctly allocated target blocked exact frame evidence"
     );
     assert!(first.forms_stable_exact_pair_with(&second));
+    assert!(changed_hidden_draws.is_exact());
+    assert!(
+        !second.forms_stable_exact_pair_with(&changed_hidden_draws),
+        "changing hidden draw emissions formed a stable presented pair"
+    );
 }
 
 #[test]

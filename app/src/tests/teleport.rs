@@ -255,6 +255,42 @@ fn write_buffer_ack_alone_never_settles_binding_teleport() {
 }
 
 #[test]
+fn binding_teleport_waits_for_its_captured_readiness_ingress_fence() {
+    let started = Instant::now();
+    let mut tracker = destination_tracker(started);
+    let key = SubChunkKey::new(0, 64, 65, 65);
+    let proposal = proposed_render_expectation(started + Duration::from_millis(200), [(key, 7)]);
+    let mut snapshot = settled_teleport_snapshot();
+    snapshot.work.readiness_events = 1;
+    snapshot.readiness_produced = 8;
+    snapshot.readiness_consumed = 7;
+
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                proposal.clone(),
+                started + Duration::from_millis(200),
+            )
+            .is_none(),
+        "teleport presentation must wait for readiness work produced before its fence"
+    );
+
+    snapshot.work.readiness_events = 0;
+    snapshot.readiness_consumed = 8;
+    assert!(
+        tracker
+            .reconcile_presented_expectation(
+                snapshot,
+                proposal,
+                started + Duration::from_millis(201),
+            )
+            .is_some(),
+        "consuming the teleport fence should arm presentation"
+    );
+}
+
+#[test]
 fn non_empty_leaf_forest_never_binds_an_empty_target_expectation() {
     let started = Instant::now();
     let mut tracker = destination_tracker(started);
@@ -1123,45 +1159,4 @@ fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_f
     assert_eq!(completion.peak_network_events, 4);
 }
 
-#[test]
-fn partial_target_column_coverage_never_settles_the_teleport_stream() {
-    let started = Instant::now();
-    let mut tracker = FullViewTeleportTracker::new(true);
-    tracker.set_source_mutation_coordinate([0, 58, 0]);
-    tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
-    tracker.observe(
-        &WorldEvent::MovePlayer(protocol::MovePlayerEvent {
-            runtime_id: 1,
-            position: [1_040.5, 70.0, 1_040.5],
-            pitch: 0.0,
-            yaw: 0.0,
-            ..Default::default()
-        }),
-        started,
-        0,
-    );
-    tracker.observe(
-        &WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
-            center: [1_040, 70, 1_040],
-            radius_blocks: 256,
-        }),
-        started + Duration::from_millis(100),
-        0,
-    );
-    let mut partial = settled_teleport_snapshot();
-    let status = partial.cohort.as_mut().unwrap();
-    status.loaded_target = status.expected - 1;
-    status.missing_target = status.expected - status.loaded_target;
-    partial.loaded_columns = status.loaded_target;
-
-    assert_eq!(
-        tracker.observe_snapshot(partial, started + Duration::from_millis(200)),
-        None
-    );
-    assert_eq!(
-        tracker.observe_snapshot(partial, started + Duration::from_secs(5)),
-        None,
-        "a quiet partial target view passed the coverage gate"
-    );
-    assert!(tracker.is_pending());
-}
+include!("teleport/partial_target.rs");

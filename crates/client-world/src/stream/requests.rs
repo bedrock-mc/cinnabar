@@ -3,16 +3,25 @@ use super::*;
 impl WorldStream {
     pub fn take_requests(&mut self) -> Vec<PendingSubChunkRequest> {
         let mut ready = Vec::new();
-        while let Some(request) = self
-            .requests
-            .pop_next(self.last_request_player_chunk, &self.required_columns)
-        {
-            self.requests.confirm_popped(&request);
-            ready.push(request);
+        loop {
+            self.pump_deferred_recovery_requests();
+            let mut popped = false;
+            while let Some(request) = self
+                .requests
+                .pop_next(self.last_request_player_chunk, &self.required_columns)
+            {
+                self.requests.confirm_popped(&request);
+                ready.push(request);
+                popped = true;
+            }
+            if !popped {
+                break;
+            }
         }
         ready
     }
     pub fn pop_next_request(&mut self) -> Option<PendingSubChunkRequest> {
+        self.pump_deferred_recovery_requests();
         self.requests
             .pop_next(self.last_request_player_chunk, &self.required_columns)
     }
@@ -207,6 +216,125 @@ impl WorldStream {
             }
         }
     }
+
+    pub(super) fn enqueue_exact_recovery_requests(
+        &mut self,
+        key: ChunkKey,
+        range: DimensionRange,
+        ys: &[i32],
+        sequence: Option<u64>,
+    ) {
+        self.request_collision_failures.remove(&key);
+        let range_end = range
+            .base_sub_chunk_y
+            .saturating_add(i32::try_from(range.sub_chunk_count).unwrap_or(i32::MAX));
+        let mut missing = BTreeSet::new();
+        for y in ys
+            .iter()
+            .copied()
+            .filter(|y| *y >= range.base_sub_chunk_y && *y < range_end)
+        {
+            let sub_chunk = SubChunkKey::from_chunk(key, y);
+            let admitted = self.clear_admitted_sub_chunk_replies(sub_chunk);
+            if self.is_expected_sub_chunk(sub_chunk) {
+                if admitted && self.retry_or_complete_sub_chunk(sub_chunk) {
+                    self.complete_requested_sub_chunk(sub_chunk, false);
+                }
+            } else {
+                missing.insert(y);
+            }
+        }
+
+        let mut ranges: Vec<(i32, i32)> = Vec::new();
+        let mut start: Option<i32> = None;
+        let mut previous: Option<i32> = None;
+        for y in missing {
+            match (start, previous) {
+                (Some(start_y), Some(previous_y)) if y == previous_y.saturating_add(1) => {
+                    start = Some(start_y);
+                    previous = Some(y);
+                }
+                (Some(start_y), Some(previous_y)) => {
+                    ranges.push((start_y, previous_y));
+                    start = Some(y);
+                    previous = Some(y);
+                }
+                _ => {
+                    start = Some(y);
+                    previous = Some(y);
+                }
+            }
+        }
+        if let (Some(start_y), Some(previous_y)) = (start, previous) {
+            ranges.push((start_y, previous_y));
+        }
+
+        let mut requests = Vec::with_capacity(ranges.len());
+        for (base_y, end_y) in ranges {
+            let count = end_y
+                .checked_sub(base_y)
+                .and_then(|distance| usize::try_from(distance).ok())
+                .and_then(|distance| distance.checked_add(1))
+                .unwrap_or(0);
+            if count == 0 {
+                continue;
+            }
+            let Ok(packet) = request_sub_chunk_column(key.dimension, key.x, key.z, base_y, count)
+            else {
+                self.record_normalization_error(NormalizationErrorReason::RequestEncodingFailure);
+                continue;
+            };
+            self.stats.phase2_stages.requests_constructed = self
+                .stats
+                .phase2_stages
+                .requests_constructed
+                .saturating_add(1);
+            requests.push((
+                base_y,
+                count,
+                PendingSubChunkRequest {
+                    packet,
+                    dimension: key.dimension,
+                    chunk: key,
+                    base_sub_chunk_y: base_y,
+                    count,
+                },
+            ));
+        }
+
+        if !requests.is_empty() {
+            let expected = self.requested_sub_chunks.entry(key).or_default();
+            for (base_y, count, _) in &requests {
+                for offset in 0..*count {
+                    expected
+                        .entry(base_y.saturating_add(i32::try_from(offset).unwrap_or(i32::MAX)))
+                        .or_default();
+                }
+            }
+        }
+
+        let mut reservation = sequence;
+        for (_, _, request) in requests {
+            match reservation {
+                Some(sequence) if self.requests.has_reservation(sequence) => {
+                    let placed = self.requests.replace_reservation(sequence, request);
+                    debug_assert!(placed);
+                    reservation = None;
+                }
+                _ if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY => {
+                    self.deferred_recovery_requests.push_back(request);
+                }
+                _ => {
+                    self.requests.push_ready(request, false);
+                    reservation = None;
+                }
+            }
+        }
+        if let Some(sequence) = reservation {
+            self.cancel_request_reservation(sequence);
+        }
+    }
+
     pub(super) fn place_outbound_request(
         &mut self,
         sequence: Option<u64>,
