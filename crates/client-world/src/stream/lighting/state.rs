@@ -261,14 +261,14 @@ impl WorldStream {
         for dx in -1_i32..=1 {
             for dz in -1_i32..=1 {
                 let Some(x) = center.x.checked_add(dx) else {
-                    return false;
+                    continue;
                 };
                 let Some(z) = center.z.checked_add(dz) else {
-                    return false;
+                    continue;
                 };
-                if !self
-                    .loaded_columns
-                    .contains(&ChunkKey::new(center.dimension, x, z))
+                let neighbour = ChunkKey::new(center.dimension, x, z);
+                if self.required_columns.contains(&neighbour)
+                    && !self.loaded_columns.contains(&neighbour)
                 {
                     return false;
                 }

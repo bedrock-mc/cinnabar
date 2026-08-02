@@ -658,7 +658,13 @@ fn original_column_lighting_waits_for_the_loaded_three_by_three_context() {
     let mut stream = lit_stream(1);
     let key = SubChunkKey::new(1, 4, 0, 6);
     stream.record_known_air(key);
-    stream.required_columns.insert(key.chunk());
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            stream
+                .required_columns
+                .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
+        }
+    }
     stream.loaded_columns.insert(key.chunk());
     stream.mark_changed(key, Instant::now());
 
@@ -670,6 +676,18 @@ fn original_column_lighting_waits_for_the_loaded_three_by_three_context() {
                 .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
         }
     }
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 1);
+}
+
+#[test]
+fn original_column_lighting_treats_unrequested_neighbours_as_the_view_boundary() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 4, 0, 6);
+    stream.record_known_air(key);
+    stream.required_columns.insert(key.chunk());
+    stream.loaded_columns.insert(key.chunk());
+    stream.mark_changed(key, Instant::now());
 
     assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 1);
 }
