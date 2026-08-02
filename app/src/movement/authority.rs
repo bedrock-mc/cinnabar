@@ -6,7 +6,8 @@ use super::{LocalPhysicsController, MovementSource, MovementTicker};
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PhysicsAuthorityGate {
     #[default]
-    ProductionEnabled,
+    ProductionDisabled,
+    CandidateEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +58,7 @@ impl PhysicsAuthorityGate {
         auto_fly: bool,
         collision_registry_complete: bool,
     ) -> Result<MovementSource, PhysicsAuthorityFault> {
-        if auto_fly {
+        if auto_fly || matches!(self, Self::ProductionDisabled) {
             return Ok(MovementSource::FreeCamera);
         }
         if !collision_registry_complete {

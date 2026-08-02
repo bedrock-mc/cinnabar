@@ -488,7 +488,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         { Invoke-WitnessValidation $pending } | Should Throw
     }
 
-    It 'builds only the fixed authenticated LBSG production-physics plan with a ten-minute minimum' {
+    It 'builds only the fixed authenticated LBSG transfer plan without candidate physics' {
         $plan = New-Phase3LaunchPlan -Target Lbsg -Endpoint 'play.lbsg.net:19132' `
             -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
             -DurationSeconds 600 -Scenario FastTransferWitness -AuthCache token.json `

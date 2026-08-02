@@ -215,6 +215,7 @@ Describe 'Phase 3 production marker evidence validation' {
         $result.ExitCode | Should Be 0; $result.Output | Should Match 'Phase 3 network pump terminal diagnostic:'; $result.Output | Should Match 'connection\s+reset'
         $result.Output | Should Match 'PHASE3_EVIDENCE_VALID target=Bds .* frames=5 events=3'
         $aggregate = Get-Content -Raw -LiteralPath $result.Aggregate | ConvertFrom-Json
+        $aggregate.candidate.production_physics_default_enabled | Should Be $false
         $aggregate.movement.held_jump_longest_run | Should Be 2
         $aggregate.camera_avatar.perspective_sequence -join ',' | Should Be 'FirstPerson,ThirdPersonBack,ThirdPersonFront,FirstPerson'
         $aggregate.evidence.terminal_pending_outbox_depth | Should Be 0
@@ -266,7 +267,7 @@ Describe 'Phase 3 production marker evidence validation' {
         $aggregate.evidence.terminal_free_camera_packet_count | Should Be 0
     }
 
-    It 'builds exact live target plans with production physics and no free camera' {
+    It 'builds exact live target plans with candidate-only physics and no free camera' {
         $targets = [ordered]@{
             Lunar = 'pvp.lunarbedrock.com:19134'
             Zeqa = 'zeqa.net:19132'
@@ -283,7 +284,7 @@ Describe 'Phase 3 production marker evidence validation' {
                 -RunId $script:RunId -SocketDirectory 'socket' -MetricsPath 'metrics.json' `
                 -DurationSeconds $duration -Scenario CandidatePhysics -AuthCache $authCache
             $plan.CoreArguments -join ' ' | Should Match ([regex]::Escape("-upstream $endpoint"))
-            ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $false
+            ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $true
             ($plan.AppArguments -ccontains '--phase3-evidence-target') | Should Be $true
             ($plan.AppArguments -ccontains '--auto-fly') | Should Be $false
             ($plan.CoreArguments -ccontains '-auth-cache') | Should Be ($target -cne 'Bds')
