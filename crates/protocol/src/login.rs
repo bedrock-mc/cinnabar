@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::Path;
 
 use bytes::Buf;
@@ -89,6 +90,13 @@ pub struct PlaySession<T: Transport = SocketTransport> {
     world_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
+    pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
+}
+
+struct PendingBlobCacheDelivery {
+    status_packets: VecDeque<Packet>,
+    status_send_in_flight: bool,
+    events: VecDeque<WorldEvent>,
 }
 
 const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
@@ -165,6 +173,7 @@ impl<T: Transport> PlaySession<T> {
             world_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
+            pending_blob_cache_delivery: None,
         }
     }
 
@@ -174,7 +183,9 @@ impl<T: Transport> PlaySession<T> {
     fn skip_or_fail_world(&mut self, error: ProtocolError) -> Result<(), ProtocolError> {
         if matches!(error, ProtocolError::World(_)) {
             self.world_skips = self.world_skips.saturating_add(1);
-            self.reset_blob_cache_pending();
+            if let Some(resolver) = self.blob_cache.as_mut() {
+                resolver.recover_pending()?;
+            }
             Ok(())
         } else {
             Err(error)
@@ -292,6 +303,7 @@ impl<T: Transport> PlaySession<T> {
         if let Some(resolver) = self.blob_cache.as_mut() {
             resolver.reset_pending();
         }
+        self.pending_blob_cache_delivery = None;
     }
 
     /// Arms a one-shot selective transaction rotation for the next raw
@@ -307,6 +319,58 @@ impl<T: Transport> PlaySession<T> {
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
         loop {
+            if self
+                .pending_blob_cache_delivery
+                .as_ref()
+                .is_some_and(|delivery| delivery.status_send_in_flight)
+            {
+                if let Err(error) = self.stream.drain_send().await {
+                    self.reset_blob_cache_pending();
+                    return Err(error.into());
+                }
+                self.pending_blob_cache_delivery
+                    .as_mut()
+                    .expect("pending cache delivery survives a successful drain")
+                    .status_send_in_flight = false;
+                continue;
+            }
+            if let Some(recovery) = self
+                .blob_cache
+                .as_mut()
+                .expect("enabled path owns a resolver")
+                .pop_recovery_ready()
+            {
+                return Ok(WorldEvent::ChunkResync(recovery));
+            }
+            if let Some(status_packet) = self
+                .pending_blob_cache_delivery
+                .as_mut()
+                .and_then(|delivery| delivery.status_packets.pop_front())
+            {
+                self.pending_blob_cache_delivery
+                    .as_mut()
+                    .expect("the status packet came from a pending cache delivery")
+                    .status_send_in_flight = true;
+                // SocketTransport retains an accepted frame until that exact frame flushes.
+                // Transfer ownership before awaiting so cancellation cannot logically resend it.
+                if let Err(error) = self.send(status_packet).await {
+                    self.reset_blob_cache_pending();
+                    return Err(error);
+                }
+                self.pending_blob_cache_delivery
+                    .as_mut()
+                    .expect("pending cache delivery survives a successful send")
+                    .status_send_in_flight = false;
+                continue;
+            }
+            if let Some(event) = self
+                .pending_blob_cache_delivery
+                .as_mut()
+                .and_then(|delivery| delivery.events.pop_front())
+            {
+                return Ok(event);
+            }
+            self.pending_blob_cache_delivery = None;
             if let Some(ready) = self
                 .blob_cache
                 .as_mut()
@@ -363,7 +427,7 @@ impl<T: Transport> PlaySession<T> {
                     .blob_cache
                     .as_mut()
                     .expect("enabled path owns a resolver");
-                reset_cache_for_immediate_boundary(resolver, packet_name);
+                reset_cache_for_immediate_boundary(resolver, packet_name)?;
                 continue;
             }
 
@@ -406,15 +470,19 @@ impl<T: Transport> PlaySession<T> {
                         Err(error) => return Err(error.into()),
                     };
                     let recovery = status.take_recovery();
-                    for status_packet in status.into_packets() {
-                        if let Err(error) = self.send(status_packet.into()).await {
-                            self.reset_blob_cache_pending();
-                            return Err(error);
-                        }
+                    let admission = status.take_admission();
+                    let mut events = VecDeque::with_capacity(2);
+                    if let Some(admission) = admission {
+                        events.push_back(WorldEvent::SubChunkReplyAdmission(admission));
                     }
                     if let Some(recovery) = recovery {
-                        return Ok(WorldEvent::ChunkResync(recovery));
+                        events.push_back(WorldEvent::ChunkResync(recovery));
                     }
+                    self.pending_blob_cache_delivery = Some(PendingBlobCacheDelivery {
+                        status_packets: status.into_packets().into_iter().map(Into::into).collect(),
+                        status_send_in_flight: false,
+                        events,
+                    });
                     continue;
                 }
 
@@ -497,15 +565,17 @@ fn is_cached_world_packet(packet: &Packet) -> bool {
 fn reset_cache_for_immediate_boundary(
     resolver: &mut BlobCacheResolver,
     packet: McpePacketName,
-) -> bool {
-    if matches!(
-        packet,
-        McpePacketName::PacketTransfer | McpePacketName::PacketDisconnect
-    ) {
-        resolver.reset_pending();
-        true
-    } else {
-        false
+) -> Result<bool, crate::BlobCacheError> {
+    match packet {
+        McpePacketName::PacketTransfer => {
+            resolver.recover_pending()?;
+            Ok(true)
+        }
+        McpePacketName::PacketDisconnect => {
+            resolver.reset_pending();
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 

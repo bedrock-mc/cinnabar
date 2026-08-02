@@ -2,6 +2,7 @@ use super::*;
 
 struct PendingSendSession {
     started: Option<oneshot::Sender<()>>,
+    complete: Option<oneshot::Receiver<()>>,
 }
 
 impl NetworkSession for PendingSendSession {
@@ -17,6 +18,10 @@ impl NetworkSession for PendingSendSession {
     async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
         if let Some(started) = self.started.take() {
             let _ = started.send(());
+        }
+        if let Some(complete) = self.complete.take() {
+            let _ = complete.await;
+            return Ok(());
         }
         future::pending().await
     }
@@ -210,6 +215,7 @@ async fn cancelled_pending_physics_socket_write_never_emits_success_ack() {
     let worker = tokio::spawn(run_network_pump(
         PendingSendSession {
             started: Some(started_tx),
+            complete: None,
         },
         NetworkSequencer::new(7, 0, 42),
         command_rx,
@@ -230,7 +236,7 @@ async fn cancelled_pending_physics_socket_write_never_emits_success_ack() {
 }
 
 #[tokio::test]
-async fn reanchor_during_an_in_flight_physics_send_reports_indeterminate_cancellation() {
+async fn reanchor_during_an_in_flight_physics_send_preserves_the_socket_result() {
     let identity = crate::movement::PhysicsSendIdentity {
         session_generation: 7,
         tick: 101,
@@ -252,9 +258,11 @@ async fn reanchor_during_an_in_flight_physics_send_reports_indeterminate_cancell
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
     let (started_tx, started_rx) = oneshot::channel();
+    let (complete_tx, complete_rx) = oneshot::channel();
     let worker = tokio::spawn(run_network_pump(
         PendingSendSession {
             started: Some(started_tx),
+            complete: Some(complete_rx),
         },
         NetworkSequencer::new(7, 0, 42),
         command_rx,
@@ -265,11 +273,17 @@ async fn reanchor_during_an_in_flight_physics_send_reports_indeterminate_cancell
 
     started_rx.await.unwrap();
     reanchor.send_replace(1);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), controls.recv())
+            .await
+            .is_err(),
+        "an in-flight socket write must not be reclassified as cancelled"
+    );
+    complete_tx.send(()).unwrap();
     assert!(matches!(
         tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
-        Ok(Some(NetworkControlEvent::PhysicsPacketCancelled {
+        Ok(Some(NetworkControlEvent::PhysicsPacketSent {
             identity: observed,
-            definitely_unsent: false,
         })) if observed == identity
     ));
     shutdown.send_replace(true);

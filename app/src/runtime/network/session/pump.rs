@@ -70,38 +70,6 @@ where
     }
 }
 
-pub(super) enum PhysicsSendOutcome<T> {
-    Sent(T),
-    Invalidated,
-    Shutdown,
-}
-
-pub(super) async fn wait_for_physics_send_or_cancel<F>(
-    send: F,
-    shutdown: &mut watch::Receiver<bool>,
-    reanchor: &mut watch::Receiver<u64>,
-    admitted_epoch: u64,
-) -> PhysicsSendOutcome<F::Output>
-where
-    F: Future,
-{
-    if *shutdown.borrow() {
-        return PhysicsSendOutcome::Shutdown;
-    }
-    if *reanchor.borrow() != admitted_epoch {
-        return PhysicsSendOutcome::Invalidated;
-    }
-    tokio::select! {
-        biased;
-        _ = wait_for_shutdown(shutdown) => PhysicsSendOutcome::Shutdown,
-        changed = reanchor.changed() => {
-            let _ = changed;
-            PhysicsSendOutcome::Invalidated
-        }
-        result = send => PhysicsSendOutcome::Sent(result),
-    }
-}
-
 pub(super) enum NetworkPumpWork<I, C> {
     Shutdown,
     Inbound(I),

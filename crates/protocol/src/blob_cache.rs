@@ -11,7 +11,7 @@ use valentine::bedrock::version::v1_26_30::{
     SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
 };
 
-use crate::{ChunkResyncEvent, Packet, WorldEvent};
+use crate::{ChunkResyncEvent, Packet, SubChunkReplyAdmissionEvent, WorldEvent};
 
 #[cfg(test)]
 static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);

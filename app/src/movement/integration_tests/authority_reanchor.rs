@@ -1,5 +1,5 @@
 #[test]
-fn replay_world_identity_change_records_fault_before_deauthorizing_atomically() {
+fn replay_world_identity_change_falls_back_to_an_authoritative_snap() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance(
@@ -24,22 +24,16 @@ fn replay_world_identity_change_records_fault_before_deauthorizing_atomically() 
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(2),
         ),
-        Err(PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick: 102 })
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 102 })
     );
-    assert!(!physics.is_active());
-    assert!(!ticker.physics_is_authorized());
+    assert!(physics.is_active());
+    assert!(ticker.physics_is_authorized());
     assert_eq!(ticker.pending_count(), 0);
-    let fault = ticker.take_authority_fault().unwrap();
-    assert_eq!(fault.session_generation, 9);
-    assert_eq!(
-        fault.fault,
-        PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick: 102 }
-    );
-    assert_eq!(fault.pending_count, 2);
+    assert_eq!(ticker.take_authority_fault(), None);
 }
 
 #[test]
-fn replay_request_without_a_retained_tick_fails_closed_instead_of_snapping() {
+fn replay_request_without_a_retained_tick_falls_back_to_a_current_snap() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance(
@@ -64,19 +58,16 @@ fn replay_request_without_a_retained_tick_fails_closed_instead_of_snapping() {
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(1),
         ),
-        Err(PhysicsAuthorityFault::CorrectionNotRetained { tick: 103 })
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 103 })
     );
-    assert!(!physics.is_active());
-    assert!(!ticker.physics_is_authorized());
+    assert!(physics.is_active());
+    assert!(ticker.physics_is_authorized());
     assert_eq!(ticker.pending_count(), 0);
-    assert_eq!(
-        ticker.take_authority_fault().unwrap().fault,
-        PhysicsAuthorityFault::CorrectionNotRetained { tick: 103 }
-    );
+    assert_eq!(ticker.take_authority_fault(), None);
 }
 
 #[test]
-fn replay_rejects_a_queued_sample_whose_collision_identity_changed() {
+fn replay_with_a_queued_collision_identity_change_falls_back_to_a_current_snap() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance(
@@ -105,16 +96,14 @@ fn replay_rejects_a_queued_sample_whose_collision_identity_changed() {
             true,
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(1),
-        ),
-        Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick: 102 })
+        )
+        .unwrap(),
+        PhysicsCorrectionOutcome::Snapped { tick: 102 }
     );
-    assert!(!physics.is_active());
-    assert!(!ticker.physics_is_authorized());
+    assert!(physics.is_active());
+    assert!(ticker.physics_is_authorized());
     assert_eq!(ticker.pending_count(), 0);
-    assert_eq!(
-        ticker.take_authority_fault().unwrap().fault,
-        PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick: 102 }
-    );
+    assert_eq!(ticker.take_authority_fault(), None);
 }
 
 #[test]

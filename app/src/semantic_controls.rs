@@ -113,7 +113,21 @@ impl SemanticInputRuntime {
     }
 
     pub(crate) fn finalize_routed_input(&mut self) -> Result<ActionSnapshot, RouterError> {
-        self.router.finalize()
+        let snapshot = self.router.finalize()?;
+        if self
+            .previous
+            .keyboard_mouse
+            .as_ref()
+            .is_some_and(|keyboard| !keyboard.keys.is_empty())
+        {
+            bevy::log::debug!(
+                authority = ?self.authority,
+                movement = ?snapshot.movement,
+                input_mode = ?snapshot.input_mode,
+                "finalized keyboard semantic input"
+            );
+        }
+        Ok(snapshot)
     }
 
     pub fn set_context(&mut self, context: InputContext) {

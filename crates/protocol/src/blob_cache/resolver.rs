@@ -66,7 +66,8 @@ impl BlobCacheResolver {
 
     /// Clears stale cached work at a confirmed fast-transfer data boundary.
     ///
-    /// A response from the prior backend is no longer relevant to this session.
+    /// A response from the prior backend is no longer relevant to this session. Exact recovery
+    /// rolls back scheduler admissions before the replacement backend's chunk stream proceeds.
     pub fn reset_pending_for_fast_transfer_candidate(&mut self) -> Result<bool, BlobCacheError> {
         if !std::mem::take(&mut self.fast_transfer_reset_armed) {
             return Ok(false);
@@ -74,16 +75,8 @@ impl BlobCacheResolver {
         let removed = !self.pending.is_empty() || !self.ready.is_empty();
         if removed {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
+            self.recover_retained_cached_transactions()?;
         }
-        for (_, transaction) in self.pending.drain() {
-            self.cache.unpin_all(&transaction.unique_hashes);
-        }
-        self.pending = HashMap::new();
-        self.pending_order = BTreeSet::new();
-        self.pending_by_hash = HashMap::new();
-        self.resolved_pending = BTreeSet::new();
-        self.ready = BTreeMap::new();
-        self.refresh_pending_accounting()?;
         Ok(removed)
     }
 
@@ -265,7 +258,7 @@ impl BlobCacheResolver {
             self.record_reconstruction_skip();
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
-            let recovery = self.prepare_recovery(pending_packet_recovery(&packet));
+            let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
             return Ok(self.classify_status(&packet, recovery, false));
         }
         if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
@@ -278,7 +271,7 @@ impl BlobCacheResolver {
                 .saturating_add(1);
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
-            let recovery = self.prepare_recovery(pending_packet_recovery(&packet));
+            let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
             return Ok(self.classify_status(&packet, recovery, false));
         }
         let mut status = self.classify_status(&packet, None, true);
@@ -288,7 +281,7 @@ impl BlobCacheResolver {
             self.record_staged_skip();
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
-            let recovery = self.prepare_recovery(pending_packet_recovery(&packet));
+            let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
             status.set_recovery(recovery);
             return Ok(status);
         }
@@ -303,6 +296,24 @@ impl BlobCacheResolver {
             )
             .ok_or(BlobCacheError::ByteCountOverflow)?;
         let columns = pending_packet_columns(&packet);
+        if self
+            .retained_recovery_slot_count()
+            .saturating_add(columns.len())
+            > MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
+        {
+            self.cache.unpin_all(&unique_hashes);
+            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+            self.stats.cached_packet_transaction_pressure = self
+                .stats
+                .cached_packet_transaction_pressure
+                .saturating_add(1);
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
+            status.set_recovery(recovery);
+            return Ok(status);
+        }
+        let admission = cached_sub_chunk_admission(&packet);
         let sequence = self.take_ready_sequence()?;
         self.pending.insert(
             sequence,
@@ -335,6 +346,11 @@ impl BlobCacheResolver {
         if unresolved_hashes == 0 {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
+        }
+        if admission.is_some()
+            && (self.pending.contains_key(&sequence) || self.ready.contains_key(&sequence))
+        {
+            status.set_admission(admission);
         }
         Ok(status)
     }
@@ -471,6 +487,41 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()
     }
 
+    /// Abandons retained cached work while preserving exact scheduler rollback events.
+    pub fn recover_pending(&mut self) -> Result<(), BlobCacheError> {
+        if !self.pending.is_empty() || !self.ready.is_empty() {
+            self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
+            self.recover_retained_cached_transactions()?;
+        }
+        self.immediate_ready = BTreeMap::new();
+        self.stats.ordinary_ready_events = 0;
+        self.stats.ordinary_ready_bytes = 0;
+        Ok(())
+    }
+
+    fn recover_retained_cached_transactions(&mut self) -> Result<(), BlobCacheError> {
+        let recoveries = self
+            .pending
+            .values()
+            .flat_map(|transaction| pending_packet_recovery(&transaction.packet))
+            .chain(
+                self.ready
+                    .values()
+                    .flat_map(|transaction| ready_value_recovery(&transaction.value)),
+            )
+            .collect::<Vec<_>>();
+        for transaction in self.pending.drain().map(|(_, transaction)| transaction) {
+            self.cache.unpin_all(&transaction.unique_hashes);
+        }
+        self.pending = HashMap::new();
+        self.pending_order = BTreeSet::new();
+        self.pending_by_hash = HashMap::new();
+        self.resolved_pending = BTreeSet::new();
+        self.ready = BTreeMap::new();
+        self.enqueue_recoveries(recoveries);
+        self.refresh_pending_accounting()
+    }
+
     pub fn reset_pending(&mut self) {
         if !self.pending.is_empty() || !self.ready.is_empty() {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
@@ -510,14 +561,21 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()
     }
 
+    pub(crate) fn pop_recovery_ready(&mut self) -> Option<ChunkResyncEvent> {
+        let key = self.recovery_ready.first_key_value().map(|(key, _)| *key)?;
+        let recovery = self
+            .recovery_ready
+            .remove(&key)
+            .expect("first recovery key remains present");
+        self.refresh_pending_accounting()
+            .expect("retained recovery accounting cannot overflow after a pop");
+        Some(recovery.into_event())
+    }
+
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
-        if let Some(key) = self.recovery_ready.first_key_value().map(|(key, _)| *key)
-            && let Some(recovery) = self.recovery_ready.remove(&key)
-        {
-            self.refresh_pending_accounting()
-                .expect("retained recovery accounting cannot overflow after a pop");
+        if let Some(recovery) = self.pop_recovery_ready() {
             return Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-                recovery.into_event(),
+                recovery,
             )));
         }
         let cached_sequence = self
@@ -778,6 +836,23 @@ impl BlobCacheResolver {
         self.pending.len().saturating_add(self.ready.len())
     }
 
+    fn retained_recovery_slot_count(&self) -> usize {
+        self.recovery_ready
+            .len()
+            .saturating_add(
+                self.pending
+                    .values()
+                    .map(|transaction| transaction.columns.len())
+                    .sum::<usize>(),
+            )
+            .saturating_add(
+                self.ready
+                    .values()
+                    .map(|transaction| transaction.columns.len())
+                    .sum::<usize>(),
+            )
+    }
+
     /// Conservative, unverified ordering: ordinary updates for a column wait until every earlier
     /// cached chunk for that column has reconstructed and been emitted. Mojang's behavior here is
     /// connection-wide rather than per-column; aligning this scan remains open parity work.
@@ -929,6 +1004,20 @@ fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
     }
 }
 
+fn unadmitted_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
+    match packet {
+        PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
+            dimension: packet.dimension,
+            x: packet.x,
+            z: packet.z,
+            requested_sub_chunks: None,
+            requested_sub_chunk_ys: None,
+        }],
+        // No admission reached the scheduler, so its existing deadline owns this retry.
+        PendingPacket::SubChunk(_) => Vec::new(),
+    }
+}
+
 fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
@@ -938,11 +1027,110 @@ fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
-        // Cached SubChunk packets are responses to scheduler-owned requests. Discarding one
-        // leaves that request outstanding so its existing deadline and bounded retry path owns
-        // recovery; do not synthesize an exact-Y ChunkResyncEvent here.
-        PendingPacket::SubChunk(_) => Vec::new(),
+
+        PendingPacket::SubChunk(packet) => {
+            let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+                return Vec::new();
+            };
+            let mut columns = BTreeMap::<(i32, i32), BTreeSet<i32>>::new();
+            for entry in entries {
+                columns
+                    .entry((
+                        packet.origin.x.saturating_add(i32::from(entry.dx)),
+                        packet.origin.z.saturating_add(i32::from(entry.dz)),
+                    ))
+                    .or_default()
+                    .insert(packet.origin.y.saturating_add(i32::from(entry.dy)));
+            }
+            columns
+                .into_iter()
+                .map(|((x, z), ys)| ChunkResyncEvent {
+                    dimension: packet.dimension,
+                    x,
+                    z,
+                    requested_sub_chunks: None,
+                    requested_sub_chunk_ys: Some(ys.into_iter().collect()),
+                })
+                .collect()
+        }
     }
+}
+fn ready_value_recovery(value: &BlobCacheReady) -> Vec<ChunkResyncEvent> {
+    let BlobCacheReady::Packet(packet) = value else {
+        return Vec::new();
+    };
+    match &packet.data {
+        McpePacketData::PacketLevelChunk(packet) => vec![ChunkResyncEvent {
+            dimension: packet.dimension,
+            x: packet.x,
+            z: packet.z,
+            requested_sub_chunks: None,
+            requested_sub_chunk_ys: None,
+        }],
+        McpePacketData::PacketSubchunk(packet) => match &packet.entries {
+            SubchunkPacketEntries::SubChunkEntryWithCaching(entries) => sub_chunk_recoveries(
+                packet.dimension,
+                [packet.origin.x, packet.origin.y, packet.origin.z],
+                entries.iter().map(|entry| [entry.dx, entry.dy, entry.dz]),
+            ),
+            SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) => sub_chunk_recoveries(
+                packet.dimension,
+                [packet.origin.x, packet.origin.y, packet.origin.z],
+                entries.iter().map(|entry| [entry.dx, entry.dy, entry.dz]),
+            ),
+        },
+        _ => Vec::new(),
+    }
+}
+
+fn sub_chunk_recoveries(
+    dimension: i32,
+    origin: [i32; 3],
+    offsets: impl Iterator<Item = [i8; 3]>,
+) -> Vec<ChunkResyncEvent> {
+    let mut columns = BTreeMap::<(i32, i32), BTreeSet<i32>>::new();
+    for [dx, dy, dz] in offsets {
+        columns
+            .entry((
+                origin[0].saturating_add(i32::from(dx)),
+                origin[2].saturating_add(i32::from(dz)),
+            ))
+            .or_default()
+            .insert(origin[1].saturating_add(i32::from(dy)));
+    }
+    columns
+        .into_iter()
+        .map(|((x, z), ys)| ChunkResyncEvent {
+            dimension,
+            x,
+            z,
+            requested_sub_chunks: None,
+            requested_sub_chunk_ys: Some(ys.into_iter().collect()),
+        })
+        .collect()
+}
+
+fn cached_sub_chunk_admission(packet: &PendingPacket) -> Option<SubChunkReplyAdmissionEvent> {
+    let PendingPacket::SubChunk(packet) = packet else {
+        return None;
+    };
+    let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+        return None;
+    };
+    let positions = entries
+        .iter()
+        .map(|entry| {
+            [
+                packet.origin.x.saturating_add(i32::from(entry.dx)),
+                packet.origin.y.saturating_add(i32::from(entry.dy)),
+                packet.origin.z.saturating_add(i32::from(entry.dz)),
+            ]
+        })
+        .collect::<Vec<_>>();
+    (!positions.is_empty()).then_some(SubChunkReplyAdmissionEvent {
+        dimension: packet.dimension,
+        positions,
+    })
 }
 
 trait ReferencedBlobHashes {

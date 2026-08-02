@@ -311,6 +311,17 @@ pub struct SubChunkBatchEvent {
     pub dimension: i32,
     pub entries: Vec<SubChunkEntryEvent>,
 }
+/// Admission for a cached SubChunk response retained by the blob resolver.
+///
+/// This event carries no payload and does not mutate world state. It only
+/// lets the client-world retry scheduler retire the exact response deadlines
+/// while the reconstructed SubChunks event waits behind unresolved blobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubChunkReplyAdmissionEvent {
+    pub dimension: i32,
+    /// Absolute sub-chunk coordinates in X/Y/Z order.
+    pub positions: Vec<[i32; 3]>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockUpdateEvent {
@@ -487,6 +498,8 @@ pub enum WorldEvent {
     BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
     ChunkResync(ChunkResyncEvent),
+    /// Confirms retained cached SubChunk replies before reconstruction.
+    SubChunkReplyAdmission(SubChunkReplyAdmissionEvent),
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),

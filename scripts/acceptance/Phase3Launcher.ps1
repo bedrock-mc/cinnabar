@@ -23,6 +23,9 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'Phase3Launch.ps1')
 . (Join-Path $PSScriptRoot 'Load.ps1')
 
+$Target = ConvertTo-Phase3Target -Target $Target
+$Scenario = ConvertTo-Phase3Scenario -Scenario $Scenario
+
 Assert-Phase3CleanTrackedSource -ProjectRoot $projectRoot
 $buildCommit = (& git -C $projectRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $buildCommit -cnotmatch '^[0-9a-f]{40}$') {
@@ -75,7 +78,7 @@ if ($DryRun) {
     Write-Output "APP_COMMAND=$(Format-ResolvedCommand $appExecutable $plan.AppArguments)"
     Write-Output "PHASE3_SCENARIO=$Scenario"
     Write-Output "PHASE3_CANDIDATE_PHYSICS=$($Scenario -cin @('CandidatePhysics', 'FastTransferWitness'))"
-    Write-Output 'PRODUCTION_PHYSICS_DEFAULT_ENABLED=false'
+    Write-Output 'PRODUCTION_PHYSICS_DEFAULT_ENABLED=true'
     return
 }
 

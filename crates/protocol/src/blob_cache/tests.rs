@@ -201,3 +201,102 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
     assert_eq!(resolver.pending.len(), 1);
     assert_eq!(resolver.ready.len(), 2);
 }
+
+#[test]
+fn retained_cached_subchunk_emits_admission_before_reconstruction() {
+    let payload = b"admitted-subchunk";
+    let hash = client_blob_hash(payload);
+    let packet = valentine::bedrock::version::v1_26_30::SubchunkPacket {
+        dimension: 2,
+        origin: valentine::bedrock::version::v1_26_30::Vec3I { x: 4, y: -4, z: 9 },
+        entries:
+            valentine::bedrock::version::v1_26_30::SubchunkPacketEntries::SubChunkEntryWithCaching(
+                vec![
+                    valentine::bedrock::version::v1_26_30::SubChunkEntryWithCachingItem {
+                        dx: 0,
+                        dy: 1,
+                        dz: -1,
+                        result: SubChunkEntryWithCachingItemResult::Success,
+                        payload: Some(payload.to_vec()),
+                        blob_id: hash,
+                        ..Default::default()
+                    },
+                    valentine::bedrock::version::v1_26_30::SubChunkEntryWithCachingItem {
+                        dx: 1,
+                        dy: 2,
+                        dz: 0,
+                        result: SubChunkEntryWithCachingItemResult::SuccessAllAir,
+                        ..Default::default()
+                    },
+                ],
+            ),
+    }
+    .into();
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    let mut status = resolver
+        .accept_cached_packet(packet)
+        .expect("retain cached SubChunk while waiting for its miss");
+
+    assert_eq!(
+        status.take_admission(),
+        Some(crate::SubChunkReplyAdmissionEvent {
+            dimension: 2,
+            positions: vec![[4, -3, 8], [5, -2, 9]],
+        })
+    );
+    assert!(
+        resolver.pop_ready().is_none(),
+        "reconstructed SubChunks remain behind the unresolved miss"
+    );
+}
+
+#[test]
+fn pressure_discarded_cached_subchunk_has_no_admission() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    for x in 0..MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
+        let payload = format!("pressure-{x}");
+        let hash = client_blob_hash(payload.as_bytes());
+        resolver
+            .accept_cached_packet(
+                LevelChunkPacket {
+                    x: i32::try_from(x).expect("test coordinate fits"),
+                    sub_chunk_count: -1,
+                    blobs: Some(
+                        valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                            hashes: vec![hash],
+                        },
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+            )
+            .expect("fill the bounded cached transaction window");
+    }
+
+    let payload = b"pressure-subchunk";
+    let hash = client_blob_hash(payload);
+    let packet = valentine::bedrock::version::v1_26_30::SubchunkPacket {
+        entries:
+            valentine::bedrock::version::v1_26_30::SubchunkPacketEntries::SubChunkEntryWithCaching(
+                vec![
+                    valentine::bedrock::version::v1_26_30::SubChunkEntryWithCachingItem {
+                        result: SubChunkEntryWithCachingItemResult::Success,
+                        payload: Some(payload.to_vec()),
+                        blob_id: hash,
+                        ..Default::default()
+                    },
+                ],
+            ),
+        ..Default::default()
+    }
+    .into();
+    let mut status = resolver
+        .accept_cached_packet(packet)
+        .expect("pressure discard remains non-fatal");
+
+    assert!(status.take_admission().is_none());
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+    );
+}

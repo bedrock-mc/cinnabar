@@ -283,7 +283,7 @@ function Write-Phase3FinalAggregate {
         }
         candidate = [ordered]@{
             candidate_physics = [bool]$Identity.candidate_physics
-            production_physics_default_enabled = $false
+            production_physics_default_enabled = $true
         }
         movement = [ordered]@{
             input_modes = @($inputModes)

@@ -1,3 +1,31 @@
+function ConvertTo-Phase3Target {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
+        [string]$Target
+    )
+    switch ($Target.ToLowerInvariant()) {
+        'bds' { return 'Bds' }
+        'lunar' { return 'Lunar' }
+        'zeqa' { return 'Zeqa' }
+        'lbsg' { return 'Lbsg' }
+        'zeno' { return 'Zeno' }
+    }
+}
+
+function ConvertTo-Phase3Scenario {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('CandidatePhysics', 'FastTransferWitness', 'FreeCameraSilence')]
+        [string]$Scenario
+    )
+    switch ($Scenario.ToLowerInvariant()) {
+        'candidatephysics' { return 'CandidatePhysics' }
+        'fasttransferwitness' { return 'FastTransferWitness' }
+        'freecamerasilence' { return 'FreeCameraSilence' }
+    }
+}
+
 function Get-Phase3TargetEndpoint {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')][string]$Target,
@@ -25,17 +53,19 @@ function New-Phase3LaunchPlan {
         [string]$AuthCache,
         [string]$Assets
     )
+    $Target = ConvertTo-Phase3Target -Target $Target
+    $Scenario = ConvertTo-Phase3Scenario -Scenario $Scenario
     if ($RunId -cnotmatch '^[0-9a-f]{32}$') { throw 'Phase 3 run ID must be exact lowercase 32-hex' }
     if ($Endpoint -cnotmatch '^[^\s:]+:[1-9][0-9]{0,4}$') { throw 'Phase 3 endpoint is invalid' }
-    $remote = $Target -cne 'Bds'
+    $remote = $Target -ine 'Bds'
     if ($remote -and [string]::IsNullOrWhiteSpace($AuthCache)) {
         throw "Phase 3 $Target requires an authenticated -AuthCache path; offline remote evidence is forbidden"
     }
     if ($remote -and $DurationSeconds -lt 300) {
         throw "Phase 3 $Target requires at least 300 seconds of live evidence"
     }
-    if ($Scenario -ceq 'FastTransferWitness') {
-        if ($Target -cne 'Lbsg' -or $Endpoint -cne 'play.lbsg.net:19132') {
+    if ($Scenario -ieq 'FastTransferWitness') {
+        if ($Target -ine 'Lbsg' -or $Endpoint -cne 'play.lbsg.net:19132') {
             throw 'FastTransferWitness is fixed to the authenticated LBSG endpoint'
         }
         if ($DurationSeconds -lt 600) {
@@ -53,10 +83,7 @@ function New-Phase3LaunchPlan {
         '--metrics-out', $MetricsPath,
         '--phase3-evidence-target', $Target
     )
-    if ($Scenario -cin @('CandidatePhysics', 'FastTransferWitness')) {
-        $appArguments += '--phase3-candidate-physics'
-    }
-    else { $appArguments += '--auto-fly' }
+    if ($Scenario -ieq 'FreeCameraSilence') { $appArguments += '--auto-fly' }
     if (-not [string]::IsNullOrWhiteSpace($Assets)) { $appArguments += @('--assets', $Assets) }
     return [pscustomobject][ordered]@{
         Target = $Target

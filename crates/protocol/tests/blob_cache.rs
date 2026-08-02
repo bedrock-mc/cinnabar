@@ -1,6 +1,7 @@
 use protocol::{
     BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver,
-    BlockUpdateEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
+    BlockUpdateEvent, ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent,
+    client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
 use valentine::bedrock::version::v1_26_30::{

@@ -104,17 +104,21 @@ fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() 
         )
         .expect("pending cached column");
 
-    assert!(!reset_cache_for_immediate_boundary(
-        &mut resolver,
-        McpePacketName::PacketChangeDimension
-    ));
+    assert!(
+        !reset_cache_for_immediate_boundary(&mut resolver, McpePacketName::PacketChangeDimension)
+            .expect("change dimension does not reset immediately")
+    );
     assert_eq!(resolver.stats().pending_transactions, 1);
-    assert!(reset_cache_for_immediate_boundary(
-        &mut resolver,
-        McpePacketName::PacketTransfer
-    ));
+    assert!(
+        reset_cache_for_immediate_boundary(&mut resolver, McpePacketName::PacketTransfer)
+            .expect("transfer preserves rollback recovery")
+    );
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_resets, 1);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
 }
 
 #[test]

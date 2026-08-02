@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
@@ -11,7 +12,7 @@ use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessag
 /// Jolyne transport over the local length-framed bridge.
 pub struct SocketTransport {
     stream: FramedStream,
-    send_pending: bool,
+    send_state: SendState,
     peer_addr: SocketAddr,
 }
 
@@ -19,7 +20,7 @@ impl SocketTransport {
     pub(crate) async fn connect(socket_dir: &Path) -> anyhow::Result<Self> {
         Ok(Self {
             stream: bridge::connect(socket_dir).await?,
-            send_pending: false,
+            send_state: SendState::default(),
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         })
     }
@@ -38,10 +39,18 @@ impl Transport for SocketTransport {
         let this = self.as_mut().get_mut();
         poll_send_frame(
             Pin::new(&mut this.stream),
-            &mut this.send_pending,
+            &mut this.send_state,
             cx,
             message.buffer,
         )
+    }
+
+    fn poll_drain_send(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let this = self.as_mut().get_mut();
+        poll_drain_send_state(Pin::new(&mut this.stream), &mut this.send_state, cx)
     }
 
     fn poll_recv(
@@ -63,33 +72,139 @@ impl Transport for SocketTransport {
     }
 }
 
+#[derive(Debug)]
+struct PendingSend {
+    buffer: Bytes,
+    started: bool,
+}
+
+#[derive(Debug, Default)]
+struct SendState {
+    active: Option<PendingSend>,
+    queued: VecDeque<Bytes>,
+}
+
+fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
+    left.len() == right.len() && left.as_ptr() == right.as_ptr()
+}
+
 fn poll_send_frame<S>(
     mut stream: Pin<&mut S>,
-    send_pending: &mut bool,
+    state: &mut SendState,
     cx: &mut Context<'_>,
     buffer: Bytes,
 ) -> Poll<Result<(), S::Error>>
 where
     S: Sink<Bytes> + Unpin,
 {
-    if !*send_pending {
-        match stream.as_mut().poll_ready(cx) {
-            Poll::Ready(Ok(())) => {}
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Pending => return Poll::Pending,
+    let already_retained = state
+        .active
+        .as_ref()
+        .is_some_and(|pending| same_buffer(&pending.buffer, &buffer))
+        || state
+            .queued
+            .iter()
+            .any(|queued| same_buffer(queued, &buffer));
+    if !already_retained {
+        if state.active.is_none() {
+            state.active = Some(PendingSend {
+                buffer: buffer.clone(),
+                started: false,
+            });
+        } else {
+            state.queued.push_back(buffer.clone());
         }
-        if let Err(error) = stream.as_mut().start_send(buffer) {
-            return Poll::Ready(Err(error));
-        }
-        *send_pending = true;
     }
 
-    match stream.poll_flush(cx) {
-        Poll::Ready(result) => {
-            *send_pending = false;
-            Poll::Ready(result)
+    loop {
+        let pending = state
+            .active
+            .as_mut()
+            .expect("the current send is retained before polling");
+        if !pending.started {
+            match stream.as_mut().poll_ready(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(error)) => {
+                    state.active = None;
+                    state.queued.clear();
+                    return Poll::Ready(Err(error));
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+            if let Err(error) = stream.as_mut().start_send(pending.buffer.clone()) {
+                state.active = None;
+                state.queued.clear();
+                return Poll::Ready(Err(error));
+            }
+            pending.started = true;
         }
-        Poll::Pending => Poll::Pending,
+
+        match stream.as_mut().poll_flush(cx) {
+            Poll::Ready(Ok(())) => {
+                let completed = state.active.take().expect("a flushed send remains active");
+                let completed_current = same_buffer(&completed.buffer, &buffer);
+                state.active = state.queued.pop_front().map(|buffer| PendingSend {
+                    buffer,
+                    started: false,
+                });
+                if completed_current {
+                    return Poll::Ready(Ok(()));
+                }
+            }
+            Poll::Ready(Err(error)) => {
+                state.active = None;
+                state.queued.clear();
+                return Poll::Ready(Err(error));
+            }
+            Poll::Pending => return Poll::Pending,
+        }
+    }
+}
+
+fn poll_drain_send_state<S>(
+    mut stream: Pin<&mut S>,
+    state: &mut SendState,
+    cx: &mut Context<'_>,
+) -> Poll<Result<(), S::Error>>
+where
+    S: Sink<Bytes> + Unpin,
+{
+    loop {
+        let Some(pending) = state.active.as_mut() else {
+            return Poll::Ready(Ok(()));
+        };
+        if !pending.started {
+            match stream.as_mut().poll_ready(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(error)) => {
+                    state.active = None;
+                    state.queued.clear();
+                    return Poll::Ready(Err(error));
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+            if let Err(error) = stream.as_mut().start_send(pending.buffer.clone()) {
+                state.active = None;
+                state.queued.clear();
+                return Poll::Ready(Err(error));
+            }
+            pending.started = true;
+        }
+
+        match stream.as_mut().poll_flush(cx) {
+            Poll::Ready(Ok(())) => {
+                state.active = state.queued.pop_front().map(|buffer| PendingSend {
+                    buffer,
+                    started: false,
+                });
+            }
+            Poll::Ready(Err(error)) => {
+                state.active = None;
+                state.queued.clear();
+                return Poll::Ready(Err(error));
+            }
+            Poll::Pending => return Poll::Pending,
+        }
     }
 }
 
@@ -139,10 +254,51 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct PendingReadySink {
+        ready_polls: usize,
+        starts: usize,
+    }
+
+    impl Sink<Bytes> for PendingReadySink {
+        type Error = BridgeError;
+
+        fn poll_ready(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            self.ready_polls += 1;
+            if self.ready_polls == 1 {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        }
+
+        fn start_send(mut self: Pin<&mut Self>, _item: Bytes) -> Result<(), Self::Error> {
+            self.starts += 1;
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
     #[test]
     fn pending_flush_does_not_start_the_same_frame_twice() {
         let mut sink = PendingFlushSink::default();
-        let mut pending = false;
+        let mut pending = SendState::default();
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
         let bytes = Bytes::from_static(b"frame");
@@ -153,5 +309,87 @@ mod tests {
         );
         assert!(poll_send_frame(Pin::new(&mut sink), &mut pending, &mut cx, bytes).is_ready());
         assert_eq!(sink.starts, 1);
+    }
+
+    #[test]
+    fn cancelled_pending_send_can_be_drained_without_a_replacement_frame() {
+        let mut sink = PendingFlushSink::default();
+        let mut pending = SendState::default();
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(
+            poll_send_frame(
+                Pin::new(&mut sink),
+                &mut pending,
+                &mut cx,
+                Bytes::from_static(b"cancelled"),
+            )
+            .is_pending()
+        );
+        assert!(poll_drain_send_state(Pin::new(&mut sink), &mut pending, &mut cx).is_ready());
+        assert_eq!(sink.starts, 1);
+        assert!(pending.active.is_none());
+        assert!(pending.queued.is_empty());
+    }
+
+    #[test]
+    fn cancelled_pending_send_flushes_before_starting_the_replacement_frame() {
+        let mut sink = PendingFlushSink::default();
+        let mut pending = SendState::default();
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(
+            poll_send_frame(
+                Pin::new(&mut sink),
+                &mut pending,
+                &mut cx,
+                Bytes::from_static(b"cancelled"),
+            )
+            .is_pending()
+        );
+        assert!(
+            poll_send_frame(
+                Pin::new(&mut sink),
+                &mut pending,
+                &mut cx,
+                Bytes::from_static(b"replacement"),
+            )
+            .is_ready()
+        );
+        assert_eq!(sink.starts, 2);
+        assert!(pending.active.is_none());
+        assert!(pending.queued.is_empty());
+    }
+
+    #[test]
+    fn cancelled_send_waiting_for_readiness_is_retained_before_its_replacement() {
+        let mut sink = PendingReadySink::default();
+        let mut pending = SendState::default();
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(
+            poll_send_frame(
+                Pin::new(&mut sink),
+                &mut pending,
+                &mut cx,
+                Bytes::from_static(b"cancelled-before-start"),
+            )
+            .is_pending()
+        );
+        assert!(
+            poll_send_frame(
+                Pin::new(&mut sink),
+                &mut pending,
+                &mut cx,
+                Bytes::from_static(b"replacement"),
+            )
+            .is_ready()
+        );
+        assert_eq!(sink.starts, 2);
+        assert!(pending.active.is_none());
+        assert!(pending.queued.is_empty());
     }
 }

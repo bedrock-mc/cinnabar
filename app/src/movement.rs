@@ -326,6 +326,13 @@ impl MovementTicker {
 
     fn fail_physics_authority(&mut self, fault: &PhysicsAuthorityFault) {
         if self.pending_fault.is_none() {
+            bevy::log::warn!(
+                ?fault,
+                session_generation = self.session_generation,
+                next_tick = self.next_tick,
+                pending_count = self.pending_count(),
+                "local physics authority failed closed"
+            );
             self.pending_fault = Some(PhysicsAuthorityFaultRecord {
                 session_generation: self.session_generation,
                 fault: fault.clone(),
@@ -556,6 +563,11 @@ impl MovementTicker {
         self.physics_is_authorized()
             && !self.terminal_drain
             && !self.has_unresolved_position_authority_change()
+    }
+    pub(crate) fn can_advance_physics_frame(&self) -> bool {
+        self.accepting_physics_admissions()
+            && self.pending_count()
+                <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
     }
 
     /// Records the explicit event that the server-authoritative local position
@@ -834,49 +846,74 @@ pub fn reconcile_candidate_physics_correction(
     if !ticker.physics_is_authorized() {
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
-    let aligned_tick = match mode {
-        PhysicsCorrectionMode::ReplayIfRetained => tick,
-        PhysicsCorrectionMode::Snap => ticker
-            .next_tick
-            .max(tick.saturating_add(1))
-            .saturating_sub(1),
-    };
-    let mut candidate_physics = physics.clone();
-    let mut candidate_ticker = ticker.clone();
-    let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
-    let plan = candidate_physics
-        .apply_correction(
-            network_position,
-            aligned_tick,
-            on_ground,
-            mode,
-            confirmation.as_ref(),
-            world,
-        )
-        .map_err(|error| match error {
-            physics::PhysicsCorrectionError::InvalidAnchor
-            | physics::PhysicsCorrectionError::ReplayFailed => {
-                PhysicsAuthorityFault::CorrectionReplayFailed
-            }
-            physics::PhysicsCorrectionError::NotRetained { tick } => {
-                PhysicsAuthorityFault::CorrectionNotRetained { tick }
-            }
-            physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
-                PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
-            }
-        });
-    let result = plan.and_then(|plan| {
+
+    let apply_candidate = |mode| {
+        let aligned_tick = match mode {
+            PhysicsCorrectionMode::ReplayIfRetained => tick,
+            PhysicsCorrectionMode::Snap => ticker
+                .next_tick
+                .max(tick.saturating_add(1))
+                .saturating_sub(1),
+        };
+        let mut candidate_physics = physics.clone();
+        let mut candidate_ticker = ticker.clone();
+        let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
+        let plan = candidate_physics
+            .apply_correction(
+                network_position,
+                aligned_tick,
+                on_ground,
+                mode,
+                confirmation.as_ref(),
+                world,
+            )
+            .map_err(|error| match error {
+                physics::PhysicsCorrectionError::InvalidAnchor
+                | physics::PhysicsCorrectionError::ReplayFailed => {
+                    PhysicsAuthorityFault::CorrectionReplayFailed
+                }
+                physics::PhysicsCorrectionError::NotRetained { tick } => {
+                    PhysicsAuthorityFault::CorrectionNotRetained { tick }
+                }
+                physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
+                    PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
+                }
+            })?;
         candidate_ticker.apply_correction_plan(&plan)?;
-        let outcome = plan.outcome;
-        *physics = candidate_physics;
-        *ticker = candidate_ticker;
-        Ok(outcome)
-    });
-    if let Err(ref fault) = result {
-        ticker.fail_physics_authority(fault);
-        physics.deactivate();
+        Ok((candidate_ticker, candidate_physics, plan.outcome))
+    };
+
+    let mut result = apply_candidate(mode);
+    if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
+        && matches!(
+            result,
+            Err(PhysicsAuthorityFault::CorrectionNotRetained { .. }
+                | PhysicsAuthorityFault::CorrectionReplayFailed
+                | PhysicsAuthorityFault::ReplayWorldIdentityMismatch { .. }
+                | PhysicsAuthorityFault::PendingWorldIdentityMismatch { .. })
+        )
+    {
+        // A delayed correction can outlive local history, and replaying from a
+        // changed anchor or after a newly committed subchunk can legitimately
+        // encounter different immutable chunk revisions. The server position
+        // remains authoritative in each case, so discard speculative history
+        // and continue from a current-tick snap instead of silently restoring
+        // free-camera movement.
+        result = apply_candidate(PhysicsCorrectionMode::Snap);
     }
-    result
+
+    match result {
+        Ok((candidate_ticker, candidate_physics, outcome)) => {
+            *physics = candidate_physics;
+            *ticker = candidate_ticker;
+            Ok(outcome)
+        }
+        Err(fault) => {
+            ticker.fail_physics_authority(&fault);
+            physics.deactivate();
+            Err(fault)
+        }
+    }
 }
 
 pub(crate) fn flush_player_auth_inputs<E>(

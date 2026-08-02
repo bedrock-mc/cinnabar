@@ -262,6 +262,26 @@ fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
 }
 
 #[test]
+fn physics_frame_admission_reserves_the_maximum_fixed_tick_batch() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 0, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    let reserved_depth = OUTBOX_CAPACITY - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
+    for tick in 1..=reserved_depth as u64 {
+        ticker
+            .enqueue_completed_physics(completed_sample(tick, [0.0; 3]))
+            .unwrap();
+    }
+    assert!(ticker.can_advance_physics_frame());
+
+    ticker
+        .enqueue_completed_physics(completed_sample(reserved_depth as u64 + 1, [0.0; 3]))
+        .unwrap();
+    assert!(!ticker.can_advance_physics_frame());
+    assert!(ticker.physics_is_authorized());
+}
+
+#[test]
 fn retry_front_rejects_over_capacity_without_losing_the_snapshot() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0; 3]);

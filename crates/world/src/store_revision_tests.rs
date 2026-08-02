@@ -32,6 +32,7 @@ fn exhausted_store_rejects_load_before_mutation() {
     let mut store = ChunkStore {
         chunks: HashMap::new(),
         loaded_chunks: BTreeSet::new(),
+        authoritative_sub_chunks: BTreeSet::new(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: allocator,
     };
@@ -70,6 +71,7 @@ fn exhausted_loaded_store(key: ChunkKey) -> ChunkStore {
     ChunkStore {
         chunks: HashMap::new(),
         loaded_chunks: BTreeSet::from([key]),
+        authoritative_sub_chunks: BTreeSet::new(),
         collision_revisions: HashMap::from([(
             key,
             ChunkCollisionRevision {
@@ -136,6 +138,7 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
     let mut store = ChunkStore {
         chunks: HashMap::new(),
         loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
+        authoritative_sub_chunks: BTreeSet::new(),
         collision_revisions: HashMap::from([
             (
                 first_chunk,
@@ -185,6 +188,7 @@ fn successful_batch_assigns_revisions_in_sorted_column_order() {
     let mut store = ChunkStore {
         chunks: HashMap::new(),
         loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
+        authoritative_sub_chunks: BTreeSet::new(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
     };

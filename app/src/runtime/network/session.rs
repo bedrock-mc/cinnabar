@@ -558,7 +558,7 @@ async fn run_network_pump<S: NetworkSession>(
                     sub_chunk,
                     chat,
                     physics,
-                    mut physics_reanchor,
+                    physics_reanchor,
                 }) => {
                     if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
                         && *reanchor.borrow() != identity.reanchor_epoch
@@ -581,26 +581,16 @@ async fn run_network_pump<S: NetworkSession>(
                     if trace_armed {
                         session.begin_packet_id_trace();
                     }
-                    let send_outcome = if let (Some(identity), Some(reanchor)) =
-                        (physics, physics_reanchor.as_mut())
-                    {
-                        wait_for_physics_send_or_cancel(
-                            session.send_packet(packet),
-                            &mut shutdown_rx,
-                            reanchor,
-                            identity.reanchor_epoch,
-                        )
-                        .await
-                    } else {
-                        match wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
-                            .await
-                        {
-                            Some(result) => PhysicsSendOutcome::Sent(result),
-                            None => PhysicsSendOutcome::Shutdown,
-                        }
-                    };
+                    // Command dequeue is the last point where a physics packet is
+                    // provably unsent. Once the socket write starts, let it finish:
+                    // racing a reanchor against an in-flight write cannot establish
+                    // whether the server observed the old packet, and cancelling it
+                    // here used to disable production movement on routine corrections.
+                    let send_outcome =
+                        wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
+                            .await;
                     match send_outcome {
-                        PhysicsSendOutcome::Shutdown => {
+                        None => {
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
@@ -608,25 +598,7 @@ async fn run_network_pump<S: NetworkSession>(
                                 break;
                             }
                         }
-                        PhysicsSendOutcome::Invalidated => {
-                            if trace_armed {
-                                session.cancel_packet_id_trace();
-                            }
-                            if let Some(identity) = physics
-                                && !send_control_event_or_cancel(
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                    NetworkControlEvent::PhysicsPacketCancelled {
-                                        identity,
-                                        definitely_unsent: false,
-                                    },
-                                )
-                                .await
-                            {
-                                return;
-                            }
-                        }
-                        PhysicsSendOutcome::Sent(Ok(())) => {
+                        Some(Ok(())) => {
                             if trace_armed {
                                 session.arm_blob_cache_reset_for_fast_transfer();
                             }
@@ -704,7 +676,7 @@ async fn run_network_pump<S: NetworkSession>(
                                 return;
                             }
                         }
-                        PhysicsSendOutcome::Sent(Err(error)) => {
+                        Some(Err(error)) => {
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }

@@ -366,6 +366,17 @@ impl WorldStream {
                 self.record_sub_chunk_reply_admissions(&batch);
                 self.enqueue_decode_job(DecodeJob::SubChunks { sequence, batch });
             }
+            WorldEvent::SubChunkReplyAdmission(admission) => {
+                self.record_sub_chunk_reply_admission(&admission);
+                if let Err(error) = self
+                    .ordered
+                    .insert(sequence, PreparedWorldEvent::CommitOnly)
+                {
+                    self.submitted.remove(&sequence);
+                    return Err(error.into());
+                }
+                self.apply_ready();
+            }
             WorldEvent::BlockEntityUpdate(event) => {
                 self.enqueue_decode_job(DecodeJob::BlockEntityUpdate { sequence, event });
             }

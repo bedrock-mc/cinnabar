@@ -4,10 +4,14 @@ impl WorldStream {
     pub(super) fn complete_requested_sub_chunk(
         &mut self,
         key: SubChunkKey,
-        collision_authoritative: bool,
+        mut collision_authoritative: bool,
     ) {
         self.cancel_sub_chunk_retry(key);
         let chunk = key.chunk();
+        if collision_authoritative && self.store.mark_sub_chunk_loaded(key).is_err() {
+            collision_authoritative = false;
+            self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+        }
         if !collision_authoritative {
             self.request_collision_failures.insert(chunk);
         }
@@ -52,46 +56,55 @@ impl WorldStream {
     }
     pub(super) fn record_sub_chunk_reply_admissions(&mut self, batch: &SubChunkBatchEvent) {
         for entry in &batch.entries {
-            let key = SubChunkKey::new(
-                batch.dimension,
-                entry.position[0],
-                entry.position[1],
-                entry.position[2],
-            );
-            if !self.column_is_active(key.chunk()) {
-                continue;
-            }
-            let expected = self.is_expected_sub_chunk(key);
-            let available = self
-                .requested_sub_chunks
-                .get(&key.chunk())
-                .and_then(|column| column.get(&key.y))
-                .map_or_else(
-                    || {
-                        self.correlated_sub_chunk_attempts
-                            .get(&key)
-                            .map_or(0, |attempts| attempts.confirmed_attempts)
-                    },
-                    |pending| pending.confirmed_attempts.max(1),
-                );
-            let admitted = self
-                .admitted_sub_chunk_replies
-                .get(&key)
-                .copied()
-                .unwrap_or(0);
-            if admitted < available {
-                self.stats.phase2_stages.responses_admitted = self
-                    .stats
-                    .phase2_stages
-                    .responses_admitted
-                    .saturating_add(1);
-                if expected {
-                    self.cancel_sub_chunk_retry(key);
-                }
-                self.admitted_sub_chunk_replies
-                    .insert(key, admitted.saturating_add(1));
-            }
+            self.record_sub_chunk_reply_admission_position(batch.dimension, entry.position);
         }
+    }
+    pub(super) fn record_sub_chunk_reply_admission(
+        &mut self,
+        admission: &SubChunkReplyAdmissionEvent,
+    ) {
+        for position in &admission.positions {
+            self.record_sub_chunk_reply_admission_position(admission.dimension, *position);
+        }
+    }
+    fn record_sub_chunk_reply_admission_position(&mut self, dimension: i32, position: [i32; 3]) {
+        let key = SubChunkKey::new(dimension, position[0], position[1], position[2]);
+        if !self.column_is_active(key.chunk()) {
+            return;
+        }
+        let expected = self.is_expected_sub_chunk(key);
+        let available = self
+            .requested_sub_chunks
+            .get(&key.chunk())
+            .and_then(|column| column.get(&key.y))
+            .map_or_else(
+                || {
+                    self.correlated_sub_chunk_attempts
+                        .get(&key)
+                        .map_or(0, |attempts| attempts.confirmed_attempts)
+                },
+                |pending| pending.confirmed_attempts.max(1),
+            );
+        let admitted = self
+            .admitted_sub_chunk_replies
+            .get(&key)
+            .copied()
+            .unwrap_or(0);
+        if admitted < available {
+            self.stats.phase2_stages.responses_admitted = self
+                .stats
+                .phase2_stages
+                .responses_admitted
+                .saturating_add(1);
+            if expected {
+                self.cancel_sub_chunk_retry(key);
+            }
+            self.admitted_sub_chunk_replies
+                .insert(key, admitted.saturating_add(1));
+        }
+    }
+    pub(super) fn clear_admitted_sub_chunk_replies(&mut self, key: SubChunkKey) -> bool {
+        self.admitted_sub_chunk_replies.remove(&key).is_some()
     }
     pub(super) fn consume_admitted_sub_chunk_reply(&mut self, key: SubChunkKey) -> bool {
         let Some(admitted) = self.admitted_sub_chunk_replies.get_mut(&key) else {

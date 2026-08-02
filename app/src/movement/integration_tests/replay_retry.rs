@@ -621,7 +621,7 @@ fn bootstrap_reset_publishes_before_equipment_identity_early_exit() {
 }
 
 #[test]
-fn failed_production_reconciliation_invalidates_transport_owned_commands() {
+fn snap_fallback_invalidates_transport_owned_commands() {
     let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
@@ -660,15 +660,17 @@ fn failed_production_reconciliation_invalidates_transport_owned_commands() {
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(1),
         ),
-        Err(PhysicsAuthorityFault::CorrectionNotRetained { tick: 999 })
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 999 })
     );
     assert!(
         ticker.reanchor_epoch() > admitted_epoch,
-        "authority failure must advance the position-authority epoch"
+        "snap fallback must advance the position-authority epoch"
     );
     assert_eq!(
         *reanchor.borrow(),
         ticker.reanchor_epoch(),
-        "authority failure must publish its invalidation epoch to the network worker"
+        "snap fallback must publish its invalidation epoch to the network worker"
     );
+    assert!(ticker.physics_is_authorized());
+    assert!(physics.is_active());
 }

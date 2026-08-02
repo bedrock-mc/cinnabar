@@ -15,6 +15,7 @@ pub struct BlobCacheStatus {
     have: Vec<u64>,
     outstanding: Vec<u64>,
     pub recovery: Option<ChunkResyncEvent>,
+    admission: Option<SubChunkReplyAdmissionEvent>,
     classified_hashes: usize,
     staged_bytes: usize,
     _classified: ClassifiedStatus,
@@ -39,6 +40,7 @@ impl BlobCacheStatus {
             have,
             outstanding: Vec::new(),
             recovery,
+            admission: None,
             classified_hashes,
             staged_bytes,
             _classified: ClassifiedStatus,
@@ -89,6 +91,14 @@ impl BlobCacheStatus {
 
     pub(super) fn set_recovery(&mut self, recovery: Option<ChunkResyncEvent>) {
         self.recovery = recovery;
+    }
+
+    pub(crate) fn set_admission(&mut self, admission: Option<SubChunkReplyAdmissionEvent>) {
+        self.admission = admission;
+    }
+
+    pub(crate) fn take_admission(&mut self) -> Option<SubChunkReplyAdmissionEvent> {
+        self.admission.take()
     }
 
     #[must_use]

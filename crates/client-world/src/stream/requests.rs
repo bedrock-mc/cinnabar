@@ -228,15 +228,22 @@ impl WorldStream {
         let range_end = range
             .base_sub_chunk_y
             .saturating_add(i32::try_from(range.sub_chunk_count).unwrap_or(i32::MAX));
-        let missing = ys
+        let mut missing = BTreeSet::new();
+        for y in ys
             .iter()
             .copied()
-            .filter(|y| {
-                *y >= range.base_sub_chunk_y
-                    && *y < range_end
-                    && !self.is_expected_sub_chunk(SubChunkKey::from_chunk(key, *y))
-            })
-            .collect::<BTreeSet<_>>();
+            .filter(|y| *y >= range.base_sub_chunk_y && *y < range_end)
+        {
+            let sub_chunk = SubChunkKey::from_chunk(key, y);
+            let admitted = self.clear_admitted_sub_chunk_replies(sub_chunk);
+            if self.is_expected_sub_chunk(sub_chunk) {
+                if admitted && self.retry_or_complete_sub_chunk(sub_chunk) {
+                    self.complete_requested_sub_chunk(sub_chunk, false);
+                }
+            } else {
+                missing.insert(y);
+            }
+        }
 
         let mut ranges: Vec<(i32, i32)> = Vec::new();
         let mut start: Option<i32> = None;

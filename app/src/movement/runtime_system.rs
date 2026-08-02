@@ -37,7 +37,7 @@ pub(crate) fn advance_local_physics(
     if auto_fly.enabled() || !physics.is_active() {
         return;
     }
-    if !movement_ticker.accepting_physics_admissions() {
+    if !movement_ticker.can_advance_physics_frame() {
         return;
     }
     let Some(stream) = client_world.stream.as_ref() else {

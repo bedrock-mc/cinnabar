@@ -640,6 +640,9 @@ impl WorldStream {
                     .actors
                     .apply_item_actor(self.actor_session_id, sequence, event);
             }
+            WorldEvent::SubChunkReplyAdmission(_) => {
+                unreachable!("SubChunk reply admissions commit ordering only")
+            }
             WorldEvent::SubChunks(_) => unreachable!("sub-chunk batches are prepared on workers"),
         }
     }

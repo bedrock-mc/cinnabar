@@ -266,7 +266,7 @@ Describe 'Phase 3 production marker evidence validation' {
         $aggregate.evidence.terminal_free_camera_packet_count | Should Be 0
     }
 
-    It 'builds exact live target plans with candidate-only physics and no free camera' {
+    It 'builds exact live target plans with production physics and no free camera' {
         $targets = [ordered]@{
             Lunar = 'pvp.lunarbedrock.com:19134'
             Zeqa = 'zeqa.net:19132'
@@ -283,7 +283,7 @@ Describe 'Phase 3 production marker evidence validation' {
                 -RunId $script:RunId -SocketDirectory 'socket' -MetricsPath 'metrics.json' `
                 -DurationSeconds $duration -Scenario CandidatePhysics -AuthCache $authCache
             $plan.CoreArguments -join ' ' | Should Match ([regex]::Escape("-upstream $endpoint"))
-            ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $true
+            ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $false
             ($plan.AppArguments -ccontains '--phase3-evidence-target') | Should Be $true
             ($plan.AppArguments -ccontains '--auto-fly') | Should Be $false
             ($plan.CoreArguments -ccontains '-auth-cache') | Should Be ($target -cne 'Bds')
@@ -313,10 +313,14 @@ Describe 'Phase 3 production marker evidence validation' {
         ($bds.CoreArguments -ccontains '-auth-cache') | Should Be $false
     }
 
-    It 'builds a distinct network-silent FreeCamera scenario without candidate physics frames' {
-        $plan = New-Phase3LaunchPlan -Target Lunar -Endpoint (Get-Phase3TargetEndpoint Lunar) `
+    It 'builds a case-insensitive network-silent FreeCamera scenario without candidate physics frames' {
+        $plan = New-Phase3LaunchPlan -Target lunar -Endpoint (Get-Phase3TargetEndpoint lunar) `
             -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-            -DurationSeconds 300 -Scenario FreeCameraSilence -AuthCache token.json
+            -DurationSeconds 300 -Scenario freecamerasilence -AuthCache token.json
+        $plan.Target | Should Be 'Lunar'
+        $plan.Scenario | Should Be 'FreeCameraSilence'
+        $targetIndex = [Array]::IndexOf($plan.AppArguments, '--phase3-evidence-target')
+        $plan.AppArguments[$targetIndex + 1] | Should Be 'Lunar'
         ($plan.AppArguments -ccontains '--auto-fly') | Should Be $true
         ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $false
         ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
@@ -330,6 +334,8 @@ Describe 'Phase 3 production marker evidence validation' {
         $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'
         $launcher | Should Match '-ScenarioManifestPath \$scenarioManifestPath'
+        $launcher | Should Match '\$Target = ConvertTo-Phase3Target -Target \$Target'
+        $launcher | Should Match '\$Scenario = ConvertTo-Phase3Scenario -Scenario \$Scenario'
     }
 
     It 'rejects an untracked source file when proving a clean candidate HEAD' {

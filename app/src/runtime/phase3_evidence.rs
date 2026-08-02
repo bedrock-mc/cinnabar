@@ -830,6 +830,11 @@ pub(crate) fn emit_phase3_evidence(
     identity_source: Option<Res<Phase3EvidenceIdentitySource>>,
     mut evidence: ResMut<Phase3EvidenceEmitter>,
 ) {
+    // Socket acknowledgements retain one immutable tick record until this
+    // system runs. Drain it in normal production too; otherwise a client
+    // without an acceptance identity permanently fills the bounded evidence
+    // queue after 32 successful movement packets and disables physics.
+    let completed_ticks = movement.take_tick_evidence();
     if !acceptance.enabled() {
         return;
     }
@@ -861,7 +866,6 @@ pub(crate) fn emit_phase3_evidence(
         Ok(identity) => identity,
         Err(_) => return,
     };
-    let completed_ticks = movement.take_tick_evidence();
     let mut markers = evidence.observe_identity(identity);
     markers.extend(evidence.observe_completed_ticks(&completed_ticks));
     if markers.is_empty() {

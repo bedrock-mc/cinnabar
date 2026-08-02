@@ -21,8 +21,9 @@ use protocol::{
     ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
     LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
-    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
+    UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{

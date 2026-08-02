@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn abandoned_subchunk_keeps_scheduler_owned_recovery_empty() {
+fn abandoned_subchunk_emits_exact_scheduler_rollback() {
     let payload = b"subchunk-recovery";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -25,8 +25,22 @@ fn abandoned_subchunk_keeps_scheduler_owned_recovery_empty() {
         .expect("SubChunk abandonment remains non-fatal");
 
     assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
-    assert_eq!(resolver.stats().recovery_ready_events, 0);
-    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert_eq!(resolver.stats().recovery_ready_events, 2);
+    assert_eq!(resolver.stats().recovery_requests, 2);
+    for (x, z, y) in [(4, 9, -3), (7, 13, -1)] {
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+                ChunkResyncEvent {
+                    dimension: 0,
+                    x: event_x,
+                    z: event_z,
+                    requested_sub_chunks: None,
+                    requested_sub_chunk_ys: Some(ys),
+                }
+            ))) if event_x == x && event_z == z && ys == vec![y]
+        ));
+    }
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
@@ -134,7 +148,7 @@ fn abandoned_levelchunk_recovery_does_not_stop_cached_intake() {
 }
 
 #[test]
-fn abandoned_subchunks_do_not_build_recovery_index_work() {
+fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
     let payload = b"recovery-aggregation";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -193,10 +207,21 @@ fn abandoned_subchunks_do_not_build_recovery_index_work() {
             .unblock_ordinary_lane()
             .expect("indexed SubChunk abandonment remains non-fatal")
     );
-    assert_eq!(resolver.stats().recovery_ready_events, 0);
-    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert_eq!(resolver.stats().recovery_ready_events, 256);
+    assert_eq!(resolver.stats().recovery_requests, 256);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_transactions, 0);
+    for _ in 0..256 {
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+                ChunkResyncEvent {
+                    requested_sub_chunk_ys: Some(ys),
+                    ..
+                }
+            ))) if ys.len() == 1
+        ));
+    }
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))
@@ -205,7 +230,7 @@ fn abandoned_subchunks_do_not_build_recovery_index_work() {
 }
 
 #[test]
-fn abandoned_subchunks_do_not_emit_coalesced_recovery() {
+fn abandoned_subchunks_emit_coalesced_exact_recovery() {
     let payload = b"coalesced-recovery";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -231,9 +256,23 @@ fn abandoned_subchunks_do_not_emit_coalesced_recovery() {
     resolver
         .unblock_ordinary_lane()
         .expect("SubChunk abandonment remains non-fatal");
-    assert_eq!(resolver.stats().recovery_ready_events, 0);
-    assert_eq!(resolver.stats().recovery_requests, 0);
+    assert_eq!(resolver.stats().recovery_ready_events, 2);
+    assert_eq!(resolver.stats().recovery_requests, 2);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
+    for (x, z, y) in [(4, 8, -3), (5, 9, -2)] {
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
+                ChunkResyncEvent {
+                    dimension: 0,
+                    x: event_x,
+                    z: event_z,
+                    requested_sub_chunks: None,
+                    requested_sub_chunk_ys: Some(ys),
+                }
+            ))) if event_x == x && event_z == z && ys == vec![y]
+        ));
+    }
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))

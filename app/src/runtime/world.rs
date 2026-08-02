@@ -11,7 +11,7 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     app::AppExit,
     ecs::system::SystemParam,
-    log::{debug, info},
+    log::{debug, info, warn},
     prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
@@ -376,7 +376,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
+                    match reconcile_candidate_physics_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
@@ -385,10 +385,15 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         PhysicsCorrectionMode::ReplayIfRetained,
                         &world,
                     ) {
-                        phase3_evidence.note_correction(
+                        Ok(outcome) => phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
-                        );
+                        ),
+                        Err(fault) => warn!(
+                            ?fault,
+                            correction_tick = correction.tick,
+                            "local physics authority failed while applying a server correction"
+                        ),
                     }
                 } else {
                     movement.snap_non_authoritative_anchor(correction.tick, resolved.position);

@@ -57,3 +57,55 @@ fn fast_transfer_reset_does_not_authorize_a_late_prior_backend_response() {
     assert!(!resolver.cache().contains(hash));
     assert_eq!(resolver.stats().miss_response_unsolicited, 1);
 }
+
+#[test]
+fn semantic_reset_recovers_unresolved_subchunk_admission() {
+    let payload = b"pending-reset-recovery";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_subchunk(hash, payload))
+        .expect("retain unresolved cached SubChunk");
+
+    resolver
+        .recover_pending()
+        .expect("semantic reset preserves admission rollback");
+
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert_eq!(resolver.stats().recovery_ready_events, 2);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+}
+
+#[test]
+fn semantic_reset_recovers_reconstructed_unpublished_subchunk() {
+    let payload = b"ready-reset-recovery";
+    let cache = ClientBlobCache::default();
+    let hash = cache.insert(payload).expect("seed reconstructed blob");
+    let mut resolver = BlobCacheResolver::new(cache);
+    resolver
+        .accept_cached_packet(cached_subchunk(hash, payload))
+        .expect("reconstruct cached SubChunk before publication");
+    assert_eq!(resolver.stats().retained_cached_transactions, 1);
+
+    resolver
+        .recover_pending()
+        .expect("semantic reset recovers reconstructed cached SubChunk");
+
+    assert_eq!(resolver.stats().retained_cached_transactions, 0);
+    assert_eq!(resolver.stats().recovery_ready_events, 2);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+}

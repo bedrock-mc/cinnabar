@@ -332,11 +332,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let phase3_identity_source = args
         .phase3_evidence_target
         .map(|target| {
-            Phase3EvidenceIdentitySource::from_build(
-                target,
-                args.phase3_candidate_physics,
-                &collision_registries,
-            )
+            Phase3EvidenceIdentitySource::from_build(target, !args.auto_fly, &collision_registries)
         })
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
