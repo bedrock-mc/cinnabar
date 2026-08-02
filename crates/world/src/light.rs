@@ -196,6 +196,13 @@ impl SubChunkLight {
         self.generation
     }
 
+    /// Requalifies solver output for the revision that will own this sub-chunk.
+    #[must_use]
+    pub fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = generation;
+        self
+    }
+
     /// Reads one local coordinate from a channel.
     #[must_use]
     pub fn get(&self, channel: LightChannel, x: u8, y: u8, z: u8) -> Option<u8> {
@@ -277,16 +284,9 @@ impl LightStoreSnapshot {
         self.entries.get(&key).map(|entry| &entry.light)
     }
 
-    /// Replaces light for a boundary already present in this snapshot.
-    ///
-    /// Returns `false` for an unknown boundary so worker-local convergence cannot
-    /// manufacture knowledge that was absent from the retained world view.
-    pub fn replace_known_light(&mut self, key: SubChunkKey, light: Arc<SubChunkLight>) -> bool {
-        let Some(entry) = self.entries.get_mut(&key) else {
-            return false;
-        };
-        entry.light = light;
-        true
+    /// Merges another retained snapshot without cloning light payloads.
+    pub fn extend(&mut self, other: Self) {
+        self.entries.extend(other.entries);
     }
 }
 

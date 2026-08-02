@@ -111,6 +111,10 @@ fn effective_light_job_cap() -> usize {
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
+const LIGHT_COLUMN_SOLVE_LIMITS: SolverLimits = SolverLimits::new(
+    4_096 * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS,
+    1_000_000 * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS,
+);
 
 #[derive(Debug, Clone, Copy)]
 struct PendingSchedulerCandidate {
@@ -217,6 +221,8 @@ pub struct WorldStream {
     light_priority_wakeups: HashMap<SubChunkKey, u64>,
     light_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
+    next_light_batch_id: u64,
+    in_flight_light_batches: HashMap<u64, usize>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
     fatal_error: Option<WorldStreamFatalError>,

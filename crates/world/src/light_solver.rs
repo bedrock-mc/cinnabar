@@ -150,6 +150,16 @@ impl LightBounds {
     }
 
     #[must_use]
+    pub const fn min(self) -> BlockPos {
+        self.min
+    }
+
+    #[must_use]
+    pub const fn max(self) -> BlockPos {
+        self.max
+    }
+
+    #[must_use]
     pub const fn contains(self, position: BlockPos) -> bool {
         position.x >= self.min.x
             && position.x <= self.max.x
@@ -412,7 +422,7 @@ pub fn solve_light<A: LightBlockAccess, P: LightReadAccess>(
         });
     }
 
-    let mut output = MutableOutput::new(bounds.dimension, generation);
+    let mut output = MutableOutput::new(bounds, generation, volume);
     let mut stats = LightSolveStats::default();
     let mut queued_total = 0_usize;
 
@@ -559,7 +569,7 @@ pub fn solve_light<A: LightBlockAccess, P: LightReadAccess>(
         &mut stats,
     )?;
 
-    Ok(output.freeze(bounds, direct_sky, stats))
+    Ok(output.freeze(direct_sky, stats))
 }
 
 fn read_prior<P: LightReadAccess>(
@@ -828,56 +838,100 @@ fn enqueue_counted(total: &mut usize, amount: usize, max: usize) -> Result<(), L
 }
 
 struct MutableOutput {
-    dimension: i32,
+    bounds: LightBounds,
     generation: u64,
-    sub_chunks: BTreeMap<SubChunkKey, SubChunkLight>,
+    y_len: usize,
+    z_len: usize,
+    values: Box<[[u8; 2]]>,
+    known: Box<[bool]>,
 }
 
 impl MutableOutput {
-    fn new(dimension: i32, generation: u64) -> Self {
+    fn new(bounds: LightBounds, generation: u64, volume: usize) -> Self {
+        let y_len = usize::try_from(i64::from(bounds.max.y) - i64::from(bounds.min.y) + 1)
+            .expect("validated light bounds have a representable y extent");
+        let z_len = usize::try_from(i64::from(bounds.max.z) - i64::from(bounds.min.z) + 1)
+            .expect("validated light bounds have a representable z extent");
         Self {
-            dimension,
+            bounds,
             generation,
-            sub_chunks: BTreeMap::new(),
+            y_len,
+            z_len,
+            values: vec![[0; 2]; volume].into_boxed_slice(),
+            known: vec![false; volume].into_boxed_slice(),
         }
     }
 
+    fn index(&self, position: BlockPos) -> Option<usize> {
+        if !self.bounds.contains(position) {
+            return None;
+        }
+        let x = usize::try_from(i64::from(position.x) - i64::from(self.bounds.min.x)).ok()?;
+        let y = usize::try_from(i64::from(position.y) - i64::from(self.bounds.min.y)).ok()?;
+        let z = usize::try_from(i64::from(position.z) - i64::from(self.bounds.min.z)).ok()?;
+        x.checked_mul(self.y_len)?
+            .checked_add(y)?
+            .checked_mul(self.z_len)?
+            .checked_add(z)
+    }
+
     fn get(&self, position: BlockPos, channel: LightChannel) -> u8 {
-        let (key, [x, y, z]) = split_position(self.dimension, position);
-        self.sub_chunks
-            .get(&key)
-            .and_then(|light| light.get(channel, x, y, z))
-            .unwrap_or(0)
+        let Some(index) = self.index(position) else {
+            return 0;
+        };
+        self.values[index][light_channel_index(channel)]
     }
 
     fn set(&mut self, position: BlockPos, channel: LightChannel, value: u8) {
-        let (key, [x, y, z]) = split_position(self.dimension, position);
-        let light = self
-            .sub_chunks
-            .entry(key)
-            .or_insert_with(|| SubChunkLight::dark(self.generation));
-        light
-            .set(channel, x, y, z, value)
-            .expect("solver only emits validated nibble values");
+        let index = self
+            .index(position)
+            .expect("solver writes only inside validated light bounds");
+        self.values[index][light_channel_index(channel)] = value;
+        self.known[index] = true;
     }
 
-    fn freeze(
-        self,
-        bounds: LightBounds,
-        direct_sky: BTreeSet<BlockPos>,
-        stats: LightSolveStats,
-    ) -> LightSolveOutput {
+    fn freeze(self, direct_sky: BTreeSet<BlockPos>, stats: LightSolveStats) -> LightSolveOutput {
+        let mut sub_chunks = BTreeMap::<SubChunkKey, SubChunkLight>::new();
+        for position in self.bounds.positions() {
+            let index = self
+                .index(position)
+                .expect("bounded positions always have a dense light index");
+            if !self.known[index] {
+                continue;
+            }
+            let (key, [x, y, z]) = split_position(self.bounds.dimension, position);
+            let light = sub_chunks
+                .entry(key)
+                .or_insert_with(|| SubChunkLight::dark(self.generation));
+            for channel in [LightChannel::Block, LightChannel::Sky] {
+                light
+                    .set(
+                        channel,
+                        x,
+                        y,
+                        z,
+                        self.values[index][light_channel_index(channel)],
+                    )
+                    .expect("solver only emits validated nibble values");
+            }
+        }
         LightSolveOutput {
-            dimension: self.dimension,
-            bounds,
-            sub_chunks: self
-                .sub_chunks
+            dimension: self.bounds.dimension,
+            bounds: self.bounds,
+            sub_chunks: sub_chunks
                 .into_iter()
                 .map(|(key, light)| (key, Arc::new(light)))
                 .collect(),
             direct_sky,
             stats,
         }
+    }
+}
+
+const fn light_channel_index(channel: LightChannel) -> usize {
+    match channel {
+        LightChannel::Block => 0,
+        LightChannel::Sky => 1,
     }
 }
 

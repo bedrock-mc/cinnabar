@@ -144,6 +144,8 @@ impl WorldStream {
             light_priority_wakeups: HashMap::new(),
             light_scheduler_camera_cell: None,
             in_flight_light: HashMap::new(),
+            next_light_batch_id: 0,
+            in_flight_light_batches: HashMap::new(),
             light_waiters: HashMap::new(),
             fatal_light_failure: false,
             fatal_error: None,

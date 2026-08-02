@@ -607,6 +607,34 @@ fn light_change_invalidation_only_dirties_renderable_dependents_once() {
 }
 
 #[test]
+fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
+    let mut stream = lit_stream(0);
+    let source = SubChunkKey::new(0, 4, 5, 6);
+    let east = SubChunkKey::new(0, 5, 5, 6);
+    let up = SubChunkKey::new(0, 4, 6, 6);
+    let east_up = SubChunkKey::new(0, 5, 6, 6);
+    let west = SubChunkKey::new(0, 3, 5, 6);
+    for key in [source, east, up, east_up, west] {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        stream.resident.insert(key);
+    }
+
+    stream.mark_changed_light_mesh_dependents(
+        source,
+        [false, true, false, true, false, false],
+        Instant::now(),
+    );
+
+    assert_eq!(
+        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([source, east, up, east_up])
+    );
+}
+
+#[test]
 fn mesh_dispatch_waits_for_current_light() {
     let mut stream = stream();
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -792,8 +820,7 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
     stream.mark_changed(below, Instant::now());
     let blocks = stream.light_block_snapshot(below);
     assert_eq!(blocks.sky_seed(BlockPos::new(0, 303, 0)), 0);
-    complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
-    complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
+    settle_light(&mut stream, [8.0, 296.0, 8.0]);
     assert_eq!(
         stream
             .light_store
@@ -808,15 +835,16 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
 
     stream.mark_light_dirty_exact(top);
     stream.mark_light_dirty_exact(below);
-    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 2);
     assert!(stream.in_flight_light.contains_key(&top));
-    assert!(!stream.in_flight_light.contains_key(&below));
-    let completion = stream
-        .light_rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap();
-    stream.accept_light_completion(completion);
-    complete_one_light(&mut stream, [8.0, 296.0, 8.0]);
+    assert!(stream.in_flight_light.contains_key(&below));
+    for _ in 0..2 {
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        stream.accept_light_completion(completion);
+    }
     assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
     assert_eq!(
         stream
@@ -850,9 +878,7 @@ fn limited_empty_column_propagates_direct_sky_into_the_mesh_light_sidecar() {
     super::complete_pending_decode_jobs(&mut stream);
 
     assert!(stream.take_requests().is_empty());
-    for y in (-4..=19).rev() {
-        complete_one_light(&mut stream, [8.0, y as f32 * 16.0 + 8.0, 8.0]);
-    }
+    settle_light(&mut stream, [8.0, 312.0, 8.0]);
 
     let bottom = SubChunkKey::new(0, 0, -4, 0);
     assert_eq!(

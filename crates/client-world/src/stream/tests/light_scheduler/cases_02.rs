@@ -66,9 +66,9 @@ fn overworld_initial_sky_work_waits_for_the_current_upper_subchunk() {
     stream.record_known_air(below);
     stream.mark_light_changed_sources([top, below]);
 
-    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 4), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 4), 2);
     assert!(stream.in_flight_light.contains_key(&top));
-    assert!(!stream.in_flight_light.contains_key(&below));
+    assert!(stream.in_flight_light.contains_key(&below));
 }
 
 #[test]

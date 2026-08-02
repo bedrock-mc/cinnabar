@@ -6,7 +6,8 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        let worker_budget = effective_light_job_cap().saturating_sub(self.in_flight_light.len());
+        let worker_budget =
+            effective_light_job_cap().saturating_sub(self.in_flight_light_batches.len());
         let solve_budget = budget.min(worker_budget);
         if self.fatal_light_failure || solve_budget == 0 {
             return 0;
@@ -86,10 +87,21 @@ impl WorldStream {
         while prepared_batches.len() < solve_budget
             && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
         {
-            let Some(candidate) = self.pending_light_ready.pop() else {
+            let Some(mut candidate) = self.pending_light_ready.pop() else {
                 break;
             };
             scanned += 1;
+            if let Some((highest_key, highest_pending)) =
+                self.highest_pending_light_in_column(candidate.key)
+                && highest_key != candidate.key
+            {
+                self.pending_light_deferred.push(candidate);
+                candidate = PendingSchedulerCandidate::new(
+                    highest_key,
+                    highest_pending.revision,
+                    camera_position,
+                );
+            }
             let key = candidate.key;
             let revision = candidate.revision;
             let Some(pending) = self.pending_light.get(&key).copied() else {
@@ -137,6 +149,8 @@ impl WorldStream {
                 continue;
             };
 
+            self.next_light_batch_id = self.next_light_batch_id.wrapping_add(1).max(1);
+            let batch_id = self.next_light_batch_id;
             let mut batch_keys = HashSet::from([key]);
             let mut batch = vec![self.take_prepared_light_job(
                 key,
@@ -144,6 +158,7 @@ impl WorldStream {
                 block_generation,
                 bounds,
                 &batch_keys,
+                batch_id,
             )];
             let mut lower = key;
             while batch.len() < MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS {
@@ -185,10 +200,12 @@ impl WorldStream {
                     next_block_generation,
                     next_bounds,
                     &batch_keys,
+                    batch_id,
                 ));
                 lower = next;
             }
             selected.extend(batch_keys);
+            self.in_flight_light_batches.insert(batch_id, batch.len());
             prepared_batches.push(batch);
         }
 
@@ -201,61 +218,17 @@ impl WorldStream {
         for batch in prepared_batches {
             let tx = self.light_tx.clone();
             rayon::spawn(move || {
-                let mut solved_boundaries =
-                    HashMap::<SubChunkKey, (Arc<SubChunkLight>, Arc<DirectSkyMask>)>::new();
-                let mut jobs = batch.into_iter();
-                while let Some(mut job) = jobs.next() {
-                    for (&solved_key, (light, direct_sky)) in &solved_boundaries {
-                        if job
-                            .prior
-                            .light
-                            .replace_known_light(solved_key, Arc::clone(light))
-                        {
-                            job.prior.direct_sky.insert(
-                                solved_key,
-                                StoredDirectSky {
-                                    light_revision: light.generation(),
-                                    mask: Arc::clone(direct_sky),
-                                },
-                            );
-                            job.prior.trusted_boundaries.insert(solved_key);
-                        }
-                    }
-                    let started = Instant::now();
-                    let queue_latency = queue_wait(job.queued_at, started);
-                    let key = job.key;
-                    let identity = job.identity;
-                    let result = solve_prepared_light_job(job);
-                    let failure = result.as_ref().err().copied();
-                    if let Ok(solved) = &result {
-                        solved_boundaries.insert(
-                            key,
-                            (
-                                Arc::new(solved.replacement.clone()),
-                                Arc::clone(&solved.direct_sky),
-                            ),
-                        );
-                    }
+                let started = Instant::now();
+                let solved = solve_prepared_light_batch(batch);
+                let duration = started.elapsed();
+                for entry in solved {
                     let _ = tx.send(LightCompletion {
-                        key,
-                        identity,
-                        result,
-                        queue_wait: queue_latency,
-                        duration: started.elapsed(),
+                        key: entry.key,
+                        identity: entry.identity,
+                        result: entry.result,
+                        queue_wait: queue_wait(entry.queued_at, started),
+                        duration,
                     });
-                    if let Some(error) = failure {
-                        for remaining in jobs {
-                            let started = Instant::now();
-                            let _ = tx.send(LightCompletion {
-                                key: remaining.key,
-                                identity: remaining.identity,
-                                result: Err(error),
-                                queue_wait: queue_wait(remaining.queued_at, started),
-                                duration: Duration::ZERO,
-                            });
-                        }
-                        break;
-                    }
                 }
             });
         }
@@ -268,6 +241,7 @@ impl WorldStream {
         block_generation: u64,
         bounds: LightBounds,
         retained_batch: &HashSet<SubChunkKey>,
+        batch_id: u64,
     ) -> PreparedLightJob {
         if !self.light_ownership.contains_key(&key) {
             debug_assert!(self.light_store.light(key).is_some());
@@ -280,6 +254,7 @@ impl WorldStream {
             revision: pending.revision,
             block_generation,
             previous_light_generation: self.light_store.light(key).map(|light| light.generation()),
+            batch_id,
         };
         self.pending_light.remove(&key);
         self.light_priority_wakeups.remove(&key);
@@ -300,9 +275,7 @@ impl WorldStream {
             .light_jobs_completed
             .saturating_add(1);
         self.stats.observe_light_queue_wait(completion.queue_wait);
-        if self.in_flight_light.get(&completion.key) == Some(&completion.identity) {
-            self.in_flight_light.remove(&completion.key);
-        }
+        self.remove_in_flight_light(completion.key, Some(completion.identity));
         if self.fatal_light_failure {
             self.remove_light_waiters_for(completion.key);
             self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
@@ -450,7 +423,7 @@ impl WorldStream {
         self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
         self.stats.value_changed_light_jobs = self.stats.value_changed_light_jobs.saturating_add(1);
         self.stats.light_mesh_invalidations = self.stats.light_mesh_invalidations.saturating_add(1);
-        self.mark_light_mesh_dependents(completion.key, Instant::now());
+        self.mark_changed_light_mesh_dependents(completion.key, changed_faces, Instant::now());
 
         self.finish_accepted_light_completion(completion.key, &new_direct, changed_faces);
     }
@@ -470,8 +443,9 @@ impl WorldStream {
                 continue;
             }
             if let Some(neighbour) = offset_sub_chunk_key(key, offset) {
-                if self.pending_light.contains_key(&neighbour)
-                    || self.in_flight_light.contains_key(&neighbour)
+                let neighbour_in_flight = self.in_flight_light.contains_key(&neighbour);
+                if (self.pending_light.contains_key(&neighbour) && !neighbour_in_flight)
+                    || (neighbour_in_flight && neighbour.x == key.x && neighbour.z == key.z)
                 {
                     continue;
                 }

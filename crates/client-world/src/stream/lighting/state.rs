@@ -65,8 +65,31 @@ impl WorldStream {
         self.light_revisions.entries.remove(&key);
         self.pending_light.remove(&key);
         self.light_priority_wakeups.remove(&key);
-        self.in_flight_light.remove(&key);
+        self.remove_in_flight_light(key, None);
         self.remove_light_waiters_for(key);
+    }
+    pub(in crate::stream) fn remove_in_flight_light(
+        &mut self,
+        key: SubChunkKey,
+        expected: Option<LightJobIdentity>,
+    ) -> bool {
+        let Some(identity) = self.in_flight_light.get(&key).copied() else {
+            return false;
+        };
+        if expected.is_some_and(|expected| expected != identity) {
+            return false;
+        }
+        self.in_flight_light.remove(&key);
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.in_flight_light_batches.entry(identity.batch_id)
+        {
+            if *entry.get() <= 1 {
+                entry.remove();
+            } else {
+                *entry.get_mut() -= 1;
+            }
+        }
+        true
     }
     pub(in crate::stream) fn remove_light_waiters_for(&mut self, key: SubChunkKey) {
         self.light_waiters.remove(&key);
@@ -247,6 +270,28 @@ impl WorldStream {
                     .insert(target);
             }
         }
+    }
+    pub(in crate::stream) fn highest_pending_light_in_column(
+        &self,
+        key: SubChunkKey,
+    ) -> Option<(SubChunkKey, PendingLight)> {
+        let Some(range) = vanilla_dimension_range(key.dimension) else {
+            return self
+                .pending_light
+                .get(&key)
+                .copied()
+                .map(|pending| (key, pending));
+        };
+        (0..range.sub_chunk_count).rev().find_map(|offset| {
+            let y = range
+                .base_sub_chunk_y
+                .checked_add(i32::try_from(offset).ok()?)?;
+            let candidate = SubChunkKey::new(key.dimension, key.x, y, key.z);
+            self.pending_light
+                .get(&candidate)
+                .copied()
+                .map(|pending| (candidate, pending))
+        })
     }
     pub(in crate::stream) fn prior_light_may_seed(
         &self,

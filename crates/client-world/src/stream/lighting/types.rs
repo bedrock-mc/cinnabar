@@ -11,6 +11,7 @@ pub(in crate::stream) struct LightJobIdentity {
     pub(in crate::stream) revision: u64,
     pub(in crate::stream) block_generation: u64,
     pub(in crate::stream) previous_light_generation: Option<u64>,
+    pub(in crate::stream) batch_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,20 +260,25 @@ pub(in crate::stream) struct PreparedLightJob {
     pub(in crate::stream) queued_at: Instant,
 }
 
+pub(in crate::stream) struct SolvedLightBatchEntry {
+    pub(in crate::stream) key: SubChunkKey,
+    pub(in crate::stream) identity: LightJobIdentity,
+    pub(in crate::stream) queued_at: Instant,
+    pub(in crate::stream) result: Result<SolvedLightJob, LightJobError>,
+}
+
+struct LightBatchTarget {
+    key: SubChunkKey,
+    identity: LightJobIdentity,
+    queued_at: Instant,
+    old_light: Option<Arc<SubChunkLight>>,
+    old_direct: Option<StoredDirectSky>,
+}
+
 pub(in crate::stream) fn solve_prepared_light_job(
     mut job: PreparedLightJob,
 ) -> Result<SolvedLightJob, LightJobError> {
-    let old_light = job.prior.light.light(job.key).cloned();
-    let old_direct = job
-        .prior
-        .direct_sky
-        .get(&job.key)
-        .cloned()
-        .filter(|direct| {
-            old_light
-                .as_deref()
-                .is_some_and(|light| direct.light_revision == light.generation())
-        });
+    let target = light_batch_target(&job);
     let (replacement, direct_sky, used_uniform_fast_path) =
         if let Some((light, direct)) = uniform_known_air_light(&job) {
             (light, Arc::new(direct), true)
@@ -296,29 +302,184 @@ pub(in crate::stream) fn solve_prepared_light_job(
             let direct = Arc::new(DirectSkyMask::from_output(&output, job.key));
             (light, direct, false)
         };
-    let light_levels_changed = old_light
+    Ok(finish_solved_light_job(
+        target,
+        replacement,
+        direct_sky,
+        used_uniform_fast_path,
+    ))
+}
+
+pub(in crate::stream) fn solve_prepared_light_batch(
+    jobs: Vec<PreparedLightJob>,
+) -> Vec<SolvedLightBatchEntry> {
+    if jobs.len() == 1 {
+        return jobs
+            .into_iter()
+            .map(|job| {
+                let key = job.key;
+                let identity = job.identity;
+                let queued_at = job.queued_at;
+                SolvedLightBatchEntry {
+                    key,
+                    identity,
+                    queued_at,
+                    result: solve_prepared_light_job(job),
+                }
+            })
+            .collect();
+    }
+
+    let mut jobs = jobs.into_iter();
+    let Some(first) = jobs.next() else {
+        return Vec::new();
+    };
+    let mut min = first.bounds.min();
+    let mut max = first.bounds.max();
+    let mut targets = vec![light_batch_target(&first)];
+    let mut blocks = first.blocks;
+    let mut prior = first.prior;
+    for job in jobs {
+        let job_min = job.bounds.min();
+        let job_max = job.bounds.max();
+        min = BlockPos::new(
+            min.x.min(job_min.x),
+            min.y.min(job_min.y),
+            min.z.min(job_min.z),
+        );
+        max = BlockPos::new(
+            max.x.max(job_max.x),
+            max.y.max(job_max.y),
+            max.z.max(job_max.z),
+        );
+        targets.push(light_batch_target(&job));
+        blocks.blocks.extend(job.blocks.blocks);
+        blocks.resolved_light.extend(job.blocks.resolved_light);
+        prior.light.extend(job.prior.light);
+        prior.direct_sky.extend(job.prior.direct_sky);
+        prior
+            .trusted_boundaries
+            .extend(job.prior.trusted_boundaries);
+    }
+
+    let bounds = match LightBounds::new(blocks.dimension, min, max) {
+        Ok(bounds) => bounds,
+        Err(error) => {
+            return failed_light_batch(targets, LightJobError::Solve(error));
+        }
+    };
+    blocks.resolve_palette_light();
+    let profile = blocks.profile;
+    let generation = targets[0].identity.revision;
+    let output = match solve_light(
+        &blocks,
+        &prior,
+        bounds,
+        generation,
+        profile,
+        LIGHT_COLUMN_SOLVE_LIMITS,
+    ) {
+        Ok(output) => output,
+        Err(error) => {
+            return failed_light_batch(targets, LightJobError::Solve(error));
+        }
+    };
+
+    targets
+        .into_iter()
+        .map(|target| {
+            let key = target.key;
+            let identity = target.identity;
+            let queued_at = target.queued_at;
+            let result = output
+                .sub_chunks()
+                .get(&key)
+                .map(|light| {
+                    let replacement = light.as_ref().clone().with_generation(identity.revision);
+                    let direct_sky = Arc::new(DirectSkyMask::from_output(&output, key));
+                    finish_solved_light_job(target, replacement, direct_sky, false)
+                })
+                .ok_or(LightJobError::MissingTargetOutput);
+            SolvedLightBatchEntry {
+                key,
+                identity,
+                queued_at,
+                result,
+            }
+        })
+        .collect()
+}
+
+fn light_batch_target(job: &PreparedLightJob) -> LightBatchTarget {
+    let old_light = job.prior.light.light(job.key).cloned();
+    let old_direct = job
+        .prior
+        .direct_sky
+        .get(&job.key)
+        .cloned()
+        .filter(|direct| {
+            old_light
+                .as_deref()
+                .is_some_and(|light| direct.light_revision == light.generation())
+        });
+    LightBatchTarget {
+        key: job.key,
+        identity: job.identity,
+        queued_at: job.queued_at,
+        old_light,
+        old_direct,
+    }
+}
+
+fn failed_light_batch(
+    targets: Vec<LightBatchTarget>,
+    error: LightJobError,
+) -> Vec<SolvedLightBatchEntry> {
+    targets
+        .into_iter()
+        .map(|target| SolvedLightBatchEntry {
+            key: target.key,
+            identity: target.identity,
+            queued_at: target.queued_at,
+            result: Err(error),
+        })
+        .collect()
+}
+
+fn finish_solved_light_job(
+    target: LightBatchTarget,
+    replacement: SubChunkLight,
+    direct_sky: Arc<DirectSkyMask>,
+    used_uniform_fast_path: bool,
+) -> SolvedLightJob {
+    let light_levels_changed = target
+        .old_light
         .as_deref()
         .is_none_or(|previous| !light_levels_equal(previous, &replacement));
-    let direct_sky_changed = old_direct
+    let direct_sky_changed = target
+        .old_direct
         .as_ref()
         .is_none_or(|previous| previous.mask.as_ref() != direct_sky.as_ref());
     let changed_faces = std::array::from_fn(|index| {
         light_face_changed(
-            old_light.as_deref(),
+            target.old_light.as_deref(),
             &replacement,
-            old_direct.as_ref().map(|direct| direct.mask.as_ref()),
+            target
+                .old_direct
+                .as_ref()
+                .map(|direct| direct.mask.as_ref()),
             direct_sky.as_ref(),
             LIGHT_NEIGHBOUR_OFFSETS[index],
         )
     });
-    Ok(SolvedLightJob {
+    SolvedLightJob {
         replacement,
         direct_sky,
         used_uniform_fast_path,
         light_levels_changed,
         direct_sky_changed,
         changed_faces,
-    })
+    }
 }
 
 pub(in crate::stream) fn uniform_known_air_light(
