@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicU8, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
@@ -539,6 +539,7 @@ pub(crate) fn drive_world_stream(
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
 ) {
+    let profile_started = Instant::now();
     let AppWorldState {
         mut client_world,
         clock,
@@ -552,6 +553,7 @@ pub(crate) fn drive_world_stream(
         return;
     };
     synchronize_biome_tints(stream, &mut biome_tints);
+    let profile_sync = profile_started.elapsed();
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
         let mutation_cohort = stream
@@ -573,6 +575,7 @@ pub(crate) fn drive_world_stream(
             acknowledgement.applied_at,
         );
     }
+    let profile_acknowledgements = profile_started.elapsed();
     let committed_ui = stream.take_committed_ui();
     let poll_report = std::mem::take(&mut frame_poll.0);
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -617,6 +620,7 @@ pub(crate) fn drive_world_stream(
             return;
         }
     }
+    let profile_ui = profile_started.elapsed();
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world
@@ -631,6 +635,7 @@ pub(crate) fn drive_world_stream(
                 .map(|position| deterministic_mutation_coordinate(position, anchor))
         })
     });
+    let profile_resolution = profile_started.elapsed();
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
         flush_sub_chunk_requests(
@@ -642,6 +647,7 @@ pub(crate) fn drive_world_stream(
         )
         .err()
     });
+    let profile_requests = profile_started.elapsed();
     let mut published_items = 0_usize;
     let mut published_payload_items = 0_usize;
     let mut published_bytes = 0_u64;
@@ -753,6 +759,7 @@ pub(crate) fn drive_world_stream(
             break;
         }
     }
+    let profile_publication = profile_started.elapsed();
     if let Some(stream) = client_world.stream.as_ref() {
         let stats = stream.stats();
         let previous = publication.diagnostics().last_work;
@@ -768,6 +775,7 @@ pub(crate) fn drive_world_stream(
             ..previous
         });
     }
+    let profile_finish = profile_started.elapsed();
     if let Some(error) = send_error {
         record_fatal_error(&mut client_world.fatal_error, error);
     }
@@ -783,6 +791,36 @@ pub(crate) fn drive_world_stream(
     }
     if let Some(coordinate) = resolved_mutation_coordinate {
         acceptance.set_mutation_coordinate(coordinate);
+    }
+    let profile_total = profile_started.elapsed();
+    static PROFILE_WORLD_DRIVE: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var_os("RUST_MCBE_PROFILE_WORLD_DRIVE").is_some());
+    if *PROFILE_WORLD_DRIVE && profile_total >= Duration::from_millis(10) {
+        eprintln!(
+            "WORLD_DRIVE_PROFILE total_us={} sync_us={} acknowledgements_us={} ui_us={} resolution_us={} requests_us={} publication_us={} finish_us={} tail_us={} published={} payloads={} bytes={}",
+            profile_total.as_micros(),
+            profile_sync.as_micros(),
+            profile_acknowledgements
+                .saturating_sub(profile_sync)
+                .as_micros(),
+            profile_ui
+                .saturating_sub(profile_acknowledgements)
+                .as_micros(),
+            profile_resolution.saturating_sub(profile_ui).as_micros(),
+            profile_requests
+                .saturating_sub(profile_resolution)
+                .as_micros(),
+            profile_publication
+                .saturating_sub(profile_requests)
+                .as_micros(),
+            profile_finish
+                .saturating_sub(profile_publication)
+                .as_micros(),
+            profile_total.saturating_sub(profile_finish).as_micros(),
+            published_items,
+            published_payload_items,
+            published_bytes,
+        );
     }
 }
 
