@@ -24,9 +24,17 @@ impl WorldStream {
                 })
                 .collect::<HashSet<_>>();
             deferred.extend(self.pending_light_scan.iter().copied());
+            let waiting = self
+                .light_waiters
+                .values()
+                .flat_map(|waiters| waiters.iter().copied())
+                .collect::<HashSet<_>>();
             let mut ready = Vec::new();
             let mut next_round = Vec::new();
             for (&key, pending) in &self.pending_light {
+                if waiting.contains(&key) {
+                    continue;
+                }
                 let candidate =
                     PendingSchedulerCandidate::new(key, pending.revision, camera_position);
                 if deferred.contains(&(key, pending.revision)) {
@@ -108,7 +116,9 @@ impl WorldStream {
             }
             if !self.light_dispatch_ready(key) {
                 above_not_ready += 1;
-                self.pending_light_deferred.push(candidate);
+                if let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) {
+                    self.light_waiters.entry(above).or_default().insert(key);
+                }
                 continue;
             }
             if key
