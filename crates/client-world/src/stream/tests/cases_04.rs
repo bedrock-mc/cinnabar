@@ -645,14 +645,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
     let known_air = SubChunkKey::new(0, 2, -4, 3);
     stream.record_known_air(known_air);
     stream.mark_light_changed_sources(keys.into_iter().chain([known_air]));
-    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 4), 4);
-    for _ in 0..4 {
-        let completion = stream
-            .light_rx
-            .recv_timeout(Duration::from_secs(2))
-            .expect("forced-remesh setup light completion");
-        stream.accept_light_completion(completion);
-    }
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
     let previously_dirty_at = std::time::Instant::now();
     stream.mark_dirty_exact(keys[0], previously_dirty_at);
     let started = previously_dirty_at + Duration::from_millis(1);

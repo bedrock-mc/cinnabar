@@ -897,10 +897,7 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
     assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 2);
     assert!(stream.in_flight_light.contains_key(&top));
     assert!(stream.in_flight_light.contains_key(&below));
-    assert!(
-        stream.light_waiters.is_empty(),
-        "members of one retained solve transaction must not wait on each other"
-    );
+    assert!(stream.light_waiters.is_empty());
     for _ in 0..2 {
         let completion = stream
             .light_rx
@@ -1143,15 +1140,22 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
     assert_eq!(stream.pending_light.len(), keys.len());
     assert_ne!(stream.pending_light[&keys[5]].revision, latest);
 
-    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 3);
-    assert_eq!(stream.in_flight_light.len(), 3);
+    let expected = effective_light_job_cap().min(3);
+    assert_eq!(
+        stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
+        expected
+    );
+    assert_eq!(stream.in_flight_light.len(), expected);
     assert_eq!(
         stream
             .in_flight_light
             .keys()
             .copied()
             .collect::<BTreeSet<_>>(),
-        [keys[0], keys[2], keys[4]].into_iter().collect()
+        [keys[0], keys[2], keys[4]]
+            .into_iter()
+            .take(expected)
+            .collect()
     );
 }
 

@@ -121,7 +121,7 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
     }
 }
 
-fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
+pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
