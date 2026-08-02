@@ -284,6 +284,15 @@ impl LightStoreSnapshot {
         self.entries.get(&key).map(|entry| &entry.light)
     }
 
+    /// Replaces a retained known boundary without manufacturing new knowledge.
+    pub fn replace_known_light(&mut self, key: SubChunkKey, light: Arc<SubChunkLight>) -> bool {
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return false;
+        };
+        entry.light = light;
+        true
+    }
+
     /// Merges another retained snapshot without cloning light payloads.
     pub fn extend(&mut self, other: Self) {
         self.entries.extend(other.entries);

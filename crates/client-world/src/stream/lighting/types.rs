@@ -329,8 +329,64 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             })
             .collect();
     }
+    let mut solved_prefix = Vec::new();
+    let mut remaining = Vec::new();
+    let mut solved_above = None::<(SubChunkKey, Arc<SubChunkLight>, Arc<DirectSkyMask>)>;
+    let mut candidates = jobs.into_iter();
+    while let Some(mut job) = candidates.next() {
+        if let Some((key, light, direct_sky)) = &solved_above
+            && job.prior.light.replace_known_light(*key, Arc::clone(light))
+        {
+            job.prior.direct_sky.insert(
+                *key,
+                StoredDirectSky {
+                    light_revision: light.generation(),
+                    mask: Arc::clone(direct_sky),
+                },
+            );
+            job.prior.trusted_boundaries.insert(*key);
+        }
+        let Some((replacement, direct_sky)) = uniform_known_air_light(&job) else {
+            remaining.push(job);
+            remaining.extend(candidates);
+            break;
+        };
+        let target = light_batch_target(&job);
+        let key = job.key;
+        let identity = job.identity;
+        let queued_at = job.queued_at;
+        let direct_sky = Arc::new(direct_sky);
+        solved_above = Some((key, Arc::new(replacement.clone()), Arc::clone(&direct_sky)));
+        solved_prefix.push(SolvedLightBatchEntry {
+            key,
+            identity,
+            queued_at,
+            result: Ok(finish_solved_light_job(
+                target,
+                replacement,
+                direct_sky,
+                true,
+            )),
+        });
+    }
+    if remaining.is_empty() {
+        return solved_prefix;
+    }
+    if remaining.len() == 1 {
+        let job = remaining.pop().expect("single remaining light job exists");
+        let key = job.key;
+        let identity = job.identity;
+        let queued_at = job.queued_at;
+        solved_prefix.push(SolvedLightBatchEntry {
+            key,
+            identity,
+            queued_at,
+            result: solve_prepared_light_job(job),
+        });
+        return solved_prefix;
+    }
 
-    let mut jobs = jobs.into_iter();
+    let mut jobs = remaining.into_iter();
     let Some(first) = jobs.next() else {
         return Vec::new();
     };
@@ -365,7 +421,8 @@ pub(in crate::stream) fn solve_prepared_light_batch(
     let bounds = match LightBounds::new(blocks.dimension, min, max) {
         Ok(bounds) => bounds,
         Err(error) => {
-            return failed_light_batch(targets, LightJobError::Solve(error));
+            solved_prefix.extend(failed_light_batch(targets, LightJobError::Solve(error)));
+            return solved_prefix;
         }
     };
     blocks.resolve_palette_light();
@@ -381,33 +438,33 @@ pub(in crate::stream) fn solve_prepared_light_batch(
     ) {
         Ok(output) => output,
         Err(error) => {
-            return failed_light_batch(targets, LightJobError::Solve(error));
+            solved_prefix.extend(failed_light_batch(targets, LightJobError::Solve(error)));
+            return solved_prefix;
         }
     };
 
-    targets
-        .into_iter()
-        .map(|target| {
-            let key = target.key;
-            let identity = target.identity;
-            let queued_at = target.queued_at;
-            let result = output
-                .sub_chunks()
-                .get(&key)
-                .map(|light| {
-                    let replacement = light.as_ref().clone().with_generation(identity.revision);
-                    let direct_sky = Arc::new(DirectSkyMask::from_output(&output, key));
-                    finish_solved_light_job(target, replacement, direct_sky, false)
-                })
-                .ok_or(LightJobError::MissingTargetOutput);
-            SolvedLightBatchEntry {
-                key,
-                identity,
-                queued_at,
-                result,
-            }
-        })
-        .collect()
+    let solved = targets.into_iter().map(|target| {
+        let key = target.key;
+        let identity = target.identity;
+        let queued_at = target.queued_at;
+        let result = output
+            .sub_chunks()
+            .get(&key)
+            .map(|light| {
+                let replacement = light.as_ref().clone().with_generation(identity.revision);
+                let direct_sky = Arc::new(DirectSkyMask::from_output(&output, key));
+                finish_solved_light_job(target, replacement, direct_sky, false)
+            })
+            .ok_or(LightJobError::MissingTargetOutput);
+        SolvedLightBatchEntry {
+            key,
+            identity,
+            queued_at,
+            result,
+        }
+    });
+    solved_prefix.extend(solved);
+    solved_prefix
 }
 
 fn light_batch_target(job: &PreparedLightJob) -> LightBatchTarget {
