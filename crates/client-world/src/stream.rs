@@ -102,6 +102,7 @@ pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
 const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
+const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 fn effective_light_job_cap() -> usize {
     MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(2).max(1))

@@ -554,11 +554,11 @@ pub(crate) fn drive_world_stream(
     };
     synchronize_biome_tints(stream, &mut biome_tints);
     let profile_sync = profile_started.elapsed();
+    let mutation_cohort = stream
+        .committed_view_cohort()
+        .map(|target| stream.cohort_status(target));
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
-        let mutation_cohort = stream
-            .committed_view_cohort()
-            .map(|target| stream.cohort_status(target));
         if let Some(latency) = acceptance.acknowledge_mutation(
             acknowledgement.key,
             acknowledgement.token.generation,

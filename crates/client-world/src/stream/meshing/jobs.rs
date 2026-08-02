@@ -31,7 +31,7 @@ impl WorldStream {
             let ingress_budget = self
                 .pending_mesh_scan
                 .len()
-                .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+                .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
             for _ in 0..ingress_budget {
                 let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
                     break;
@@ -79,7 +79,7 @@ impl WorldStream {
                 removal_candidates.push((candidate, pending));
             }
         }
-        for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        for _ in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
             let Some(candidate) = self.pending_mesh_removal_ready.pop() else {
                 break;
             };
