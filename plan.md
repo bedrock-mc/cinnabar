@@ -151,7 +151,7 @@ order:
 
 ### PR 6 cache-enabled live-validation handoff (2026-08-01)
 
-The local `agent/track-phase3-movement` implementation through `415f07c` is ahead
+The local `agent/track-phase3-movement` implementation through `71d5fea` is ahead
 of its pushed remote (`d8637a2`) and is **not yet reviewed, integrated, or cleared to push**.
 Cache-enabled BDS load exposed and fixed a self-sustaining blob-recovery loop,
 unbounded publication-authority scans, repeated per-frame cohort hashing, and
