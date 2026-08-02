@@ -16,7 +16,8 @@ use bevy::{
     time::Real,
 };
 use client_world::{
-    CommittedControlEvent, CommittedUiEvent, WorldMeshChange, WorldStream, WorldStreamPoll,
+    CommittedControlEvent, CommittedUiEvent, ViewCohortStatus, WorldMeshChange, WorldStream,
+    WorldStreamPoll,
 };
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
@@ -62,7 +63,10 @@ fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
 }
 
 #[derive(Resource, Debug, Default)]
-pub(crate) struct WorldStreamFramePoll(pub(crate) WorldStreamPoll);
+pub(crate) struct WorldStreamFramePoll {
+    pub(crate) report: WorldStreamPoll,
+    pub(crate) cohort: Option<ViewCohortStatus>,
+}
 
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
@@ -330,15 +334,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
         ..
     } = &mut *client_world;
     let Some(stream) = stream.as_mut() else {
-        frame_poll.0 = WorldStreamPoll::default();
+        *frame_poll = WorldStreamFramePoll::default();
         local_frame.reset(LocalPlayerFrameReset::Session);
         interaction.invalidate();
         return;
     };
-    frame_poll.0 = stream.poll(
+    frame_poll.report = stream.poll(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     );
+    frame_poll.cohort = stream
+        .committed_view_cohort()
+        .map(|target| stream.cohort_status(target));
     let controls = stream.take_committed_controls();
     if let Some(error) = stream.take_fatal_error() {
         movement.deactivate();
@@ -554,9 +561,7 @@ pub(crate) fn drive_world_stream(
     };
     synchronize_biome_tints(stream, &mut biome_tints);
     let profile_sync = profile_started.elapsed();
-    let mutation_cohort = stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target));
+    let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
         if let Some(latency) = acceptance.acknowledge_mutation(
@@ -577,7 +582,7 @@ pub(crate) fn drive_world_stream(
     }
     let profile_acknowledgements = profile_started.elapsed();
     let committed_ui = stream.take_committed_ui();
-    let poll_report = std::mem::take(&mut frame_poll.0);
+    let poll_report = std::mem::take(&mut frame_poll.report);
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     for committed in committed_ui {
         let result = match committed {

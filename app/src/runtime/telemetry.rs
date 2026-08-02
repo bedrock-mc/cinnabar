@@ -62,7 +62,7 @@ use crate::{
         },
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::ClientWorld,
+        world::{ClientWorld, WorldStreamFramePoll},
     },
     semantic_controls::SemanticInputSnapshot,
 };
@@ -81,6 +81,7 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     diagnostics: Res<'w, DiagnosticsStore>,
     publication: ResMut<'w, PublicationController>,
     local_player: Res<'w, LocalPlayerFrameCarrier>,
+    frame_poll: Res<'w, WorldStreamFramePoll>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -618,10 +619,8 @@ pub(crate) fn record_metrics_and_title(
             );
         }
     }
-    if let Some(stream) = client_world.stream.as_ref() {
-        let cohort = stream
-            .committed_view_cohort()
-            .map(|target| stream.cohort_status(target));
+    if client_world.stream.is_some() {
+        let cohort = render_metrics.frame_poll.cohort;
         let count = |digest: Option<render::VisibilityKeyDigest>| {
             digest
                 .and_then(|digest| usize::try_from(digest.count).ok())

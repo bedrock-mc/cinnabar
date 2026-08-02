@@ -30,7 +30,7 @@ use crate::{
     runtime::{
         network::NetworkHandle,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::ClientWorld,
+        world::{ClientWorld, WorldStreamFramePoll},
     },
 };
 
@@ -279,6 +279,7 @@ impl GalleryAnchorEmitter {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_world_ready(
     network: Res<NetworkHandle>,
+    frame_poll: Res<WorldStreamFramePoll>,
     mut client_world: ResMut<ClientWorld>,
     cache: Res<CaveVisibilityCache>,
     diagnostic_quads: Res<DiagnosticQuads>,
@@ -322,19 +323,18 @@ pub(crate) fn emit_world_ready(
         pending_gpu_acknowledgements: usize::from(!acknowledgements.is_empty()),
         unacknowledged_meshes: stream.unacknowledged_mesh_count(),
     };
-    let committed_cohort = stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target));
+    let committed_cohort = frame_poll.cohort;
     if acceptance.revoke_world_ready_if_cohort_changed(committed_cohort) {
         presented_frames.clear();
         return;
     }
     let required_columns = stream.required_columns().clone();
     if acceptance.world_ready {
-        let cohort = acceptance
-            .full_view_teleport
-            .target_cohort()
-            .map(|target| stream.cohort_status(target));
+        let cohort = acceptance.full_view_teleport.target_cohort().map(|target| {
+            committed_cohort
+                .filter(|status| status.target == target)
+                .unwrap_or_else(|| stream.cohort_status(target))
+        });
         if let Some(status) = cohort {
             debug_assert_eq!(stream.committed_view_cohort(), status.committed);
         }
