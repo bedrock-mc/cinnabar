@@ -223,6 +223,7 @@ pub struct WorldStream {
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     next_light_batch_id: u64,
     in_flight_light_batches: HashMap<u64, usize>,
+    last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
     fatal_error: Option<WorldStreamFatalError>,

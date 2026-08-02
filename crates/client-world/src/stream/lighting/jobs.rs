@@ -156,16 +156,9 @@ impl WorldStream {
             self.next_light_batch_id = self.next_light_batch_id.wrapping_add(1).max(1);
             let batch_id = self.next_light_batch_id;
             let mut batch_keys = HashSet::from([key]);
-            let mut batch = vec![self.take_prepared_light_job(
-                key,
-                pending,
-                block_generation,
-                bounds,
-                &batch_keys,
-                batch_id,
-            )];
+            let mut batch_inputs = vec![(key, pending, block_generation, bounds)];
             let mut lower = key;
-            while batch.len() < MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS {
+            while batch_inputs.len() < MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS {
                 let Some(next) = offset_sub_chunk_key(lower, [0, -1, 0]) else {
                     break;
                 };
@@ -198,15 +191,24 @@ impl WorldStream {
                     break;
                 };
                 batch_keys.insert(next);
-                batch.push(self.take_prepared_light_job(
-                    next,
-                    next_pending,
-                    next_block_generation,
-                    next_bounds,
-                    &batch_keys,
-                    batch_id,
-                ));
+                batch_inputs.push((next, next_pending, next_block_generation, next_bounds));
                 lower = next;
+            }
+            let batch = batch_inputs
+                .into_iter()
+                .map(|(key, pending, block_generation, bounds)| {
+                    self.take_prepared_light_job(
+                        key,
+                        pending,
+                        block_generation,
+                        bounds,
+                        &batch_keys,
+                        batch_id,
+                    )
+                })
+                .collect::<Vec<_>>();
+            for member in &batch_keys {
+                self.last_dispatched_light_batch.insert(*member, batch_id);
             }
             selected.extend(batch_keys);
             self.in_flight_light_batches.insert(batch_id, batch.len());
@@ -372,7 +374,12 @@ impl WorldStream {
             self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
             self.stats.noop_light_jobs = self.stats.noop_light_jobs.saturating_add(1);
-            self.finish_accepted_light_completion(completion.key, &current_direct, changed_faces);
+            self.finish_accepted_light_completion(
+                completion.key,
+                completion.identity.batch_id,
+                &current_direct,
+                changed_faces,
+            );
             return;
         }
         if !light_levels_changed && direct_sky_changed {
@@ -398,7 +405,12 @@ impl WorldStream {
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
             self.stats.provenance_only_light_jobs =
                 self.stats.provenance_only_light_jobs.saturating_add(1);
-            self.finish_accepted_light_completion(completion.key, &new_direct, changed_faces);
+            self.finish_accepted_light_completion(
+                completion.key,
+                completion.identity.batch_id,
+                &new_direct,
+                changed_faces,
+            );
             return;
         }
         let new_direct = StoredDirectSky {
@@ -429,11 +441,17 @@ impl WorldStream {
         self.stats.light_mesh_invalidations = self.stats.light_mesh_invalidations.saturating_add(1);
         self.mark_changed_light_mesh_dependents(completion.key, changed_faces, Instant::now());
 
-        self.finish_accepted_light_completion(completion.key, &new_direct, changed_faces);
+        self.finish_accepted_light_completion(
+            completion.key,
+            completion.identity.batch_id,
+            &new_direct,
+            changed_faces,
+        );
     }
     pub(in crate::stream) fn finish_accepted_light_completion(
         &mut self,
         key: SubChunkKey,
+        batch_id: u64,
         direct_sky: &StoredDirectSky,
         changed_faces: [bool; 6],
     ) {
@@ -448,8 +466,10 @@ impl WorldStream {
             }
             if let Some(neighbour) = offset_sub_chunk_key(key, offset) {
                 let neighbour_in_flight = self.in_flight_light.contains_key(&neighbour);
+                let neighbour_in_same_batch =
+                    self.last_dispatched_light_batch.get(&neighbour) == Some(&batch_id);
                 if (self.pending_light.contains_key(&neighbour) && !neighbour_in_flight)
-                    || (neighbour_in_flight && neighbour.x == key.x && neighbour.z == key.z)
+                    || neighbour_in_same_batch
                 {
                     continue;
                 }

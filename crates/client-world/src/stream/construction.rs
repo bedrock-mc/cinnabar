@@ -146,6 +146,7 @@ impl WorldStream {
             in_flight_light: HashMap::new(),
             next_light_batch_id: 0,
             in_flight_light_batches: HashMap::new(),
+            last_dispatched_light_batch: HashMap::new(),
             light_waiters: HashMap::new(),
             fatal_light_failure: false,
             fatal_error: None,

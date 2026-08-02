@@ -891,11 +891,16 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
 
+    install_current_light(&mut stream, below, 1, 15, true);
     stream.mark_light_dirty_exact(top);
     stream.mark_light_dirty_exact(below);
     assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 2);
     assert!(stream.in_flight_light.contains_key(&top));
     assert!(stream.in_flight_light.contains_key(&below));
+    assert!(
+        stream.light_waiters.is_empty(),
+        "members of one retained solve transaction must not wait on each other"
+    );
     for _ in 0..2 {
         let completion = stream
             .light_rx
@@ -912,6 +917,33 @@ fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
             .get(LightChannel::Sky, 0, 0, 0),
         Some(15)
     );
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_is_current(top));
+    assert!(stream.light_is_current(below));
+}
+
+#[test]
+fn retained_column_batch_does_not_requeue_accepted_members() {
+    let mut stream = lit_stream(1);
+    let top = SubChunkKey::new(1, 0, 7, 0);
+    let below = SubChunkKey::new(1, 0, 6, 0);
+    for key in [top, below] {
+        stream.record_known_air(key);
+        install_current_light(&mut stream, key, 1, 0, false);
+        stream.mark_light_dirty_exact(key);
+    }
+
+    assert_eq!(stream.dispatch_light_jobs([8.0, 120.0, 8.0], 1), 2);
+    assert!(stream.light_waiters.is_empty());
+    for _ in 0..2 {
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        stream.accept_light_completion(completion);
+    }
+
     assert!(stream.pending_light.is_empty());
     assert!(stream.in_flight_light.is_empty());
     assert!(stream.light_is_current(top));

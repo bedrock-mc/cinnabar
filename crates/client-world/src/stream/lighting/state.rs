@@ -66,6 +66,7 @@ impl WorldStream {
         self.pending_light.remove(&key);
         self.light_priority_wakeups.remove(&key);
         self.remove_in_flight_light(key, None);
+        self.last_dispatched_light_batch.remove(&key);
         self.remove_light_waiters_for(key);
     }
     pub(in crate::stream) fn remove_in_flight_light(
