@@ -286,13 +286,13 @@ if ($null -ne $lifecycleFailure) { throw $lifecycleFailure }
 if ($cleanupErrors.Count -ne 0) { throw ($cleanupErrors -join '; ') }
 
 $failurePhase = 'metadata'
-$screenshotSlots = if ($Scenario -ceq 'FastTransferWitness') {
-    @(
+[object[]]$screenshotSlots = @()
+if ($Scenario -ceq 'FastTransferWitness') {
+    $screenshotSlots = @(
         [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
         [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
     )
 }
-else { @() }
 $metadata = [ordered]@{
     schema = 'rust-mcbe-phase3-run-v1'; run_id = $runId; target = $Target; endpoint = $endpoint
     bridge_endpoint = $bridgeEndpoint
