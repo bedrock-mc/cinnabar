@@ -162,9 +162,7 @@ impl BlobCacheResolver {
         Ok(())
     }
 
-    pub(super) fn recover_retained_cached_transactions(
-        &mut self,
-    ) -> Result<(), BlobCacheError> {
+    pub(super) fn recover_retained_cached_transactions(&mut self) -> Result<(), BlobCacheError> {
         let recoveries = self
             .pending
             .values()
