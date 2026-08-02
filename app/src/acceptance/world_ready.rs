@@ -1,7 +1,7 @@
 use std::{io::Write, time::Instant};
 
 use bevy::{
-    log::error,
+    log::{error, info},
     prelude::{Query, Res, ResMut, Transform, Vec3, With},
 };
 use client_world::ViewCohortStatus;
@@ -36,6 +36,7 @@ use crate::{
 
 pub(crate) const WORLD_READY_QUIET_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(2);
+const WORLD_READY_DIAGNOSTIC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl AcceptanceRun {
     pub(crate) fn revoke_world_ready_if_cohort_changed(
@@ -159,6 +160,7 @@ pub(crate) struct WorldReadySettler {
     pub(crate) candidate: Option<(WorldReadySnapshot, Instant)>,
     pub(crate) presentation: Option<WorldReadyPresentationCandidate>,
     pub(crate) next_view_generation: u64,
+    pub(crate) last_diagnostic_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +227,16 @@ impl WorldReadySettler {
         self.presentation
             .as_ref()
             .is_some_and(|candidate| candidate.snapshot == snapshot && candidate.stable)
+    }
+
+    pub(crate) fn pending_diagnostic_due(&mut self, now: Instant) -> bool {
+        if self.last_diagnostic_at.is_some_and(|last| {
+            now.saturating_duration_since(last) < WORLD_READY_DIAGNOSTIC_INTERVAL
+        }) {
+            return false;
+        }
+        self.last_diagnostic_at = Some(now);
+        true
     }
 
     pub(crate) fn observe(
@@ -589,6 +601,12 @@ pub(crate) fn emit_world_ready(
         work,
     };
     let ready_at = Instant::now();
+    if acceptance
+        .world_ready_settler
+        .pending_diagnostic_due(ready_at)
+    {
+        info!(?snapshot, "world-ready gate status");
+    }
     let proposed = snapshot.cohort.and_then(|status| {
         render_queue.freeze_target_expectation_for_columns(
             render_view_cohort(status.target),

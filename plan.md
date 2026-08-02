@@ -1809,6 +1809,33 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     integration, and final PR acceptance therefore remain open. The Linux acceptance shell suite
     also remains unexecuted on this workstation because no usable Python/WSL runtime is installed.
 
+- **PR #6 blob-pressure convergence follow-up (2026-08-02, local commit `4726be0`).**
+  The cache-pressure deadlock exposed by the committed run above is fixed and independently
+  reviewed, but Phase 3 acceptance remains open.
+  - The terminal state at `676719f` retained 255 unresolved transactions plus one same-column
+    reconstructed transaction, then later all 256 slots as unresolved work. New cached packets
+    were skipped indefinitely, so incomplete columns could not enter `loaded_columns`; the
+    unmodified 3x3 lighting-context gate correctly retained 1,968 light jobs with no worker able
+    to dispatch them.
+  - At the transaction or aggregate recovery-slot bound, the resolver now rotates the
+    deterministic oldest unresolved transaction through its existing exact recovery and
+    hash-owner promotion path. LevelChunk replacement can use the released slot immediately.
+    SubChunk replacement waits until the prior exact recovery is observable, preventing a new
+    admission from being erased by an older rollback. Distinct and coalesced secondary recoveries
+    retain exact request/accounting counts, including staged- and pending-byte rejection.
+  - Deterministic verification passed all 282 protocol tests. Focused regressions cover both
+    transitions to the transaction bound, eventual multi-column SubChunk admission, same-position
+    recovery-before-admission ordering, and distinct/coalesced recovery accounting. Independent
+    latest-diff review found no remaining blocker.
+  - Clean committed BDS run `phase3-3e439a915ab648619f496236364297c8` proved the deadlock removed:
+    the required cohort reached 314/314; pending light work fell to zero; pending mesh work fell to
+    zero; transparent sorting committed and presented generation 1,020; and shutdown completed
+    with app exit code 0. Cache occupancy continued bounded 255/256 rotation instead of pinning
+    publication.
+  - The launcher still timed out and `world_ready` remained false, so this is not Phase 3
+    acceptance. The remaining world-ready predicate, release-budget evidence, version-matched
+    native lighting comparison, integration, and final PR acceptance remain open.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
