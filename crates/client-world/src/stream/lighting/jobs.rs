@@ -14,14 +14,29 @@ impl WorldStream {
 
         let camera_cell = scheduler_camera_cell(camera_position);
         if self.light_scheduler_camera_cell != Some(camera_cell) {
-            self.pending_light_ready = self
-                .pending_light
-                .iter()
-                .map(|(&key, pending)| {
-                    PendingSchedulerCandidate::new(key, pending.revision, camera_position)
+            let mut deferred = std::mem::take(&mut self.pending_light_deferred)
+                .into_iter()
+                .filter_map(|candidate| {
+                    self.pending_light
+                        .get(&candidate.key)
+                        .is_some_and(|pending| pending.revision == candidate.revision)
+                        .then_some((candidate.key, candidate.revision))
                 })
-                .collect();
-            self.pending_light_deferred.clear();
+                .collect::<HashSet<_>>();
+            deferred.extend(self.pending_light_scan.iter().copied());
+            let mut ready = Vec::new();
+            let mut next_round = Vec::new();
+            for (&key, pending) in &self.pending_light {
+                let candidate =
+                    PendingSchedulerCandidate::new(key, pending.revision, camera_position);
+                if deferred.contains(&(key, pending.revision)) {
+                    next_round.push(candidate);
+                } else {
+                    ready.push(candidate);
+                }
+            }
+            self.pending_light_ready = BinaryHeap::from(ready);
+            self.pending_light_deferred = BinaryHeap::from(next_round);
             self.pending_light_scan.clear();
             self.light_scheduler_camera_cell = Some(camera_cell);
         } else {

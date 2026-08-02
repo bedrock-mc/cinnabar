@@ -12,21 +12,40 @@ impl WorldStream {
 
         let camera_cell = scheduler_camera_cell(camera_position);
         if self.mesh_scheduler_camera_cell != Some(camera_cell) {
+            let mut deferred = std::mem::take(&mut self.pending_resident_mesh_deferred)
+                .into_iter()
+                .chain(std::mem::take(&mut self.pending_mesh_removal_deferred))
+                .filter_map(|candidate| {
+                    self.pending_mesh
+                        .get(&candidate.key)
+                        .is_some_and(|pending| pending.revision == candidate.revision)
+                        .then_some((candidate.key, candidate.revision))
+                })
+                .collect::<HashSet<_>>();
+            deferred.extend(self.pending_mesh_scan.iter().copied());
             let mut resident = Vec::new();
             let mut removals = Vec::new();
+            let mut resident_deferred = Vec::new();
+            let mut removals_deferred = Vec::new();
             for (&key, pending) in &self.pending_mesh {
                 let candidate =
                     PendingSchedulerCandidate::new(key, pending.revision, camera_position);
-                if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                    resident.push(candidate);
+                let (ready, next_round) =
+                    if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                        (&mut resident, &mut resident_deferred)
+                    } else {
+                        (&mut removals, &mut removals_deferred)
+                    };
+                if deferred.contains(&(key, pending.revision)) {
+                    next_round.push(candidate);
                 } else {
-                    removals.push(candidate);
+                    ready.push(candidate);
                 }
             }
             self.pending_resident_mesh_ready = BinaryHeap::from(resident);
             self.pending_mesh_removal_ready = BinaryHeap::from(removals);
-            self.pending_resident_mesh_deferred.clear();
-            self.pending_mesh_removal_deferred.clear();
+            self.pending_resident_mesh_deferred = BinaryHeap::from(resident_deferred);
+            self.pending_mesh_removal_deferred = BinaryHeap::from(removals_deferred);
             self.pending_mesh_scan.clear();
             self.mesh_scheduler_camera_cell = Some(camera_cell);
         } else {

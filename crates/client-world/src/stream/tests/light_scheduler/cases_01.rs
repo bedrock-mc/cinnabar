@@ -337,7 +337,7 @@ fn light_dispatch_rotates_past_a_blocked_nearest_window() {
         stream.record_known_air(SubChunkKey::new(0, key.x, 1, key.z));
         stream.mark_light_dirty_exact(key).unwrap();
     }
-    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 1);
+    assert_eq!(stream.dispatch_light_jobs([16.0, 0.0, 0.0], 1), 1);
     assert_eq!(
         stream.in_flight_light.get(&farther).map(|job| job.revision),
         Some(farther_revision)
@@ -381,7 +381,7 @@ fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
         stream.mark_dirty_exact(key, Instant::now());
     }
 
-    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert_eq!(stream.dispatch_mesh_jobs([16.0, 0.0, 0.0], 1), 1);
     assert_eq!(stream.in_flight.get(&farther), Some(&farther_revision));
 }
 
