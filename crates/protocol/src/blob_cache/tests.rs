@@ -251,7 +251,7 @@ fn retained_cached_subchunk_emits_admission_before_reconstruction() {
 }
 
 #[test]
-fn pressure_discarded_cached_subchunk_has_no_admission() {
+fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     for x in 0..MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
         let payload = format!("pressure-{x}");
@@ -292,11 +292,67 @@ fn pressure_discarded_cached_subchunk_has_no_admission() {
     .into();
     let mut status = resolver
         .accept_cached_packet(packet)
-        .expect("pressure discard remains non-fatal");
+        .expect("pressure rotation remains non-fatal");
 
     assert!(status.take_admission().is_none());
+    assert!(status.take_recovery().is_some());
     assert_eq!(
         resolver.stats().pending_transactions,
-        MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+        MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
+}
+
+#[test]
+fn precounted_secondary_recovery_coalesces_without_double_counting() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver.enqueue_recovery(ChunkResyncEvent {
+        dimension: 0,
+        x: 999,
+        z: 0,
+        requested_sub_chunks: None,
+        requested_sub_chunk_ys: None,
+    });
+    for x in 0..MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1 {
+        let payload = format!("coalesced-pressure-{x}");
+        resolver
+            .accept_cached_packet(
+                LevelChunkPacket {
+                    x: i32::try_from(x).expect("test coordinate fits"),
+                    sub_chunk_count: -1,
+                    blobs: Some(
+                        valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                            hashes: vec![client_blob_hash(payload.as_bytes())],
+                        },
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+            )
+            .expect("fill every recovery slot except the queued event");
+    }
+
+    let mut status = resolver
+        .accept_cached_packet_with_size(
+            LevelChunkPacket {
+                x: 999,
+                sub_chunk_count: -1,
+                blobs: Some(
+                    valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs {
+                        hashes: vec![client_blob_hash(b"oversized-current")],
+                    },
+                ),
+                ..Default::default()
+            }
+            .into(),
+            MAX_CLIENT_BLOB_PENDING_BYTES,
+        )
+        .expect("pending-byte rejection after rotation remains non-fatal");
+
+    assert_eq!(status.take_recovery().map(|recovery| recovery.x), Some(0));
+    assert_eq!(resolver.stats().recovery_ready_events, 1);
+    assert_eq!(
+        resolver.stats().recovery_requests,
+        2,
+        "one inline recovery plus one coalesced queued recovery are observable"
     );
 }

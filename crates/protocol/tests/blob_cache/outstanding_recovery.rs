@@ -49,7 +49,7 @@ fn abandoned_subchunk_emits_exact_scheduler_rollback() {
 }
 
 #[test]
-fn transaction_pressure_drops_subchunk_without_recovery_but_keeps_levelchunk_recovery() {
+fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     for x in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
         let payload = format!("bound-{x}");
@@ -65,44 +65,53 @@ fn transaction_pressure_drops_subchunk_without_recovery_but_keeps_levelchunk_rec
     let subchunk_hash = client_blob_hash(subchunk_payload);
     let subchunk_status = resolver
         .accept_cached_packet(cached_subchunk(subchunk_hash, subchunk_payload))
-        .expect("transaction-pressure SubChunk skip remains non-fatal");
+        .expect("transaction-pressure SubChunk rotation remains non-fatal");
     assert_eq!(subchunk_status.missing(), [subchunk_hash]);
-    assert!(
-        subchunk_status.recovery.is_none(),
-        "scheduler-owned SubChunk request must not receive inline recovery"
+    assert_eq!(
+        subchunk_status.recovery.as_ref().map(|recovery| recovery.x),
+        Some(0),
+        "the inline recovery belongs to the rotated oldest transaction"
     );
-    assert_eq!(resolver.stats().pending_transactions, 256);
+    assert_eq!(resolver.stats().pending_transactions, 255);
     assert_eq!(resolver.stats().skipped_cached_packets, 1);
     assert_eq!(resolver.stats().cached_packet_transaction_pressure, 1);
-    assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
     assert_eq!(resolver.stats().recovery_ready_events, 0);
-    assert_eq!(resolver.stats().recovery_requests, 0);
-    assert!(
-        resolver.pop_ready().is_none(),
-        "discarded SubChunk must not enqueue a recovery event"
-    );
+    assert_eq!(resolver.stats().recovery_requests, 1);
+    assert!(resolver.pop_ready().is_none());
 
-    let level_status = resolver
-        .accept_cached_packet(cached_request_level(
-            999,
-            client_blob_hash(b"level-at-bound"),
-        ))
-        .expect("transaction-pressure LevelChunk skip remains non-fatal");
+    let second_status = resolver
+        .accept_cached_packet(cached_subchunk(subchunk_hash, subchunk_payload))
+        .expect("a second rotation creates recovery-slot headroom");
+    assert_eq!(second_status.missing(), [subchunk_hash]);
     assert_eq!(
-        level_status.missing(),
-        [client_blob_hash(b"level-at-bound")]
+        second_status.recovery.as_ref().map(|recovery| recovery.x),
+        Some(1)
     );
-    assert!(
-        level_status.recovery.is_some(),
-        "full-column LevelChunk recovery remains inline"
-    );
+    assert_eq!(resolver.stats().pending_transactions, 254);
     assert_eq!(resolver.stats().skipped_cached_packets, 2);
     assert_eq!(resolver.stats().cached_packet_transaction_pressure, 2);
-    assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
-    assert!(
-        resolver.pop_ready().is_none(),
-        "single LevelChunk recovery remains inline rather than queued"
-    );
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 4);
+
+    let admitted_status = resolver
+        .accept_cached_packet(cached_subchunk(subchunk_hash, subchunk_payload))
+        .expect("the retry is admitted only after prior recovery can be delivered");
+    assert_eq!(admitted_status.missing(), [subchunk_hash]);
+    assert!(admitted_status.recovery.is_none());
+    assert_eq!(resolver.stats().pending_transactions, 255);
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            blobs: vec![Blob {
+                hash: subchunk_hash,
+                payload: subchunk_payload.to_vec(),
+            }],
+        })
+        .expect("the admitted retry accepts its blob");
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::Packet(packet))
+            if matches!(&packet.data, McpePacketData::PacketSubchunk(_))
+    ));
 }
 
 #[test]
@@ -152,6 +161,7 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
     let payload = b"recovery-aggregation";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    let mut inline_recoveries = Vec::new();
 
     for transaction in 0..256_i32 {
         let entries = (-128_i16..=127)
@@ -168,7 +178,7 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
                 blob_id: hash,
             })
             .collect();
-        resolver
+        let mut status = resolver
             .accept_cached_packet(
                 SubchunkPacket {
                     dimension: 0,
@@ -182,7 +192,13 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
                 .into(),
             )
             .expect("large indexed SubChunk fixture remains bounded");
+        inline_recoveries.extend(status.take_recovery());
     }
+    assert_eq!(
+        inline_recoveries.len(),
+        1,
+        "one recovery slot is carried inline when pressure rotates the admitted transaction"
+    );
 
     let updates = (0..256_i32)
         .flat_map(|transaction| {
@@ -200,18 +216,18 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
         .collect();
     resolver
         .accept_world_event(WorldEvent::BlockUpdates(updates), 0)
-        .expect("retain the blocker for every referenced column");
+        .expect("retain the ordinary event after proactive pressure recovery");
 
     assert!(
-        resolver
+        !resolver
             .unblock_ordinary_lane()
-            .expect("indexed SubChunk abandonment remains non-fatal")
+            .expect("the proactive rotation already removed the cached blocker")
     );
-    assert_eq!(resolver.stats().recovery_ready_events, 256);
+    assert_eq!(resolver.stats().recovery_ready_events, 255);
     assert_eq!(resolver.stats().recovery_requests, 256);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_transactions, 0);
-    for _ in 0..256 {
+    for _ in 0..255 {
         assert!(matches!(
             resolver.pop_ready(),
             Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(

@@ -261,20 +261,62 @@ impl BlobCacheResolver {
             let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
             return Ok(self.classify_status(&packet, recovery, false));
         }
-        if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
-            || self.recovery_ready.len() >= MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
-        {
-            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+        let columns = pending_packet_columns(&packet);
+        let transaction_pressure =
+            self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS;
+        let recovery_slot_pressure = self
+            .retained_recovery_slot_count()
+            .saturating_add(columns.len())
+            > MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS;
+        let pressure = transaction_pressure || recovery_slot_pressure;
+        let mut pressure_recovery = None;
+        if pressure {
             self.stats.cached_packet_transaction_pressure = self
                 .stats
                 .cached_packet_transaction_pressure
                 .saturating_add(1);
+            if self.recovery_ready.len() < MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS {
+                pressure_recovery = self.rotate_oldest_pending_transaction()?;
+            }
+        }
+        let pressure_remains = self.retained_cached_transaction_count()
+            >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+            || self
+                .retained_recovery_slot_count()
+                .saturating_add(columns.len())
+                > MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS;
+        let recovery_must_precede_admission = matches!(packet, PendingPacket::SubChunk(_));
+        if pressure_recovery.is_some() && (pressure_remains || recovery_must_precede_admission) {
+            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+            self.stats.abandoned_cached_transactions =
+                self.stats.abandoned_cached_transactions.saturating_add(1);
+            self.enqueue_recoveries(unadmitted_packet_recovery(&packet));
+            let recovery = pressure_recovery
+                .take()
+                .expect("pressure recovery was checked as present");
+            self.refresh_pending_accounting()?;
+            return Ok(self.classify_status(&packet, Some(recovery), false));
+        }
+        if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+            || self.recovery_ready.len() >= MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
+            || self
+                .retained_recovery_slot_count()
+                .saturating_add(columns.len())
+                > MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
+        {
+            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
+            if !pressure {
+                self.stats.cached_packet_transaction_pressure = self
+                    .stats
+                    .cached_packet_transaction_pressure
+                    .saturating_add(1);
+            }
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
             let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
             return Ok(self.classify_status(&packet, recovery, false));
         }
-        let mut status = self.classify_status(&packet, None, true);
+        let mut status = self.classify_status(&packet, pressure_recovery, true);
         let staged_bytes = status.staged_bytes();
         if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION {
             self.cache.unpin_all(&unique_hashes);
@@ -282,7 +324,8 @@ impl BlobCacheResolver {
             self.stats.abandoned_cached_transactions =
                 self.stats.abandoned_cached_transactions.saturating_add(1);
             let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
-            status.set_recovery(recovery);
+            self.merge_status_recovery(&mut status, recovery);
+            self.refresh_pending_accounting()?;
             return Ok(status);
         }
         let missing = status.missing().to_vec();
@@ -295,24 +338,11 @@ impl BlobCacheResolver {
                     .ok_or(BlobCacheError::ByteCountOverflow)?,
             )
             .ok_or(BlobCacheError::ByteCountOverflow)?;
-        let columns = pending_packet_columns(&packet);
-        if self
-            .retained_recovery_slot_count()
-            .saturating_add(columns.len())
-            > MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
-        {
-            self.cache.unpin_all(&unique_hashes);
-            self.stats.skipped_cached_packets = self.stats.skipped_cached_packets.saturating_add(1);
-            self.stats.cached_packet_transaction_pressure = self
-                .stats
-                .cached_packet_transaction_pressure
-                .saturating_add(1);
-            self.stats.abandoned_cached_transactions =
-                self.stats.abandoned_cached_transactions.saturating_add(1);
-            let recovery = self.prepare_recovery(unadmitted_packet_recovery(&packet));
-            status.set_recovery(recovery);
-            return Ok(status);
-        }
+        debug_assert!(
+            self.retained_recovery_slot_count()
+                .saturating_add(columns.len())
+                <= MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS
+        );
         let admission = cached_sub_chunk_admission(&packet);
         let sequence = self.take_ready_sequence()?;
         self.pending.insert(
@@ -335,11 +365,12 @@ impl BlobCacheResolver {
                 .or_default()
                 .insert(sequence);
         }
+        self.relieve_cached_ready_pressure()?;
         self.refresh_pending_accounting()?;
         if self.stats.pending_bytes > MAX_CLIENT_BLOB_PENDING_BYTES {
             self.record_pending_skip();
             let recovery = self.abandon_pending_transaction_with_recovery(sequence, true)?;
-            status.set_recovery(recovery);
+            self.merge_status_recovery(&mut status, recovery);
             self.refresh_pending_accounting()?;
             return Ok(status);
         }
@@ -650,6 +681,62 @@ impl BlobCacheResolver {
         Ok(!blockers.is_empty())
     }
 
+    fn rotate_oldest_pending_transaction(
+        &mut self,
+    ) -> Result<Option<ChunkResyncEvent>, BlobCacheError> {
+        let Some(sequence) = self.pending_order.first().copied() else {
+            return Ok(None);
+        };
+        self.abandon_pending_transaction_with_recovery(sequence, true)
+    }
+
+    fn merge_status_recovery(
+        &mut self,
+        status: &mut BlobCacheStatus,
+        recovery: Option<ChunkResyncEvent>,
+    ) {
+        match (status.take_recovery(), recovery) {
+            (Some(retained), Some(recovery)) => {
+                self.enqueue_precounted_recovery(recovery);
+                status.set_recovery(Some(retained));
+            }
+            (Some(retained), None) => status.set_recovery(Some(retained)),
+            (None, recovery) => status.set_recovery(recovery),
+        }
+    }
+
+    fn relieve_cached_ready_pressure(&mut self) -> Result<bool, BlobCacheError> {
+        if self.retained_cached_transaction_count() < MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
+            return Ok(false);
+        }
+        self.unblock_cached_ready_lane()
+    }
+
+    /// Under transaction pressure, abandons only unresolved cached work that prevents an already
+    /// reconstructed cached packet from being emitted. This preserves per-column ordering while
+    /// ensuring the fixed transaction bound cannot permanently retain a blocked ready packet.
+    fn unblock_cached_ready_lane(&mut self) -> Result<bool, BlobCacheError> {
+        let blockers = self
+            .pending
+            .iter()
+            .filter(|(pending_sequence, pending)| {
+                self.ready.values().any(|ready| {
+                    **pending_sequence < ready.sequence
+                        && pending
+                            .columns
+                            .iter()
+                            .any(|column| ready.columns.contains(column))
+                })
+            })
+            .map(|(sequence, _)| *sequence)
+            .collect::<Vec<_>>();
+        for sequence in &blockers {
+            self.abandon_pending_transaction(*sequence)?;
+        }
+        self.refresh_pending_accounting()?;
+        Ok(!blockers.is_empty())
+    }
+
     fn drain_ready(&mut self) -> Result<(), BlobCacheError> {
         while let Some(sequence) = self.resolved_pending.first().copied() {
             self.move_pending_to_ready(sequence)?;
@@ -719,6 +806,7 @@ impl BlobCacheResolver {
                 sequence,
             },
         );
+        self.relieve_cached_ready_pressure()?;
         self.refresh_pending_accounting()
     }
 
@@ -899,11 +987,23 @@ impl BlobCacheResolver {
     }
 
     pub(super) fn enqueue_recovery(&mut self, recovery: ChunkResyncEvent) {
+        self.enqueue_recovery_inner(recovery, true);
+    }
+
+    fn enqueue_precounted_recovery(&mut self, recovery: ChunkResyncEvent) {
+        if !self.enqueue_recovery_inner(recovery, false) {
+            self.stats.recovery_requests = self.stats.recovery_requests.saturating_sub(1);
+        }
+    }
+
+    fn enqueue_recovery_inner(&mut self, recovery: ChunkResyncEvent, count_new: bool) -> bool {
         let (key, incoming) = RecoveryReady::from_event(recovery);
         let Some(existing) = self.recovery_ready.get_mut(&key) else {
             self.recovery_ready.insert(key, incoming);
-            self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
-            return;
+            if count_new {
+                self.stats.recovery_requests = self.stats.recovery_requests.saturating_add(1);
+            }
+            return true;
         };
 
         let incoming_is_full = incoming.requested_sub_chunk_ys.is_none();
@@ -916,6 +1016,7 @@ impl BlobCacheResolver {
         if incoming_is_full {
             existing.requested_sub_chunks = incoming.requested_sub_chunks;
         }
+        false
     }
 
     /// The only constructor for `BlobCacheStatus`: extracts the complete reference set from the
