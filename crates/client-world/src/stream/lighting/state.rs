@@ -248,9 +248,33 @@ impl WorldStream {
             .collect();
         LightPriorSnapshot {
             light: self.light_store.snapshot_keys(keys),
+
             direct_sky,
             trusted_boundaries,
         }
+    }
+    pub(in crate::stream) fn original_light_column_context_ready(&self, key: SubChunkKey) -> bool {
+        let center = key.chunk();
+        if !self.required_columns.contains(&center) {
+            return true;
+        }
+        for dx in -1_i32..=1 {
+            for dz in -1_i32..=1 {
+                let Some(x) = center.x.checked_add(dx) else {
+                    return false;
+                };
+                let Some(z) = center.z.checked_add(dz) else {
+                    return false;
+                };
+                if !self
+                    .loaded_columns
+                    .contains(&ChunkKey::new(center.dimension, x, z))
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
     pub(in crate::stream) fn register_untrusted_light_waiters(
         &mut self,

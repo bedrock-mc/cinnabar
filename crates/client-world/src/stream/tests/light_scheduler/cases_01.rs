@@ -635,6 +635,27 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
 }
 
 #[test]
+fn original_column_lighting_waits_for_the_loaded_three_by_three_context() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 4, 0, 6);
+    stream.record_known_air(key);
+    stream.required_columns.insert(key.chunk());
+    stream.loaded_columns.insert(key.chunk());
+    stream.mark_changed(key, Instant::now());
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 0);
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            stream
+                .loaded_columns
+                .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
+        }
+    }
+
+    assert_eq!(stream.dispatch_light_jobs([72.0, 8.0, 104.0], 1), 1);
+}
+
+#[test]
 fn mesh_dispatch_waits_for_current_light() {
     let mut stream = stream();
     let key = SubChunkKey::new(0, 0, -4, 0);

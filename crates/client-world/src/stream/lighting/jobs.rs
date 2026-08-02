@@ -122,6 +122,10 @@ impl WorldStream {
                 self.pending_light_deferred.push(candidate);
                 continue;
             }
+            if !self.original_light_column_context_ready(key) {
+                self.pending_light_deferred.push(candidate);
+                continue;
+            }
             if !self.light_dispatch_ready(key) {
                 if let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) {
                     self.light_waiters.entry(above).or_default().insert(key);
