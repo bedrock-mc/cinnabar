@@ -50,9 +50,13 @@ pub(crate) fn refresh_cave_visibility(
         return;
     }
 
-    cache.visible = stream.cave_visible_sub_chunks(camera_key);
+    let visible = stream.cave_visible_sub_chunks(camera_key);
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
+    if cache.initialized && cache.visible == visible {
+        return;
+    }
+    cache.visible = visible;
     cache.initialized = true;
     cache.visible_rendered = 0;
     for (instance, mut visibility) in &mut chunks {
