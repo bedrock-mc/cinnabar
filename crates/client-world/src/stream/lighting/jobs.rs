@@ -37,7 +37,9 @@ impl WorldStream {
                 }
                 let candidate =
                     PendingSchedulerCandidate::new(key, pending.revision, camera_position);
-                if deferred.contains(&(key, pending.revision)) {
+                if self.light_priority_wakeups.get(&key) == Some(&pending.revision) {
+                    ready.push(candidate);
+                } else if deferred.contains(&(key, pending.revision)) {
                     next_round.push(candidate);
                 } else {
                     ready.push(candidate);
@@ -61,12 +63,13 @@ impl WorldStream {
                     .get(&key)
                     .is_some_and(|pending| pending.revision == queued_revision)
                 {
-                    self.pending_light_deferred
-                        .push(PendingSchedulerCandidate::new(
-                            key,
-                            queued_revision,
-                            camera_position,
-                        ));
+                    let candidate =
+                        PendingSchedulerCandidate::new(key, queued_revision, camera_position);
+                    if self.light_priority_wakeups.get(&key) == Some(&queued_revision) {
+                        self.pending_light_ready.push(candidate);
+                    } else {
+                        self.pending_light_deferred.push(candidate);
+                    }
                 }
             }
         }
@@ -119,6 +122,7 @@ impl WorldStream {
                 if let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) {
                     self.light_waiters.entry(above).or_default().insert(key);
                 }
+                self.light_priority_wakeups.remove(&key);
                 continue;
             }
             if key
@@ -139,6 +143,7 @@ impl WorldStream {
             };
             let Some(bounds) = light_bounds(key) else {
                 self.pending_light.remove(&key);
+                self.light_priority_wakeups.remove(&key);
                 continue;
             };
             if !self.light_ownership.contains_key(&key) {
@@ -156,6 +161,7 @@ impl WorldStream {
                     .map(|light| light.generation()),
             };
             self.pending_light.remove(&key);
+            self.light_priority_wakeups.remove(&key);
             self.in_flight_light.insert(key, identity);
             prepared.push(PreparedLightJob {
                 key,
@@ -269,6 +275,7 @@ impl WorldStream {
                 self.pending_light_scan.clear();
                 self.pending_light_ready.clear();
                 self.pending_light_deferred.clear();
+                self.light_priority_wakeups.clear();
                 self.light_waiters.clear();
                 self.stats.light_solve_failures = self.stats.light_solve_failures.saturating_add(1);
                 return;
@@ -400,7 +407,9 @@ impl WorldStream {
             }
         }
         for neighbour in requeue {
-            self.mark_light_dirty_exact(neighbour);
+            if let Some(revision) = self.mark_light_dirty_exact(neighbour) {
+                self.light_priority_wakeups.insert(neighbour, revision);
+            }
         }
     }
     pub(in crate::stream) fn known_air_has_vertical_direct_sky(&self, key: SubChunkKey) -> bool {

@@ -213,6 +213,7 @@ pub struct WorldStream {
     pending_light_scan: VecDeque<(SubChunkKey, u64)>,
     pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
+    light_priority_wakeups: HashMap<SubChunkKey, u64>,
     light_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,

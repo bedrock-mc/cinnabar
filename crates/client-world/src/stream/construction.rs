@@ -141,6 +141,7 @@ impl WorldStream {
             pending_light_scan: VecDeque::new(),
             pending_light_ready: BinaryHeap::new(),
             pending_light_deferred: BinaryHeap::new(),
+            light_priority_wakeups: HashMap::new(),
             light_scheduler_camera_cell: None,
             in_flight_light: HashMap::new(),
             light_waiters: HashMap::new(),

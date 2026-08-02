@@ -64,6 +64,7 @@ impl WorldStream {
         self.light_failures.remove(&key);
         self.light_revisions.entries.remove(&key);
         self.pending_light.remove(&key);
+        self.light_priority_wakeups.remove(&key);
         self.in_flight_light.remove(&key);
         self.remove_light_waiters_for(key);
     }
@@ -82,6 +83,7 @@ impl WorldStream {
             return None;
         }
         self.light_failures.remove(&key);
+        self.light_priority_wakeups.remove(&key);
         self.remove_light_waiter_target(key);
         let queued_at = Instant::now();
         let revision = self.light_revisions.mark_dirty(key, queued_at);
