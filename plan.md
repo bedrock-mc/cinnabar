@@ -151,18 +151,21 @@ order:
 
 ### PR 6 cache-enabled live-validation handoff (2026-08-01)
 
-The local `agent/track-phase3-movement` implementation through `71d5fea` is ahead
-of its pushed remote (`d8637a2`) and is **not yet reviewed, integrated, or cleared to push**.
-Cache-enabled BDS load exposed and fixed a self-sustaining blob-recovery loop,
-unbounded publication-authority scans, repeated per-frame cohort hashing, and
-blocked light/mesh scheduler-prefix starvation. The latest debug live run
-(`.local/acceptance/phase3-54b649a2c3e942b08d082637d9816732`) restored visible
-publication: the inspected Windows frame showed real terrain, foliage, clouds,
-HUD, and progressive chunk arrival; the final sampled snapshot recorded 302
-resident meshes, 215 submitted/GPU-completed meshes, and 3,054,396 upload bytes.
-This closes the blank-window regression only. The partial scene, roughly 14 FPS
-debug capture, and remaining 10,607 light plus 20,849 mesh jobs do not close the
-release-performance or vanilla-parity gates.
+The local `agent/track-phase3-movement` implementation through `1e40a24` is ahead
+of its pushed remote (`d8637a2`) and is **not yet independently reviewed,
+integrated, or cleared to push**. Cache-enabled BDS load exposed and fixed a
+self-sustaining blob-recovery loop, unbounded publication-authority scans,
+repeated per-frame cohort hashing, blocked light/mesh scheduler-prefix starvation,
+and a permanent lighting stall at the requested-cohort boundary. The final
+optimized-dev BDS run
+(`.local/acceptance/phase3-2b533bdda6c24397abb023fe2fcd30f3`) reached zero
+pending/in-flight light and mesh work across the stable 939/939-column cohort:
+8,021 resident meshes, 5,203 submitted/GPU-completed meshes, 62,033 accepted
+light jobs, and zero stale light jobs. The inspected Windows window showed the
+complete loaded terrain scene at 17.2 FPS after convergence; sampled median frame
+time was 49.628 ms and p95 was 187.596 ms. This closes the blank-window and
+visible-radius convergence regressions. It does **not** close release-performance
+or vanilla-lighting-parity gates.
 
 An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
 this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
@@ -174,15 +177,15 @@ implement any adopted contract. Its recovered original-lighting path uses a
 retained 3x3-column transaction and one priority-32 center-column task rather than
 the current provisional per-subchunk scheduler.
 
-The in-progress column-batching experiment only solves contiguous vertical work
-against retained 3x3 subchunk snapshots. It does **not** yet reproduce vanilla's
-atomic 3x3-column ownership, cross-column writes, or 500 ms lock-contention retry,
-so it remains an explicitly incomplete convergence optimization and cannot close
-the native lighting-parity gate. Audit the full architecture before further
-queue-cap tuning. Remaining measured follow-ups are generation-gated
-render-expectation reuse, telemetry identity caching, a release build with complete
-visible-radius convergence, version-matched native comparison, and independent
-review.
+The current column transaction solves contiguous vertical work against retained
+3x3 subchunk snapshots, retains immutable generations, and admits requested
+cohort-edge columns without waiting forever for unrequested neighbours. It does
+**not** yet reproduce vanilla's atomic 3x3-column ownership, cross-column writes,
+or 500 ms lock-contention retry, so it remains an explicitly incomplete
+convergence architecture and cannot close the native lighting-parity gate.
+Audit the full architecture before further queue-cap tuning. Remaining measured
+follow-ups are release-mode performance, version-matched native comparison, and
+independent review.
 
 ---
 
