@@ -267,6 +267,10 @@ impl WorldReadySettler {
                 acknowledged_manifest_len = acknowledgement.allocation_manifest.len(),
                 manifest_match =
                     acknowledgement.allocation_manifest == candidate.expectation.manifest,
+                visible_manifest_len = acknowledgement.visible_allocation_manifest.len(),
+                drawn_manifest_len = acknowledgement.drawn_manifest.len(),
+                visible_drawn_match =
+                    acknowledgement.visible_allocation_manifest == acknowledgement.drawn_manifest,
                 exact = acknowledgement.is_exact(),
                 frame_sequence = acknowledgement.frame_sequence,
                 missing_target_instances = acknowledgement.missing_target_instances,
