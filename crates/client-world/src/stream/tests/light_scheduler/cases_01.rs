@@ -627,10 +627,29 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
         [false, true, false, true, false, false],
         Instant::now(),
     );
+    let revisions = stream
+        .pending_mesh
+        .iter()
+        .map(|(&key, pending)| (key, pending.revision))
+        .collect::<BTreeMap<_, _>>();
+    stream.mark_changed_light_mesh_dependents(
+        source,
+        [false, true, false, true, false, false],
+        Instant::now(),
+    );
 
     assert_eq!(
         stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
         BTreeSet::from([source, east, up, east_up])
+    );
+    assert_eq!(
+        stream
+            .pending_mesh
+            .iter()
+            .map(|(&key, pending)| (key, pending.revision))
+            .collect::<BTreeMap<_, _>>(),
+        revisions,
+        "a queued mesh observes the latest light when it is prepared and must not be revised again"
     );
 }
 

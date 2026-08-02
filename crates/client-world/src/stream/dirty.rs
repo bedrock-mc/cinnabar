@@ -115,6 +115,11 @@ impl WorldStream {
                 && self.resident.contains(&dependent)
                 && self.store.sub_chunk(dependent).is_some()
             {
+                if self.pending_mesh.contains_key(&dependent)
+                    && !self.in_flight.contains_key(&dependent)
+                {
+                    continue;
+                }
                 self.mark_dirty_exact(dependent, now);
             }
         }
