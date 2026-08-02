@@ -512,11 +512,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
-    shutdown_watchdog.complete();
-    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
+    shutdown_watchdog.complete();
+    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");
     }
