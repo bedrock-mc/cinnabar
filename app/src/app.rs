@@ -515,6 +515,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
+    drop(app);
     shutdown_watchdog.complete();
     eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
