@@ -48,9 +48,9 @@ impl WorldStream {
                 let candidate =
                     PendingSchedulerCandidate::new(key, queued_revision, camera_position);
                 if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                    self.pending_resident_mesh_ready.push(candidate);
+                    self.pending_resident_mesh_deferred.push(candidate);
                 } else {
-                    self.pending_mesh_removal_ready.push(candidate);
+                    self.pending_mesh_removal_deferred.push(candidate);
                 }
             }
         }

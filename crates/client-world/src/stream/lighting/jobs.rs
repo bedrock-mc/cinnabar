@@ -38,7 +38,7 @@ impl WorldStream {
                     .get(&key)
                     .is_some_and(|pending| pending.revision == queued_revision)
                 {
-                    self.pending_light_ready
+                    self.pending_light_deferred
                         .push(PendingSchedulerCandidate::new(
                             key,
                             queued_revision,
