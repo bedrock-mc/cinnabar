@@ -422,6 +422,8 @@ pub fn solve_light<A: LightBlockAccess, P: LightReadAccess>(
         });
     }
 
+    let cached_blocks = CachedLightBlockAccess::new(blocks, bounds, volume);
+    let blocks = &cached_blocks;
     let mut output = MutableOutput::new(bounds, generation, volume);
     let mut stats = LightSolveStats::default();
     let mut queued_total = 0_usize;
@@ -837,6 +839,77 @@ fn enqueue_counted(total: &mut usize, amount: usize, max: usize) -> Result<(), L
     }
 }
 
+fn light_axis_len(min: i32, max: i32) -> usize {
+    usize::try_from(i64::from(max) - i64::from(min) + 1)
+        .expect("validated light bounds have a representable axis extent")
+}
+
+fn light_dense_index(
+    bounds: LightBounds,
+    y_len: usize,
+    z_len: usize,
+    position: BlockPos,
+) -> Option<usize> {
+    if !bounds.contains(position) {
+        return None;
+    }
+    let x = usize::try_from(i64::from(position.x) - i64::from(bounds.min.x)).ok()?;
+    let y = usize::try_from(i64::from(position.y) - i64::from(bounds.min.y)).ok()?;
+    let z = usize::try_from(i64::from(position.z) - i64::from(bounds.min.z)).ok()?;
+    x.checked_mul(y_len)?
+        .checked_add(y)?
+        .checked_mul(z_len)?
+        .checked_add(z)
+}
+
+struct CachedLightBlockAccess<'a, A> {
+    source: &'a A,
+    bounds: LightBounds,
+    y_len: usize,
+    z_len: usize,
+    samples: Box<[LightBlockSample]>,
+    sky_seeds: Box<[u8]>,
+}
+
+impl<'a, A: LightBlockAccess> CachedLightBlockAccess<'a, A> {
+    fn new(source: &'a A, bounds: LightBounds, volume: usize) -> Self {
+        let y_len = light_axis_len(bounds.min.y, bounds.max.y);
+        let z_len = light_axis_len(bounds.min.z, bounds.max.z);
+        let mut samples = Vec::with_capacity(volume);
+        let mut sky_seeds = Vec::with_capacity(volume);
+        for position in bounds.positions() {
+            samples.push(source.sample(position));
+            sky_seeds.push(source.sky_seed(position));
+        }
+        Self {
+            source,
+            bounds,
+            y_len,
+            z_len,
+            samples: samples.into_boxed_slice(),
+            sky_seeds: sky_seeds.into_boxed_slice(),
+        }
+    }
+
+    fn index(&self, position: BlockPos) -> Option<usize> {
+        light_dense_index(self.bounds, self.y_len, self.z_len, position)
+    }
+}
+
+impl<A: LightBlockAccess> LightBlockAccess for CachedLightBlockAccess<'_, A> {
+    fn sample(&self, position: BlockPos) -> LightBlockSample {
+        self.index(position)
+            .map_or_else(|| self.source.sample(position), |index| self.samples[index])
+    }
+
+    fn sky_seed(&self, position: BlockPos) -> u8 {
+        self.index(position).map_or_else(
+            || self.source.sky_seed(position),
+            |index| self.sky_seeds[index],
+        )
+    }
+}
+
 struct MutableOutput {
     bounds: LightBounds,
     generation: u64,
@@ -848,10 +921,8 @@ struct MutableOutput {
 
 impl MutableOutput {
     fn new(bounds: LightBounds, generation: u64, volume: usize) -> Self {
-        let y_len = usize::try_from(i64::from(bounds.max.y) - i64::from(bounds.min.y) + 1)
-            .expect("validated light bounds have a representable y extent");
-        let z_len = usize::try_from(i64::from(bounds.max.z) - i64::from(bounds.min.z) + 1)
-            .expect("validated light bounds have a representable z extent");
+        let y_len = light_axis_len(bounds.min.y, bounds.max.y);
+        let z_len = light_axis_len(bounds.min.z, bounds.max.z);
         Self {
             bounds,
             generation,
@@ -863,16 +934,7 @@ impl MutableOutput {
     }
 
     fn index(&self, position: BlockPos) -> Option<usize> {
-        if !self.bounds.contains(position) {
-            return None;
-        }
-        let x = usize::try_from(i64::from(position.x) - i64::from(self.bounds.min.x)).ok()?;
-        let y = usize::try_from(i64::from(position.y) - i64::from(self.bounds.min.y)).ok()?;
-        let z = usize::try_from(i64::from(position.z) - i64::from(self.bounds.min.z)).ok()?;
-        x.checked_mul(self.y_len)?
-            .checked_add(y)?
-            .checked_mul(self.z_len)?
-            .checked_add(z)
+        light_dense_index(self.bounds, self.y_len, self.z_len, position)
     }
 
     fn get(&self, position: BlockPos, channel: LightChannel) -> u8 {
