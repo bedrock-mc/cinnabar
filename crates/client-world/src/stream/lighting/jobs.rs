@@ -57,6 +57,12 @@ impl WorldStream {
         let mut prepared = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
+        let mut not_current = 0_usize;
+        let mut already_in_flight = 0_usize;
+        let mut not_resident = 0_usize;
+        let mut above_not_ready = 0_usize;
+        let mut neighbour_conflict = 0_usize;
+        let mut missing_generation = 0_usize;
         while prepared.len() < solve_budget && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
             let Some(candidate) = self.pending_light_ready.pop() else {
                 break;
@@ -70,23 +76,40 @@ impl WorldStream {
             if pending.revision != revision {
                 continue;
             }
-            if !self.light_revisions.is_current(key, revision)
-                || self.in_flight_light.contains_key(&key)
-                || !self.resident.contains(&key)
-                || !self.light_dispatch_ready(key)
-                || key
-                    .mesh_dependents()
-                    .filter(|candidate| *candidate != key)
-                    .any(|neighbour| {
-                        selected.contains(&neighbour)
-                            || self.in_flight_light.contains_key(&neighbour)
-                    })
+            if !self.light_revisions.is_current(key, revision) {
+                not_current += 1;
+                self.pending_light_deferred.push(candidate);
+                continue;
+            }
+            if self.in_flight_light.contains_key(&key) {
+                already_in_flight += 1;
+                self.pending_light_deferred.push(candidate);
+                continue;
+            }
+            if !self.resident.contains(&key) {
+                not_resident += 1;
+                self.pending_light_deferred.push(candidate);
+                continue;
+            }
+            if !self.light_dispatch_ready(key) {
+                above_not_ready += 1;
+                self.pending_light_deferred.push(candidate);
+                continue;
+            }
+            if key
+                .mesh_dependents()
+                .filter(|candidate| *candidate != key)
+                .any(|neighbour| {
+                    selected.contains(&neighbour) || self.in_flight_light.contains_key(&neighbour)
+                })
             {
+                neighbour_conflict += 1;
                 self.pending_light_deferred.push(candidate);
                 continue;
             }
             let Some(block_generation) = self.block_generations.get(&key).copied() else {
                 self.pending_light_deferred.push(candidate);
+                missing_generation += 1;
                 continue;
             };
             let Some(bounds) = light_bounds(key) else {
@@ -118,6 +141,24 @@ impl WorldStream {
                 queued_at: pending.queued_at,
             });
             selected.insert(key);
+        }
+        static PROFILE_LIGHT_DISPATCH: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+            std::env::var_os("RUST_MCBE_PROFILE_LIGHT_DISPATCH").is_some()
+        });
+        if *PROFILE_LIGHT_DISPATCH && scanned != 0 {
+            eprintln!(
+                "LIGHT_DISPATCH_PROFILE scanned={} prepared={} not_current={} in_flight={} not_resident={} above_not_ready={} neighbour_conflict={} missing_generation={} active={} deferred={}",
+                scanned,
+                prepared.len(),
+                not_current,
+                already_in_flight,
+                not_resident,
+                above_not_ready,
+                neighbour_conflict,
+                missing_generation,
+                self.pending_light_ready.len(),
+                self.pending_light_deferred.len(),
+            );
         }
 
         let dispatched = prepared.len();
