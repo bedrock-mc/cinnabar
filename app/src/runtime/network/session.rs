@@ -597,7 +597,6 @@ impl NetworkSession for protocol::PlaySession {
     }
 }
 
-
 fn try_emit_blob_cache_telemetry<S: NetworkSession>(
     session: &S,
     control_event_tx: &mpsc::Sender<NetworkControlEvent>,

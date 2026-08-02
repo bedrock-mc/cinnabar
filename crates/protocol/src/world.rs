@@ -952,4 +952,3 @@ fn canonical_biome_name(name: &str) -> Arc<str> {
         Arc::from(name)
     }
 }
-

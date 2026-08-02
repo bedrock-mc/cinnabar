@@ -547,7 +547,6 @@ fn response_deadline_begins_only_after_successful_send() {
     assert_eq!(stream.stats().sub_chunk_timeouts, 1);
 }
 
-
 #[test]
 fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
     let acknowledged_at = Instant::now();

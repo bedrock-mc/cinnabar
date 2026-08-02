@@ -3,10 +3,10 @@ use super::*;
 mod accounting;
 mod helpers;
 mod ordering;
-mod reconstruction;
-mod status;
 mod pressure;
+mod reconstruction;
 mod recovery;
+mod status;
 pub use self::status::BlobCacheStatus;
 use self::{helpers::*, ordering::*, reconstruction::*, recovery::*};
 
@@ -520,7 +520,6 @@ impl BlobCacheResolver {
         self.refresh_pending_accounting()
     }
 
-
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
         if let Some(recovery) = self.pop_recovery_ready() {
             return Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
@@ -566,7 +565,6 @@ impl BlobCacheResolver {
         }
         None
     }
-
 
     fn drain_ready(&mut self) -> Result<(), BlobCacheError> {
         while let Some(sequence) = self.resolved_pending.first().copied() {
@@ -918,7 +916,6 @@ impl Drop for BlobCacheResolver {
         self.reset_pending();
     }
 }
-
 
 trait ReferencedBlobHashes {
     fn referenced_blob_hashes(&self) -> Vec<u64>;
