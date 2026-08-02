@@ -420,6 +420,46 @@ fn exhausted_removal_authority_still_reclassifies_ready_resident_work() {
 }
 
 #[test]
+fn mesh_worker_budget_keeps_unscanned_residents_behind_nearer_ready_work() {
+    let mut stream = stream();
+    let keys = (0..=MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+        .map(|index| SubChunkKey::new(0, index as i32 * 3, 0, 0))
+        .collect::<Vec<_>>();
+    for key in keys.iter().copied() {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert!(stream.in_flight.contains_key(&keys[0]));
+    stream.in_flight.remove(&keys[0]);
+
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    assert!(stream.in_flight.contains_key(&keys[1]));
+    assert!(!stream.in_flight.contains_key(keys.last().unwrap()));
+}
+
+#[test]
+fn renewed_removal_authority_restores_nearest_first_order() {
+    let mut stream = stream();
+    let keys = (0..3)
+        .map(|x| SubChunkKey::new(0, x, 0, 0))
+        .collect::<Vec<_>>();
+    for key in keys.iter().copied() {
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+
+    for expected in keys {
+        assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
+        assert_eq!(stream.pop_mesh_change().unwrap().key(), expected);
+    }
+}
+
+#[test]
 fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
     let mut stream = stream();
     let center = SubChunkKey::new(0, 0, -4, 0);

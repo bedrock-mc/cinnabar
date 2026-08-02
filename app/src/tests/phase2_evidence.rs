@@ -193,7 +193,7 @@ fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
         .split("pub(crate) fn record_metrics_and_title")
         .nth(1)
         .expect("record_metrics_and_title source")
-        .split("\n    if let Some(stream) = client_world.stream.as_ref() {")
+        .split("\n    if client_world.stream.is_some() {")
         .next()
         .expect("record_metrics_and_title body");
 

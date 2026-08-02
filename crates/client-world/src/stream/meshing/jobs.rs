@@ -57,10 +57,10 @@ impl WorldStream {
                 let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
                     break;
                 };
-                if !self
+                if self
                     .pending_mesh
                     .get(&key)
-                    .is_some_and(|pending| pending.revision == queued_revision)
+                    .is_none_or(|pending| pending.revision != queued_revision)
                 {
                     continue;
                 }
@@ -116,6 +116,10 @@ impl WorldStream {
             .map_or(budget, PublicationAllowance::zero_byte_admission_capacity)
             .min(budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        if removal_authority != 0 {
+            self.pending_mesh_removal_ready
+                .append(&mut self.pending_mesh_removal_deferred);
+        }
         for _ in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
             let Some(candidate) = self.pending_mesh_removal_ready.pop() else {
                 break;
@@ -143,7 +147,7 @@ impl WorldStream {
         for (candidate, pending) in resident_candidates {
             let key = candidate.key;
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || dispatched >= worker_budget {
-                self.pending_resident_mesh_deferred.push(candidate);
+                self.pending_resident_mesh_ready.push(candidate);
                 continue;
             }
             if !self.revisions.is_current(key, pending.revision)
@@ -346,15 +350,12 @@ impl WorldStream {
         else {
             return;
         };
-        if !self.pending_mesh.contains_key(&key) {
-            self.pending_mesh.insert(
-                key,
-                PendingMesh {
-                    revision,
-                    since: dirty.since,
-                    queued_at: Instant::now(),
-                },
-            );
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.pending_mesh.entry(key) {
+            entry.insert(PendingMesh {
+                revision,
+                since: dirty.since,
+                queued_at: Instant::now(),
+            });
             self.pending_mesh_scan.push_back((key, revision));
         }
     }
