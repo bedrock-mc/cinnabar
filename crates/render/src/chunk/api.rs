@@ -492,7 +492,10 @@ impl PresentedFrameAck {
     #[must_use]
     pub fn is_exact(&self) -> bool {
         !self.allocation_manifest.is_empty()
-            && self.drawn_manifest == self.visible_allocation_manifest
+            && self
+                .visible_allocation_manifest
+                .iter()
+                .all(|visible| self.drawn_manifest.binary_search(visible).is_ok())
             && self.missing_target_instances == 0
             && self.unexpected_target_instances == 0
             && self.source_instances == 0
@@ -508,6 +511,7 @@ impl PresentedFrameAck {
             && self.cohort == next.cohort
             && self.allocation_manifest == next.allocation_manifest
             && self.visible_allocation_manifest == next.visible_allocation_manifest
+            && self.drawn_manifest == next.drawn_manifest
             && self.view_generation == next.view_generation
             && self.render_ready_at == next.render_ready_at
             && self.transparent_sort_generation == next.transparent_sort_generation
