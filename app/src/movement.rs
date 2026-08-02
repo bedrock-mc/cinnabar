@@ -30,15 +30,13 @@ pub const OUTBOX_CAPACITY: usize = 32;
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
-/// The safe production default is deliberately non-authoritative. Local
-/// prediction and perspective changes cannot opt in implicitly; Phase 3's
-/// physics authority must be enabled explicitly before samples may enter the
-/// outbound scheduler.
+/// The pre-session default is deliberately non-authoritative. StartGame
+/// selects production physics only after the collision registry and server
+/// anchor are available.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MovementSource {
     #[default]
     FreeCamera,
-    #[allow(dead_code, reason = "reserved for the Phase 3 physics authority")]
     Physics,
 }
 
@@ -239,9 +237,9 @@ impl MovementTicker {
     /// Selects the source allowed to drive outbound movement.
     ///
     /// Changing authority always discards queued/history state so samples from
-    /// the prior source cannot cross the boundary. The production app leaves
-    /// this at [`MovementSource::FreeCamera`] until the server-authoritative
-    /// gate is explicitly enabled.
+    /// the prior source cannot cross the boundary. Production StartGame
+    /// explicitly selects [`MovementSource::Physics`]; auto-fly acceptance
+    /// explicitly retains [`MovementSource::FreeCamera`].
     pub fn set_source(&mut self, source: MovementSource) {
         if self.source == source {
             return;

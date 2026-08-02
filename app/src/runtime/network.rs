@@ -380,7 +380,7 @@ pub(crate) fn receive_network_events(
                     local_physics.deactivate();
                     record_fatal_error(
                         &mut client_world.fatal_error,
-                        format!("candidate Physics authority failed closed: {fault:?}"),
+                        format!("Physics authority failed closed: {fault:?}"),
                     );
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
