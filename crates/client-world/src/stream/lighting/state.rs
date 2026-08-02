@@ -229,9 +229,14 @@ impl WorldStream {
             trusted_boundaries,
         }
     }
-    pub(in crate::stream) fn register_untrusted_light_waiters(&mut self, target: SubChunkKey) {
+    pub(in crate::stream) fn register_untrusted_light_waiters(
+        &mut self,
+        target: SubChunkKey,
+        retained_batch: &HashSet<SubChunkKey>,
+    ) {
         for neighbour in target.mesh_dependents().filter(|key| *key != target) {
-            if self.light_source_is_known(neighbour)
+            if !retained_batch.contains(&neighbour)
+                && self.light_source_is_known(neighbour)
                 && !self.light_is_current(neighbour)
                 && self.light_store.light(neighbour).is_some()
                 && self.prior_light_may_seed(target, neighbour)

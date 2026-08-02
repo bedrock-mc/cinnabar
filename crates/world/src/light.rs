@@ -276,6 +276,18 @@ impl LightStoreSnapshot {
     pub fn light(&self, key: SubChunkKey) -> Option<&Arc<SubChunkLight>> {
         self.entries.get(&key).map(|entry| &entry.light)
     }
+
+    /// Replaces light for a boundary already present in this snapshot.
+    ///
+    /// Returns `false` for an unknown boundary so worker-local convergence cannot
+    /// manufacture knowledge that was absent from the retained world view.
+    pub fn replace_known_light(&mut self, key: SubChunkKey, light: Arc<SubChunkLight>) -> bool {
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return false;
+        };
+        entry.light = light;
+        true
+    }
 }
 
 /// Sparse light store kept separate from palette-native block storage.

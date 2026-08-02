@@ -172,8 +172,14 @@ source or redistribute it; obtain the author's explicit permission, cite the exa
 reference revision/address evidence, verify version stability, and independently
 implement any adopted contract. Its recovered original-lighting path uses a
 retained 3x3-column transaction and one priority-32 center-column task rather than
-the current provisional per-subchunk scheduler. Audit that architecture before
-further queue-cap tuning. Remaining measured follow-ups are generation-gated
+the current provisional per-subchunk scheduler.
+
+The in-progress column-batching experiment only solves contiguous vertical work
+against retained 3x3 subchunk snapshots. It does **not** yet reproduce vanilla's
+atomic 3x3-column ownership, cross-column writes, or 500 ms lock-contention retry,
+so it remains an explicitly incomplete convergence optimization and cannot close
+the native lighting-parity gate. Audit the full architecture before further
+queue-cap tuning. Remaining measured follow-ups are generation-gated
 render-expectation reuse, telemetry identity caching, a release build with complete
 visible-radius convergence, version-matched native comparison, and independent
 review.

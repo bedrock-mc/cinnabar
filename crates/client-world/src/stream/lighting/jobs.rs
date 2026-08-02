@@ -80,10 +80,12 @@ impl WorldStream {
             );
         }
 
-        let mut prepared = Vec::with_capacity(solve_budget);
+        let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
-        while prepared.len() < solve_budget && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        while prepared_batches.len() < solve_budget
+            && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
+        {
             let Some(candidate) = self.pending_light_ready.pop() else {
                 break;
             };
@@ -134,58 +136,162 @@ impl WorldStream {
                 self.light_priority_wakeups.remove(&key);
                 continue;
             };
-            if !self.light_ownership.contains_key(&key) {
-                debug_assert!(self.light_store.light(key).is_some());
-            }
-            let blocks = self.light_block_snapshot(key);
-            self.register_untrusted_light_waiters(key);
-            let prior = self.light_prior_snapshot(key);
-            let identity = LightJobIdentity {
-                revision,
-                block_generation,
-                previous_light_generation: self
-                    .light_store
-                    .light(key)
-                    .map(|light| light.generation()),
-            };
-            self.pending_light.remove(&key);
-            self.light_priority_wakeups.remove(&key);
-            self.in_flight_light.insert(key, identity);
-            prepared.push(PreparedLightJob {
+
+            let mut batch_keys = HashSet::from([key]);
+            let mut batch = vec![self.take_prepared_light_job(
                 key,
-                identity,
-                blocks,
-                prior,
+                pending,
+                block_generation,
                 bounds,
-                queued_at: pending.queued_at,
-            });
-            selected.insert(key);
+                &batch_keys,
+            )];
+            let mut lower = key;
+            while batch.len() < MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS {
+                let Some(next) = offset_sub_chunk_key(lower, [0, -1, 0]) else {
+                    break;
+                };
+                let Some(next_pending) = self.pending_light.get(&next).copied() else {
+                    break;
+                };
+                if !self.light_revisions.is_current(next, next_pending.revision)
+                    || self.in_flight_light.contains_key(&next)
+                    || !self.resident.contains(&next)
+                {
+                    break;
+                }
+                if next
+                    .mesh_dependents()
+                    .filter(|candidate| *candidate != next)
+                    .any(|neighbour| {
+                        !batch_keys.contains(&neighbour)
+                            && (selected.contains(&neighbour)
+                                || self.in_flight_light.contains_key(&neighbour))
+                    })
+                {
+                    break;
+                }
+                let Some(next_block_generation) = self.block_generations.get(&next).copied() else {
+                    break;
+                };
+                let Some(next_bounds) = light_bounds(next) else {
+                    self.pending_light.remove(&next);
+                    self.light_priority_wakeups.remove(&next);
+                    break;
+                };
+                batch_keys.insert(next);
+                batch.push(self.take_prepared_light_job(
+                    next,
+                    next_pending,
+                    next_block_generation,
+                    next_bounds,
+                    &batch_keys,
+                ));
+                lower = next;
+            }
+            selected.extend(batch_keys);
+            prepared_batches.push(batch);
         }
 
-        let dispatched = prepared.len();
+        let dispatched = prepared_batches.iter().map(Vec::len).sum::<usize>();
         self.stats.phase2_stages.light_jobs_dispatched = self
             .stats
             .phase2_stages
             .light_jobs_dispatched
             .saturating_add(dispatched as u64);
-        for job in prepared {
+        for batch in prepared_batches {
             let tx = self.light_tx.clone();
             rayon::spawn(move || {
-                let started = Instant::now();
-                let queue_wait = queue_wait(job.queued_at, started);
-                let key = job.key;
-                let identity = job.identity;
-                let result = solve_prepared_light_job(job);
-                let _ = tx.send(LightCompletion {
-                    key,
-                    identity,
-                    result,
-                    queue_wait,
-                    duration: started.elapsed(),
-                });
+                let mut solved_boundaries =
+                    HashMap::<SubChunkKey, (Arc<SubChunkLight>, Arc<DirectSkyMask>)>::new();
+                let mut jobs = batch.into_iter();
+                while let Some(mut job) = jobs.next() {
+                    for (&solved_key, (light, direct_sky)) in &solved_boundaries {
+                        if job
+                            .prior
+                            .light
+                            .replace_known_light(solved_key, Arc::clone(light))
+                        {
+                            job.prior.direct_sky.insert(
+                                solved_key,
+                                StoredDirectSky {
+                                    light_revision: light.generation(),
+                                    mask: Arc::clone(direct_sky),
+                                },
+                            );
+                            job.prior.trusted_boundaries.insert(solved_key);
+                        }
+                    }
+                    let started = Instant::now();
+                    let queue_latency = queue_wait(job.queued_at, started);
+                    let key = job.key;
+                    let identity = job.identity;
+                    let result = solve_prepared_light_job(job);
+                    let failure = result.as_ref().err().copied();
+                    if let Ok(solved) = &result {
+                        solved_boundaries.insert(
+                            key,
+                            (
+                                Arc::new(solved.replacement.clone()),
+                                Arc::clone(&solved.direct_sky),
+                            ),
+                        );
+                    }
+                    let _ = tx.send(LightCompletion {
+                        key,
+                        identity,
+                        result,
+                        queue_wait: queue_latency,
+                        duration: started.elapsed(),
+                    });
+                    if let Some(error) = failure {
+                        for remaining in jobs {
+                            let started = Instant::now();
+                            let _ = tx.send(LightCompletion {
+                                key: remaining.key,
+                                identity: remaining.identity,
+                                result: Err(error),
+                                queue_wait: queue_wait(remaining.queued_at, started),
+                                duration: Duration::ZERO,
+                            });
+                        }
+                        break;
+                    }
+                }
             });
         }
         dispatched
+    }
+    fn take_prepared_light_job(
+        &mut self,
+        key: SubChunkKey,
+        pending: PendingLight,
+        block_generation: u64,
+        bounds: LightBounds,
+        retained_batch: &HashSet<SubChunkKey>,
+    ) -> PreparedLightJob {
+        if !self.light_ownership.contains_key(&key) {
+            debug_assert!(self.light_store.light(key).is_some());
+        }
+        self.remove_light_waiter_target(key);
+        let blocks = self.light_block_snapshot(key);
+        self.register_untrusted_light_waiters(key, retained_batch);
+        let prior = self.light_prior_snapshot(key);
+        let identity = LightJobIdentity {
+            revision: pending.revision,
+            block_generation,
+            previous_light_generation: self.light_store.light(key).map(|light| light.generation()),
+        };
+        self.pending_light.remove(&key);
+        self.light_priority_wakeups.remove(&key);
+        self.in_flight_light.insert(key, identity);
+        PreparedLightJob {
+            key,
+            identity,
+            blocks,
+            prior,
+            bounds,
+            queued_at: pending.queued_at,
+        }
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
         self.stats.phase2_stages.light_jobs_completed = self
@@ -365,7 +471,7 @@ impl WorldStream {
             }
             if let Some(neighbour) = offset_sub_chunk_key(key, offset) {
                 if self.pending_light.contains_key(&neighbour)
-                    && !self.in_flight_light.contains_key(&neighbour)
+                    || self.in_flight_light.contains_key(&neighbour)
                 {
                     continue;
                 }
