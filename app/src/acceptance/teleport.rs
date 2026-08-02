@@ -588,7 +588,7 @@ impl FullViewTeleportTracker {
             .committed
             .map_or_else(|| "none".to_owned(), cohort_tag);
         Some(format!(
-            "{TELEPORT_COHORT} target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_light_jobs={} in_flight_light_jobs={} terminal_light_failures={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
+            "{TELEPORT_COHORT} target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} readiness_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_light_jobs={} in_flight_light_jobs={} terminal_light_failures={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
             cohort_tag(pending.target),
             committed,
             status.is_exact(),
@@ -604,6 +604,7 @@ impl FullViewTeleportTracker {
             status.known_air_count,
             status.known_air_hash,
             work.network_events,
+            work.readiness_events,
             work.network_commands,
             work.admitted_world_events,
             work.queued_decode_jobs,

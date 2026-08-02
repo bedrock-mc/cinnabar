@@ -530,7 +530,10 @@ pub(crate) fn receive_network_events(
     );
     for ingress in events {
         let sequenced = match ingress {
-            session::WorldIngress::Event(sequenced) => sequenced,
+            session::WorldIngress::Event(sequenced) => {
+                network.record_readiness_event_consumed(&sequenced.event);
+                sequenced
+            }
             session::WorldIngress::FastTransferBarrier {
                 session_generation,
                 sequence,

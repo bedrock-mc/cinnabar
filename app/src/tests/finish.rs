@@ -437,9 +437,9 @@ fn gallery_anchor_is_one_shot_mode_scoped_and_only_requires_the_clean_rendered_t
 fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_target() {
     let pending_stages = [
         (
-            "network ingress",
+            "readiness-affecting network ingress",
             WorldReadyWork {
-                network_events: 1,
+                readiness_events: 1,
                 ..Default::default()
             },
         ),
@@ -569,6 +569,13 @@ fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_targe
         assert_eq!(world_ready_markers(snapshot), None, "pending {stage}");
     }
 
+    let mut transport_backlog = settled_world_snapshot();
+    transport_backlog.work.network_events = crate::runtime::network::WORLD_EVENT_CAPACITY;
+    assert!(
+        world_ready_markers(transport_backlog).is_some(),
+        "a concurrently refilled socket FIFO is not admitted client-world work"
+    );
+
     let mut target_not_rendered = settled_world_snapshot();
     target_not_rendered.mutation_target_rendered = false;
     assert_eq!(world_ready_markers(target_not_rendered), None);
@@ -616,6 +623,27 @@ fn world_ready_requires_a_stable_quiet_interval_and_resets_when_work_reappears()
     assert_eq!(
         settler.observe(changed, restarted + WORLD_READY_QUIET_INTERVAL * 2),
         world_ready_markers(changed)
+    );
+}
+
+#[test]
+fn world_ready_quiet_interval_ignores_transport_depth_but_not_relevant_ingress() {
+    let started = Instant::now();
+    let mut snapshot = settled_world_snapshot();
+    snapshot.work.network_events = 31;
+    let mut settler = WorldReadySettler::default();
+
+    assert_eq!(settler.observe(snapshot, started), None);
+    snapshot.work.network_events = 32;
+    assert_eq!(
+        settler.observe(snapshot, started + WORLD_READY_QUIET_INTERVAL),
+        world_ready_markers(snapshot)
+    );
+
+    snapshot.work.readiness_events = 1;
+    assert_eq!(
+        settler.observe(snapshot, started + WORLD_READY_QUIET_INTERVAL * 2),
+        None
     );
 }
 

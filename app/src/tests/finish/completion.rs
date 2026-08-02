@@ -52,6 +52,18 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
         Duration::from_millis(12),
     )));
 
+    let mut transport_refilled = snapshot;
+    transport_refilled.work.network_events = crate::runtime::network::WORLD_EVENT_CAPACITY;
+    let same_expectation = settler
+        .reconcile_presentation(
+            transport_refilled,
+            proposed.clone(),
+            started + Duration::from_millis(13),
+        )
+        .expect("transport depth does not replace an exact presentation candidate");
+    assert_eq!(same_expectation.view_generation, expectation.view_generation);
+    assert!(settler.has_stable_presentation(transport_refilled));
+
     let mut changed = snapshot;
     changed.cohort.as_mut().unwrap().required_hash ^= 1;
     assert!(

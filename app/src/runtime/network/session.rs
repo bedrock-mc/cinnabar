@@ -1,6 +1,10 @@
 use std::{
     io::Write,
     path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -99,6 +103,61 @@ pub enum WorldIngress {
     },
 }
 
+#[derive(Debug, Default)]
+struct ReadinessIngressCounter {
+    produced: AtomicU64,
+    consumed: AtomicU64,
+}
+
+impl ReadinessIngressCounter {
+    fn record_produced(&self, event: &WorldEvent) {
+        if readiness_affecting_world_event(event) {
+            self.produced.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    fn record_consumed(&self, event: &WorldEvent) {
+        if readiness_affecting_world_event(event) {
+            self.consumed.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    fn pending(&self) -> usize {
+        let produced = self.produced.load(Ordering::Acquire);
+        let consumed = self.consumed.load(Ordering::Acquire);
+        usize::try_from(produced.saturating_sub(consumed)).unwrap_or(usize::MAX)
+    }
+}
+
+fn readiness_affecting_world_event(event: &WorldEvent) -> bool {
+    matches!(
+        event,
+        WorldEvent::BiomeDefinitions(_)
+            | WorldEvent::LevelChunk(_)
+            | WorldEvent::ChunkResync(_)
+            | WorldEvent::SubChunkReplyAdmission(_)
+            | WorldEvent::SubChunks(_)
+            | WorldEvent::BlockUpdates(_)
+            | WorldEvent::BlockEntityUpdate(_)
+            | WorldEvent::ChunkRadiusUpdated(_)
+            | WorldEvent::PublisherUpdate(_)
+            | WorldEvent::ChangeDimension(_)
+            | WorldEvent::Respawn(_)
+            | WorldEvent::MovePlayer(_)
+            | WorldEvent::PlayerMovementCorrection(_)
+    )
+}
+
+fn wrap_readiness_tracked_event(
+    sequencer: &mut NetworkSequencer,
+    readiness_ingress: &ReadinessIngressCounter,
+    event: WorldEvent,
+) -> SequencedWorldEvent {
+    let sequenced = sequencer.wrap(event);
+    readiness_ingress.record_produced(&sequenced.event);
+    sequenced
+}
+
 #[derive(Debug)]
 enum NetworkCommand {
     Send {
@@ -163,6 +222,7 @@ pub struct NetworkHandle {
     physics_reanchor: watch::Sender<u64>,
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
+    readiness_ingress: Arc<ReadinessIngressCounter>,
 }
 
 impl NetworkHandle {
@@ -181,6 +241,7 @@ impl NetworkHandle {
                 physics_reanchor,
                 shutdown,
                 thread: None,
+                readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             },
             physics_reanchor_rx,
         )
@@ -214,6 +275,15 @@ impl NetworkHandle {
         self.commands
             .max_capacity()
             .saturating_sub(self.commands.capacity())
+    }
+
+    #[must_use]
+    pub(crate) fn pending_readiness_event_count(&self) -> usize {
+        self.readiness_ingress.pending()
+    }
+
+    pub(crate) fn record_readiness_event_consumed(&self, event: &WorldEvent) {
+        self.readiness_ingress.record_consumed(event);
     }
 
     #[cfg(test)]
@@ -338,6 +408,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
     let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let (shutdown, mut shutdown_rx) = watch::channel(false);
+    let readiness_ingress = Arc::new(ReadinessIngressCounter::default());
+    let network_readiness_ingress = Arc::clone(&readiness_ingress);
     let thread = thread::Builder::new()
         .name("bedrock-network".to_owned())
         .spawn(move || {
@@ -407,13 +479,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     bootstrap.dimension,
                     bootstrap.local_player_runtime_id,
                 );
-                run_network_pump(
+                run_network_pump_with_readiness_ingress(
                     session,
                     sequencer,
                     command_rx,
                     control_event_tx,
                     world_event_tx,
                     shutdown_rx,
+                    network_readiness_ingress,
                 )
                 .await;
             });
@@ -425,6 +498,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         physics_reanchor,
         shutdown,
         thread: Some(thread),
+        readiness_ingress,
     })
 }
 
@@ -512,13 +586,35 @@ impl NetworkSession for protocol::PlaySession {
     }
 }
 
+#[cfg(test)]
 async fn run_network_pump<S: NetworkSession>(
+    session: S,
+    sequencer: NetworkSequencer,
+    command_rx: mpsc::Receiver<NetworkCommand>,
+    control_event_tx: mpsc::Sender<NetworkControlEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
+    shutdown_rx: watch::Receiver<bool>,
+) {
+    run_network_pump_with_readiness_ingress(
+        session,
+        sequencer,
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+        Arc::new(ReadinessIngressCounter::default()),
+    )
+    .await;
+}
+
+async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
     mut session: S,
     mut sequencer: NetworkSequencer,
     mut command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
+    readiness_ingress: Arc<ReadinessIngressCounter>,
 ) {
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
@@ -732,7 +828,11 @@ async fn run_network_pump<S: NetworkSession>(
                     &control_event_tx,
                     &mut last_blob_cache_stats,
                 );
-                pending_world_event = Some(sequencer.wrap(*event));
+                pending_world_event = Some(wrap_readiness_tracked_event(
+                    &mut sequencer,
+                    &readiness_ingress,
+                    *event,
+                ));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
                 emit_network_pump_terminal_marker(

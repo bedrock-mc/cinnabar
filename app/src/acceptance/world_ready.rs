@@ -107,6 +107,7 @@ pub(crate) fn orient_mutation_camera(
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WorldReadyWork {
     pub(crate) network_events: usize,
+    pub(crate) readiness_events: usize,
     pub(crate) network_commands: usize,
     pub(crate) admitted_world_events: usize,
     pub(crate) queued_decode_jobs: usize,
@@ -127,8 +128,15 @@ pub(crate) struct WorldReadyWork {
 }
 
 impl WorldReadyWork {
+    fn without_transport_depth(self) -> Self {
+        Self {
+            network_events: 0,
+            ..self
+        }
+    }
+
     pub(crate) fn is_empty(self) -> bool {
-        self == Self::default()
+        self.without_transport_depth() == Self::default()
     }
 }
 
@@ -153,6 +161,18 @@ pub(crate) struct WorldReadySnapshot {
     pub(crate) mutation_target_visible: bool,
     pub(crate) mutation_target_clean: bool,
     pub(crate) work: WorldReadyWork,
+}
+
+impl WorldReadySnapshot {
+    fn same_readiness_state(self, other: Self) -> bool {
+        Self {
+            work: self.work.without_transport_depth(),
+            ..self
+        } == Self {
+            work: other.work.without_transport_depth(),
+            ..other
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -183,7 +203,7 @@ impl WorldReadySettler {
             return None;
         }
         if let Some(candidate) = &self.presentation
-            && candidate.snapshot == snapshot
+            && candidate.snapshot.same_readiness_state(snapshot)
             && candidate.expectation.cohort == proposed.cohort
             && candidate.expectation.source_cohort == proposed.source_cohort
             && candidate.expectation.manifest == proposed.manifest
@@ -224,9 +244,9 @@ impl WorldReadySettler {
     }
 
     pub(crate) fn has_stable_presentation(&self, snapshot: WorldReadySnapshot) -> bool {
-        self.presentation
-            .as_ref()
-            .is_some_and(|candidate| candidate.snapshot == snapshot && candidate.stable)
+        self.presentation.as_ref().is_some_and(|candidate| {
+            candidate.snapshot.same_readiness_state(snapshot) && candidate.stable
+        })
     }
 
     pub(crate) fn pending_diagnostic_due(&mut self, now: Instant) -> bool {
@@ -250,9 +270,10 @@ impl WorldReadySettler {
             return None;
         }
         match self.candidate {
-            Some((stable, since)) if stable == snapshot => (now.saturating_duration_since(since)
-                >= WORLD_READY_QUIET_INTERVAL)
-                .then_some(markers.expect("settled snapshots have markers")),
+            Some((stable, since)) if stable.same_readiness_state(snapshot) => {
+                (now.saturating_duration_since(since) >= WORLD_READY_QUIET_INTERVAL)
+                    .then_some(markers.expect("settled snapshots have markers"))
+            }
             _ => {
                 self.candidate = Some((snapshot, now));
                 None
@@ -317,6 +338,7 @@ pub(crate) fn emit_world_ready(
     };
     let work = WorldReadyWork {
         network_events: network.pending_event_count(),
+        readiness_events: network.pending_readiness_event_count(),
         network_commands: network.pending_command_count(),
         admitted_world_events: stats.admitted_world_events,
         queued_decode_jobs: stats.queued_decode_jobs,
