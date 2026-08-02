@@ -26,25 +26,23 @@ pub const CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES: usize = 80 * 1024 * 1024;
 pub const MAX_CLIENT_BLOB_HASHES_PER_PACKET: usize = 4_095;
 /// Cinnabar's own memory-safety bound, not a Bedrock protocol limit.
 ///
-/// Bedrock 1.26.30 enforces transfer concurrency on the server at 20, 40, 100, or 200 according
-/// to network status; its client has no corresponding cap. Keeping 256 retained transactions
-/// accepts the largest observed server setting with headroom while bounding remotely controlled
-/// resolver memory. Excess work is abandoned non-fatally and recovered through a chunk resync.
-pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 256;
+/// Version-matched BDS 1.26.32.2 at radius 16 legitimately drove more than 256 cached packet
+/// transactions concurrently; healthy pre-pressure runs measured high-water marks of 845 and
+/// 1,194. Retaining 2,048 transactions covers that observed vanilla burst while the independent
+/// 64 MiB aggregate byte bound below remains the primary remotely controlled memory ceiling.
+pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
 /// Cinnabar's maximum aggregate accounted bytes across retained cached transactions.
 ///
 /// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. It independently
 /// charges decoded packet containers and inline payload capacities retained while cache misses are
 /// unresolved, even when reconstruction size is unknown and no cached payload is staged.
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
-/// Cinnabar's maximum queued chunk-resync events awaiting emission.
-///
-/// This is a Cinnabar memory-safety bound, not a vanilla or protocol limit. Cached intake pauses
-/// only once the queue reaches this depth, never merely because it is non-empty: a skipped cached
-/// packet itself raises recovery, so gating on non-emptiness lets one queued event stop all intake
-/// permanently while every subsequent skip refills the queue. `pop_ready` drains recovery ahead of
-/// cached output, so ordering does not depend on the intake gate.
-pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 256;
+/// Cinnabar's maximum queued chunk-resync events awaiting emission and conservatively reserved
+/// by retained cached transactions. This matches the transaction ceiling so a legitimate
+/// version-matched BDS burst does not become recovery pressure before it becomes transaction
+/// pressure. `pop_ready` drains recovery ahead of cached output, and duplicate column recoveries
+/// coalesce, keeping the concrete queue bounded independently from the reservation count.
+pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 2_048;
 /// Ordinary decoded work is retained independently from cache transactions. The session receive
 /// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
 /// keeps direct resolver users bounded too.

@@ -72,7 +72,10 @@ fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts(
         Some(0),
         "the inline recovery belongs to the rotated oldest transaction"
     );
-    assert_eq!(resolver.stats().pending_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().skipped_cached_packets, 1);
     assert_eq!(resolver.stats().cached_packet_transaction_pressure, 1);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
@@ -88,7 +91,10 @@ fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts(
         second_status.recovery.as_ref().map(|recovery| recovery.x),
         Some(1)
     );
-    assert_eq!(resolver.stats().pending_transactions, 254);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 2
+    );
     assert_eq!(resolver.stats().skipped_cached_packets, 2);
     assert_eq!(resolver.stats().cached_packet_transaction_pressure, 2);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 4);
@@ -98,7 +104,10 @@ fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts(
         .expect("the retry is admitted only after prior recovery can be delivered");
     assert_eq!(admitted_status.missing(), [subchunk_hash]);
     assert!(admitted_status.recovery.is_none());
-    assert_eq!(resolver.stats().pending_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
             blobs: vec![Blob {
@@ -160,6 +169,14 @@ fn abandoned_levelchunk_recovery_does_not_stop_cached_intake() {
 fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
     let payload = b"recovery-aggregation";
     let hash = client_blob_hash(payload);
+    const COLUMNS_PER_TRANSACTION: usize = 256;
+    assert_eq!(
+        protocol::MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS % COLUMNS_PER_TRANSACTION,
+        0
+    );
+    let rotated_transactions =
+        protocol::MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS / COLUMNS_PER_TRANSACTION;
+    let queued_recoveries = rotated_transactions.saturating_mul(COLUMNS_PER_TRANSACTION - 1);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let mut inline_recoveries = Vec::new();
 
@@ -196,8 +213,8 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
     }
     assert_eq!(
         inline_recoveries.len(),
-        1,
-        "one recovery slot is carried inline when pressure rotates the admitted transaction"
+        rotated_transactions,
+        "each admitted transaction carries one recovery inline when pressure rotates it"
     );
 
     let updates = (0..256_i32)
@@ -223,11 +240,14 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
             .unblock_ordinary_lane()
             .expect("the proactive rotation already removed the cached blocker")
     );
-    assert_eq!(resolver.stats().recovery_ready_events, 255);
-    assert_eq!(resolver.stats().recovery_requests, 256);
+    assert_eq!(resolver.stats().recovery_ready_events, queued_recoveries);
+    assert_eq!(
+        resolver.stats().recovery_requests,
+        protocol::MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS as u64
+    );
     assert_eq!(resolver.stats().abandoned_cached_transactions, 256);
     assert_eq!(resolver.stats().pending_transactions, 0);
-    for _ in 0..255 {
+    for _ in 0..queued_recoveries {
         assert!(matches!(
             resolver.pop_ready(),
             Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(

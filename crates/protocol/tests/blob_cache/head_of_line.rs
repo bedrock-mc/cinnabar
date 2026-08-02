@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
-    assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 256);
+    assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 2_048);
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_BYTES, 64 * 1024 * 1024);
     assert_eq!(protocol::MAX_CLIENT_BLOB_HASHES_PER_PACKET, 4_095);
     assert_eq!(
@@ -474,9 +474,9 @@ fn rejected_response_abandons_dead_transaction_and_unblocks_its_column() {
 }
 
 #[test]
-fn observed_server_maximum_rotates_oldest_pending_work_without_growth() {
+fn transaction_bound_rotates_oldest_pending_work_without_growth() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    for index in 0..256_u64 {
+    for index in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS as u64 {
         let status = resolver
             .accept_cached_packet(cached_request_level(index as i32, index + 1))
             .expect("transactions through the Cinnabar safety bound remain accepted");
@@ -484,10 +484,10 @@ fn observed_server_maximum_rotates_oldest_pending_work_without_growth() {
     }
 
     let excess = resolver
-        .accept_cached_packet(cached_request_level(999, 999))
+        .accept_cached_packet(cached_request_level(9_999, 9_999))
         .expect("Cinnabar safety-bound rotation stays non-fatal");
 
-    assert_eq!(excess.missing(), [999]);
+    assert_eq!(excess.missing(), [9_999]);
     assert!(excess.have().is_empty());
     assert_eq!(excess.classified_hashes(), 1);
     assert_eq!(
@@ -495,7 +495,10 @@ fn observed_server_maximum_rotates_oldest_pending_work_without_growth() {
         Some(0),
         "the oldest retained transaction must receive inline recovery"
     );
-    assert_eq!(resolver.stats().pending_transactions, 256);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+    );
     assert_eq!(resolver.stats().skipped_cached_packets, 0);
     assert_eq!(resolver.stats().cached_packet_transaction_pressure, 1);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
@@ -508,7 +511,7 @@ fn observed_server_maximum_rotates_oldest_pending_work_without_growth() {
 #[test]
 fn pressure_rotation_and_pending_byte_rejection_count_each_recovery_once() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    for index in 0..256_u64 {
+    for index in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS as u64 {
         resolver
             .accept_cached_packet(cached_request_level(index as i32, index + 1))
             .expect("fill the transaction bound");
@@ -522,7 +525,10 @@ fn pressure_rotation_and_pending_byte_rejection_count_each_recovery_once() {
         .expect("pending-byte rejection after rotation remains non-fatal");
 
     assert_eq!(status.recovery.map(|recovery| recovery.x), Some(0));
-    assert_eq!(resolver.stats().pending_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
     assert_eq!(resolver.stats().cached_packet_pending_pressure, 1);
     assert_eq!(
@@ -549,7 +555,7 @@ fn pressure_rotation_and_staged_rejection_refresh_queued_recovery_accounting() {
             .expect("seed a staged cache hit")
     });
     let mut resolver = BlobCacheResolver::new(cache);
-    for index in 0..256_u64 {
+    for index in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS as u64 {
         let payload = format!("staged-pressure-{index}");
         resolver
             .accept_cached_packet(cached_request_level(
@@ -575,7 +581,10 @@ fn pressure_rotation_and_staged_rejection_refresh_queued_recovery_accounting() {
         .expect("staged rejection after rotation remains non-fatal");
 
     assert_eq!(status.recovery.map(|recovery| recovery.x), Some(0));
-    assert_eq!(resolver.stats().pending_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().abandoned_cached_transactions, 2);
     assert_eq!(resolver.stats().cached_packet_staged_pressure, 1);
     assert_eq!(resolver.stats().recovery_requests, 2);
@@ -596,7 +605,7 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         .insert(b"ready-behind-pending")
         .expect("seed ready hit");
     let mut resolver = BlobCacheResolver::new(cache);
-    for index in 0..255_u64 {
+    for index in 0..(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1) as u64 {
         resolver
             .accept_cached_packet(cached_request_level(index as i32, index + 1))
             .expect("retain unresolved work through one slot below the safety bound");
@@ -606,8 +615,14 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         .accept_cached_packet(cached_request_level(0, ready_hash))
         .expect("the ready transition must release its same-column blocker at the safety bound");
 
-    assert_eq!(resolver.stats().pending_transactions, 254);
-    assert_eq!(resolver.stats().retained_cached_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 2
+    );
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().skipped_cached_packets, 0);
     assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
     assert!(matches!(
@@ -631,8 +646,14 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         .expect("cached intake resumes after the blocked ready lane is released");
     assert_eq!(fresh.missing(), [fresh_hash]);
     assert!(fresh.recovery.is_none());
-    assert_eq!(resolver.stats().pending_transactions, 255);
-    assert_eq!(resolver.stats().retained_cached_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().skipped_cached_packets, 0);
 }
 
@@ -653,14 +674,20 @@ fn pending_transition_to_pressure_releases_an_existing_cached_ready_packet() {
     assert_eq!(resolver.stats().retained_cached_transactions, 2);
     assert!(resolver.pop_ready().is_none());
 
-    for index in 0..254_u64 {
+    for index in 0..(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 2) as u64 {
         resolver
             .accept_cached_packet(cached_request_level(1_000 + index as i32, 2 + index))
             .expect("unrelated pending work may fill the remaining transaction slots");
     }
 
-    assert_eq!(resolver.stats().pending_transactions, 254);
-    assert_eq!(resolver.stats().retained_cached_transactions, 255);
+    assert_eq!(
+        resolver.stats().pending_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 2
+    );
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
+    );
     assert_eq!(resolver.stats().abandoned_cached_transactions, 1);
     assert!(matches!(
         resolver.pop_ready(),
@@ -683,14 +710,17 @@ fn completed_cached_transactions_share_the_same_safety_bound() {
     let cache = ClientBlobCache::default();
     let hash = cache.insert(b"ready-hit").expect("seed hit");
     let mut resolver = BlobCacheResolver::new(cache);
-    for x in 0..256 {
+    for x in 0..protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
         resolver
-            .accept_cached_packet(cached_request_level(x, hash))
+            .accept_cached_packet(cached_request_level(x as i32, hash))
             .expect("completed transaction through the safety bound");
     }
     let retained_at_limit = resolver.stats().pending_bytes;
     assert_eq!(resolver.stats().pending_transactions, 0);
-    assert_eq!(resolver.stats().retained_cached_transactions, 256);
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+    );
 
     let excess = resolver
         .accept_cached_packet(cached_request_level(99, hash))
@@ -704,7 +734,10 @@ fn completed_cached_transactions_share_the_same_safety_bound() {
         "the ready-transaction pressure path must classify every reference"
     );
     assert!(excess.recovery.is_some());
-    assert_eq!(resolver.stats().retained_cached_transactions, 256);
+    assert_eq!(
+        resolver.stats().retained_cached_transactions,
+        protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS
+    );
     assert_eq!(resolver.stats().pending_bytes, retained_at_limit);
 }
 
