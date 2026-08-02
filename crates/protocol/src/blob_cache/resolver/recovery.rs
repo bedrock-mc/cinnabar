@@ -31,7 +31,7 @@ pub(super) fn unadmitted_packet_recovery(packet: &PendingPacket) -> Vec<ChunkRes
     }
 }
 
-fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
+pub(super) fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
             dimension: packet.dimension,
@@ -162,7 +162,9 @@ impl BlobCacheResolver {
         Ok(())
     }
 
-    fn recover_retained_cached_transactions(&mut self) -> Result<(), BlobCacheError> {
+    pub(super) fn recover_retained_cached_transactions(
+        &mut self,
+    ) -> Result<(), BlobCacheError> {
         let recoveries = self
             .pending
             .values()

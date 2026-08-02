@@ -6,8 +6,7 @@ use valentine::bedrock::version::v1_26_30::{
     CorrectPlayerMovePredictionPacketPredictionType, GameMode, GameRuleI32, GameRuleI32Type,
     GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
     McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries, SubchunkRequestPacket, Vec3I8,
-    Vec3Li,
+    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries,
 };
 
 use crate::{

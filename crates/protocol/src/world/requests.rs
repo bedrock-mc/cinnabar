@@ -1,5 +1,7 @@
 use super::*;
 
+use valentine::bedrock::version::v1_26_30::{SubchunkRequestPacket, Vec3I8, Vec3Li};
+
 /// Builds one bounded vertical-column SubChunkRequest.
 pub fn request_sub_chunk_column(
     dimension: i32,
