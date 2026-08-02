@@ -370,6 +370,15 @@ impl MovementTicker {
         self.session_active && matches!(self.source, MovementSource::Physics)
     }
 
+    pub(crate) fn enforce_local_physics_authority(
+        &self,
+        local_physics: &mut LocalPhysicsController,
+    ) {
+        if !self.physics_is_authorized() {
+            local_physics.deactivate();
+        }
+    }
+
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
         self.outbox.pop_front()

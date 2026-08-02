@@ -1,7 +1,7 @@
 use bevy::prelude::Resource;
 use sim::SimulationError;
 
-use super::MovementSource;
+use super::{LocalPhysicsController, MovementSource, MovementTicker};
 
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PhysicsAuthorityGate {
@@ -65,5 +65,22 @@ impl PhysicsAuthorityGate {
             return Err(PhysicsAuthorityFault::IncompleteCollisionRegistry);
         }
         Ok(MovementSource::Physics)
+    }
+
+    /// Installs the StartGame movement authority after the physics anchor is prepared.
+    ///
+    /// A free camera and local prediction are mutually exclusive: an active
+    /// controller suppresses free-camera translation.
+    pub(crate) fn apply_start_game(
+        self,
+        auto_fly: bool,
+        collision_registry_complete: bool,
+        movement: &mut MovementTicker,
+        local_physics: &mut LocalPhysicsController,
+    ) -> Result<MovementSource, PhysicsAuthorityFault> {
+        let source = self.authorize(auto_fly, collision_registry_complete)?;
+        movement.set_source(source);
+        movement.enforce_local_physics_authority(local_physics);
+        Ok(source)
     }
 }

@@ -19,6 +19,31 @@ fn candidate_physics_authority_is_explicit_complete_and_auto_fly_safe() {
 }
 
 #[test]
+fn free_camera_authority_deactivates_prepared_and_reanchored_local_physics() {
+    let mut movement = MovementTicker::default();
+    let mut local_physics = LocalPhysicsController::default();
+    local_physics.reanchor_network_position([8.0, 72.62, -4.0], 100, false);
+    assert!(local_physics.is_active());
+
+    assert_eq!(
+        PhysicsAuthorityGate::ProductionDisabled.apply_start_game(
+            false,
+            true,
+            &mut movement,
+            &mut local_physics,
+        ),
+        Ok(MovementSource::FreeCamera)
+    );
+    assert_eq!(movement.source(), MovementSource::FreeCamera);
+    assert!(!local_physics.is_active());
+
+    local_physics.reanchor_network_position([9.0, 73.62, -3.0], 101, true);
+    movement.snap_non_authoritative_anchor(101, [9.0, 73.62, -3.0]);
+    movement.enforce_local_physics_authority(&mut local_physics);
+    assert!(!local_physics.is_active());
+}
+
+#[test]
 fn default_free_camera_never_enqueues_or_sends_after_start_game_and_correction() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);

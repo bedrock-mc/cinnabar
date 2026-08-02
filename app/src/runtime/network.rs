@@ -370,16 +370,18 @@ pub(crate) fn receive_network_events(
                     initial_tick,
                     false,
                 );
-                match physics_authority.authorize(auto_fly.enabled(), collisions.is_complete()) {
-                    Ok(source) => movement.set_source(source),
-                    Err(fault) => {
-                        movement.set_source(MovementSource::FreeCamera);
-                        local_physics.deactivate();
-                        record_fatal_error(
-                            &mut client_world.fatal_error,
-                            format!("candidate Physics authority failed closed: {fault:?}"),
-                        );
-                    }
+                if let Err(fault) = physics_authority.apply_start_game(
+                    auto_fly.enabled(),
+                    collisions.is_complete(),
+                    &mut movement,
+                    &mut local_physics,
+                ) {
+                    movement.set_source(MovementSource::FreeCamera);
+                    local_physics.deactivate();
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!("candidate Physics authority failed closed: {fault:?}"),
+                    );
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);

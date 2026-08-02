@@ -514,6 +514,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
+        movement.enforce_local_physics_authority(&mut local_physics);
         local_frame.reset(reset);
         interaction.invalidate();
         let _ = acceptance.observe_committed_full_view_control(&control);
@@ -783,6 +784,7 @@ pub(crate) fn drive_world_stream(
         // starts after this anchor, so it must remain eligible for simulation.
         movement.reanchor_surface_spawn(tick, position);
         local_physics.reanchor_network_position(position, tick, true);
+        movement.enforce_local_physics_authority(&mut local_physics);
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
     }
