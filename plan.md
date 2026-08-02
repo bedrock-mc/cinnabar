@@ -1836,6 +1836,32 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     acceptance. The remaining world-ready predicate, release-budget evidence, version-matched
     native lighting comparison, integration, and final PR acceptance remain open.
 
+- **PR #6 world-ready acceptance follow-up (2026-08-02, local commit `a8d0866`).**
+  The cache-enabled BDS `FreeCameraSilence` path now produces a clean, attributable
+  verdict, but this debug run does not close Phase 3 performance or native-parity gates.
+  - `phase3-180d6ca5fd7e4dd2b28999c10cabe8c1` is a clean 60-second run built from
+    `a8d0866`: `phase3-final.json` is `valid`, `WORLD_READY` was emitted, the app and
+    core both exited 0, and the launcher did not time out.
+  - Vanilla BDS load peaked at 1,695 retained/pending blob transactions after raising
+    the client admission bound to the measured server burst. Intake never skipped a
+    packet, no cached transaction was abandoned, and no recovery request was needed;
+    the prior 256-entry pressure loop is absent. Redundant missing requests and empty
+    miss responses remain measured efficiency work, not a demonstrated correctness
+    failure in this run.
+  - World-ready presentation now accepts a stable drawn superset of the visible
+    allocation manifest while requiring identical drawn manifests across the two
+    frames. Relevant admitted network ingress, forced-remesh evidence, and world-ready
+    presentation each carry an independent monotonic fence, and camera input is frozen
+    only while the presentation gate is armed.
+  - Deterministic verification at this commit passed 2,487 workspace tests (13 ignored),
+    strict workspace Clippy, formatting, 93 Phase 3 Pester contracts, focused render and
+    world-ready suites, and the debug client build. Independent latest-diff review
+    approved each behavioral tranche.
+  - This was a debug `FreeCameraSilence` smoke, averaging 7.62 FPS while the world
+    streamed. It is not release-performance evidence. CandidatePhysics, external-server
+    matrices, version-matched native comparison, release budgets, integration, and final
+    PR acceptance remain open.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
