@@ -643,6 +643,9 @@ pub(crate) fn emit_world_ready(
             .world_ready_settler
             .reconcile_presentation(snapshot, proposed, ready_at)
     });
+    if expectation.is_some() {
+        auto_fly.pause_for_stable_presentation();
+    }
     if let Some(expectation) = expectation {
         presented_frames.set_expectation(expectation);
     } else {
@@ -701,4 +704,5 @@ pub(crate) fn emit_world_ready(
         stream.resolved_server_position().position,
         stream.local_player_runtime_id(),
     );
+    auto_fly.resume_after_stable_presentation();
 }

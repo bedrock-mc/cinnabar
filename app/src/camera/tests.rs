@@ -228,6 +228,20 @@ fn auto_fly_keeps_the_mutation_target_in_view() {
     }
 }
 
+#[test]
+fn stable_presentation_pause_resumes_only_an_enabled_auto_fly_path() {
+    let mut enabled = AutoFly::new(true);
+    enabled.pause_for_stable_presentation();
+    assert!(!enabled.enabled());
+    enabled.resume_after_stable_presentation();
+    assert!(enabled.enabled());
+
+    let mut disabled = AutoFly::new(false);
+    disabled.pause_for_stable_presentation();
+    disabled.resume_after_stable_presentation();
+    assert!(!disabled.enabled());
+}
+
 fn axes_for(key: KeyCode) -> Vec3 {
     let mut keys = ButtonInput::default();
     keys.press(key);
@@ -564,6 +578,52 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let end = app.world().resource::<LocalViewPose>().eye_translation();
     let expected = start + camera::auto_fly_offset(0.5);
     assert!(end.abs_diff_eq(expected, 1.0e-4));
+}
+
+#[test]
+fn stable_presentation_pause_ignores_held_movement_and_look_input() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::new(true))
+        .add_systems(
+            Update,
+            (
+                collect_raw_input.in_set(ClientFrameSet::RawInput),
+                route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+                finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+            ),
+        );
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            visible: false,
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    app.update();
+    let frozen = *app.world().resource::<LocalViewPose>();
+
+    app.world_mut()
+        .resource_mut::<AutoFly>()
+        .pause_for_stable_presentation();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyW);
+    app.world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::new(15.0, -4.0);
+    app.world_mut()
+        .resource_mut::<Time>()
+        .advance_by(Duration::from_secs_f32(0.5));
+    app.update();
+
+    assert_eq!(*app.world().resource::<LocalViewPose>(), frozen);
 }
 
 #[test]
