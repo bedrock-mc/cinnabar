@@ -306,6 +306,35 @@ fn mesh_light_halo_samples_center_face_edge_corner_and_absent_fallback() {
 }
 
 #[test]
+fn light_dispatch_rotates_past_a_blocked_nearest_window() {
+    let mut stream = lit_stream(0);
+    for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+        let key = SubChunkKey::new(0, index as i32 * 3, 0, 0);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.record_known_air(SubChunkKey::new(0, key.x, 1, key.z));
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    let farther = SubChunkKey::new(0, MAX_PENDING_SCHEDULER_SCANS_PER_POLL as i32 * 3, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(farther, super::uniform_sub_chunk(1))
+        .unwrap();
+    install_current_light(&mut stream, farther, 0, 0, false);
+    let farther_revision = stream.mark_light_dirty_exact(farther).unwrap();
+
+    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 0);
+    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 1);
+    assert_eq!(
+        stream.in_flight_light.get(&farther).map(|job| job.revision),
+        Some(farther_revision)
+    );
+}
+
+#[test]
 fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
     let mut stream = stream();
     let blocked = (0..128)
@@ -326,20 +355,14 @@ fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
         .commit_sub_chunk(farther, super::uniform_sub_chunk(1))
         .unwrap();
     install_current_light(&mut stream, farther, 0, 0, false);
-    stream.mark_dirty_exact(farther, Instant::now());
+    let farther_revision = stream.mark_dirty_exact(farther, Instant::now());
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
     assert!(!stream.in_flight.contains_key(&farther));
     assert!(stream.pending_mesh.contains_key(&farther));
 
-    let nearest_eligible = blocked[127];
-    let nearest_revision = stream.pending_mesh[&nearest_eligible].revision;
-    install_current_light(&mut stream, nearest_eligible, 0, 0, false);
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    assert_eq!(
-        stream.in_flight.get(&nearest_eligible),
-        Some(&nearest_revision)
-    );
+    assert_eq!(stream.in_flight.get(&farther), Some(&farther_revision));
 }
 
 #[test]
@@ -369,6 +392,7 @@ fn exhausted_removal_authority_still_reclassifies_ready_resident_work() {
         .commit_sub_chunk(resident, super::uniform_sub_chunk(1))
         .unwrap();
     install_current_light(&mut stream, resident, 0, 0, false);
+    stream.mark_dirty_exact(resident, Instant::now());
     let resident_revision = stream.pending_mesh[&resident].revision;
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);

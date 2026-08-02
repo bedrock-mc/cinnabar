@@ -21,6 +21,7 @@ impl WorldStream {
                     PendingSchedulerCandidate::new(key, pending.revision, camera_position)
                 })
                 .collect();
+            self.pending_light_deferred.clear();
             self.pending_light_scan.clear();
             self.light_scheduler_camera_cell = Some(camera_cell);
         } else {
@@ -46,10 +47,15 @@ impl WorldStream {
                 }
             }
         }
+        if self.pending_light_ready.is_empty() {
+            std::mem::swap(
+                &mut self.pending_light_ready,
+                &mut self.pending_light_deferred,
+            );
+        }
 
         let mut prepared = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
-        let mut deferred = Vec::new();
         let mut scanned = 0;
         while prepared.len() < solve_budget && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
             let Some(candidate) = self.pending_light_ready.pop() else {
@@ -76,11 +82,11 @@ impl WorldStream {
                             || self.in_flight_light.contains_key(&neighbour)
                     })
             {
-                deferred.push(candidate);
+                self.pending_light_deferred.push(candidate);
                 continue;
             }
             let Some(block_generation) = self.block_generations.get(&key).copied() else {
-                deferred.push(candidate);
+                self.pending_light_deferred.push(candidate);
                 continue;
             };
             let Some(bounds) = light_bounds(key) else {
@@ -113,7 +119,6 @@ impl WorldStream {
             });
             selected.insert(key);
         }
-        self.pending_light_ready.extend(deferred);
 
         let dispatched = prepared.len();
         self.stats.phase2_stages.light_jobs_dispatched = self
@@ -197,6 +202,7 @@ impl WorldStream {
                 self.pending_light.clear();
                 self.pending_light_scan.clear();
                 self.pending_light_ready.clear();
+                self.pending_light_deferred.clear();
                 self.light_waiters.clear();
                 self.stats.light_solve_failures = self.stats.light_solve_failures.saturating_add(1);
                 return;
