@@ -1793,9 +1793,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   - Cached status delivery is cancellation-safe. Socket transport retains the exact encrypted
     frame, the session drains that frame before exposing admission, and transfer rollback is
     emitted before any replacement-candidate status or admission.
-  - Production defaults to server-authoritative `Physics`; bounded fixed-tick catch-up, collision
-    readiness, reanchor, send cancellation, and terminal-drain paths now retain or fail closed
-    instead of silently dropping movement authority.
+  - This interim commit defaulted production to server-authoritative `Physics`; the final
+    integration head recorded below restores the binding candidate-only gate. Its bounded
+    fixed-tick catch-up, collision readiness, reanchor, send cancellation, and terminal-drain
+    paths retain or fail closed instead of silently dropping movement authority.
   - Deterministic verification at this commit passed 2,472 workspace tests (13 ignored),
     strict workspace Clippy, formatting, 106 Phase 3/FastTransfer Pester contracts, focused
     rollback/reset/cancellation regressions, and the debug client build. Independent latest-diff
@@ -1861,6 +1862,32 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     streamed. It is not release-performance evidence. CandidatePhysics, external-server
     matrices, version-matched native comparison, release budgets, integration, and final
     PR acceptance remain open.
+
+- **PR #6 final integration follow-up (2026-08-02, local commit `f381a19`).**
+  The final local head is not yet pushed or integrated.
+  - Normal production sessions again install `PhysicsAuthorityGate::ProductionDisabled`.
+    `CandidatePhysics` and authenticated `FastTransferWitness` are the only attributable
+    harness lanes that add `--phase3-candidate-physics`; `FreeCameraSilence` remains
+    candidate-free and adds only `--auto-fly`. Dry-run and final evidence both report
+    `production_physics_default_enabled=false`.
+  - The first pushed-head CI run exposed ten architecture-size violations. Coherent private
+    module/test extractions now restore the unchanged policy without deleting coverage or
+    relaxing a limit; the exact local architecture check passes.
+  - A final live run exposed a nondeterministic process hang after `app.run()` returned.
+    The bounded shutdown watchdog had been completed before synchronous network/App cleanup.
+    The watchdog now remains armed through `NetworkHandle::shutdown()` and explicit App drop;
+    `SHUTDOWN_COMPLETED` is emitted only after both return.
+  - Clean BDS run `phase3-1326f452cbe34833b1d5da44c81b6ca0` at `f381a19` produced a
+    `valid` 60-second `FreeCameraSilence` verdict, `WORLD_READY`, app/core exit code 0, no
+    launcher timeout, no watchdog firing, and an ordered `SHUTDOWN_WATCHDOG_ARMED` then
+    `SHUTDOWN_COMPLETED` tail.
+  - The final safety integration passes formatting, the architecture checker, all 496
+    bedrock-client tests, strict bedrock-client Clippy, and all 106 Phase 3/FastTransfer
+    Pester contracts. The preceding integrated head passed all 2,487 workspace tests and
+    strict workspace Clippy. Linux acceptance remains delegated to CI because this workstation
+    has no WSL distribution.
+  - This is one BDS FreeCamera smoke, not CandidatePhysics, external-server, native-parity,
+    release-performance, or Phase 3 closure evidence. Those gates remain open after PR merge.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
