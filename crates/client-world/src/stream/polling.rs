@@ -171,10 +171,8 @@ impl WorldStream {
         }
         None
     }
-    pub fn cave_visible_sub_chunks(&self, camera: SubChunkKey) -> BTreeSet<SubChunkKey> {
+    pub fn cave_visible_sub_chunks(&self, camera: SubChunkKey) -> HashSet<SubChunkKey> {
         crate::culling::cave_visible_sub_chunks(camera, &self.connectivity)
-            .into_iter()
-            .collect()
     }
 }
 
