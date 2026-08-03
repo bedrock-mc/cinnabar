@@ -527,6 +527,18 @@ func pumpPacketsWithCacheTelemetry(
 		}
 	}()
 	dropInitialSpawnLoadingScreens := fromDownstream
+	var upstreamIdentity login.IdentityData
+	if fromDownstream {
+		// The Rust client connects to this listener with authentication disabled;
+		// its login identity is only a local transport identity. The authenticated
+		// upstream Conn is the single canonical account identity that the remote
+		// server validates chat against.
+		if identitySession, ok := destination.(interface {
+			IdentityData() login.IdentityData
+		}); ok {
+			upstreamIdentity = identitySession.IdentityData()
+		}
+	}
 	if err := destination.Flush(); err != nil {
 		return err
 	}
@@ -577,6 +589,9 @@ func pumpPacketsWithCacheTelemetry(
 			}
 		}
 		for _, value := range batch {
+			if fromDownstream {
+				value = normalizeUpstreamChatIdentity(value, upstreamIdentity)
+			}
 			if !fromDownstream && cacheTelemetry != nil {
 				cacheTelemetry.observeRelayPacket(value)
 			}
@@ -617,6 +632,18 @@ func pumpPacketsWithCacheTelemetry(
 			return err
 		}
 	}
+}
+
+func normalizeUpstreamChatIdentity(value packet.Packet, identity login.IdentityData) packet.Packet {
+	text, ok := value.(*packet.Text)
+	if !ok || text.TextType != packet.TextTypeChat || identity.DisplayName == "" {
+		return value
+	}
+
+	rewritten := *text
+	rewritten.SourceName = identity.DisplayName
+	rewritten.XUID = identity.XUID
+	return &rewritten
 }
 
 func isLoadingScreen(value packet.Packet, loadingType int32) bool {

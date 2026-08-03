@@ -55,6 +55,11 @@ const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 // default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
 const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
+// Java's default chat text begins four GUI pixels from the safe content edge.
+// Keep the text anchor independent of the bottom HUD width so chat remains a
+// true left-edge surface on ultrawide and resized windows.
+const CHAT_LEFT_INSET: f32 = 4.0;
+const CHAT_PANEL_PAD: f32 = 4.0;
 // Java chat fade: rows show for 200 ticks then fade over the final 20
 // (10 s + 1 s), pinned here in milliseconds.
 const CHAT_VISIBLE_MILLIS: u64 = 10_000;
@@ -176,6 +181,7 @@ pub struct UiPresentationRuntime {
     base_texture_identity: [u8; 32],
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
+    player_preview_pose: Option<player_preview::PlayerPreviewPose>,
     player_preview_icon: Option<IconRef>,
 }
 
@@ -240,6 +246,7 @@ impl UiPresentationRuntime {
             base_texture_identity,
             player_preview_page: None,
             player_preview_source_hash: None,
+            player_preview_pose: None,
             player_preview_icon: None,
         })
     }
@@ -256,15 +263,21 @@ impl UiPresentationRuntime {
     }
 
     /// Updates the cached corner avatar. The raster is regenerated and the UI
-    /// texture array is replaced only when the authoritative skin changes;
-    /// normal camera/HUD frames reuse the same GPU texture allocation.
-    pub(crate) fn set_player_preview_skin(&mut self, skin: Option<&[u8]>) {
+    /// texture array is replaced only when the authoritative skin or pose
+    /// changes; normal camera/HUD frames reuse the same GPU texture.
+    pub(crate) fn set_player_preview_skin(
+        &mut self,
+        skin: Option<&[u8]>,
+        pose: player_preview::PlayerPreviewPose,
+    ) {
         let default_skin = render::default_actor_skin_rgba8();
         let skin = skin
             .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
-        if self.player_preview_source_hash == Some(source_hash) {
+        if self.player_preview_source_hash == Some(source_hash)
+            && self.player_preview_pose == Some(pose)
+        {
             return;
         }
         let Some(page) = self.player_preview_page.or_else(|| {
@@ -287,7 +300,7 @@ impl UiPresentationRuntime {
             self.player_preview_icon = None;
             return;
         }
-        let preview = player_preview::render(skin);
+        let preview = player_preview::render(skin, pose);
         let mut rgba8 = self.textures.rgba8.to_vec();
         if self.player_preview_page.is_none() {
             rgba8.extend(std::iter::repeat_n(0, layer_bytes));
@@ -311,6 +324,10 @@ impl UiPresentationRuntime {
         identity.update(self.base_texture_identity);
         identity.update(b"cinnabar-player-preview-v1");
         identity.update(source_hash);
+        identity.update(pose.body_yaw_degrees.to_bits().to_le_bytes());
+        identity.update(pose.head_yaw_degrees.to_bits().to_le_bytes());
+        identity.update(pose.pitch_degrees.to_bits().to_le_bytes());
+        identity.update([u8::from(pose.sneaking)]);
         let identity: [u8; 32] = identity.finalize().into();
         self.textures = Arc::new(UiRenderTextureArray {
             identity,
@@ -320,6 +337,7 @@ impl UiPresentationRuntime {
             rgba8: rgba8.into(),
         });
         self.player_preview_source_hash = Some(source_hash);
+        self.player_preview_pose = Some(pose);
         self.player_preview_icon = Some(IconRef {
             page,
             uv: [
@@ -403,7 +421,7 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let wrap_width = ((content_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
-        let chat_left = 12.0_f32.min(content_width);
+        let chat_left = CHAT_LEFT_INSET.min(content_width);
         let chat_right = (chat_left + chat_content_width)
             .min(content_width)
             .max(chat_left);
@@ -532,8 +550,7 @@ impl UiPresentationRuntime {
         let mut suggestion_layouts = Vec::new();
         if chat_focused {
             let editor = runtime.chat_editor();
-            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
-            visible.push_str("> ");
+            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(1));
             visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
             visible.push('|');
             visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
@@ -663,8 +680,8 @@ impl UiPresentationRuntime {
             chat_cursor = y.max(chat_region_top);
         }
         if chat_focused {
-            let panel_left = 8.0_f32.min(logical_width);
-            let panel_right = (panel_left + chat_content_width + 8.0)
+            let panel_left = (chat_left - CHAT_PANEL_PAD).max(0.0).min(logical_width);
+            let panel_right = (chat_right + CHAT_PANEL_PAD)
                 .min(logical_width)
                 .max(panel_left);
             let content_top = visible_chat
@@ -876,7 +893,23 @@ pub(crate) fn publish_ui_runtime(
             rgba8: Arc::clone(&skin.rgba8),
         })
     });
-    presentation.set_player_preview_skin(player_preview_skin.as_deref());
+    let player_preview_pose = client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .map_or_else(player_preview::PlayerPreviewPose::default, |actor| {
+            let sneaking = matches!(
+                actor.metadata.get(&0),
+                Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
+            );
+            player_preview::PlayerPreviewPose::new(
+                actor.body_yaw,
+                actor.head_yaw,
+                actor.pitch,
+                sneaking,
+            )
+        });
+    presentation.set_player_preview_skin(player_preview_skin.as_deref(), player_preview_pose);
     refresh_hud_frame(
         &mut runtime,
         &mut presentation,
@@ -960,9 +993,10 @@ pub(crate) fn refresh_hud_frame(
         if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
             let identifier = resolve_identifier(stack);
             *durability = item_facts::durability_fraction(stack, identifier.as_deref());
-            hotbar_icons[slot] = identifier
+            let icon = identifier
                 .as_deref()
                 .and_then(|identifier| presentation.item_icon(identifier, stack.metadata));
+            hotbar_icons[slot] = icon;
         }
     }
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {

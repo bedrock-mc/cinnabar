@@ -233,6 +233,46 @@ pub struct ItemRegistryEntry {
     pub component_digest: [u8; 32],
 }
 
+/// Returns the generated vanilla item registry for the pinned Bedrock
+/// protocol. Bedrock servers normally send only custom/data-driven item
+/// entries; the vanilla client already knows this built-in table and merges
+/// the server packet over it.
+#[must_use]
+pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
+    const GENERATED_ITEMS: &str =
+        include_str!("../vendor/valentine/bedrock_versions/v1_26_30/src/items.rs");
+
+    let mut entries = Vec::new();
+    let mut pending_id = None;
+    for line in GENERATED_ITEMS.lines().map(str::trim) {
+        if let Some(value) = line
+            .strip_prefix("const ID: i32 = ")
+            .and_then(|value| value.strip_suffix(';'))
+            .and_then(|value| value.parse::<i32>().ok())
+        {
+            pending_id = Some(value);
+            continue;
+        }
+        let Some(identifier) = line
+            .strip_prefix("const STRING_ID: &'static str = \"")
+            .and_then(|value| value.strip_suffix("\";"))
+        else {
+            continue;
+        };
+        let Some(network_id) = pending_id.take() else {
+            continue;
+        };
+        entries.push(ItemRegistryEntry {
+            identifier: Arc::from(identifier),
+            network_id,
+            component_based: false,
+            version: ItemRegistryVersion::Legacy,
+            component_digest: [0; 32],
+        });
+    }
+    Arc::from(entries)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemRegistryEvent {
     pub entries: Arc<[ItemRegistryEntry]>,

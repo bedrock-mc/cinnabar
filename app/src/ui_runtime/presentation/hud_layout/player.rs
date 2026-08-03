@@ -18,10 +18,9 @@ impl HudLayout<'_> {
             None,
             rect(left, top, left + 15.0 * g.scale, top + 15.0 * g.scale)?,
         )
-        .with_visual(UiVisual::Sprite {
+        .with_visual(UiVisual::InvertedSprite {
             texture_page: self.textures.page,
             uv: sprite.uv,
-            color: [255; 4],
         });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
@@ -32,13 +31,13 @@ impl HudLayout<'_> {
         let g = self.geometry;
         let [x, y] = g.logical([4.0, 4.0]);
         // The raster includes transparent breathing room around the model;
-        // this display size leaves the avatar readable without competing with
-        // Java-style chat or the sidebar.
+        // this keeps the corner avatar close to vanilla HUD proportions at
+        // the Java GUI scale instead of dominating the gameplay view.
         self.nodes.push(
             UiNode::new(
                 UiNodeId::new(*self.next_id),
                 None,
-                rect(x, y, x + 64.0 * g.scale, y + 75.0 * g.scale)?,
+                rect(x, y, x + 24.0 * g.scale, y + 28.0 * g.scale)?,
             )
             .with_visual(UiVisual::Sprite {
                 texture_page: preview.page,

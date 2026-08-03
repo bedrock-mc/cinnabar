@@ -708,7 +708,7 @@ fn focused_chat_editor_does_not_overlap_survival_hud_sprites() {
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.5).unwrap())
         .unwrap();
     let hud_vertices = &active.vertices[..20 * 4];
-    let editor_vertex_count = "> |".chars().count() * 4;
+    let editor_vertex_count = "|".chars().count() * 4;
     let editor_vertices = &active.vertices[active.vertices.len() - editor_vertex_count..];
     let hud_top = hud_vertices
         .iter()
