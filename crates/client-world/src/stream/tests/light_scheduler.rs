@@ -195,6 +195,7 @@ fn synthetic_light_completion(
             .light(key)
             .map(|light| light.generation()),
         batch_id: 0,
+        urgent: false,
     };
     stream.pending_light.remove(&key);
     stream.in_flight_light.insert(key, identity);

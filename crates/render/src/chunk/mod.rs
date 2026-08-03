@@ -31,7 +31,7 @@ use bevy::{
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_component::ExtractComponent,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
@@ -66,7 +66,7 @@ use world::SubChunkKey;
 
 use crate::{
     AtmosphereFrame, ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef,
-    PackedModelRef, PackedQuad, PackedQuadLighting,
+    PackedModelRef, PackedQuad, PackedQuadLighting, RuntimeStage, RuntimeStageProfiler,
     atmosphere_render::{AtmosphereGpu, install_atmosphere},
     visibility_diagnostics::{
         ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
@@ -158,11 +158,12 @@ use gpu::types::{
     ArenaAllocation, ChunkDepthLiquidIndirectBatches, ChunkDrawMode, ChunkIndirectBatch,
     ChunkIndirectBatches, ChunkModelIndirectBatches, GpuChunkAllocation, GpuChunkOrigin,
     LEGACY_FIXED_MODEL_QUADS_PER_REF, MODEL_INDEX_COUNT, QueueFrameProbeParams,
-    RetiredArenaAllocation, StreamAddresses, adapter_metadata_field, cube_lighting_record_address,
-    cube_stream_addresses_valid, depth_liquid_direct_draw_command, depth_liquid_draw_command,
-    depth_liquid_mdi_draw_command, diagnostic_draw_mode, direct_stream_addresses,
-    extracted_camera_identity, gpu_chunk_origin, indexed_indirect_command, mdi_stream_addresses,
-    metadata_base_vertex, model_direct_draw_command, model_draw_command, model_mdi_draw_command,
+    RetiredArenaAllocation, StreamAddresses, absolutize_liquid_lighting_indices,
+    adapter_metadata_field, cube_lighting_record_address, cube_stream_addresses_valid,
+    depth_liquid_direct_draw_command, depth_liquid_draw_command, depth_liquid_mdi_draw_command,
+    diagnostic_draw_mode, direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin,
+    indexed_indirect_command, mdi_stream_addresses, metadata_base_vertex,
+    model_direct_draw_command, model_draw_command, model_mdi_draw_command,
     model_ref_count_for_witness, opaque_allocation_is_drawable, publish_graphics_runtime_metadata,
     resolve_surface_present_mode, select_chunk_draw_mode, shared_stream_ranges_disjoint,
     summarize_model_workload, surface_present_mode_name, transparent_model_direct_draw_command,
@@ -170,11 +171,10 @@ use gpu::types::{
 };
 #[allow(unused_imports)]
 use gpu::upload::{
-    absolutize_liquid_lighting_indices, absolutize_model_lighting_bases,
-    absolutize_partitioned_model_draw_refs, chunk_instance_upload_byte_len, liquid_quad_centroid,
-    packed_lighting_records, packed_stream_range_matches, prepare_gpu_chunks,
-    transparent_allocation_matches, transparent_model_allocation_matches,
-    validate_partitioned_model_streams,
+    absolutize_model_lighting_bases, absolutize_partitioned_model_draw_refs,
+    chunk_instance_upload_byte_len, liquid_quad_centroid, packed_lighting_records,
+    packed_stream_range_matches, prepare_gpu_chunks, transparent_allocation_matches,
+    transparent_model_allocation_matches, validate_partitioned_model_streams,
 };
 #[allow(unused_imports)]
 use pipeline::commands::{

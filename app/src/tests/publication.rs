@@ -398,6 +398,7 @@ fn drive_unified_publication_fixture(
                 tint_identity,
                 generation,
                 dirty_since,
+                urgent: _,
                 permit,
             } => {
                 let bytes = render::ChunkRenderQueue::upload_byte_len(&mesh, &biome);
@@ -422,6 +423,7 @@ fn drive_unified_publication_fixture(
                 key,
                 generation,
                 dirty_since,
+                urgent: _,
                 permit,
             } => {
                 render_queue
@@ -874,6 +876,7 @@ fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
         key: world::SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
         dirty_since: std::time::Instant::now(),
+        urgent: false,
         permit: None,
     };
     assert!(!mesh_change_has_publication_permit(&missing));

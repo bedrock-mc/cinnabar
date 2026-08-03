@@ -278,6 +278,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
         biome: PackedBiomeRecord::fallback(),
         tint_identity: tint,
         generation: 9,
+        priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
         origin: [0; 3],

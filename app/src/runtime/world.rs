@@ -23,7 +23,7 @@ use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
-    ChunkUploadPriority, ChunkUploadToken,
+    ChunkUploadPriority, ChunkUploadToken, RuntimeStage, RuntimeStageProfiler,
 };
 
 use crate::{
@@ -551,7 +551,11 @@ pub(crate) fn drive_world_stream(
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::WorldStream));
     let AppWorldState {
         mut client_world,
         clock,
@@ -686,6 +690,7 @@ pub(crate) fn drive_world_stream(
                     tint_identity,
                     generation,
                     dirty_since,
+                    urgent,
                     permit,
                 } => {
                     let diagnostic_geometry = mesh.diagnostic_geometry().clone();
@@ -696,7 +701,11 @@ pub(crate) fn drive_world_stream(
                         mesh,
                         biome,
                         tint_identity,
-                        ChunkUploadPriority::from_camera(key, camera_position),
+                        if urgent {
+                            ChunkUploadPriority::urgent()
+                        } else {
+                            ChunkUploadPriority::from_camera(key, camera_position)
+                        },
                         ChunkUploadToken {
                             generation,
                             dirty_since,
@@ -714,6 +723,7 @@ pub(crate) fn drive_world_stream(
                             tint_identity,
                             generation,
                             dirty_since,
+                            urgent,
                             permit: Some(permit),
                         }),
                     }
@@ -722,13 +732,18 @@ pub(crate) fn drive_world_stream(
                     key,
                     generation,
                     dirty_since,
+                    urgent,
                     permit,
                 } => {
                     let publication_permit =
                         permit.expect("publication permit was validated before render handoff");
                     match render_queue.try_remove_tracked_permitted(
                         key,
-                        ChunkUploadPriority::from_camera(key, camera_position),
+                        if urgent {
+                            ChunkUploadPriority::urgent()
+                        } else {
+                            ChunkUploadPriority::from_camera(key, camera_position)
+                        },
                         ChunkUploadToken {
                             generation,
                             dirty_since,
@@ -743,6 +758,7 @@ pub(crate) fn drive_world_stream(
                             key,
                             generation,
                             dirty_since,
+                            urgent,
                             permit: Some(permit),
                         }),
                     }

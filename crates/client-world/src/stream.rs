@@ -17,6 +17,7 @@ use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
+use hashbrown::HashMap as FastHashMap;
 use protocol::{
     ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
@@ -122,23 +123,27 @@ struct PendingSchedulerCandidate {
     distance_squared: f32,
     key: SubChunkKey,
     revision: u64,
+    urgent: bool,
 }
 
 impl PendingSchedulerCandidate {
-    fn new(key: SubChunkKey, revision: u64, camera_position: [f32; 3]) -> Self {
+    fn new(key: SubChunkKey, revision: u64, camera_position: [f32; 3], urgent: bool) -> Self {
         Self {
             distance_squared: distance_squared(key, camera_position),
             key,
             revision,
+            urgent,
         }
     }
 }
 
 impl PartialEq for PendingSchedulerCandidate {
     fn eq(&self, other: &Self) -> bool {
-        self.distance_squared
-            .total_cmp(&other.distance_squared)
-            .is_eq()
+        self.urgent == other.urgent
+            && self
+                .distance_squared
+                .total_cmp(&other.distance_squared)
+                .is_eq()
             && self.key == other.key
             && self.revision == other.revision
     }
@@ -154,11 +159,13 @@ impl PartialOrd for PendingSchedulerCandidate {
 
 impl Ord for PendingSchedulerCandidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .distance_squared
-            .total_cmp(&self.distance_squared)
-            .then_with(|| other.key.cmp(&self.key))
-            .then_with(|| other.revision.cmp(&self.revision))
+        self.urgent.cmp(&other.urgent).then_with(|| {
+            other
+                .distance_squared
+                .total_cmp(&self.distance_squared)
+                .then_with(|| other.key.cmp(&self.key))
+                .then_with(|| other.revision.cmp(&self.revision))
+        })
     }
 }
 
@@ -239,6 +246,7 @@ pub struct WorldStream {
     pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
     mesh_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
+    urgent_mesh_in_flight: HashSet<SubChunkKey>,
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
@@ -250,7 +258,7 @@ pub struct WorldStream {
     deferred_retries: VecDeque<SubChunkKey>,
     deferred_retry_set: HashSet<SubChunkKey>,
     deferred_recovery_requests: VecDeque<PendingSubChunkRequest>,
-    connectivity: HashMap<SubChunkKey, FaceConnectivity>,
+    connectivity: FastHashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
     requests: RequestQueue,
     transport_pending_requests: usize,

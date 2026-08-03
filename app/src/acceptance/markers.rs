@@ -38,6 +38,7 @@ pub(crate) const TELEPORT_COHORT: &str = "RUST_MCBE_TELEPORT_COHORT";
 pub(crate) const TELEPORT_GLOBAL_STAGE_DIAGNOSTIC: &str =
     "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC";
 pub(crate) const TELEPORT_SETTLED: &str = "RUST_MCBE_TELEPORT_SETTLED";
+pub(crate) const STAGE_PROFILE: &str = "RUST_MCBE_STAGE_PROFILE";
 pub(crate) const TRANSPARENT_SORT_COMMITTED: &str = "RUST_MCBE_TRANSPARENT_SORT_COMMITTED";
 pub(crate) const TRANSPARENT_WITNESS_COMPLETE: &str = "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE";
 pub(crate) const TRANSPARENT_WITNESS_INCOMPLETE: &str = "RUST_MCBE_TRANSPARENT_WITNESS_INCOMPLETE";
@@ -95,6 +96,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
         MarkerContract::LogOnlyDiagnostic,
     ),
     (TELEPORT_SETTLED, MarkerContract::ParsedEvidence),
+    (STAGE_PROFILE, MarkerContract::EnvironmentVariable),
     (TRANSPARENT_SORT_COMMITTED, MarkerContract::ParsedEvidence),
     (TRANSPARENT_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (
@@ -235,7 +237,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 31);
+        assert_eq!(names.len(), 32);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

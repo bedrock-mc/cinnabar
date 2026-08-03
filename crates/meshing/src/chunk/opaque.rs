@@ -1,11 +1,13 @@
-use assets::{BlockFlags, NetworkIdMode, RuntimeAssets};
-use world::MeshNeighbourhood;
+use std::cell::OnceCell;
+
+use assets::BlockFlags;
 
 use crate::{
-    BlockClassifier, DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad,
-    PackedQuadLighting, SIDE,
+    DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad, PackedQuadLighting, SIDE,
     contributors::{PaletteFacts, PaletteSource, ResolvedPaletteEntry},
 };
+
+use super::models::PaletteResolutionContext;
 
 #[derive(Default)]
 pub(crate) struct DiagnosticGeometryAccumulator {
@@ -161,18 +163,26 @@ impl VisibilityMasks {
     }
 }
 
-pub(crate) fn exposed_columns(
-    classifier: BlockClassifier,
-    visuals: &RuntimeAssets,
-    network_id_mode: NetworkIdMode,
-    neighbourhood: &MeshNeighbourhood<'_>,
+pub(crate) fn exposed_columns<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
     face: Face,
-    facts: &PaletteFacts<'_>,
+    facts: &PaletteFacts<'a>,
     masks: &VisibilityMasks,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
 ) -> Columns {
-    let neighbour = neighbourhood
+    let neighbour = context
+        .neighbourhood
         .sub_chunk(face_offset(face))
-        .map(|sub_chunk| PaletteFacts::new(classifier, visuals, network_id_mode, sub_chunk));
+        .map(|sub_chunk| {
+            neighbour_facts[face.index()].get_or_init(|| {
+                PaletteFacts::new(
+                    context.classifier,
+                    context.visuals,
+                    context.network_id_mode,
+                    sub_chunk,
+                )
+            })
+        });
     let boundary_bit = if face.is_negative() {
         1_u64
     } else {

@@ -100,6 +100,7 @@ impl WorldStream {
                         .expect("fixture light halo is current"),
                     queue_wait: Duration::ZERO,
                     duration: Duration::ZERO,
+                    urgent: false,
                 };
                 self.mesh_tx
                     .try_send(completion)

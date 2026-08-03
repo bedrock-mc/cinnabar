@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::{Add, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With};
-use render::ChunkRenderInstance;
+use render::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
 use world::SubChunkKey;
 
 use crate::{
@@ -37,7 +37,11 @@ pub(crate) fn refresh_cave_visibility(
     camera: Query<&Transform, With<FlyCamera>>,
     mut cache: ResMut<CaveVisibilityCache>,
     mut chunks: Query<(&ChunkRenderInstance, &mut Visibility)>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
     let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single()) else {
         return;
     };

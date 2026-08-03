@@ -11,7 +11,15 @@ pub(super) fn prepare_publication_removals(
         .min(PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame);
     let mut zero_byte_operations = 0;
     let mut physically_removed_keys = HashSet::new();
-    for entity in arena.pending_removals.iter().copied().collect::<Vec<_>>() {
+    let urgent_removal_keys = gpu_removals.urgent_keys();
+    let mut pending_removal_entities = arena.pending_removals.iter().copied().collect::<Vec<_>>();
+    pending_removal_entities.sort_by_key(|entity| {
+        arena
+            .allocations
+            .get(entity)
+            .is_none_or(|allocation| !urgent_removal_keys.contains(&allocation.gpu.key))
+    });
+    for entity in pending_removal_entities {
         let Some(allocation) = arena.allocations.get(&entity).cloned() else {
             arena.pending_removals.remove(&entity);
             continue;
@@ -66,7 +74,7 @@ pub(super) fn prepare_publication_removals(
             .is_some_and(|token| !acknowledgements.try_reserve(pending.key, token))
         {
             gpu_removals
-                .push(pending)
+                .requeue(pending)
                 .unwrap_or_else(|_| unreachable!("taking one removal frees one mailbox slot"));
             continue;
         }

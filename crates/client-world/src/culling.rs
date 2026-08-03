@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
+
+use hashbrown::HashMap;
 
 use meshing::{Face, FaceConnectivity};
 use world::SubChunkKey;
@@ -87,7 +89,7 @@ const fn opposite(face: Face) -> Face {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     use meshing::FaceConnectivity;
     use world::SubChunkKey;

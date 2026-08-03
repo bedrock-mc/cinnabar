@@ -291,12 +291,14 @@ pub enum WorldMeshChange {
         tint_identity: ChunkBiomeTintIdentity,
         generation: u64,
         dirty_since: Instant,
+        urgent: bool,
         permit: Option<PublicationPermit>,
     },
     Remove {
         key: SubChunkKey,
         generation: u64,
         dirty_since: Instant,
+        urgent: bool,
         permit: Option<PublicationPermit>,
     },
 }
@@ -733,6 +735,7 @@ pub(super) struct PendingMesh {
     pub(super) revision: u64,
     pub(super) since: Instant,
     pub(super) queued_at: Instant,
+    pub(super) urgent: bool,
 }
 
 #[derive(Debug)]
@@ -748,4 +751,5 @@ pub(super) struct MeshCompletion {
     pub(super) light_halo: MeshLightHalo,
     pub(super) queue_wait: Duration,
     pub(super) duration: Duration,
+    pub(super) urgent: bool,
 }

@@ -1,9 +1,7 @@
 use crate::chunk::*;
-
 pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub(in crate::chunk) const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
-
 /// Maximum number of non-empty new or changed sub-chunks transferred to the
 /// render world in one main-world update.
 #[derive(Resource, ExtractResource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +66,17 @@ impl ChunkUploadPriority {
         } else {
             f32::INFINITY
         })
+    }
+
+    /// Priority for a player-visible live change that must bypass bulk world loading.
+    #[must_use]
+    pub const fn urgent() -> Self {
+        Self(-1.0)
+    }
+
+    #[must_use]
+    pub const fn is_urgent(self) -> bool {
+        self.0 < 0.0
     }
 
     /// Computes a nearest-first priority from a camera position and a
@@ -169,6 +178,7 @@ impl PublicationPermitSlot {
 pub(in crate::chunk) struct PendingGpuRemoval {
     pub(in crate::chunk) key: SubChunkKey,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
+    pub(in crate::chunk) priority: ChunkUploadPriority,
     pub(in crate::chunk) permit: PublicationPermit,
 }
 
@@ -196,12 +206,22 @@ impl ChunkGpuRemovalQueue {
             .len()
     }
 
-    pub(in crate::chunk) fn has_capacity_for(&self, key: SubChunkKey) -> bool {
+    pub(in crate::chunk) fn has_capacity_for(
+        &self,
+        key: SubChunkKey,
+        priority: ChunkUploadPriority,
+    ) -> bool {
         let pending = self
             .inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        pending.len() < self.capacity || pending.iter().any(|removal| removal.key == key)
+        let capacity = if priority.is_urgent() {
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve)
+        } else {
+            self.capacity
+        };
+        pending.len() < capacity || pending.iter().any(|removal| removal.key == key)
     }
 
     pub(in crate::chunk) fn cancel(&self, key: SubChunkKey) {
@@ -222,6 +242,31 @@ impl ChunkGpuRemovalQueue {
         &self,
         removal: PendingGpuRemoval,
     ) -> Result<(), PendingGpuRemoval> {
+        let capacity = if removal.priority.is_urgent() {
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve)
+        } else {
+            self.capacity
+        };
+        self.push_with_capacity(removal, capacity)
+    }
+
+    pub(in crate::chunk) fn requeue(
+        &self,
+        removal: PendingGpuRemoval,
+    ) -> Result<(), PendingGpuRemoval> {
+        self.push_with_capacity(
+            removal,
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve),
+        )
+    }
+
+    fn push_with_capacity(
+        &self,
+        mut removal: PendingGpuRemoval,
+        capacity: usize,
+    ) -> Result<(), PendingGpuRemoval> {
         let mut pending = self
             .inner
             .lock()
@@ -230,16 +275,29 @@ impl ChunkGpuRemovalQueue {
             let superseded = pending
                 .remove(index)
                 .expect("the matching removal index remains present");
-            pending.push_back(removal);
+            if superseded.priority.is_urgent() {
+                removal.priority = ChunkUploadPriority::urgent();
+            }
+            insert_gpu_removal_by_priority(&mut pending, removal);
             drop(pending);
             drop(superseded);
             return Ok(());
         }
-        if pending.len() >= self.capacity {
+        if pending.len() >= capacity {
             return Err(removal);
         }
-        pending.push_back(removal);
+        insert_gpu_removal_by_priority(&mut pending, removal);
         Ok(())
+    }
+
+    pub(in crate::chunk) fn urgent_keys(&self) -> HashSet<SubChunkKey> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .iter()
+            .filter(|removal| removal.priority.is_urgent())
+            .map(|removal| removal.key)
+            .collect()
     }
 
     pub(in crate::chunk) fn take_ready(
@@ -253,17 +311,38 @@ impl ChunkGpuRemovalQueue {
             .unwrap_or_else(|poison| poison.into_inner());
         let mut completed = Vec::new();
         let retained = pending.len();
+        let mut urgent_retained = VecDeque::new();
+        let mut ordinary_retained = VecDeque::new();
         for _ in 0..retained {
             let Some(removal) = pending.pop_front() else {
                 break;
             };
             if completed.len() < limit && ready(removal.key) {
                 completed.push(removal);
+            } else if removal.priority.is_urgent() {
+                urgent_retained.push_back(removal);
             } else {
-                pending.push_back(removal);
+                ordinary_retained.push_back(removal);
             }
         }
+        urgent_retained.append(&mut ordinary_retained);
+        *pending = urgent_retained;
         completed
+    }
+}
+
+fn insert_gpu_removal_by_priority(
+    pending: &mut VecDeque<PendingGpuRemoval>,
+    removal: PendingGpuRemoval,
+) {
+    if removal.priority.is_urgent() {
+        let index = pending
+            .iter()
+            .position(|queued| !queued.priority.is_urgent())
+            .unwrap_or(pending.len());
+        pending.insert(index, removal);
+    } else {
+        pending.push_back(removal);
     }
 }
 
@@ -820,6 +899,7 @@ impl ChunkUploadAcknowledgements {
 
 /// Extracted packed geometry for one visible, frustum-cullable sub-chunk.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_component_filter(Changed<ChunkRenderInstance>)]
 #[require(VisibilityClass)]
 #[component(on_add = visibility::add_visibility_class::<ChunkRenderInstance>)]
 pub struct ChunkRenderInstance {
@@ -838,6 +918,7 @@ pub struct ChunkRenderInstance {
     pub(in crate::chunk) biome: PackedBiomeRecord,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
     pub(in crate::chunk) generation: u64,
+    pub(in crate::chunk) priority: ChunkUploadPriority,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
     pub(in crate::chunk) publication_permit: Option<PublicationPermitSlot>,
     pub(in crate::chunk) origin: [i32; 3],

@@ -103,7 +103,11 @@ pub(in crate::chunk) fn prepare_chunk_indirect_batches(
     mut model_batches: ResMut<ChunkModelIndirectBatches>,
     mut depth_liquid_batches: ResMut<ChunkDepthLiquidIndirectBatches>,
     mut arena: ResMut<ChunkGpuArena>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::IndirectPreparation));
     let mut all_commands = Vec::new();
     for batch in batches.0.values_mut() {
         let (indirect_commands, drawn_allocations) = prepare_indirect_batch_draws(

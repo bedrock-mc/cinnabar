@@ -56,35 +56,44 @@ pub(in crate::chunk) fn sort_transparent_candidates(
     view_from_world: Mat4,
     candidates: Arc<[TransparentSortCandidate]>,
 ) -> Vec<PackedTransparentDrawRef> {
+    let quad_depths = candidates
+        .iter()
+        .map(|candidate| {
+            view_from_world
+                .transform_point3(Vec3::from_array(candidate.quad_centroid))
+                .z
+        })
+        .collect::<Vec<_>>();
     let mut grouped = BTreeMap::<SubChunkKey, Vec<usize>>::new();
     for (index, candidate) in candidates.iter().enumerate() {
         grouped.entry(candidate.key).or_default().push(index);
     }
-    let mut groups = grouped.into_iter().collect::<Vec<_>>();
-    groups.sort_by(|(left_key, left), (right_key, right)| {
-        let left_center = Vec3::from_array(candidates[left[0]].subchunk_center);
-        let right_center = Vec3::from_array(candidates[right[0]].subchunk_center);
-        view_from_world
-            .transform_point3(left_center)
-            .z
-            .total_cmp(&view_from_world.transform_point3(right_center).z)
+    let mut groups = grouped
+        .into_iter()
+        .map(|(key, indices)| {
+            let center = Vec3::from_array(candidates[indices[0]].subchunk_center);
+            let depth = view_from_world.transform_point3(center).z;
+            (depth, key, indices)
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|(left_depth, left_key, _), (right_depth, right_key, _)| {
+        left_depth
+            .total_cmp(right_depth)
             .then_with(|| left_key.cmp(right_key))
     });
-    let mut refs = Vec::new();
-    for (_key, mut group) in groups {
+    let mut refs = Vec::with_capacity(candidates.len());
+    for (_depth, _key, mut group) in groups {
         group.sort_by(|&left, &right| {
-            let left = &candidates[left];
-            let right = &candidates[right];
-            view_from_world
-                .transform_point3(Vec3::from_array(left.quad_centroid))
-                .z
-                .total_cmp(
-                    &view_from_world
-                        .transform_point3(Vec3::from_array(right.quad_centroid))
-                        .z,
-                )
-                .then_with(|| left.key.cmp(&right.key))
-                .then_with(|| left.local_quad_index.cmp(&right.local_quad_index))
+            let left_candidate = &candidates[left];
+            let right_candidate = &candidates[right];
+            quad_depths[left]
+                .total_cmp(&quad_depths[right])
+                .then_with(|| left_candidate.key.cmp(&right_candidate.key))
+                .then_with(|| {
+                    left_candidate
+                        .local_quad_index
+                        .cmp(&right_candidate.local_quad_index)
+                })
         });
         refs.extend(group.into_iter().map(|index| {
             let candidate = &candidates[index];

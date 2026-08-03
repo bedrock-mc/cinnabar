@@ -31,6 +31,7 @@ pub struct ChunkRenderQueue {
     pub(in crate::chunk) pending_bytes: u64,
     pub(in crate::chunk) limits: ChunkRenderQueueLimits,
     pub(in crate::chunk) gpu_upload_bytes: u64,
+    ready_scratch: Vec<(SubChunkKey, ChunkUploadPriority, bool)>,
 }
 
 impl Default for ChunkRenderQueue {
@@ -49,6 +50,7 @@ impl ChunkRenderQueue {
             next_generation: 0,
             pending_bytes: 0,
             limits,
+            ready_scratch: Vec::new(),
             gpu_upload_bytes: 0,
         }
     }
@@ -323,6 +325,20 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), SubChunkKey> {
+        let priority = if priority.is_urgent()
+            || self
+                .pending
+                .get(&key)
+                .is_some_and(|pending| pending.priority.is_urgent())
+            || self
+                .removals
+                .get(&key)
+                .is_some_and(|pending| pending.priority.is_urgent())
+        {
+            ChunkUploadPriority::urgent()
+        } else {
+            priority
+        };
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err(key);
@@ -498,6 +514,20 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        let priority = if priority.is_urgent()
+            || self
+                .pending
+                .get(&key)
+                .is_some_and(|pending| pending.priority.is_urgent())
+            || self
+                .removals
+                .get(&key)
+                .is_some_and(|pending| pending.priority.is_urgent())
+        {
+            ChunkUploadPriority::urgent()
+        } else {
+            priority
+        };
         let old_bytes = self.pending.get(&key).map_or(0, pending_upload_byte_len);
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         let next_items = self
@@ -568,29 +598,46 @@ pub(in crate::chunk) fn update_chunk_animation_clock(
     *clock = ChunkAnimationClock::from_elapsed_seconds(elapsed_seconds);
 }
 
+#[derive(SystemParam)]
+pub(in crate::chunk) struct RenderQueueRuntime<'w> {
+    gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
+    acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
+}
+
 pub(in crate::chunk) fn apply_chunk_render_queue(
     mut commands: Commands,
     mut queue: ResMut<ChunkRenderQueue>,
     budget: Res<ChunkUploadBudget>,
     mut entities: ResMut<ChunkEntities>,
     existing_instances: Query<&ChunkRenderInstance>,
-    gpu_removals: Res<ChunkGpuRemovalQueue>,
-    acknowledgements: Res<ChunkUploadAcknowledgements>,
+    runtime: RenderQueueRuntime,
 ) {
+    let RenderQueueRuntime {
+        gpu_removals,
+        acknowledgements,
+        profiler,
+    } = runtime;
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::RenderQueueApplication));
     let maximum_zero_byte_operations = budget
         .max_zero_byte_operations_per_frame
         .min(PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame);
-    let mut ready = queue
-        .pending
-        .iter()
-        .map(|(&key, pending)| (key, pending.priority, false))
-        .chain(
-            queue
-                .removals
-                .iter()
-                .map(|(&key, pending)| (key, pending.priority, true)),
-        )
-        .collect::<Vec<_>>();
+    let mut ready = std::mem::take(&mut queue.ready_scratch);
+    ready.clear();
+    ready.extend(
+        queue
+            .pending
+            .iter()
+            .map(|(&key, pending)| (key, pending.priority, false))
+            .chain(
+                queue
+                    .removals
+                    .iter()
+                    .map(|(&key, pending)| (key, pending.priority, true)),
+            ),
+    );
     ready.sort_by(|(left_key, left, _), (right_key, right, _)| {
         left.distance_squared()
             .total_cmp(&right.distance_squared())
@@ -600,14 +647,14 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     let mut payload_applications = 0;
     let mut total_bytes = 0;
     let mut zero_byte_applications = 0;
-    for (key, _, removal) in ready {
+    for (key, priority, removal) in ready.iter().copied() {
         if removal {
             let permitted = queue
                 .removals
                 .get(&key)
                 .is_some_and(|pending| pending.publication_permit.is_some());
             if zero_byte_applications >= maximum_zero_byte_operations
-                || (permitted && !gpu_removals.has_capacity_for(key))
+                || (permitted && !gpu_removals.has_capacity_for(key, priority))
             {
                 continue;
             }
@@ -639,7 +686,12 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             }
             if let Some(permit) = render_permit {
                 gpu_removals
-                    .push(PendingGpuRemoval { key, token, permit })
+                    .push(PendingGpuRemoval {
+                        key,
+                        token,
+                        priority,
+                        permit,
+                    })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
@@ -663,7 +715,8 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         }
         if pending.mesh.is_empty()
             && ((zero_byte_applications >= maximum_zero_byte_operations
-                || (pending.publication_permit.is_some() && !gpu_removals.has_capacity_for(key)))
+                || (pending.publication_permit.is_some()
+                    && !gpu_removals.has_capacity_for(key, pending.priority)))
                 || pending.token.is_some_and(|token| {
                     pending.publication_permit.is_none()
                         && !acknowledgements.try_reserve(key, token)
@@ -703,6 +756,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .push(PendingGpuRemoval {
                         key,
                         token: pending.token,
+                        priority: pending.priority,
                         permit,
                     })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
@@ -754,6 +808,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             biome: pending.biome,
             tint_identity: pending.tint_identity,
             generation: pending.generation,
+            priority: pending.priority,
             token: pending.token,
             publication_permit: render_permit.map(PublicationPermitSlot::new),
             origin,
@@ -784,6 +839,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             total_bytes = total_bytes.saturating_add(pending_bytes);
         }
     }
+    queue.ready_scratch = ready;
 }
 
 pub(in crate::chunk) const fn chunk_origin(key: SubChunkKey) -> [i32; 3] {

@@ -243,8 +243,12 @@ pub(in crate::chunk) fn fail_closed_transparent_sort_key_error(
 pub(in crate::chunk) fn spawn_transparent_sort(
     sender: SyncSender<TransparentWorkerResult>,
     work: TransparentSortWork,
+    profiler: Option<RuntimeStageProfiler>,
 ) {
     rayon::spawn(move || {
+        let _timer = profiler
+            .as_ref()
+            .map(|profiler| profiler.time(RuntimeStage::TransparentWorker));
         let started = Instant::now();
         let refs = sort_transparent_candidates(work.view_from_world, work.candidates);
         let _ = sender.try_send(TransparentWorkerResult {
