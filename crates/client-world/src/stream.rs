@@ -108,7 +108,11 @@ const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
 fn effective_light_job_cap() -> usize {
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(2).max(1))
+    // Lighting is the largest initial-world workload. Leave most of the
+    // shared Rayon workers available for meshing, asset work, and the
+    // render-side background jobs instead of monopolising the pool with
+    // column solves.
+    MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(4).max(1))
 }
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;

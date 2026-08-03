@@ -20,6 +20,7 @@ use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
     runtime::{
         shutdown::record_fatal_error,
+        visibility::CaveVisibilityCache,
         world::{ClientWorld, WorldStreamFramePoll},
     },
     ui_runtime::render_adapter::adapt_ui_draw_list,
@@ -40,6 +41,11 @@ const MAX_PRESENTED_CHAT_ROWS: usize = 8;
 const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
+// Keep the opaque loading cover up until an initial playable neighborhood of
+// visible terrain has arrived. A worker-completed mesh can still be waiting in the
+// render queue, so counting mesh jobs alone exposes a brief void/partial-world
+// flash while the initial stream is still being admitted.
+const MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION: usize = 1_024;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -578,6 +584,7 @@ pub(crate) fn publish_ui_runtime(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut scene: ResMut<UiRenderScene>,
     stats: Res<UiRenderStats>,
+    visibility: Res<CaveVisibilityCache>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
     frame_poll: Res<WorldStreamFramePoll>,
@@ -599,12 +606,25 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
+    let terrain_ready_target =
+        frame_poll
+            .cohort
+            .map_or(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION, |status| {
+                if status.is_exact() {
+                    status
+                        .expected
+                        .clamp(1, MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION)
+                } else {
+                    MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION
+                }
+            });
     let loading_message = match client_world.stream.as_ref() {
         None => Some("Connecting to server..."),
-        Some(_) if !frame_poll.cohort.is_some_and(|status| status.is_exact()) => {
-            Some("Loading terrain...")
+        Some(_) if frame_poll.cohort.is_none() && visibility.visible_rendered == 0 => {
+            Some("Connecting to server...")
         }
-        Some(_) => None,
+        Some(_) if visibility.visible_rendered >= terrain_ready_target => None,
+        Some(_) => Some("Loading terrain..."),
     };
     presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {

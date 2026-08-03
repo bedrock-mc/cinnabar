@@ -22,7 +22,7 @@ use bevy::{
 };
 
 const AFFECTED_DX12_ADAPTER: &str = "Radeon RX 570 Series";
-const AFFECTED_DX12_DRIVER: &str = "31.0.21924.61";
+const AFFECTED_DX12_DRIVERS: &[&str] = &["31.0.21924.61", "31.0.21925.1001"];
 #[cfg(any(target_os = "windows", test))]
 const INITIAL_PROBE_RETRY_FRAMES: u16 = 4;
 #[cfg(any(target_os = "windows", test))]
@@ -119,7 +119,7 @@ pub fn resolve_dx12_present_mode_remedy(
     if preference == PresentModePreference::Auto
         && backend == wgpu::Backend::Dx12
         && adapter.trim().eq_ignore_ascii_case(AFFECTED_DX12_ADAPTER)
-        && driver.trim() == AFFECTED_DX12_DRIVER
+        && AFFECTED_DX12_DRIVERS.contains(&driver.trim())
         && requested == PresentMode::Fifo
         && supported.contains(&wgpu::PresentMode::Immediate)
     {
@@ -363,7 +363,7 @@ fn apply_dx12_present_mode_policy(
         == AutoRemedyLifecycleEvent::EffectiveProven
     {
         bevy::log::warn!(
-            "present_mode_policy preference=Auto startup_requested=Fifo requested=Immediate recommended=Immediate effective=Immediate state=proven adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\""
+            "present_mode_policy preference=Auto startup_requested=Fifo requested=Immediate recommended=Immediate effective=Immediate state=proven adapter=\"{AFFECTED_DX12_ADAPTER}\""
         );
     }
     let key_matches = cached.as_ref().is_some_and(|resolution| {
@@ -413,7 +413,7 @@ fn apply_dx12_present_mode_policy(
             == AutoRemedyLifecycleEvent::RecommendationPending
         {
             bevy::log::warn!(
-                "present_mode_policy preference=Auto startup_requested=Fifo requested=Fifo recommended=Immediate state=pending adapter=\"{AFFECTED_DX12_ADAPTER}\" driver=\"{AFFECTED_DX12_DRIVER}\"; use --vsync to force FIFO"
+                "present_mode_policy preference=Auto startup_requested=Fifo requested=Fifo recommended=Immediate state=pending adapter=\"{AFFECTED_DX12_ADAPTER}\"; use --vsync to force FIFO"
             );
         }
         *cached = Some(resolution);
