@@ -722,6 +722,7 @@ pub(in crate::chunk) struct RetiredArenaAllocation {
 }
 
 impl RetiredArenaAllocation {
+    #[cfg(test)]
     pub(in crate::chunk) fn geometry_only(
         entity: Entity,
         allocation: &ArenaAllocation,

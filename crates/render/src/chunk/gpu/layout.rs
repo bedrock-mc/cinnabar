@@ -89,6 +89,7 @@ pub(in crate::chunk) fn checked_align_up(value: u32, alignment: u32) -> Option<u
         .map(|value| value & !(alignment - 1))
 }
 
+#[cfg(test)]
 pub(in crate::chunk) fn transparent_geometry_update_requires_cow(
     old: &ArenaAllocation,
     required: GeometryStreamCounts,

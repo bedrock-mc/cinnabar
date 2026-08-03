@@ -22,7 +22,10 @@ use ui::{
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
     camera::CameraSettingsAuthority,
-    runtime::{shutdown::record_fatal_error, world::ClientWorld},
+    runtime::{
+        shutdown::record_fatal_error,
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
     ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list},
 };
 
@@ -183,6 +186,7 @@ pub struct UiPresentationRuntime {
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
     player_preview_icon: Option<IconRef>,
+    loading_message: Option<&'static str>,
 }
 
 impl UiPresentationRuntime {
@@ -248,7 +252,12 @@ impl UiPresentationRuntime {
             player_preview_source_hash: None,
             player_preview_pose: None,
             player_preview_icon: None,
+            loading_message: None,
         })
+    }
+
+    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
+        self.loading_message = message;
     }
 
     /// Resolves an authoritative item identity to the packed icon atlas.
@@ -390,6 +399,8 @@ impl UiPresentationRuntime {
     #[cfg(test)]
     pub(crate) fn layout_cache_len(&self) -> usize {
         self.layouts.len()
+    }
+
     }
 
     pub fn build(
@@ -578,6 +589,7 @@ impl UiPresentationRuntime {
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
             }
         }
+
         let suggestion_reserved_height = suggestion_layouts
             .iter()
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
@@ -791,6 +803,50 @@ impl UiPresentationRuntime {
 
         // Hit rects are compared against window-logical pointer positions, so
         // translate the content-relative rows by the safe-area origin.
+        if let Some(message) = self.loading_message {
+            // Keep the pre-world frame intentional: the sky clear color is a
+            // renderer fallback, not a user-facing loading screen. The opaque
+            // cover hides partial terrain and HUD state while the world cohort
+            // is still settling.
+            // Append it after the normal HUD/chat nodes so no partial terrain
+            // or UI leaks through while the world cohort is still settling.
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(0.0, 0.0, logical_width, logical_height)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [8, 10, 14, 255],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+            let layout = self
+                .layouts
+                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
+                .map_err(UiPresentationError::Text)?;
+            let width = layout.size_64()[0] as f32 / 64.0;
+            let height = layout.size_64()[1] as f32 / 64.0;
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(
+                        ((logical_width - width) * 0.5).max(0.0),
+                        (logical_height * 0.5 - height * 0.5).max(0.0),
+                        (logical_width + width) * 0.5,
+                        (logical_height * 0.5 + height * 0.5).max(height),
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: [235, 238, 245, 255],
+                    shadow: metrics.shadow(),
+                }),
+            );
+        }
+
         let chat_suggestion_hits = positioned_suggestions
             .iter()
             .map(|(index, _, top, bottom, _)| {
@@ -859,6 +915,7 @@ pub(crate) fn publish_ui_runtime(
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    frame_poll: Res<WorldStreamFramePoll>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -933,6 +990,14 @@ pub(crate) fn publish_ui_runtime(
         })
         .unwrap_or_default();
     presentation.set_below_name_anchors(below_name_anchors);
+    let loading_message = match client_world.stream.as_ref() {
+        None => Some("Connecting to server..."),
+        Some(_) if !frame_poll.cohort.is_some_and(|status| status.is_exact()) => {
+            Some("Loading terrain...")
+        }
+        Some(_) => None,
+    };
+    presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
