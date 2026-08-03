@@ -1,7 +1,9 @@
 use super::*;
 
 impl WorldStream {
-    const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
+    // Keep the first-view admission bounded while lighting is busy, but do
+    // not turn a large server view into a several-minute sequential load.
+    const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 128;
     const INITIAL_MESH_BACKLOG_THRESHOLD: usize = 256;
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {

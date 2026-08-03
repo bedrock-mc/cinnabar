@@ -30,7 +30,7 @@ pub use actor::{
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
-    standard_biped_vertices,
+    standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

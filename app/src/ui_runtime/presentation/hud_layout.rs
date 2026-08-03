@@ -48,12 +48,20 @@ pub(crate) struct HudFrame {
     pub hotbar_icons: [Option<IconRef>; 9],
     pub offhand_icon: Option<IconRef>,
     /// The selected main-hand item rendered in the first-person view. The
-    /// world renderer does not yet own an item model, so this is a faithful
-    /// nearest-neighbour atlas presentation of the authoritative stack.
+    /// world renderer does not yet own an item model, so this is the
+    /// nearest-neighbour item carrier used by the compatibility viewmodel.
     pub held_item_icon: Option<IconRef>,
     /// Cached software-rendered 3-D local avatar shown in the gameplay HUD's
     /// upper-left corner.
     pub player_preview: Option<IconRef>,
+    /// Skin-backed first-person arm carriers. These are separate from the
+    /// item atlas so an empty hand still has the same silhouette as the
+    /// player's authoritative skin.
+    pub left_hand: Option<IconRef>,
+    pub right_hand: Option<IconRef>,
+    /// Local actor pitch used by the compatibility viewmodel to keep the
+    /// hand/item carrier aligned with the camera-facing native path.
+    pub viewmodel_pitch_degrees: f32,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the

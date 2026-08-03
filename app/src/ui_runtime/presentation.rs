@@ -192,6 +192,8 @@ pub struct UiPresentationRuntime {
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
     player_preview_icon: Option<IconRef>,
+    left_hand_icon: Option<IconRef>,
+    right_hand_icon: Option<IconRef>,
     loading_message: Option<&'static str>,
 }
 
@@ -258,6 +260,8 @@ impl UiPresentationRuntime {
             player_preview_source_hash: None,
             player_preview_pose: None,
             player_preview_icon: None,
+            left_hand_icon: None,
+            right_hand_icon: None,
             loading_message: None,
         })
     }
@@ -299,6 +303,8 @@ impl UiPresentationRuntime {
             (self.textures.layers < MAX_UI_TEXTURE_LAYERS).then_some(self.textures.layers as u16)
         }) else {
             self.player_preview_icon = None;
+            self.left_hand_icon = None;
+            self.right_hand_icon = None;
             return;
         };
         let layer_bytes = usize::try_from(self.textures.width)
@@ -307,15 +313,24 @@ impl UiPresentationRuntime {
             .and_then(|pixels| pixels.checked_mul(4));
         let Some(layer_bytes) = layer_bytes else {
             self.player_preview_icon = None;
+            self.left_hand_icon = None;
+            self.right_hand_icon = None;
             return;
         };
         if self.textures.width < player_preview::PREVIEW_WIDTH
             || self.textures.height < player_preview::PREVIEW_HEIGHT
+            || self.textures.width < player_preview::HAND_WIDTH.saturating_mul(2)
+            || self.textures.height
+                < player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT)
         {
             self.player_preview_icon = None;
+            self.left_hand_icon = None;
+            self.right_hand_icon = None;
             return;
         }
         let preview = player_preview::render(skin, pose);
+        let left_hand = player_preview::render_hand(skin, pose, true);
+        let right_hand = player_preview::render_hand(skin, pose, false);
         let mut rgba8 = self.textures.rgba8.to_vec();
         if self.player_preview_page.is_none() {
             rgba8.extend(std::iter::repeat_n(0, layer_bytes));
@@ -330,6 +345,24 @@ impl UiPresentationRuntime {
                 &preview[source_start..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
             );
         }
+        let copy_raster = |rgba8: &mut [u8], raster: &[u8], origin: [u32; 2]| {
+            let raster_width = player_preview::HAND_WIDTH as usize;
+            let raster_height = player_preview::HAND_HEIGHT as usize;
+            let texture_width = self.textures.width as usize;
+            for row in 0..raster_height {
+                let source_start = row * raster_width * 4;
+                let target_start = layer_start
+                    + ((origin[1] as usize + row) * texture_width + origin[0] as usize) * 4;
+                rgba8[target_start..target_start + raster_width * 4]
+                    .copy_from_slice(&raster[source_start..source_start + raster_width * 4]);
+            }
+        };
+        copy_raster(&mut rgba8, &left_hand, [0, player_preview::PREVIEW_HEIGHT]);
+        copy_raster(
+            &mut rgba8,
+            &right_hand,
+            [player_preview::HAND_WIDTH, player_preview::PREVIEW_HEIGHT],
+        );
         let layers = self
             .player_preview_page
             .map_or(self.textures.layers, |page| {
@@ -337,7 +370,7 @@ impl UiPresentationRuntime {
             });
         let mut identity = Sha256::new();
         identity.update(self.base_texture_identity);
-        identity.update(b"cinnabar-player-preview-v1");
+        identity.update(b"cinnabar-player-preview-v2");
         identity.update(source_hash);
         identity.update(pose.body_yaw_degrees.to_bits().to_le_bytes());
         identity.update(pose.head_yaw_degrees.to_bits().to_le_bytes());
@@ -362,10 +395,32 @@ impl UiPresentationRuntime {
                 player_preview::PREVIEW_HEIGHT as u16,
             ],
         });
+        self.left_hand_icon = Some(IconRef {
+            page,
+            uv: [
+                0,
+                player_preview::PREVIEW_HEIGHT as u16,
+                player_preview::HAND_WIDTH as u16,
+                player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
+            ],
+        });
+        self.right_hand_icon = Some(IconRef {
+            page,
+            uv: [
+                player_preview::HAND_WIDTH as u16,
+                player_preview::PREVIEW_HEIGHT as u16,
+                player_preview::HAND_WIDTH.saturating_mul(2) as u16,
+                player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
+            ],
+        });
     }
 
     pub(crate) const fn player_preview_icon(&self) -> Option<IconRef> {
         self.player_preview_icon
+    }
+
+    pub(crate) const fn player_hand_icons(&self) -> (Option<IconRef>, Option<IconRef>) {
+        (self.left_hand_icon, self.right_hand_icon)
     }
 
     fn with_optional_hud(
@@ -405,8 +460,6 @@ impl UiPresentationRuntime {
     #[cfg(test)]
     pub(crate) fn layout_cache_len(&self) -> usize {
         self.layouts.len()
-    }
-
     }
 
     pub fn build(
@@ -945,14 +998,24 @@ pub(crate) fn publish_ui_runtime(
     runtime.hud.expire(now_millis);
     let terrain_ready_target = frame_poll
         .cohort
+        .filter(|status| status.is_exact())
         .map_or(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION, |status| {
-            if status.is_exact() {
-                status
-                    .expected
-                    .clamp(1, MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION)
-            } else {
-                MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION
-            }
+            status.expected.max(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION)
+        });
+    // BDS keeps the scene behind its loading branch until the primary client
+    // has a coherent, renderable world. The ordinary direct-server path does
+    // not use AcceptanceRun (that tracker intentionally requires a mutation
+    // target), so derive the same boundary from the normal stream queues.
+    let terrain_ready = frame_poll.cohort.is_some_and(|status| status.is_exact())
+        && visibility.visible_rendered >= terrain_ready_target
+        && client_world.stream.as_ref().is_some_and(|stream| {
+            let stats = stream.stats();
+            stats.pending_light_jobs == 0
+                && stats.in_flight_light_jobs == 0
+                && stats.pending_mesh_jobs == 0
+                && stats.in_flight_mesh_jobs == 0
+                && stream.pending_mesh_change_count() == 0
+                && stream.unacknowledged_mesh_count() == 0
         });
     runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
@@ -1013,7 +1076,7 @@ pub(crate) fn publish_ui_runtime(
         Some(_) if frame_poll.cohort.is_none() && visibility.visible_rendered == 0 => {
             Some("Connecting to server...")
         }
-        Some(_) if visibility.visible_rendered >= terrain_ready_target => None,
+        Some(_) if terrain_ready => None,
         Some(_) => Some("Loading terrain..."),
     };
     presentation.set_loading_message(loading_message);
@@ -1117,6 +1180,7 @@ pub(crate) fn refresh_hud_frame(
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let player_preview_icon = presentation.player_preview_icon();
+    let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
     let frame = presentation.hud_frame_mut();
     frame.first_person = first_person;
     frame.mount_health = mount_health;
@@ -1126,6 +1190,11 @@ pub(crate) fn refresh_hud_frame(
     frame.offhand_icon = offhand_icon;
     frame.held_item_icon = held_item_icon;
     frame.player_preview = player_preview_icon;
+    frame.left_hand = left_hand_icon;
+    frame.right_hand = right_hand_icon;
+    frame.viewmodel_pitch_degrees = stream
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .map_or(0.0, |actor| actor.pitch);
     frame.selected_item_name = selected_item_name;
     frame.mount_jump = mount_jump;
     // Bedrock is authoritative for melee readiness and exposes no cooldown

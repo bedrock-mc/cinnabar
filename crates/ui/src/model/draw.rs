@@ -58,6 +58,34 @@ pub(super) fn emit_visual(
                 batches,
             )
         }
+        UiVisual::RotatedSprite {
+            texture_page,
+            uv,
+            color,
+            angle_radians,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            emit_rotated_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                *angle_radians,
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
         UiVisual::InvertedSprite { texture_page, uv } => {
             if is_empty(bounds) {
                 return Ok(());
@@ -159,6 +187,90 @@ fn emit_quad(
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
 ) -> Result<(), UiError> {
+    let positions = [
+        [bounds.min().x(), bounds.min().y()],
+        [bounds.max().x(), bounds.min().y()],
+        [bounds.max().x(), bounds.max().y()],
+        [bounds.min().x(), bounds.max().y()],
+    ];
+    emit_positioned_quad(
+        positions,
+        uv,
+        texture_page,
+        color,
+        style_flags,
+        blend,
+        clip,
+        vertices,
+        indices,
+        batches,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_rotated_quad(
+    bounds: UiRect,
+    uv: [[u16; 2]; 4],
+    texture_page: u16,
+    color: [u8; 4],
+    angle_radians: f32,
+    style_flags: u8,
+    blend: UiBlendMode,
+    clip: UiRect,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
+    let angle = if angle_radians.is_finite() {
+        angle_radians
+    } else {
+        0.0
+    };
+    let (sin, cos) = angle.sin_cos();
+    let center = [
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    ];
+    let unrotated = [
+        [bounds.min().x(), bounds.min().y()],
+        [bounds.max().x(), bounds.min().y()],
+        [bounds.max().x(), bounds.max().y()],
+        [bounds.min().x(), bounds.max().y()],
+    ];
+    let positions = unrotated.map(|position| {
+        let offset = [position[0] - center[0], position[1] - center[1]];
+        [
+            center[0] + offset[0] * cos - offset[1] * sin,
+            center[1] + offset[0] * sin + offset[1] * cos,
+        ]
+    });
+    emit_positioned_quad(
+        positions,
+        uv,
+        texture_page,
+        color,
+        style_flags,
+        blend,
+        clip,
+        vertices,
+        indices,
+        batches,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_positioned_quad(
+    positions: [[f32; 2]; 4],
+    uv: [[u16; 2]; 4],
+    texture_page: u16,
+    color: [u8; 4],
+    style_flags: u8,
+    blend: UiBlendMode,
+    clip: UiRect,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
     let next_vertices = vertices
         .len()
         .checked_add(4)
@@ -180,12 +292,6 @@ fn emit_quad(
         });
     }
     let base = u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
-    let positions = [
-        [bounds.min().x(), bounds.min().y()],
-        [bounds.max().x(), bounds.min().y()],
-        [bounds.max().x(), bounds.max().y()],
-        [bounds.min().x(), bounds.max().y()],
-    ];
     vertices.extend(
         positions
             .into_iter()
