@@ -1049,3 +1049,52 @@ fn model_upload_validation_enforces_exact_material_partition() {
         &materials,
     ));
 }
+
+#[test]
+fn origin_planning_reserves_one_slot_for_fresh_allocations() {
+    let max_origin_items = 3;
+    let first = plan_origin_allocation(0, 0, max_origin_items, false)
+        .expect("the first fresh allocation leaves COW headroom");
+    assert_eq!(first.projected_origin_len, 1);
+    let second = plan_origin_allocation(1, 0, max_origin_items, false)
+        .expect("the second fresh allocation still leaves one slot");
+    assert_eq!(second.projected_origin_len, 2);
+    assert!(
+        plan_origin_allocation(2, 0, max_origin_items, false).is_none(),
+        "fresh allocations stop with one origin slot free"
+    );
+}
+
+#[test]
+fn origin_planning_admits_replacement_into_reserved_slot_and_reuses_release() {
+    let max_origin_items = 3;
+    let old_origin = 1_u32;
+    let replacement = plan_origin_allocation(2, 0, max_origin_items, true)
+        .expect("a replacement may consume the reserved slot");
+    assert_eq!(replacement.projected_origin_len, max_origin_items);
+    let replacement_origin = 2_u32;
+    assert_ne!(replacement_origin, old_origin);
+
+    let after_release = plan_origin_allocation(max_origin_items, 1, max_origin_items, true)
+        .expect("retiring the old origin returns replacement headroom");
+    assert_eq!(after_release.projected_origin_len, max_origin_items);
+    assert!(
+        plan_origin_allocation(max_origin_items, 1, max_origin_items, false).is_none(),
+        "the returned slot remains reserved for COW"
+    );
+}
+
+#[test]
+fn origin_planning_handles_zero_and_one_entry_limits_without_retry_growth() {
+    assert!(plan_origin_allocation(0, 0, 0, false).is_none());
+    assert_eq!(
+        plan_origin_allocation(0, 0, 1, false)
+            .expect("a one-entry adapter can admit its only fresh allocation")
+            .projected_origin_len,
+        1
+    );
+    assert!(
+        plan_origin_allocation(1, 0, 1, true).is_none(),
+        "a resident origin cannot be replaced without a second slot"
+    );
+}

@@ -7,8 +7,9 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
-    UiRenderTextureArray,
+    ChunkRenderQueue, ChunkUploadAcknowledgements, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
+    UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput,
 };
 use sha2::{Digest, Sha256};
 use ui::{
@@ -28,12 +29,14 @@ use crate::{
 
 mod chat;
 mod retained_hud;
+mod startup;
 mod survival_hud;
 
 use chat::visible_suggestion_range;
 use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
 };
+use startup::{StartupPresentationState, StartupReadinessInput};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -41,11 +44,6 @@ const MAX_PRESENTED_CHAT_ROWS: usize = 8;
 const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
-// Keep the opaque loading cover up until an initial playable neighborhood of
-// visible terrain has arrived. A worker-completed mesh can still be waiting in the
-// render queue, so counting mesh jobs alone exposes a brief void/partial-world
-// flash while the initial stream is still being admitted.
-const MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION: usize = 1_024;
 const VANILLA_HUD_ATLAS_SIDE: u32 = 128;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
@@ -161,6 +159,7 @@ pub struct UiPresentationRuntime {
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
     loading_message: Option<&'static str>,
+    startup: StartupPresentationState,
 }
 
 impl UiPresentationRuntime {
@@ -198,6 +197,7 @@ impl UiPresentationRuntime {
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             loading_message: None,
+            startup: StartupPresentationState::default(),
         })
     }
 
@@ -584,10 +584,14 @@ pub(crate) fn publish_ui_runtime(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut scene: ResMut<UiRenderScene>,
     stats: Res<UiRenderStats>,
-    visibility: Res<CaveVisibilityCache>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
     frame_poll: Res<WorldStreamFramePoll>,
+    visibility: Res<CaveVisibilityCache>,
+    mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
+    render_queue: Res<ChunkRenderQueue>,
+    upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -606,25 +610,50 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
-    let terrain_ready_target =
-        frame_poll
-            .cohort
-            .map_or(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION, |status| {
-                if status.is_exact() {
-                    status
-                        .expected
-                        .clamp(1, MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION)
-                } else {
-                    MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION
-                }
+
+    let (connected, stream_work_drained) =
+        client_world
+            .stream
+            .as_ref()
+            .map_or((false, false), |stream| {
+                let stream_stats = stream.stats();
+                let work_drained = stream_stats.queued_decode_jobs == 0
+                    && stream_stats.in_flight_decode_jobs == 0
+                    && stream_stats.pending_light_jobs == 0
+                    && stream_stats.in_flight_light_jobs == 0
+                    && stream_stats.pending_mesh_jobs == 0
+                    && stream_stats.in_flight_mesh_jobs == 0
+                    && stream_stats.pending_retry_requests == 0
+                    && stream_stats.awaiting_sub_chunk_responses == 0
+                    && stream_stats.admitted_world_events == 0
+                    && stream_stats.admitted_heavy_events == 0
+                    && stream.pending_request_work_count() == 0
+                    && stream.outstanding_sub_chunk_count() == 0
+                    && stream.pending_mesh_change_count() == 0
+                    && stream.unacknowledged_mesh_count() == 0;
+                (true, work_drained)
             });
-    let loading_message = match client_world.stream.as_ref() {
-        None => Some("Connecting to server..."),
-        Some(_) if frame_poll.cohort.is_none() && visibility.visible_rendered == 0 => {
-            Some("Connecting to server...")
-        }
-        Some(_) if visibility.visible_rendered >= terrain_ready_target => None,
-        Some(_) => Some("Loading terrain..."),
+    let render_work_drained =
+        render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
+    let startup_released = presentation.startup.observe(StartupReadinessInput {
+        session_generation: runtime.session_id(),
+        connected,
+        diagnostics_frame_generation: diagnostics_input.frame_generation(),
+        snapshot: visibility_diagnostics.snapshot(),
+        visible_rendered: visibility.visible_rendered,
+        cohort_target_complete: frame_poll
+            .cohort
+            .is_some_and(|status| status.target_is_complete()),
+        stream_work_drained,
+        render_work_drained,
+    });
+    diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
+    let loading_message = if !connected {
+        Some("Connecting to server...")
+    } else if startup_released {
+        None
+    } else {
+        Some("Loading terrain...")
     };
     presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {

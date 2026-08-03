@@ -108,6 +108,7 @@ fn hash_sub_chunk_key(key: SubChunkKey) -> u64 {
 #[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
 pub struct VisibilityDiagnosticsInput {
     enabled: bool,
+    startup_probe_enabled: bool,
     frame_generation: u64,
     witness_column: Option<ChunkKey>,
     resident_mesh: VisibilityKeySet,
@@ -119,6 +120,7 @@ impl VisibilityDiagnosticsInput {
     pub const fn new(enabled: bool) -> Self {
         Self {
             enabled,
+            startup_probe_enabled: false,
             frame_generation: 0,
             witness_column: None,
             resident_mesh: VisibilityKeySet {
@@ -134,7 +136,21 @@ impl VisibilityDiagnosticsInput {
 
     #[must_use]
     pub const fn enabled(&self) -> bool {
-        self.enabled
+        self.enabled || self.startup_probe_enabled
+    }
+
+    #[must_use]
+    pub const fn startup_probe_enabled(&self) -> bool {
+        self.startup_probe_enabled
+    }
+
+    pub fn set_startup_probe_enabled(&mut self, enabled: bool) {
+        self.startup_probe_enabled = enabled;
+    }
+
+    #[must_use]
+    pub const fn frame_generation(&self) -> u64 {
+        self.frame_generation
     }
 
     #[must_use]
@@ -156,7 +172,7 @@ impl VisibilityDiagnosticsInput {
         resident_mesh: impl IntoIterator<Item = SubChunkKey>,
         cave_visible: impl IntoIterator<Item = SubChunkKey>,
     ) {
-        if !self.enabled {
+        if !self.enabled() {
             return;
         }
         self.frame_generation = self.frame_generation.wrapping_add(1).max(1);
@@ -456,6 +472,23 @@ impl VisibilityDiagnostics {
     }
 }
 
+#[derive(Resource, Clone, Default)]
+pub(crate) struct VisibilityCompletionFence {
+    in_flight: Arc<AtomicBool>,
+}
+
+impl VisibilityCompletionFence {
+    pub(crate) fn try_reserve(&self) -> bool {
+        self.in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(crate) fn complete(&self) {
+        self.in_flight.store(false, Ordering::Release);
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct ActiveVisibilityFrameProbe {
     active: AtomicBool,
@@ -555,6 +588,25 @@ mod tests {
     }
 
     #[test]
+    fn startup_probe_flag_preserves_independently_enabled_diagnostics() {
+        let mut startup_only = VisibilityDiagnosticsInput::new(false);
+        assert!(!startup_only.enabled());
+        startup_only.set_startup_probe_enabled(true);
+        assert!(startup_only.enabled());
+        startup_only.advance([key(1)], []);
+        assert_eq!(startup_only.frame_generation(), 1);
+        startup_only.set_startup_probe_enabled(false);
+        assert!(!startup_only.enabled());
+
+        let mut independent = VisibilityDiagnosticsInput::new(true);
+        independent.set_startup_probe_enabled(true);
+        independent.set_startup_probe_enabled(false);
+        assert!(independent.enabled());
+        independent.advance([key(2)], []);
+        assert_eq!(independent.frame_generation(), 1);
+    }
+
+    #[test]
     fn empty_frame_has_zero_stage_and_loss_digests() {
         let mut input = VisibilityDiagnosticsInput::new(true);
         input.advance([], []);
@@ -626,6 +678,15 @@ mod tests {
         assert!(diagnostics.publish(newer));
         assert!(!diagnostics.publish(stale));
         assert_eq!(diagnostics.snapshot().frame_generation, 8);
+    }
+
+    #[test]
+    fn visibility_completion_fence_allows_only_one_in_flight_callback() {
+        let fence = VisibilityCompletionFence::default();
+        assert!(fence.try_reserve());
+        assert!(!fence.try_reserve());
+        fence.complete();
+        assert!(fence.try_reserve());
     }
 
     #[test]
