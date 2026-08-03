@@ -6,6 +6,7 @@ use bevy::{
         mouse::AccumulatedMouseMotion,
         touch::Touches,
     },
+    math::Vec2,
     prelude::{
         ButtonInput, KeyCode, MessageReader, MouseButton, Query, Res, ResMut, Single, Time, With,
     },
@@ -133,16 +134,21 @@ pub(crate) fn flush_chat_network(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
     time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
-    if !runtime.chat_focused() || !window.focused {
+    if menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || !runtime.chat_focused()
+        || !window.focused
+    {
         return;
     }
     let logical_size = [window.width(), window.height()];
@@ -254,16 +260,27 @@ pub(crate) fn paste_chat_shortcut<C: ChatClipboard>(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_keyboard_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
     if !window.focused {
         if runtime.chat_focused() {
             runtime.close_chat();

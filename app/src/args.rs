@@ -16,6 +16,7 @@ bedrock-client — Rust Minecraft Bedrock phase-zero renderer
 Usage: bedrock-client [OPTIONS]
 
 Options:
+  --address <HOST:PORT>       Directly launch the Go core and join a server
   --socket-dir <PATH>          Core socket directory (default: .local/run)
   --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: RustMCBE)
@@ -75,7 +76,11 @@ impl Phase3Target {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
+    /// Optional upstream address for the fast direct-connect path. Without it
+    /// (and without an explicit socket directory) the client opens the menu.
+    pub address: Option<String>,
     pub socket_dir: PathBuf,
+    pub socket_dir_explicit: bool,
     pub assets: Option<PathBuf>,
     pub display_name: String,
     pub acceptance_seconds: Option<u64>,
@@ -100,7 +105,9 @@ pub struct ClientArgs {
 impl Default for ClientArgs {
     fn default() -> Self {
         Self {
+            address: None,
             socket_dir: PathBuf::from(".local/run"),
+            socket_dir_explicit: false,
             assets: None,
             display_name: "RustMCBE".to_owned(),
             acceptance_seconds: None,
@@ -197,7 +204,17 @@ impl ClientArgs {
                     parsed.require_transparent_presentation = true;
                 }
                 Some("--phase3-candidate-physics") => parsed.phase3_candidate_physics = true,
+                Some("--address" | "-address") => {
+                    let value = next_value(&mut arguments, "--address")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 { flag: "--address" })?;
+                    if value.trim().is_empty() {
+                        return Err(ArgsError::MissingValue { flag: "--address" });
+                    }
+                    parsed.address = Some(value);
+                }
                 Some("--socket-dir") => {
+                    parsed.socket_dir_explicit = true;
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
                 Some("--assets") => {
@@ -323,6 +340,14 @@ impl ClientArgs {
             return Err(ArgsError::Phase3EvidenceRequiresAttributableRun);
         }
         Ok(ParseOutcome::Run(Box::new(parsed)))
+    }
+
+    #[must_use]
+    pub fn connection_requested(&self) -> bool {
+        self.address.is_some()
+            || self.socket_dir_explicit
+            || self.acceptance_seconds.is_some()
+            || self.metrics_out.is_some()
     }
 }
 

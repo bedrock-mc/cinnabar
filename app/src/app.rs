@@ -1,4 +1,9 @@
-use std::{ffi::OsStr, fs, path::Path, sync::Arc};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -46,6 +51,10 @@ use crate::{
     local_player::{
         LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
         resolve_camera_pose,
+    },
+    menu::{
+        CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
+        spawn_core_for_address, wait_for_core,
     },
     metrics::MetricsCollector,
     movement::{
@@ -150,8 +159,10 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                drive_menu_input,
                 drive_chat_ui_actions,
                 drive_chat_keyboard_input,
+                drive_menu_connection,
                 synchronize_semantic_input_authority,
             )
                 .chain()
@@ -277,8 +288,28 @@ fn render_plugin() -> RenderPlugin {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
-    let socket_dir = resolve_socket_dir(&args.socket_dir);
-    preflight_bridge_endpoint(&socket_dir)?;
+    let connection_requested = args.connection_requested();
+    let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
+        PathBuf::from(format!(".local/cinnabar/direct-{}", std::process::id()))
+    } else {
+        resolve_socket_dir(&args.socket_dir)
+    };
+    let mut core_process = CoreProcessGuard::default();
+    if let Some(address) = args.address.as_deref() {
+        fs::create_dir_all(&socket_dir).with_context(|| {
+            format!(
+                "create direct-connect socket directory {}",
+                socket_dir.display()
+            )
+        })?;
+        let child = spawn_core_for_address(&socket_dir, address)
+            .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
+        core_process.replace(child);
+        wait_for_core(&socket_dir)
+            .with_context(|| format!("wait for Go core endpoint for {address}"))?;
+    } else if connection_requested {
+        preflight_bridge_endpoint(&socket_dir)?;
+    }
 
     let selected_assets = select_asset_path_from_environment(args.assets.as_deref());
     let loaded_assets =
@@ -368,13 +399,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
-    let network = spawn_network(NetworkConfig {
-        session_generation: 1,
-        socket_dir,
-        display_name: args.display_name.clone(),
-        client_blob_cache: protocol::ClientBlobCache::default(),
-    })
-    .context("spawn Bedrock network worker")?;
+    let network = if connection_requested {
+        spawn_network(NetworkConfig {
+            session_generation: 1,
+            socket_dir,
+            display_name: args.display_name.clone(),
+            client_blob_cache: protocol::ClientBlobCache::default(),
+        })
+        .context("spawn Bedrock network worker")?
+    } else {
+        NetworkHandle::disconnected()
+    };
     let movement_ticker = network.movement_ticker();
     let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
@@ -399,7 +434,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Rust MCBE | connecting".to_owned(),
+                    title: if connection_requested {
+                        "Rust MCBE | connecting".to_owned()
+                    } else {
+                        "Rust MCBE | Cinnabar".to_owned()
+                    },
                     present_mode,
                     ..default()
                 }),
@@ -426,6 +465,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(present_mode_runtime)
+        .insert_resource(core_process)
         .insert_resource(network)
         .insert_resource(ClientWorld::new_with_entity_assets(
             Arc::clone(&runtime_assets),
@@ -448,6 +488,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         } else {
             PhysicsAuthorityGate::ProductionDisabled
         })
+        .insert_resource(MenuRuntime::new(
+            !connection_requested,
+            args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
+            args.display_name.clone(),
+        ))
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(collision_registries)
         .insert_resource(actor_render_scene)
