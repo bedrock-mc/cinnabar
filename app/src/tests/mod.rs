@@ -271,6 +271,7 @@ mod inventory;
 mod phase2_evidence;
 mod phase4_presentation;
 mod publication;
+mod runtime_metrics;
 mod teleport;
 
 use core::{complete_world_stream_decodes, overworld_biome_payload, settled_world_snapshot};
