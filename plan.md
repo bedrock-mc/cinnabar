@@ -1722,7 +1722,7 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
   must be network-silent.
 
-- [ ] **3.2a Current-BDS movement reconciliation correction.** A recovered
+- [x] **3.2a Current-BDS movement reconciliation correction.** A recovered
   Bedrock 1.16.201 `ServerPlayer` path initially suggested that takeoff should
   switch to air acceleration and drag before horizontal travel. A strict
   server-authoritative BDS 1.26.32.2 run disproved that as the target-version
@@ -1738,9 +1738,14 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   correction. Correction replay now replaces the server-owned position and
   grounded flag while retaining velocity, movement, and jump state before
   replaying later inputs. Unconfirmed collision flags and their dependent
-  upward ladder velocity are still cleared. A repeated strict current-BDS run
-  remains required; this does not close the Phase 3 native-client acceptance
-  gate.
+  upward ladder velocity are still cleared.
+  Strict current-BDS confirmation at commit `5312070` used
+  `server-authoritative-movement-strict=true` and a `0.001` position threshold.
+  An 18-tick uninterrupted ground walk received only `0.000017`–`0.000124`
+  corrections while acceleration continued through each six-tick correction;
+  an open jump received only `0.000015`–`0.000126` corrections through takeoff,
+  apex, landing, and continued travel. This closes the correction-reset defect,
+  not the Phase 3 native-client visual/feel acceptance gate.
 
 - [x] **3.3 App-side local physics integration foundation.** App input now drives the fixed
   20 Hz simulator against checked-in sequential and hashed collision registries; unavailable
