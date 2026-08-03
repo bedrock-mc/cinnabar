@@ -18,6 +18,8 @@ const PANEL: [u8; 4] = [22, 28, 39, 244];
 const PANEL_ALT: [u8; 4] = [31, 39, 53, 248];
 const BUTTON: [u8; 4] = [42, 52, 68, 255];
 const BUTTON_FOCUSED: [u8; 4] = [71, 123, 191, 255];
+const BUTTON_HOVERED: [u8; 4] = [54, 73, 98, 255];
+const BUTTON_PRESSED: [u8; 4] = [91, 145, 220, 255];
 const TEXT: [u8; 4] = [235, 239, 247, 255];
 const MUTED: [u8; 4] = [163, 174, 194, 255];
 const ACCENT: [u8; 4] = [111, 211, 255, 255];
@@ -88,37 +90,13 @@ pub(super) fn append_menu_nodes(
             view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, width, height,
             margin,
         )?,
-        MenuScreen::Realms => info_screen(
-            view,
-            nodes,
-            &mut hits,
-            next_id,
-            layouts,
-            font,
-            metrics,
-            solid_page,
-            width,
-            height,
+        MenuScreen::Realms => realms_screen(
+            view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, width, height,
             margin,
-            "Realms are ready for the account/session connector.\nYour saved worlds will appear here.",
-            MenuAction::RealmsBack,
-            "Back",
         )?,
-        MenuScreen::Friends => info_screen(
-            view,
-            nodes,
-            &mut hits,
-            next_id,
-            layouts,
-            font,
-            metrics,
-            solid_page,
-            width,
-            height,
+        MenuScreen::Friends => friends_screen(
+            view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, width, height,
             margin,
-            "Friends and joinable sessions will appear here.\nThe list stays separate from featured servers.",
-            MenuAction::FriendsBack,
-            "Back",
         )?,
         MenuScreen::Settings => settings_screen(
             view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, width, height,
@@ -220,7 +198,24 @@ fn main_screen(
         TEXT,
     )?;
     let mut y = panel_top + 58.0;
-    for (index, server) in view.featured.iter().enumerate() {
+    if view.featured.is_empty() {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            view.catalog_message
+                .as_deref()
+                .unwrap_or("Loading featured servers…"),
+            [panel_left + 22.0, y],
+            panel_width - 44.0,
+            MUTED,
+        )?;
+        y += 52.0;
+    }
+    for (index, server) in view.featured.iter().take(3).enumerate() {
         card(
             view,
             nodes,
@@ -231,13 +226,29 @@ fn main_screen(
             metrics,
             solid_page,
             MenuAction::PlayFeatured(index),
-            index,
+            usize::MAX,
             server,
+            view.featured_icon,
             [panel_left + 18.0, y],
             panel_width - 36.0,
-            96.0,
+            78.0,
         )?;
-        y += 108.0;
+        y += 88.0;
+    }
+    if view.featured.len() > 3 {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            &format!("+ {} more in Play", view.featured.len() - 3),
+            [panel_left + 22.0, y],
+            panel_width - 44.0,
+            MUTED,
+        )?;
+        y += 24.0;
     }
     text(
         nodes,
@@ -262,11 +273,12 @@ fn main_screen(
             metrics,
             solid_page,
             MenuAction::PlayGathering(0),
-            2 + view.featured.len(),
+            usize::MAX,
             server,
+            view.gathering_icon,
             [panel_left + 18.0, y + 34.0],
             panel_width - 36.0,
-            96.0,
+            78.0,
         )?;
     }
     Ok(())
@@ -344,7 +356,8 @@ fn play_screen(
             MUTED,
         )?;
     }
-    for (index, server) in view.servers.iter().enumerate() {
+    let max_saved = ((height - 282.0) / 108.0).floor().max(1.0) as usize;
+    for (index, server) in view.servers.iter().take(max_saved).enumerate() {
         card(
             view,
             nodes,
@@ -360,13 +373,29 @@ fn play_screen(
                 name: server.name.clone(),
                 address: server.address.clone(),
                 caption: "Saved locally".to_owned(),
+                icon: None,
             },
+            view.saved_icon,
             [margin + 18.0, y],
             left_width - 36.0,
             96.0,
         )?;
         y += 108.0;
         focus_index += 1;
+    }
+    if view.servers.len() > max_saved {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            &format!("+ {} more saved servers", view.servers.len() - max_saved),
+            [margin + 24.0, (height - 124.0).max(y)],
+            left_width - 48.0,
+            MUTED,
+        )?;
     }
     button(
         view,
@@ -381,7 +410,7 @@ fn play_screen(
         focus_index + view.featured.len() + view.gatherings.len(),
         "Back",
         margin + 18.0,
-        (height - 84.0).max(y),
+        height - 84.0,
         left_width - 36.0,
         42.0,
         SafeArea::ZERO,
@@ -401,7 +430,24 @@ fn play_screen(
         ACCENT,
     )?;
     let mut right_y = 182.0;
-    for (index, server) in view.featured.iter().enumerate() {
+    if view.featured.is_empty() {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            view.catalog_message
+                .as_deref()
+                .unwrap_or("Loading featured servers…"),
+            [right_left, right_y],
+            width - right_left - margin,
+            MUTED,
+        )?;
+        right_y += 52.0;
+    }
+    for (index, server) in view.featured.iter().take(3).enumerate() {
         card(
             view,
             nodes,
@@ -414,11 +460,27 @@ fn play_screen(
             MenuAction::PlayFeatured(index),
             focus_index + index,
             server,
+            view.featured_icon,
             [right_left, right_y],
             width - right_left - margin,
-            96.0,
+            78.0,
         )?;
-        right_y += 108.0;
+        right_y += 88.0;
+    }
+    if view.featured.len() > 3 {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            &format!("+ {} more in account", view.featured.len() - 3),
+            [right_left, right_y],
+            width - right_left - margin,
+            MUTED,
+        )?;
+        right_y += 24.0;
     }
     text(
         nodes,
@@ -445,15 +507,16 @@ fn play_screen(
             MenuAction::PlayGathering(0),
             focus_index + view.featured.len(),
             server,
+            view.gathering_icon,
             [right_left, right_y + 42.0],
             width - right_left - margin,
-            96.0,
+            78.0,
         )?;
     }
     Ok(())
 }
 
-fn info_screen(
+fn realms_screen(
     view: &MenuView,
     nodes: &mut Vec<UiNode>,
     hits: &mut Vec<(MenuAction, UiRect)>,
@@ -465,37 +528,91 @@ fn info_screen(
     width: f32,
     height: f32,
     margin: f32,
-    message: &str,
-    action: MenuAction,
-    label: &str,
 ) -> Result<(), UiPresentationError> {
-    let panel_width = width.min(680.0) - margin * 2.0;
-    let panel_left = (width - panel_width) * 0.5;
-    let panel_top = 150.0;
+    let panel_width = (width.min(980.0) - margin * 2.0).max(1.0);
+    let left = (width - panel_width) * 0.5;
     solid(
         nodes,
         next_id,
         solid_page,
-        rect(
-            panel_left,
-            panel_top,
-            panel_left + panel_width,
-            (height - 64.0).max(280.0),
-        )?,
+        rect(left, 126.0, left + panel_width, (height - 42.0).max(300.0))?,
         PANEL,
     );
-    text(
-        nodes,
-        next_id,
-        layouts,
-        font,
-        metrics,
-        solid_page,
-        message,
-        [panel_left + 28.0, panel_top + 32.0],
-        panel_width - 56.0,
-        MUTED,
-    )?;
+    let y = 166.0;
+    if view.realms.is_empty() {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            view.catalog_message
+                .as_deref()
+                .unwrap_or("Loading your Realms…"),
+            [left + 28.0, y],
+            panel_width - 56.0,
+            MUTED,
+        )?;
+    } else {
+        let columns = 3usize;
+        let gap = 10.0;
+        let card_width =
+            ((panel_width - 36.0 - gap * (columns - 1) as f32) / columns as f32).max(1.0);
+        let max_rows = ((height - 250.0) / 108.0).floor().max(1.0) as usize;
+        let max_cards = columns * max_rows;
+        for (index, realm) in view.realms.iter().take(max_cards).enumerate() {
+            let column = index % columns;
+            let row = index / columns;
+            card(
+                view,
+                nodes,
+                hits,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                MenuAction::PlayRealm(index),
+                index,
+                &crate::menu::MenuServerCard {
+                    name: realm.name.clone(),
+                    address: if realm.address.is_empty() {
+                        realm.state.clone()
+                    } else {
+                        realm.address.clone()
+                    },
+                    caption: if realm.state.is_empty() {
+                        "Realm".to_owned()
+                    } else {
+                        realm.state.clone()
+                    },
+                    icon: None,
+                },
+                view.realm_icon,
+                [
+                    left + 18.0 + column as f32 * (card_width + gap),
+                    y + row as f32 * 108.0,
+                ],
+                card_width,
+                96.0,
+            )?;
+        }
+        if view.realms.len() > max_cards {
+            text(
+                nodes,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                &format!("+ {} more realms available", view.realms.len() - max_cards),
+                [left + 28.0, height - 136.0],
+                panel_width - 56.0,
+                MUTED,
+            )?;
+        }
+    }
     button(
         view,
         nodes,
@@ -505,11 +622,123 @@ fn info_screen(
         font,
         metrics,
         solid_page,
-        action,
-        0,
-        label,
-        panel_left + 28.0,
-        (height - 116.0).max(panel_top + 160.0),
+        MenuAction::RealmsBack,
+        view.realms.len().min(12),
+        "Back",
+        left + 28.0,
+        height - 104.0,
+        180.0,
+        42.0,
+        SafeArea::ZERO,
+    )
+}
+
+fn friends_screen(
+    view: &MenuView,
+    nodes: &mut Vec<UiNode>,
+    hits: &mut Vec<(MenuAction, UiRect)>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &assets::RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_page: u16,
+    width: f32,
+    height: f32,
+    margin: f32,
+) -> Result<(), UiPresentationError> {
+    let panel_width = (width.min(980.0) - margin * 2.0).max(1.0);
+    let left = (width - panel_width) * 0.5;
+    solid(
+        nodes,
+        next_id,
+        solid_page,
+        rect(left, 126.0, left + panel_width, (height - 42.0).max(300.0))?,
+        PANEL,
+    );
+    let y = 166.0;
+    if view.friends.is_empty() {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            view.catalog_message
+                .as_deref()
+                .unwrap_or("Loading joinable friend worlds…"),
+            [left + 28.0, y],
+            panel_width - 56.0,
+            MUTED,
+        )?;
+    } else {
+        let columns = 3usize;
+        let gap = 10.0;
+        let card_width =
+            ((panel_width - 36.0 - gap * (columns - 1) as f32) / columns as f32).max(1.0);
+        let max_rows = ((height - 250.0) / 108.0).floor().max(1.0) as usize;
+        let max_cards = columns * max_rows;
+        for (index, friend) in view.friends.iter().take(max_cards).enumerate() {
+            let column = index % columns;
+            let row = index / columns;
+            card(
+                view,
+                nodes,
+                hits,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                MenuAction::PlayFriend(index),
+                index,
+                &crate::menu::MenuServerCard {
+                    name: friend.world_name.clone(),
+                    address: friend.gamertag.clone(),
+                    caption: friend.members.clone(),
+                    icon: None,
+                },
+                view.friend_icon,
+                [
+                    left + 18.0 + column as f32 * (card_width + gap),
+                    y + row as f32 * 108.0,
+                ],
+                card_width,
+                96.0,
+            )?;
+        }
+        if view.friends.len() > max_cards {
+            text(
+                nodes,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                &format!(
+                    "+ {} more friends available",
+                    view.friends.len() - max_cards
+                ),
+                [left + 28.0, height - 136.0],
+                panel_width - 56.0,
+                MUTED,
+            )?;
+        }
+    }
+    button(
+        view,
+        nodes,
+        hits,
+        next_id,
+        layouts,
+        font,
+        metrics,
+        solid_page,
+        MenuAction::FriendsBack,
+        view.friends.len().min(12),
+        "Back",
+        left + 28.0,
+        height - 104.0,
         180.0,
         42.0,
         SafeArea::ZERO,

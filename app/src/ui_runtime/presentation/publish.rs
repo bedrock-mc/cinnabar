@@ -94,7 +94,16 @@ pub(crate) fn publish_ui_runtime(
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
     }
-    presentation.set_menu_view(menu_runtime.is_visible().then(|| menu_runtime.view()));
+    let menu_view = menu_runtime.is_visible().then(|| {
+        let mut view = menu_runtime.view();
+        view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
+        view.gathering_icon = presentation.item_icon("minecraft:map_empty", 0);
+        view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
+        view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
+        view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);
+        view
+    });
+    presentation.set_menu_view(menu_view);
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {

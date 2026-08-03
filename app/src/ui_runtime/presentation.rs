@@ -32,8 +32,9 @@ use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
     ScoreboardOwnerNameAuthority,
 };
+pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
-    HudSprite, HudTexturePages, IconRef, font_texture_array, font_texture_array_with_hud_and_icons,
+    HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
 
@@ -419,7 +420,8 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
 
-        if let Some(hud_textures) = self.hud_textures.as_ref()
+        if self.menu_view.is_none()
+            && let Some(hud_textures) = self.hud_textures.as_ref()
             && let Some(geometry) = hud_geometry
         {
             let mut frame = self.hud_frame.clone();
@@ -438,7 +440,7 @@ impl UiPresentationRuntime {
 
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
-        for node in hud_nodes.iter() {
+        for node in hud_nodes.iter().filter(|_| self.menu_view.is_none()) {
             if matches!(
                 node.role,
                 HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
@@ -480,7 +482,8 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
-        if let Some(opacity) = self.scoreboard_opacity
+        if self.menu_view.is_none()
+            && let Some(opacity) = self.scoreboard_opacity
             && let Some(scoreboard) = self
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
@@ -501,7 +504,7 @@ impl UiPresentationRuntime {
 
         // The tab player-list overlay presents every known player with the
         // list-objective score while the player-list action is held.
-        if self.hud_frame.tab_list_open {
+        if self.menu_view.is_none() && self.hud_frame.tab_list_open {
             let players = runtime.player_list_overlay_rows();
             retained_hud::append_player_list_nodes(
                 &mut nodes,
@@ -516,19 +519,21 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        retained_hud::append_below_name_nodes(
-            &mut nodes,
-            &mut next_id,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            content_width,
-            content_height,
-            &self.below_name_anchors,
-        )?;
+        if self.menu_view.is_none() {
+            retained_hud::append_below_name_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                content_width,
+                content_height,
+                &self.below_name_anchors,
+            )?;
+        }
 
-        let chat_focused = runtime.chat_focused();
+        let chat_focused = self.menu_view.is_none() && runtime.chat_focused();
         let visible_suggestions = if chat_focused {
             visible_suggestion_range(
                 runtime.chat_suggestions().len(),
@@ -603,7 +608,12 @@ impl UiPresentationRuntime {
         };
         let mut chat_cursor = chat_bottom;
         let mut visible_chat = Vec::new();
-        for node in chat.iter().skip(first).rev() {
+        for node in chat
+            .iter()
+            .skip(first)
+            .rev()
+            .filter(|_| self.menu_view.is_none())
+        {
             // Java chat fade: an unfocused row shows for ten seconds, then
             // fades over one second (200 + 20 ticks in the reference). Rows
             // stamped ahead of the local clock stay fresh rather than hiding.

@@ -3,10 +3,11 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
 use crate::menu::{MenuAction, MenuField, MenuView};
+use crate::ui_runtime::presentation::IconRef;
 
 use super::{
-    ACCENT, BUTTON, BUTTON_FOCUSED, MUTED, PANEL_ALT, TEXT, TextMetrics, UiPresentationError,
-    bounded_visible_text, rect,
+    ACCENT, BUTTON, BUTTON_FOCUSED, BUTTON_HOVERED, BUTTON_PRESSED, MUTED, PANEL_ALT, TEXT,
+    TextMetrics, UiPresentationError, bounded_visible_text, rect,
 };
 
 pub(super) fn card(
@@ -21,6 +22,7 @@ pub(super) fn card(
     action: MenuAction,
     focus_index: usize,
     server: &crate::menu::MenuServerCard,
+    icon: Option<IconRef>,
     position: [f32; 2],
     width: f32,
     height: f32,
@@ -36,13 +38,31 @@ pub(super) fn card(
         next_id,
         solid_page,
         bounds,
-        if view.focused == focus_index {
-            BUTTON_FOCUSED
-        } else {
-            PANEL_ALT
-        },
+        card_color(view, action, focus_index, PANEL_ALT),
     );
     hits.push((action, bounds));
+    if let Some(icon) = icon {
+        nodes.push(
+            UiNode::new(
+                UiNodeId::new(*next_id),
+                None,
+                rect(
+                    position[0] + 12.0,
+                    position[1] + 12.0,
+                    position[0] + 60.0,
+                    position[1] + 60.0,
+                )?,
+            )
+            .with_visual(UiVisual::Sprite {
+                texture_page: icon.page,
+                uv: icon.uv,
+                color: [255; 4],
+            }),
+        );
+        *next_id = next_id.saturating_add(1);
+    }
+    let content_left = if icon.is_some() { 76.0 } else { 16.0 };
+    let content_width = (width - content_left - 16.0).max(1.0);
     text(
         nodes,
         next_id,
@@ -51,8 +71,8 @@ pub(super) fn card(
         metrics,
         solid_page,
         bounded_visible_text(&server.name),
-        [position[0] + 16.0, position[1] + 12.0],
-        width - 32.0,
+        [position[0] + content_left, position[1] + 12.0],
+        content_width,
         TEXT,
     )?;
     text(
@@ -62,23 +82,32 @@ pub(super) fn card(
         font,
         metrics,
         solid_page,
-        bounded_visible_text(&server.address),
-        [position[0] + 16.0, position[1] + 34.0],
-        width - 32.0,
-        ACCENT,
-    )?;
-    text(
-        nodes,
-        next_id,
-        layouts,
-        font,
-        metrics,
-        solid_page,
-        bounded_visible_text(&server.caption),
-        [position[0] + 16.0, position[1] + 72.0],
-        width - 32.0,
+        bounded_visible_text(if server.caption.is_empty() {
+            "Featured server"
+        } else {
+            &server.caption
+        }),
+        [position[0] + content_left, position[1] + 36.0],
+        content_width,
         MUTED,
     )?;
+    if view.hovered == Some(action) || view.pressed == Some(action) {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            bounded_visible_text(&server.address),
+            [
+                position[0] + content_left,
+                position[1] + (height - 24.0).max(52.0),
+            ],
+            content_width,
+            ACCENT,
+        )?;
+    }
     Ok(())
 }
 
@@ -162,11 +191,7 @@ pub(super) fn button(
         next_id,
         solid_page,
         bounds,
-        if view.focused == focus_index {
-            BUTTON_FOCUSED
-        } else {
-            BUTTON
-        },
+        button_color(view, action, focus_index, BUTTON),
     );
     hits.push((action, bounds));
     text(
@@ -181,6 +206,22 @@ pub(super) fn button(
         (width - 36.0).max(1.0),
         TEXT,
     )
+}
+
+fn button_color(view: &MenuView, action: MenuAction, focus_index: usize, idle: [u8; 4]) -> [u8; 4] {
+    if view.pressed == Some(action) {
+        BUTTON_PRESSED
+    } else if view.hovered == Some(action) {
+        BUTTON_HOVERED
+    } else if view.focused == focus_index {
+        BUTTON_FOCUSED
+    } else {
+        idle
+    }
+}
+
+fn card_color(view: &MenuView, action: MenuAction, focus_index: usize, idle: [u8; 4]) -> [u8; 4] {
+    button_color(view, action, focus_index, idle)
 }
 
 pub(super) fn solid(

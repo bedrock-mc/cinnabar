@@ -27,7 +27,7 @@ use ui::UiPoint;
 
 use crate::{
     runtime::{endpoint::bridge_endpoint_exists, network::NetworkHandle},
-    ui_runtime::presentation::UiPresentationRuntime,
+    ui_runtime::presentation::{IconRef, UiPresentationRuntime},
 };
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
@@ -63,6 +63,8 @@ pub(crate) enum MenuAction {
     PlaySaved(usize),
     PlayFeatured(usize),
     PlayGathering(usize),
+    PlayRealm(usize),
+    PlayFriend(usize),
     AddName,
     AddAddress,
     AddSave,
@@ -83,11 +85,31 @@ pub(crate) struct SavedServer {
     pub(crate) address: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct MenuServerCard {
     pub(crate) name: String,
     pub(crate) address: String,
     pub(crate) caption: String,
+    #[serde(skip)]
+    pub(crate) icon: Option<IconRef>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct MenuRealmCard {
+    pub(crate) name: String,
+    pub(crate) state: String,
+    #[serde(default)]
+    pub(crate) target: String,
+    #[serde(default)]
+    pub(crate) address: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MenuFriendCard {
+    pub(crate) gamertag: String,
+    pub(crate) world_name: String,
+    pub(crate) members: String,
+    pub(crate) xuid: String,
 }
 
 #[derive(Clone, Debug)]
@@ -95,6 +117,8 @@ pub(crate) struct MenuView {
     pub(crate) visible: bool,
     pub(crate) screen: MenuScreen,
     pub(crate) focused: usize,
+    pub(crate) hovered: Option<MenuAction>,
+    pub(crate) pressed: Option<MenuAction>,
     pub(crate) field: Option<MenuField>,
     pub(crate) name: String,
     pub(crate) address: String,
@@ -103,6 +127,53 @@ pub(crate) struct MenuView {
     pub(crate) servers: Vec<SavedServer>,
     pub(crate) featured: Vec<MenuServerCard>,
     pub(crate) gatherings: Vec<MenuServerCard>,
+    pub(crate) realms: Vec<MenuRealmCard>,
+    pub(crate) friends: Vec<MenuFriendCard>,
+    pub(crate) featured_icon: Option<IconRef>,
+    pub(crate) gathering_icon: Option<IconRef>,
+    pub(crate) realm_icon: Option<IconRef>,
+    pub(crate) friend_icon: Option<IconRef>,
+    pub(crate) saved_icon: Option<IconRef>,
+    pub(crate) catalog_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct CatalogFile {
+    #[serde(default)]
+    featured: Vec<MenuServerCard>,
+    #[serde(default)]
+    gatherings: Vec<MenuServerCard>,
+    #[serde(default)]
+    realms: Vec<MenuRealmCard>,
+    #[serde(default)]
+    friends: Vec<CatalogFriend>,
+    #[serde(default)]
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct CatalogFriend {
+    gamertag: String,
+    world_name: String,
+    xuid: String,
+    members: i32,
+    max_members: i32,
+}
+
+impl From<CatalogFriend> for MenuFriendCard {
+    fn from(friend: CatalogFriend) -> Self {
+        let members = if friend.max_members > 0 {
+            format!("{}/{} players", friend.members, friend.max_members)
+        } else {
+            format!("{} players", friend.members)
+        };
+        Self {
+            gamertag: friend.gamertag,
+            world_name: friend.world_name,
+            members,
+            xuid: friend.xuid,
+        }
+    }
 }
 
 #[derive(Debug, Resource)]
@@ -110,6 +181,9 @@ pub(crate) struct MenuRuntime {
     visible: bool,
     screen: MenuScreen,
     focused: usize,
+    hovered: Option<MenuAction>,
+    pressed: Option<MenuAction>,
+    pointer_down: bool,
     field: Option<MenuField>,
     name: String,
     address: String,
@@ -123,6 +197,14 @@ pub(crate) struct MenuRuntime {
     disconnect_requested: bool,
     exit_requested: bool,
     session_generation: u64,
+    featured: Vec<MenuServerCard>,
+    gatherings: Vec<MenuServerCard>,
+    realms: Vec<MenuRealmCard>,
+    friends: Vec<MenuFriendCard>,
+    catalog_message: Option<String>,
+    catalog_started: bool,
+    catalog_path: PathBuf,
+    catalog_process: Option<Child>,
 }
 
 impl MenuRuntime {
@@ -133,6 +215,9 @@ impl MenuRuntime {
             visible,
             screen: MenuScreen::Main,
             focused: 0,
+            hovered: None,
+            pressed: None,
+            pointer_down: false,
             field: None,
             name: String::new(),
             address: String::new(),
@@ -146,6 +231,17 @@ impl MenuRuntime {
             disconnect_requested: false,
             exit_requested: false,
             session_generation: 1,
+            featured: Vec::new(),
+            gatherings: Vec::new(),
+            realms: Vec::new(),
+            friends: Vec::new(),
+            catalog_message: None,
+            catalog_started: false,
+            catalog_path: PathBuf::from(format!(
+                ".local/cinnabar/catalog-{}.json",
+                std::process::id()
+            )),
+            catalog_process: None,
         }
     }
 
@@ -169,14 +265,24 @@ impl MenuRuntime {
             visible: self.visible,
             screen: self.screen,
             focused: self.focused,
+            hovered: self.hovered,
+            pressed: self.pressed,
             field: self.field,
             name: self.name.clone(),
             address: self.address.clone(),
             message: self.message.clone(),
             gui_scale: self.gui_scale,
             servers: self.servers.clone(),
-            featured: featured_servers(),
-            gatherings: gathering_servers(),
+            featured: self.featured.clone(),
+            gatherings: self.gatherings.clone(),
+            realms: self.realms.clone(),
+            friends: self.friends.clone(),
+            featured_icon: None,
+            gathering_icon: None,
+            realm_icon: None,
+            friend_icon: None,
+            saved_icon: None,
+            catalog_message: self.catalog_message.clone(),
         }
     }
 
@@ -223,6 +329,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        self.pressed = Some(action);
         self.message = None;
         match action {
             MenuAction::MainPlay => self.enter(MenuScreen::Play),
@@ -243,13 +350,40 @@ impl MenuRuntime {
                 }
             }
             MenuAction::PlayFeatured(index) => {
-                if let Some(server) = featured_servers().get(index) {
+                if let Some(server) = self.featured.get(index) {
                     self.request_connect(server.address.clone());
                 }
             }
             MenuAction::PlayGathering(index) => {
-                if let Some(server) = gathering_servers().get(index) {
+                if let Some(server) = self.gatherings.get(index) {
                     self.request_connect(server.address.clone());
+                }
+            }
+            MenuAction::PlayRealm(index) => {
+                if let Some(realm) = self.realms.get(index) {
+                    let target = if realm.target.is_empty() {
+                        realm.address.clone()
+                    } else {
+                        realm.target.clone()
+                    };
+                    if target.is_empty() {
+                        self.message = Some(format!(
+                            "{} is {} and cannot be joined right now.",
+                            realm.name, realm.state
+                        ));
+                    } else {
+                        self.request_connect(target);
+                    }
+                }
+            }
+            MenuAction::PlayFriend(index) => {
+                if let Some(friend) = self.friends.get(index) {
+                    if friend.xuid.is_empty() {
+                        self.message =
+                            Some("That friend world has no stable Xbox identity.".to_owned());
+                    } else {
+                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                    }
                 }
             }
             MenuAction::AddName => self.field = Some(MenuField::Name),
@@ -337,13 +471,25 @@ impl MenuRuntime {
             MenuScreen::Play => {
                 let mut actions = vec![MenuAction::PlayAddServer];
                 actions.extend((0..self.servers.len()).map(MenuAction::PlaySaved));
-                actions.extend((0..featured_servers().len()).map(MenuAction::PlayFeatured));
-                actions.extend((0..gathering_servers().len()).map(MenuAction::PlayGathering));
+                actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
+                actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
                 actions.push(MenuAction::PlayBack);
                 actions
             }
-            MenuScreen::Realms => vec![MenuAction::RealmsBack],
-            MenuScreen::Friends => vec![MenuAction::FriendsBack],
+            MenuScreen::Realms => {
+                let mut actions = (0..self.realms.len())
+                    .map(MenuAction::PlayRealm)
+                    .collect::<Vec<_>>();
+                actions.push(MenuAction::RealmsBack);
+                actions
+            }
+            MenuScreen::Friends => {
+                let mut actions = (0..self.friends.len())
+                    .map(MenuAction::PlayFriend)
+                    .collect::<Vec<_>>();
+                actions.push(MenuAction::FriendsBack);
+                actions
+            }
             MenuScreen::Settings => vec![
                 MenuAction::SettingsScale(1),
                 MenuAction::SettingsScale(2),
@@ -369,6 +515,7 @@ impl MenuRuntime {
     fn enter(&mut self, screen: MenuScreen) {
         self.screen = screen;
         self.focused = 0;
+        self.hovered = None;
         self.field = None;
         self.message = None;
         self.visible = true;
@@ -418,8 +565,91 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        self.stop_catalog();
         self.pending_connect = Some(address);
         self.mark_connecting();
+    }
+
+    fn start_catalog(&mut self) {
+        if self.catalog_started || !self.visible || self.connecting {
+            return;
+        }
+        self.catalog_started = true;
+        let _ = fs::remove_file(&self.catalog_path);
+        let Some(auth_cache) = auth_cache_path() else {
+            self.catalog_message =
+                Some("Sign in to load Realms, Friends, and featured servers.".to_owned());
+            return;
+        };
+        let Some(executable) = core_executable() else {
+            self.catalog_message = Some(
+                "bedrock-core executable was not found; server catalog unavailable.".to_owned(),
+            );
+            return;
+        };
+        let mut command = Command::new(executable);
+        command
+            .arg("-catalog-file")
+            .arg(&self.catalog_path)
+            .arg("-auth-cache")
+            .arg(auth_cache)
+            // Keep the core's lifecycle context alive until the one-shot
+            // catalog request finishes; bedrock-core treats stdin EOF as a
+            // shutdown signal for long-running proxy sessions.
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        match command.spawn() {
+            Ok(child) => self.catalog_process = Some(child),
+            Err(error) => {
+                self.catalog_message = Some(format!("Could not start account catalog: {error}"));
+            }
+        }
+    }
+
+    fn poll_catalog(&mut self) {
+        self.start_catalog();
+        let Some(child) = self.catalog_process.as_mut() else {
+            return;
+        };
+        if let Ok(bytes) = fs::read(&self.catalog_path) {
+            match serde_json::from_slice::<CatalogFile>(&bytes) {
+                Ok(catalog) => {
+                    self.featured = catalog.featured;
+                    self.gatherings = catalog.gatherings;
+                    self.realms = catalog.realms;
+                    self.friends = catalog.friends.into_iter().map(Into::into).collect();
+                    self.catalog_message = catalog.errors.first().cloned();
+                    let _ = child.wait();
+                    self.catalog_process = None;
+                    let _ = fs::remove_file(&self.catalog_path);
+                }
+                Err(error) => {
+                    self.catalog_message = Some(format!("Could not read account catalog: {error}"))
+                }
+            }
+            return;
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            self.catalog_process = None;
+            if !status.success() {
+                self.catalog_message = Some("The account catalog could not be loaded.".to_owned());
+            }
+        }
+    }
+
+    fn stop_catalog(&mut self) {
+        if let Some(mut child) = self.catalog_process.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for MenuRuntime {
+    fn drop(&mut self) {
+        self.stop_catalog();
+        let _ = fs::remove_file(&self.catalog_path);
     }
 }
 
@@ -463,10 +693,7 @@ pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let auth_cache = std::env::current_dir()
-        .ok()
-        .map(|directory| directory.join(".local/auth/microsoft-token.json"))
-        .filter(|path| path.is_file());
+    let auth_cache = auth_cache_path();
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
     }
@@ -513,6 +740,13 @@ fn core_executable() -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|path| path.is_file())
 }
 
+fn auth_cache_path() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .map(|directory| directory.join(".local/auth/microsoft-token.json"))
+        .filter(|path| path.is_file())
+}
+
 fn load_servers(path: &Path) -> Vec<SavedServer> {
     let Ok(bytes) = fs::read(path) else {
         return Vec::new();
@@ -529,29 +763,6 @@ fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
     Ok(())
 }
 
-fn featured_servers() -> Vec<MenuServerCard> {
-    vec![
-        MenuServerCard {
-            name: "Zeqa Network".to_owned(),
-            address: "zeqa.net:19132".to_owned(),
-            caption: "Practice & minigames".to_owned(),
-        },
-        MenuServerCard {
-            name: "Lunar Bedrock PvP".to_owned(),
-            address: "pvp.lunarbedrock.com:19134".to_owned(),
-            caption: "Vanilla combat lobby".to_owned(),
-        },
-    ]
-}
-
-fn gathering_servers() -> Vec<MenuServerCard> {
-    vec![MenuServerCard {
-        name: "Community Gatherings".to_owned(),
-        address: "gatherings.lunarbedrock.com:19132".to_owned(),
-        caption: "Community events".to_owned(),
-    }]
-}
-
 pub(crate) fn drive_menu_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -561,10 +772,14 @@ pub(crate) fn drive_menu_input(
     mut menu: ResMut<MenuRuntime>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    menu.pressed = None;
     if !window.focused {
+        menu.pointer_down = false;
         return;
     }
     if !menu.is_visible() {
+        menu.hovered = None;
+        menu.pointer_down = false;
         if keys.just_pressed(KeyCode::Escape) {
             menu.open_pause();
             cursor.grab_mode = CursorGrabMode::None;
@@ -576,11 +791,14 @@ pub(crate) fn drive_menu_input(
 
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && let Some(position) = window.cursor_position()
-        && let Ok(position) = UiPoint::new(position.x, position.y)
-        && let Some(action) = presentation.hit_test_menu(position)
-    {
+    menu.hovered = window
+        .cursor_position()
+        .and_then(|position| UiPoint::new(position.x, position.y).ok())
+        .and_then(|position| presentation.hit_test_menu(position));
+    let pointer_pressed = mouse_buttons.pressed(MouseButton::Left);
+    let pointer_just_pressed = pointer_pressed && !menu.pointer_down;
+    menu.pointer_down = pointer_pressed;
+    if pointer_just_pressed && let Some(action) = menu.hovered {
         menu.activate(action);
     }
     for input in keyboard_messages.read() {
@@ -623,6 +841,7 @@ pub(crate) fn drive_menu_connection(
     mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
+    menu.poll_catalog();
     if menu.is_connecting() && client_world.stream.is_some() {
         menu.mark_connected();
     }

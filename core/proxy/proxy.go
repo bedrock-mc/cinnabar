@@ -191,9 +191,35 @@ func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamA
 	cacheTelemetry := new(cacheBoundaryTelemetry)
 	defer cacheTelemetry.report(logger)
 	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)
+	var target *resolvedUpstreamTarget
+	defer func() {
+		if target != nil {
+			_ = target.close()
+		}
+	}()
 	return dialAndServeWithCacheTelemetry(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		return connectUpstream(ctx, upstreamAddress, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
+		var err error
+		target, err = resolveUpstreamTarget(ctx, upstreamAddress, tokenSource, logger)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if target != nil {
+				_ = target.close()
+			}
+		}()
+		if target.xbl != nil {
+			dialer.XBLClient = target.xbl
+		}
+		if target.playFab != nil {
+			dialer.PlayFabClient = target.playFab
+		}
+		if target.clientData.nonce != "" {
+			dialer.ClientData.Nonce = target.clientData.nonce
+		}
+		resolved := target
+		return connectUpstream(ctx, resolved.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
+			return dialer.DialContextNetwork(ctx, resolved.network, address)
 		})
 	}, cacheTelemetry)
 }
