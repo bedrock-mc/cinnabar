@@ -5,8 +5,6 @@
 //! and uploaded as one UI texture layer only when the authoritative skin
 //! changes, so it does not add a per-frame GPU upload or a second world camera.
 
-use std::cmp::{max, min};
-
 use render::{ActorVertex, standard_biped_vertices};
 
 pub(crate) const PREVIEW_WIDTH: u32 = 96;
@@ -159,8 +157,8 @@ fn sample_skin(skin: &[u8], uv: [f32; 2]) -> Option<[u8; 4]> {
     if skin.len() != 64 * 64 * 4 || !uv.iter().all(|value| value.is_finite()) {
         return None;
     }
-    let x = min(63, max(0, (uv[0] * 64.0).floor() as i32)) as usize;
-    let y = min(63, max(0, (uv[1] * 64.0).floor() as i32)) as usize;
+    let x = ((uv[0] * 64.0).floor() as i32).clamp(0, 63) as usize;
+    let y = ((uv[1] * 64.0).floor() as i32).clamp(0, 63) as usize;
     let offset = (y * 64 + x) * 4;
-    Some(skin[offset..offset + 4].try_into().ok()?)
+    skin[offset..offset + 4].try_into().ok()
 }

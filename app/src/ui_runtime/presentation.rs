@@ -259,7 +259,11 @@ impl UiPresentationRuntime {
     /// texture array is replaced only when the authoritative skin changes;
     /// normal camera/HUD frames reuse the same GPU texture allocation.
     pub(crate) fn set_player_preview_skin(&mut self, skin: Option<&[u8]>) {
-        let source_hash: [u8; 32] = Sha256::digest(skin.unwrap_or_default()).into();
+        let default_skin = render::default_actor_skin_rgba8();
+        let skin = skin
+            .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
+            .unwrap_or(default_skin.as_ref());
+        let source_hash: [u8; 32] = Sha256::digest(skin).into();
         if self.player_preview_source_hash == Some(source_hash) {
             return;
         }
@@ -283,9 +287,7 @@ impl UiPresentationRuntime {
             self.player_preview_icon = None;
             return;
         }
-        let preview = skin.map(player_preview::render).unwrap_or_else(|| {
-            vec![0; (player_preview::PREVIEW_WIDTH * player_preview::PREVIEW_HEIGHT * 4) as usize]
-        });
+        let preview = player_preview::render(skin);
         let mut rgba8 = self.textures.rgba8.to_vec();
         if self.player_preview_page.is_none() {
             rgba8.extend(std::iter::repeat_n(0, layer_bytes));
@@ -318,7 +320,7 @@ impl UiPresentationRuntime {
             rgba8: rgba8.into(),
         });
         self.player_preview_source_hash = Some(source_hash);
-        self.player_preview_icon = skin.map(|_| IconRef {
+        self.player_preview_icon = Some(IconRef {
             page,
             uv: [
                 0,
@@ -973,6 +975,11 @@ pub(crate) fn refresh_hud_frame(
             .as_deref()
             .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
     });
+    let held_item_icon = runtime.selected_stack().and_then(|stack| {
+        resolve_identifier(stack)
+            .as_deref()
+            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
+    });
     let selected_item_name = runtime.selected_stack().and_then(|stack| {
         resolve_identifier(stack)
             .map(|identifier| Arc::from(runtime.localized_item_name(&identifier)))
@@ -999,6 +1006,7 @@ pub(crate) fn refresh_hud_frame(
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
     frame.offhand_icon = offhand_icon;
+    frame.held_item_icon = held_item_icon;
     frame.player_preview = player_preview_icon;
     frame.selected_item_name = selected_item_name;
     frame.mount_jump = mount_jump;

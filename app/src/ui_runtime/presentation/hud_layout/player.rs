@@ -49,4 +49,57 @@ impl HudLayout<'_> {
         *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
+
+    /// First-person item presentation. This is intentionally a UI-layer
+    /// fallback until the world renderer grows a held-item model: the sprite
+    /// still comes from the authoritative item registry, so vanilla tools and
+    /// blocks never turn into a guessed placeholder. The small shadow keeps
+    /// bright items legible over sky and terrain without a backdrop panel.
+    pub(super) fn held_items(
+        &mut self,
+        frame: &super::HudFrame,
+    ) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        if let Some(icon) = frame.offhand_icon {
+            self.item_sprite(icon, [12.0, g.gui_height - 75.0], 48.0)?;
+        }
+        if let Some(icon) = frame.held_item_icon {
+            self.item_sprite(icon, [g.gui_width - 60.0, g.gui_height - 75.0], 48.0)?;
+        }
+        Ok(())
+    }
+
+    fn item_sprite(
+        &mut self,
+        icon: IconRef,
+        gui: [f32; 2],
+        size: f32,
+    ) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        let [x, y] = g.logical(gui);
+        let bounds = rect(x, y, x + size * g.scale, y + size * g.scale)?;
+        self.nodes.push(
+            UiNode::new(UiNodeId::new(*self.next_id), None, bounds).with_visual(UiVisual::Sprite {
+                texture_page: icon.page,
+                uv: icon.uv,
+                color: [0, 0, 0, 105],
+            }),
+        );
+        *self.next_id = self.next_id.saturating_add(1);
+        let bounds = rect(
+            x - g.scale,
+            y - g.scale,
+            x + size * g.scale - g.scale,
+            y + size * g.scale - g.scale,
+        )?;
+        self.nodes.push(
+            UiNode::new(UiNodeId::new(*self.next_id), None, bounds).with_visual(UiVisual::Sprite {
+                texture_page: icon.page,
+                uv: icon.uv,
+                color: [255; 4],
+            }),
+        );
+        *self.next_id = self.next_id.saturating_add(1);
+        Ok(())
+    }
 }

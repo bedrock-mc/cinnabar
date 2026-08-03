@@ -50,9 +50,10 @@ section remain open, so no phase checkbox is closed by this delta.
   classic 182x5 XP bar with outlined level; top-right effect chips with
   ambient backgrounds and expiry blink; stacked tinted boss bars with titles
   and title/actionbar coexistence; hotbar counts, authoritative item icons,
-  durability bars, offhand cell, and the fading selected-item label; a cached
-  3-D skinned player preview in the gameplay corner; Java chat fade (10 s +
-  1 s) with per-line contiguous backdrops.
+  durability bars, offhand cell, first-person main/offhand item sprites, and
+  the fading selected-item label; a cached 3-D skinned player preview in the
+  gameplay corner with a generated default skin fallback; Java chat fade (10
+  s + 1 s) with per-line contiguous backdrops.
 - Rawtext and localization: typed documents now resolve instead of dropping —
   score components read the retained scoreboard (real player/entity owners
   through the stream's authoritative id-to-name map, plus the `*` reader
@@ -105,7 +106,9 @@ section remain open, so no phase checkbox is closed by this delta.
 - [x] Hotbar/offhand item icon pixels: the pinned item-icon carrier resolves
   vanilla identifiers and metadata to nearest-neighbour atlas pixels; unknown
   Zeqa/custom identifiers fail closed without disturbing authoritative stack
-  state.
+  state. The same resolved pixels feed the first-person main-hand/offhand
+  presentation; the world-model hand/item renderer remains a follow-up to the
+  renderer workstream.
 - [ ] Non-English locales (only the pinned `en_US` table is compiled; locale
   selection is future work).
 - [x] Below-name world anchoring: bounded player name/objective plates are

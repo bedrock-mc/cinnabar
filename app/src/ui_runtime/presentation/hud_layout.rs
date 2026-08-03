@@ -47,6 +47,10 @@ pub(crate) struct HudFrame {
     /// registry immediately before presentation.
     pub hotbar_icons: [Option<IconRef>; 9],
     pub offhand_icon: Option<IconRef>,
+    /// The selected main-hand item rendered in the first-person view. The
+    /// world renderer does not yet own an item model, so this is a faithful
+    /// nearest-neighbour atlas presentation of the authoritative stack.
+    pub held_item_icon: Option<IconRef>,
     /// Cached software-rendered 3-D local avatar shown in the gameplay HUD's
     /// upper-left corner.
     pub player_preview: Option<IconRef>,
@@ -186,6 +190,7 @@ impl<'a> HudLayout<'a> {
             self.player_preview(preview)?;
         }
         if frame.first_person && mode_allows_hotbar {
+            self.held_items(frame)?;
             self.crosshair()?;
             self.attack_indicator(frame)?;
         }
