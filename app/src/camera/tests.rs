@@ -312,13 +312,13 @@ fn capture_test_app(
     focused: bool,
     grab_mode: CursorGrabMode,
     visible: bool,
-    auto_fly: bool,
+    capture_on_start: bool,
 ) -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(AutoFly::new(auto_fly))
+        .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))
         .add_systems(Update, camera::update_cursor_capture);
 
     let entity = app
@@ -337,6 +337,18 @@ fn capture_test_app(
         ))
         .id();
     (app, entity)
+}
+
+#[test]
+fn candidate_startup_capture_locks_input_without_enabling_auto_fly() {
+    let (mut app, window) = capture_test_app(true, CursorGrabMode::None, true, true);
+
+    app.update();
+
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
+    assert!(!cursor.visible);
+    assert!(!app.world().resource::<AutoFly>().enabled());
 }
 
 #[test]

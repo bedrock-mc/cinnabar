@@ -467,7 +467,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ChunkRenderPlugin::with_budget(
             PublicationController::new(PublicationServiceConfig::PHASE2_GATE).budget(),
         ),
-        FlyCameraPlugin::new(args.auto_fly),
+        FlyCameraPlugin::with_startup_capture(
+            args.auto_fly,
+            args.auto_fly || args.phase3_candidate_physics,
+        ),
         UiRenderPlugin,
     ));
     if let Some(identity) = phase3_identity_source {

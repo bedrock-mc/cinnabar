@@ -296,9 +296,14 @@ pub struct AutoFly {
 impl AutoFly {
     #[must_use]
     pub const fn new(enabled: bool) -> Self {
+        Self::with_startup_capture(enabled, enabled)
+    }
+
+    #[must_use]
+    const fn with_startup_capture(enabled: bool, capture_pending: bool) -> Self {
         Self {
             enabled,
-            capture_pending: enabled,
+            capture_pending,
             presentation_paused: false,
             path_anchor: None,
             last_path_position: None,
@@ -359,12 +364,21 @@ pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
     auto_fly: bool,
+    capture_on_start: bool,
 }
 
 impl FlyCameraPlugin {
     #[must_use]
     pub const fn new(auto_fly: bool) -> Self {
-        Self { auto_fly }
+        Self::with_startup_capture(auto_fly, auto_fly)
+    }
+
+    #[must_use]
+    pub const fn with_startup_capture(auto_fly: bool, capture_on_start: bool) -> Self {
+        Self {
+            auto_fly,
+            capture_on_start,
+        }
     }
 }
 
@@ -380,7 +394,10 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<Touches>()
-            .insert_resource(AutoFly::new(self.auto_fly))
+            .insert_resource(AutoFly::with_startup_capture(
+                self.auto_fly,
+                self.capture_on_start,
+            ))
             .init_resource::<CameraSettingsAuthority>()
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
