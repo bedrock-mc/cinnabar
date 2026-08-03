@@ -145,6 +145,49 @@ fn forced_remesh_inherits_queued_publication_urgency() {
 }
 
 #[test]
+fn urgent_known_air_removal_uses_reserved_permit_after_ordinary_saturation() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
+    let allowance = PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    let ordinary = (0..config.maximum_zero_byte_operations_per_frame)
+        .map(|_| allowance.try_admit_zero_byte().unwrap())
+        .collect::<Vec<_>>();
+    allowance.begin_frame(2, 1, 0, 1, config.maximum_frame_items);
+
+    let mut stream = lit_stream(0);
+    stream.set_publication_allowance(allowance.clone());
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.record_known_air(key);
+    stream.mark_dirty_exact_with_priority(key, Instant::now(), true);
+
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+
+    let change = stream
+        .pop_mesh_change()
+        .expect("urgent known-air removal uses the reserved permit");
+    assert!(matches!(
+        &change,
+        WorldMeshChange::Remove {
+            key: removed,
+            urgent: true,
+            permit: Some(_),
+            ..
+        } if *removed == key
+    ));
+    assert_eq!(allowance.remaining_zero_byte_operations(), 0);
+    assert_eq!(config.maximum_zero_byte_operations_per_frame, 256);
+    drop(change);
+    drop(ordinary);
+    assert_eq!(allowance.live_permits(), 0);
+}
+
+#[test]
 #[ignore = "release-only Phase 2 full-view lighting completion gate"]
 fn release_full_view_known_air_lighting_completes_within_two_seconds() {
     let mut stream = lit_stream(0);
