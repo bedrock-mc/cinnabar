@@ -22,6 +22,7 @@ fn noop_gpu_publication_app(
         .insert_resource(PresentedFrameGate::default())
         .insert_resource(ActiveFrameProbe::default())
         .insert_resource(ActiveVisibilityFrameProbe::default())
+        .insert_resource(VisibilityCompletionFence::default())
         .insert_resource(VisibilityDiagnostics::default())
         .insert_resource(TransparentSortMetrics::default())
         .insert_resource(TransparentPresentationFence::default())

@@ -123,6 +123,7 @@ impl Plugin for ChunkRenderPlugin {
             .init_resource::<ChunkDepthLiquidIndirectBatches>()
             .init_resource::<ActiveFrameProbe>()
             .init_resource::<ActiveVisibilityFrameProbe>()
+            .init_resource::<VisibilityCompletionFence>()
             .init_resource::<ExtractedCameraIdentityTracker>()
             .init_resource::<TransparentSortRuntime>()
             .init_resource::<TransparentModelSortRuntime>()

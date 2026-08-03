@@ -183,10 +183,17 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 continue;
             }
         };
-        if arena.free_origins.is_empty() && arena.origin_len >= arena.limits.max_origin_items {
-            bevy::log::warn!("chunk origin arena is at the adapter storage-buffer limit");
+        let Some(origin_plan) = plan_origin_allocation(
+            arena.origin_len,
+            arena.free_origins.len(),
+            arena.limits.max_origin_items,
+            old.is_some(),
+        ) else {
+            bevy::log::warn!(
+                "chunk origin arena cannot admit this allocation while preserving COW headroom"
+            );
             continue;
-        }
+        };
         let stream_counts = GeometryStreamCounts {
             cube: required,
             cube_lighting: cube_lighting_required,
@@ -234,9 +241,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         ) else {
             continue;
         };
-        let projected_origin_len = arena
-            .origin_len
-            .saturating_add(usize::from(arena.free_origins.is_empty()));
+        let projected_origin_len = origin_plan.projected_origin_len;
         let Some(projected_growth_copy_bytes) = planned_arena_growth_copy_bytes(
             ArenaRequiredLengths {
                 quads: arena.quad_capacity,

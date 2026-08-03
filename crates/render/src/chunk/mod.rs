@@ -71,7 +71,8 @@ use crate::{
     visibility_diagnostics::{
         ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
         GraphicsAdapterMetadata, MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode,
-        VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityFrameProbe, hash_f32_words,
+        VisibilityCompletionFence, VisibilityDiagnostics, VisibilityDiagnosticsInput,
+        VisibilityFrameProbe, hash_f32_words,
     },
 };
 
@@ -127,8 +128,9 @@ use gpu::arena::{
     allocate_quad_range, allocate_range_for_update, arena_limits_from_device_limits,
     checked_geometry_range, chunk_tint_identity_is_active, commit_chunk_range_plan,
     create_indirect_buffer, create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range,
-    plan_chunk_range_update, plan_gpu_chunk_updates, release_completed_transparent_retirements,
-    release_origin, release_quad_range, take_free_quad_range,
+    plan_chunk_range_update, plan_gpu_chunk_updates, plan_origin_allocation,
+    release_completed_transparent_retirements, release_origin, release_quad_range,
+    take_free_quad_range,
 };
 pub use gpu::bind_groups::ChunkTextureUploadStats;
 #[allow(unused_imports)]

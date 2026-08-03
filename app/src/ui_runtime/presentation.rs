@@ -8,7 +8,10 @@ use bevy::{
     time::Real,
     window::{PrimaryWindow, Window},
 };
-use render::{ActorSkinPixels, normalize_actor_skin};
+use render::{
+    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput, normalize_actor_skin,
+};
 use render::{
     MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray,
 };
@@ -34,6 +37,7 @@ mod chat;
 mod hud_layout;
 mod player_preview;
 mod retained_hud;
+mod startup;
 mod texture_atlas;
 
 use chat::visible_suggestion_range;
@@ -43,6 +47,7 @@ use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
     ScoreboardOwnerNameAuthority,
 };
+use startup::{StartupPresentationState, StartupReadinessInput};
 use texture_atlas::{
     HudSprite, HudTexturePages, IconRef, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
@@ -68,12 +73,6 @@ const CHAT_PANEL_PAD: f32 = 4.0;
 // (10 s + 1 s), pinned here in milliseconds.
 const CHAT_VISIBLE_MILLIS: u64 = 10_000;
 const CHAT_FADE_MILLIS: u64 = 1_000;
-// Keep the opaque loading cover up until an initial playable neighborhood of
-// visible terrain has arrived. A worker-completed mesh can still be waiting in the
-// render queue, so counting mesh jobs alone exposes a brief void/partial-world
-// flash while the initial stream is still being admitted.
-const MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION: usize = 1_024;
-
 // The compiled Monocraft atlas is rasterized at 18 px/em (see
 // `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
 // a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
@@ -195,6 +194,7 @@ pub struct UiPresentationRuntime {
     left_hand_icon: Option<IconRef>,
     right_hand_icon: Option<IconRef>,
     loading_message: Option<&'static str>,
+    startup: StartupPresentationState,
 }
 
 impl UiPresentationRuntime {
@@ -263,6 +263,7 @@ impl UiPresentationRuntime {
             left_hand_icon: None,
             right_hand_icon: None,
             loading_message: None,
+            startup: StartupPresentationState::default(),
         })
     }
 
@@ -971,6 +972,10 @@ pub(crate) fn publish_ui_runtime(
     mut scene: ResMut<UiRenderScene>,
     stats: Res<UiRenderStats>,
     visibility: Res<CaveVisibilityCache>,
+    mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
+    render_queue: Res<ChunkRenderQueue>,
+    upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
@@ -996,27 +1001,43 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
-    let terrain_ready_target = frame_poll
-        .cohort
-        .filter(|status| status.is_exact())
-        .map_or(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION, |status| {
-            status.expected.max(MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION)
-        });
-    // BDS keeps the scene behind its loading branch until the primary client
-    // has a coherent, renderable world. The ordinary direct-server path does
-    // not use AcceptanceRun (that tracker intentionally requires a mutation
-    // target), so derive the same boundary from the normal stream queues.
-    let terrain_ready = frame_poll.cohort.is_some_and(|status| status.is_exact())
-        && visibility.visible_rendered >= terrain_ready_target
-        && client_world.stream.as_ref().is_some_and(|stream| {
-            let stats = stream.stats();
-            stats.pending_light_jobs == 0
-                && stats.in_flight_light_jobs == 0
-                && stats.pending_mesh_jobs == 0
-                && stats.in_flight_mesh_jobs == 0
-                && stream.pending_mesh_change_count() == 0
-                && stream.unacknowledged_mesh_count() == 0
-        });
+    let (connected, stream_work_drained) =
+        client_world
+            .stream
+            .as_ref()
+            .map_or((false, false), |stream| {
+                let stream_stats = stream.stats();
+                let work_drained = stream_stats.queued_decode_jobs == 0
+                    && stream_stats.in_flight_decode_jobs == 0
+                    && stream_stats.pending_light_jobs == 0
+                    && stream_stats.in_flight_light_jobs == 0
+                    && stream_stats.pending_mesh_jobs == 0
+                    && stream_stats.in_flight_mesh_jobs == 0
+                    && stream_stats.pending_retry_requests == 0
+                    && stream_stats.awaiting_sub_chunk_responses == 0
+                    && stream_stats.admitted_world_events == 0
+                    && stream_stats.admitted_heavy_events == 0
+                    && stream.pending_request_work_count() == 0
+                    && stream.outstanding_sub_chunk_count() == 0
+                    && stream.pending_mesh_change_count() == 0
+                    && stream.unacknowledged_mesh_count() == 0;
+                (true, work_drained)
+            });
+    let render_work_drained =
+        render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
+    let startup_released = presentation.startup.observe(StartupReadinessInput {
+        session_generation: runtime.session_id(),
+        connected,
+        diagnostics_frame_generation: diagnostics_input.frame_generation(),
+        snapshot: visibility_diagnostics.snapshot(),
+        visible_rendered: visibility.visible_rendered,
+        cohort_target_complete: frame_poll
+            .cohort
+            .is_some_and(|status| status.target_is_complete()),
+        stream_work_drained,
+        render_work_drained,
+    });
+    diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
     runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
     runtime.observe_selected_item_identity(now_millis);
@@ -1071,13 +1092,12 @@ pub(crate) fn publish_ui_runtime(
         })
         .unwrap_or_default();
     presentation.set_below_name_anchors(below_name_anchors);
-    let loading_message = match client_world.stream.as_ref() {
-        None => Some("Connecting to server..."),
-        Some(_) if frame_poll.cohort.is_none() && visibility.visible_rendered == 0 => {
-            Some("Connecting to server...")
-        }
-        Some(_) if terrain_ready => None,
-        Some(_) => Some("Loading terrain..."),
+    let loading_message = if !connected {
+        Some("Connecting to server...")
+    } else if startup_released {
+        None
+    } else {
+        Some("Loading terrain...")
     };
     presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {

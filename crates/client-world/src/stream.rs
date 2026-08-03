@@ -106,13 +106,23 @@ pub const MAX_PENDING_MESH_CHANGES: usize = 512;
 const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
+const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
+fn light_job_cap_for_threads(worker_threads: usize) -> usize {
+    MAX_IN_FLIGHT_LIGHT_JOBS.min(
+        worker_threads
+            .saturating_div(4)
+            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
+    )
+}
 fn effective_light_job_cap() -> usize {
-    // Keep a bounded share of the shared pool for meshing and render-side
-    // work, while allowing lighting to make progress quickly on large server
-    // views. The previous quarter-pool cap made the first terrain presentation
-    // unnecessarily slow on ordinary desktop worker counts.
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(2).max(1))
+    // Lighting is the largest initial-world workload. Leave most of the
+    // shared Rayon workers available for meshing, asset work, and the
+    // render-side background jobs instead of monopolising the pool with
+    // column solves. Two concurrent batches are the minimum because
+    // dependency invalidation can make one completion stale while adjacent
+    // work still needs to make progress.
+    light_job_cap_for_threads(rayon::current_num_threads())
 }
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;
