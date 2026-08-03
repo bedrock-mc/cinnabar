@@ -1722,6 +1722,26 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
   must be network-silent.
 
+- [ ] **3.2a Current-BDS movement reconciliation correction.** A recovered
+  Bedrock 1.16.201 `ServerPlayer` path initially suggested that takeoff should
+  switch to air acceleration and drag before horizontal travel. A strict
+  server-authoritative BDS 1.26.32.2 run disproved that as the target-version
+  contract: over the six ticks ending at the jump apex, the server advanced
+  `0.85394` blocks, matching the pinned bedsim ground-takeoff/ground-drag
+  ordering rather than the provisional air-first result (`0.75231`, corrected
+  by `0.10162`). The simulator therefore retains its checksum-bound bedsim
+  equations; the older recovered implementation is not used as a current
+  vanilla authority.
+  The same strict run exposed the actual live defect: every retained
+  `CorrectPlayerMovePrediction` rebuilt its tick from position-only state,
+  erasing velocity and restarting acceleration even for a `0.000017`-block
+  correction. Correction replay now replaces the server-owned position and
+  grounded flag while retaining velocity, movement, and jump state before
+  replaying later inputs. Unconfirmed collision flags and their dependent
+  upward ladder velocity are still cleared. A repeated strict current-BDS run
+  remains required; this does not close the Phase 3 native-client acceptance
+  gate.
+
 - [x] **3.3 App-side local physics integration foundation.** App input now drives the fixed
   20 Hz simulator against checked-in sequential and hashed collision registries; unavailable
   collision data fails closed, render frames interpolate the simulated eye position, and

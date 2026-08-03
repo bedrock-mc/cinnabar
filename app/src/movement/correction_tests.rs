@@ -59,6 +59,42 @@ fn admit_all(ticker: &mut MovementTicker) -> Vec<super::PhysicsSendIdentity> {
     identities
 }
 
+#[test]
+fn newest_tick_position_correction_preserves_retained_momentum() {
+    let world = VersionedWall(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let retained = physics.state().unwrap().clone();
+    assert!(retained.velocity.length_squared() > 0.0);
+    let mut corrected_position = frame.samples.last().unwrap().position;
+    corrected_position[0] += 0.001;
+    let mut ticker = ticker_with_samples(frame.samples);
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        corrected_position,
+        retained.tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &world,
+    )
+    .unwrap();
+
+    let corrected = physics.state().unwrap();
+    assert_eq!(corrected.tick, retained.tick);
+    assert_eq!(corrected.velocity, retained.velocity);
+    assert_eq!(corrected.movement, retained.movement);
+    assert_eq!(corrected.jump_delay, retained.jump_delay);
+    assert_ne!(corrected.position, retained.position);
+}
+
 /// Axis collisions describe the motion that produced a position, so they cannot
 /// be reconstructed from a corrected anchor alone. A server correction that
 /// moves the player repudiates that motion, and now that retained collisions
