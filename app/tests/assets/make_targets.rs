@@ -338,6 +338,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let font_source = fixture_file(&temporary, "font.ttf");
     let font_manifest = fixture_file(&temporary, "font-source.json");
     let physics = fixture_file(&temporary, "physics.bin");
+    let block_data_sentinel = fixture_file(&temporary, "protocol_info.json");
     let world = temporary.join("world.mcbea");
     let atmosphere = temporary.join("atmosphere.mcbeatm");
     let atmosphere_report = temporary.join("atmosphere.json");
@@ -366,6 +367,10 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("FONT_ASSET_BLOB={}", make_path(&font)),
         format!("FONT_ASSET_REPORT={}", make_path(&font_report)),
         format!("HUD_ASSET_BLOB={}", make_path(&hud)),
+        format!(
+            "BLOCK_DATA_SENTINEL={}",
+            make_path(&block_data_sentinel)
+        ),
         format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),

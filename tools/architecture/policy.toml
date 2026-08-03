@@ -258,6 +258,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/asset_startup.rs"
 
 [[markers]]
+literal = "RUST_MCBE_STAGE_PROFILE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/app.rs"
+
+[[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"

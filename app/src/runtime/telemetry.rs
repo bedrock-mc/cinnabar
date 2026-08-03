@@ -22,8 +22,9 @@ use meshing::{
 };
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
-    ModelWorkloadMetrics, RenderViewCohort, TransparentSortMetrics, TransparentWitnessEvidence,
-    VisibilityDiagnostics, VisibilityDiagnosticsInput,
+    ModelWorkloadMetrics, RenderViewCohort, RuntimeStage, RuntimeStageProfiler,
+    TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput,
 };
 use sha2::{Digest, Sha256};
 use world::SubChunkKey;
@@ -32,7 +33,7 @@ use crate::{
     acceptance::{
         AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
         markers::{
-            ERROR_COUNTERS, MODEL_WITNESS_COMPLETE, TRANSPARENT_SORT_COMMITTED,
+            ERROR_COUNTERS, MODEL_WITNESS_COMPLETE, STAGE_PROFILE, TRANSPARENT_SORT_COMMITTED,
             TRANSPARENT_WITNESS_COMPLETE, TRANSPARENT_WITNESS_INCOMPLETE,
             TRANSPARENT_WITNESS_STAGE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,
             cumulative_counter_delta, visibility_delta_marker_fields,
@@ -82,6 +83,7 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     publication: ResMut<'w, PublicationController>,
     local_player: Res<'w, LocalPlayerFrameCarrier>,
     frame_poll: Res<'w, WorldStreamFramePoll>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -441,6 +443,10 @@ pub(crate) fn record_metrics_and_title(
     mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
     mut sampling: Local<MetricsSamplingState>,
 ) {
+    let _timer = render_metrics
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::AcceptanceTelemetry));
     let now = Instant::now();
     if !sampling.runtime_metadata_emitted
         && let Some(graphics_adapter) = visibility_diagnostics.graphics_adapter()
@@ -905,6 +911,30 @@ pub(crate) fn record_metrics_and_title(
         title.push_str(error);
     }
     window.title = title;
+}
+
+pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStageProfiler>>) {
+    let Some(snapshot) = profiler
+        .as_deref()
+        .and_then(|profiler| profiler.take_snapshot_if_due(Duration::from_secs(1)))
+    else {
+        return;
+    };
+    let mut line = format!(
+        "{STAGE_PROFILE} interval_ms={:.3}",
+        snapshot.interval.as_secs_f64() * 1_000.0
+    );
+    for (stage, sample) in RuntimeStage::ALL.into_iter().zip(snapshot.samples) {
+        let _ = write!(
+            line,
+            " {}={},{:.3},{:.3}",
+            stage.name(),
+            sample.count,
+            sample.total.as_secs_f64() * 1_000.0,
+            sample.maximum.as_secs_f64() * 1_000.0,
+        );
+    }
+    eprintln!("{line}");
 }
 
 pub(crate) fn gpu_pass_measurement(

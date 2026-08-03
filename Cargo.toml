@@ -34,3 +34,14 @@ anyhow = "1"
 thiserror = "2"
 rayon = "1.11"
 uuid = { version = "1", features = ["v4"] }
+
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

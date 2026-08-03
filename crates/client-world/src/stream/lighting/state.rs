@@ -1,9 +1,63 @@
 use super::super::*;
 
 impl WorldStream {
+    pub(in crate::stream) fn block_light_semantics_changed(
+        &self,
+        previous: Option<&SubChunk>,
+        replacement: Option<&SubChunk>,
+    ) -> bool {
+        if previous.is_some() != replacement.is_some() {
+            return true;
+        }
+        let mut resolved = FastHashMap::<u32, (u8, u8)>::new();
+        for y in 0..16 {
+            for z in 0..16 {
+                for x in 0..16 {
+                    let mut sample = |sub_chunk: Option<&SubChunk>| {
+                        let mut emission = 0;
+                        let mut filter = 0;
+                        if let Some(sub_chunk) = sub_chunk {
+                            for layer in 0..sub_chunk.storages().len() {
+                                let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
+                                    continue;
+                                };
+                                if self.classifier.is_air(runtime_id) {
+                                    continue;
+                                }
+                                let (block_emission, block_filter) =
+                                    *resolved.entry(runtime_id).or_insert_with(|| {
+                                        let properties = self
+                                            .runtime_assets
+                                            .resolve(self.network_id_mode, runtime_id)
+                                            .light_properties();
+                                        (properties.emission(), properties.filter())
+                                    });
+                                emission = emission.max(block_emission);
+                                filter = filter.max(block_filter);
+                            }
+                        }
+                        (emission, filter)
+                    };
+                    if sample(previous) != sample(replacement) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(test)]
     pub(in crate::stream) fn mark_light_changed_sources(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
+    ) {
+        self.mark_light_changed_sources_with_priority(sources, false);
+    }
+    pub(in crate::stream) fn mark_light_changed_sources_with_priority(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        urgent: bool,
     ) {
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         for key in &sources {
@@ -47,7 +101,7 @@ impl WorldStream {
             .filter(|key| self.resident.contains(key))
             .collect::<BTreeSet<_>>();
         for dependent in dependents {
-            self.mark_light_dirty_exact(dependent);
+            self.mark_light_dirty_exact_with_priority(dependent, urgent);
         }
     }
     pub(in crate::stream) fn remove_light_key(&mut self, key: SubChunkKey) {
@@ -102,21 +156,43 @@ impl WorldStream {
             !waiters.is_empty()
         });
     }
+    #[cfg(test)]
     pub(in crate::stream) fn mark_light_dirty_exact(&mut self, key: SubChunkKey) -> Option<u64> {
+        self.mark_light_dirty_exact_with_priority(key, false)
+    }
+    pub(in crate::stream) fn mark_light_dirty_exact_with_priority(
+        &mut self,
+        key: SubChunkKey,
+        urgent: bool,
+    ) -> Option<u64> {
         if !self.resident.contains(&key) || !self.block_generations.contains_key(&key) {
             return None;
         }
         self.light_failures.remove(&key);
         self.light_priority_wakeups.remove(&key);
         self.remove_light_waiter_target(key);
+        let urgent = urgent
+            || self
+                .pending_light
+                .get(&key)
+                .is_some_and(|pending| pending.urgent)
+            || self
+                .in_flight_light
+                .get(&key)
+                .is_some_and(|identity| identity.urgent);
         let queued_at = Instant::now();
         let revision = self.light_revisions.mark_dirty(key, queued_at);
-        self.pending_light_scan.push_back((key, revision));
+        if urgent {
+            self.pending_light_scan.push_front((key, revision));
+        } else {
+            self.pending_light_scan.push_back((key, revision));
+        }
         self.pending_light.insert(
             key,
             PendingLight {
                 revision,
                 queued_at,
+                urgent,
             },
         );
         Some(revision)

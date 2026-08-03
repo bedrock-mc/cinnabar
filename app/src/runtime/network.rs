@@ -16,7 +16,8 @@ use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
+    RuntimeStageProfiler,
 };
 #[cfg(test)]
 use render::{ActorRenderSource, ActorSkinPixels};
@@ -246,7 +247,11 @@ pub(crate) fn receive_network_events(
     model_witness_source: Res<ModelWitnessFileSource>,
     publication: Res<PublicationController>,
     local_player: NetworkLocalPlayerState,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::NetworkIngestion));
     let NetworkLocalPlayerState {
         mut view,
         mut avatar,

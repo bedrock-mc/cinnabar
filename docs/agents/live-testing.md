@@ -63,3 +63,12 @@ the same version, state product, camera, geometry, material, and behavior questi
 Performance claims require measured release evidence against the stated `plan.md`
 budgets; a debug screenshot, small test scene, or green unit suite is not
 performance acceptance.
+
+For main-thread attribution, set `RUST_MCBE_STAGE_PROFILE=1` only on an
+instrumented release acceptance run. The client emits one
+`RUST_MCBE_STAGE_PROFILE` record per second with count, cumulative milliseconds,
+and maximum milliseconds for each runtime stage. Compare runs with the same
+scene, BDS state, duration, release profile, and present mode. Treat overlapping
+worker and main-thread stages as attribution rather than additive wall time, and
+run the final performance gate again without the variable because profiling
+changes the measured workload.

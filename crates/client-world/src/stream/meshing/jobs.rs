@@ -28,15 +28,19 @@ impl WorldStream {
             let mut resident_deferred = Vec::new();
             let mut removals_deferred = Vec::new();
             for (&key, pending) in &self.pending_mesh {
-                let candidate =
-                    PendingSchedulerCandidate::new(key, pending.revision, camera_position);
+                let candidate = PendingSchedulerCandidate::new(
+                    key,
+                    pending.revision,
+                    camera_position,
+                    pending.urgent,
+                );
                 let (ready, next_round) =
                     if self.resident.contains(&key) && !self.known_air.contains(&key) {
                         (&mut resident, &mut resident_deferred)
                     } else {
                         (&mut removals, &mut removals_deferred)
                     };
-                if deferred.contains(&(key, pending.revision)) {
+                if !pending.urgent && deferred.contains(&(key, pending.revision)) {
                     next_round.push(candidate);
                 } else {
                     ready.push(candidate);
@@ -57,19 +61,36 @@ impl WorldStream {
                 let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
                     break;
                 };
-                if self
+                let Some(pending) = self
                     .pending_mesh
                     .get(&key)
-                    .is_none_or(|pending| pending.revision != queued_revision)
-                {
+                    .copied()
+                    .filter(|pending| pending.revision == queued_revision)
+                else {
                     continue;
-                }
-                let candidate =
-                    PendingSchedulerCandidate::new(key, queued_revision, camera_position);
-                if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                    self.pending_resident_mesh_deferred.push(candidate);
+                };
+                let candidate = PendingSchedulerCandidate::new(
+                    key,
+                    queued_revision,
+                    camera_position,
+                    pending.urgent,
+                );
+                let (ready, deferred) =
+                    if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                        (
+                            &mut self.pending_resident_mesh_ready,
+                            &mut self.pending_resident_mesh_deferred,
+                        )
+                    } else {
+                        (
+                            &mut self.pending_mesh_removal_ready,
+                            &mut self.pending_mesh_removal_deferred,
+                        )
+                    };
+                if pending.urgent {
+                    ready.push(candidate);
                 } else {
-                    self.pending_mesh_removal_deferred.push(candidate);
+                    deferred.push(candidate);
                 }
             }
         }
@@ -167,6 +188,9 @@ impl WorldStream {
             let snapshot = self.mesh_snapshot(key, center, light_halo);
             self.pending_mesh.remove(&key);
             self.in_flight.insert(key, pending.revision);
+            if pending.urgent {
+                self.urgent_mesh_in_flight.insert(key);
+            }
             let tx = self.mesh_tx.clone();
             let classifier = self.classifier;
             let network_id_mode = self.network_id_mode;
@@ -195,6 +219,7 @@ impl WorldStream {
                     light_halo,
                     queue_wait,
                     duration: started.elapsed(),
+                    urgent: pending.urgent,
                 });
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
@@ -238,12 +263,18 @@ impl WorldStream {
                 self.set_connectivity(key, None);
                 self.mesh_dependency_masks.remove(&key);
             }
-            self.mesh_changes.push_back(WorldMeshChange::Remove {
+            let change = WorldMeshChange::Remove {
                 key,
                 generation: pending.revision,
                 dirty_since: pending.since,
+                urgent: pending.urgent,
                 permit,
-            });
+            };
+            if pending.urgent {
+                self.mesh_changes.push_front(change);
+            } else {
+                self.mesh_changes.push_back(change);
+            }
             self.stats.phase2_stages.mesh_changes_queued = self
                 .stats
                 .phase2_stages
@@ -342,6 +373,7 @@ impl WorldStream {
         &mut self,
         key: SubChunkKey,
         revision: u64,
+        urgent: bool,
     ) {
         let Some(dirty) = self
             .revisions
@@ -355,8 +387,13 @@ impl WorldStream {
                 revision,
                 since: dirty.since,
                 queued_at: Instant::now(),
+                urgent,
             });
-            self.pending_mesh_scan.push_back((key, revision));
+            if urgent {
+                self.pending_mesh_scan.push_front((key, revision));
+            } else {
+                self.pending_mesh_scan.push_back((key, revision));
+            }
         }
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, completion: MeshCompletion) {
@@ -368,6 +405,7 @@ impl WorldStream {
         self.stats.observe_mesh_queue_wait(completion.queue_wait);
         if self.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.in_flight.remove(&completion.key);
+            self.urgent_mesh_in_flight.remove(&completion.key);
         }
         let source_is_current = self
             .store
@@ -390,7 +428,11 @@ impl WorldStream {
             || !self.mesh_light_halo_is_current(&completion.light_halo)
         {
             self.stats.stale_mesh_jobs = self.stats.stale_mesh_jobs.saturating_add(1);
-            self.requeue_current_mesh_completion(completion.key, completion.revision);
+            self.requeue_current_mesh_completion(
+                completion.key,
+                completion.revision,
+                completion.urgent,
+            );
             return;
         }
         self.stats.max_mesh_duration = self.stats.max_mesh_duration.max(completion.duration);
@@ -403,14 +445,22 @@ impl WorldStream {
         let permit = match &self.publication_allowance {
             Some(allowance) if publication_bytes == 0 => {
                 let Some(permit) = allowance.try_admit_zero_byte() else {
-                    self.requeue_current_mesh_completion(completion.key, completion.revision);
+                    self.requeue_current_mesh_completion(
+                        completion.key,
+                        completion.revision,
+                        completion.urgent,
+                    );
                     return;
                 };
                 Some(permit)
             }
             Some(allowance) => {
                 let Some(permit) = allowance.try_admit_payload(publication_bytes) else {
-                    self.requeue_current_mesh_completion(completion.key, completion.revision);
+                    self.requeue_current_mesh_completion(
+                        completion.key,
+                        completion.revision,
+                        completion.urgent,
+                    );
                     return;
                 };
                 Some(permit)
@@ -426,15 +476,22 @@ impl WorldStream {
             );
             debug_assert!(registered);
         }
-        self.mesh_changes.push_back(WorldMeshChange::Upsert {
+        let urgent = completion.urgent;
+        let change = WorldMeshChange::Upsert {
             key: completion.key,
             mesh: completion.mesh,
             biome: completion.biome,
             tint_identity: completion.tint_identity,
             generation: completion.revision,
             dirty_since: dirty.since,
+            urgent,
             permit,
-        });
+        };
+        if urgent {
+            self.mesh_changes.push_front(change);
+        } else {
+            self.mesh_changes.push_back(change);
+        }
         self.stats.phase2_stages.mesh_changes_queued = self
             .stats
             .phase2_stages

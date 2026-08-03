@@ -33,16 +33,29 @@ pub(in crate::chunk) fn queue_chunks(
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
 ) {
+    let _timer = probes
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::OpaqueQueue));
     let frame_probe = &probes.frame_probe;
+    let diagnostic_timer = probes
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::OpaqueDiagnostics));
     model_witness_resources
         .p2()
         .begin_frame(summarize_model_workload(allocations.iter()));
+    drop(diagnostic_timer);
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
         Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
         cfg!(debug_assertions),
     );
+    let diagnostic_timer = probes
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::OpaqueDiagnostics));
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
@@ -77,6 +90,7 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         probes.visibility_probe.clear();
     }
+    drop(diagnostic_timer);
     let draw_functions = draw_functions.read();
     let direct_draw = draw_functions.id::<DrawChunkCommands>();
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
@@ -158,6 +172,10 @@ pub(in crate::chunk) fn queue_chunks(
             continue;
         };
 
+        let diagnostic_timer = probes
+            .profiler
+            .as_deref()
+            .map(|profiler| profiler.time(RuntimeStage::OpaqueDiagnostics));
         model_witness_resources
             .p2()
             .record_visible(summarize_model_workload(
@@ -175,8 +193,13 @@ pub(in crate::chunk) fn queue_chunks(
                         Some(allocation)
                     }),
             ));
+        drop(diagnostic_timer);
 
         if draw_mode == ChunkDrawMode::MultiDrawIndirect {
+            let _batch_timer = probes
+                .profiler
+                .as_deref()
+                .map(|profiler| profiler.time(RuntimeStage::OpaqueBatchPlanning));
             let visible = sorted_visible_entities(
                 visible_entities
                     .get::<ChunkRenderInstance>()
@@ -397,7 +420,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     )>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::TransparentQueue));
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),

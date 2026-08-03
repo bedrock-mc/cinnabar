@@ -175,6 +175,7 @@ fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
             key: instance.key,
             generation: instance.generation,
             tint_identity: instance.tint_identity,
+            priority: instance.priority,
         })
         .collect::<Vec<_>>();
     let selected = plan_gpu_chunk_updates(
@@ -372,6 +373,7 @@ fn render_world_update_plan_is_capped_before_arena_mutation() {
             key: SubChunkKey::new(0, index, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
+            priority: ChunkUploadPriority::new(0.0),
         })
         .collect::<Vec<_>>();
     let allocations = HashMap::new();
@@ -423,12 +425,14 @@ fn failing_candidates_do_not_starve_a_later_fitting_candidate() {
             key: SubChunkKey::new(0, -10, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
+            priority: ChunkUploadPriority::new(0.0),
         },
         GpuUpdateCandidate {
             entity: fitting,
             key: SubChunkKey::new(0, 10, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
+            priority: ChunkUploadPriority::new(0.0),
         },
     ];
     let selected = plan_gpu_chunk_updates(
@@ -464,12 +468,14 @@ fn recovery_planner_prefers_near_high_key_over_far_low_key() {
             key: far_key,
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
+            priority: ChunkUploadPriority::new(0.0),
         },
         GpuUpdateCandidate {
             entity: near,
             key: near_key,
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
+            priority: ChunkUploadPriority::new(0.0),
         },
     ];
 
@@ -516,18 +522,20 @@ fn recurring_near_replacements_do_not_starve_an_older_far_gpu_update() {
                 key: near_key,
                 generation: near_generation,
                 tint_identity: tint,
+                priority: ChunkUploadPriority::new(0.0),
             },
             GpuUpdateCandidate {
                 entity: far,
                 key: far_key,
                 generation: 1,
                 tint_identity: tint,
+                priority: ChunkUploadPriority::new(0.0),
             },
         ];
         let selected =
             plan_gpu_chunk_updates(candidates, &allocations, Vec3::ZERO, tint, &fairness);
         let chosen = selected[0];
-        fairness.finish_frame(&selected, &[chosen]);
+        fairness.finish_frame(&selected, &[chosen], &[]);
         if chosen == far {
             far_selected = true;
             break;
@@ -549,26 +557,26 @@ fn gpu_update_fairness_is_bounded_prunes_inactive_and_clears_success_or_reset() 
     let c = world.spawn_empty().id();
     let mut fairness = GpuUpdateFairness::with_limit(2);
 
-    fairness.finish_frame(&[a, b, c], &[]);
+    fairness.finish_frame(&[a, b, c], &[], &[]);
     assert_eq!(fairness.len(), 2);
     assert_eq!(fairness.wait_age(a), 1);
     assert_eq!(fairness.wait_age(b), 1);
     assert_eq!(fairness.wait_age(c), 0);
 
-    fairness.finish_frame(&[b, c], &[]);
+    fairness.finish_frame(&[b, c], &[], &[]);
     assert_eq!(fairness.len(), 2);
     assert_eq!(fairness.wait_age(a), 0);
     assert_eq!(fairness.wait_age(b), 2);
     assert_eq!(fairness.wait_age(c), 1);
 
-    fairness.finish_frame(&[b, c], &[b]);
+    fairness.finish_frame(&[b, c], &[b], &[]);
     assert_eq!(fairness.wait_age(b), 0);
     assert_eq!(fairness.wait_age(c), 2);
     fairness.reset();
     assert!(fairness.is_empty());
 
     for _ in 0..70_000 {
-        fairness.finish_frame(&[c], &[]);
+        fairness.finish_frame(&[c], &[], &[]);
     }
     assert_eq!(fairness.wait_age(c), 70_000);
 }
@@ -941,6 +949,7 @@ fn adapter_failure_releases_capacity_for_later_fitting_extracted_instance() {
             key: instance.key,
             generation: instance.generation,
             tint_identity: instance.tint_identity,
+            priority: instance.priority,
         })
         .collect::<Vec<_>>();
     let selected = plan_gpu_chunk_updates(

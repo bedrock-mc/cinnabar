@@ -4,6 +4,20 @@ impl WorldStream {
     pub(super) fn mark_changed(&mut self, key: SubChunkKey, now: Instant) {
         self.mark_changed_sources(std::iter::once(key), now);
     }
+    pub(super) fn mark_live_mutation_changed(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+        relight: bool,
+    ) {
+        self.mark_changed_sources_with_mesh_dirty_priority(
+            std::iter::once(key),
+            std::iter::empty(),
+            now,
+            true,
+            relight,
+        );
+    }
     pub(super) fn mark_changed_sources(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
@@ -17,8 +31,26 @@ impl WorldStream {
         preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
         now: Instant,
     ) {
+        self.mark_changed_sources_with_mesh_dirty_priority(
+            sources,
+            preexpanded_dirty,
+            now,
+            false,
+            true,
+        );
+    }
+    fn mark_changed_sources_with_mesh_dirty_priority(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
+        now: Instant,
+        urgent: bool,
+        relight: bool,
+    ) {
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
-        self.mark_light_changed_sources(sources.iter().copied());
+        if relight {
+            self.mark_light_changed_sources_with_priority(sources.iter().copied(), urgent);
+        }
         let mut dirty = preexpanded_dirty.into_iter().collect::<BTreeSet<_>>();
         for key in sources {
             dirty.extend(key.mesh_dependents());
@@ -42,7 +74,7 @@ impl WorldStream {
             }
         }
         for dependent in dirty {
-            self.mark_dirty_exact(dependent, now);
+            self.mark_dirty_exact_with_priority(dependent, now, urgent);
         }
     }
     pub(super) fn current_mesh_dependency_mask(
@@ -77,15 +109,34 @@ impl WorldStream {
         self.mesh_dependency_masks.get(&key).copied()
     }
     pub(super) fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
+        self.mark_dirty_exact_with_priority(key, now, false)
+    }
+    pub(super) fn mark_dirty_exact_with_priority(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+        urgent: bool,
+    ) -> u64 {
+        let urgent = urgent
+            || self
+                .pending_mesh
+                .get(&key)
+                .is_some_and(|pending| pending.urgent)
+            || self.urgent_mesh_in_flight.contains(&key);
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
-        self.pending_mesh_scan.push_back((key, revision));
+        if urgent {
+            self.pending_mesh_scan.push_front((key, revision));
+        } else {
+            self.pending_mesh_scan.push_back((key, revision));
+        }
         self.pending_mesh.insert(
             key,
             PendingMesh {
                 revision,
                 since,
                 queued_at: now,
+                urgent,
             },
         );
         revision
@@ -103,6 +154,7 @@ impl WorldStream {
         source: SubChunkKey,
         changed_faces: [bool; 6],
         now: Instant,
+        urgent: bool,
     ) {
         for dependent in source.mesh_neighbourhood_dependents() {
             let dx = dependent.x - source.x;
@@ -115,12 +167,17 @@ impl WorldStream {
                 && self.resident.contains(&dependent)
                 && self.store.sub_chunk(dependent).is_some()
             {
-                if self.pending_mesh.contains_key(&dependent)
-                    && !self.in_flight.contains_key(&dependent)
+                if !self.in_flight.contains_key(&dependent)
+                    && let Some(pending) = self.pending_mesh.get_mut(&dependent)
                 {
+                    if urgent {
+                        pending.urgent = true;
+                        self.pending_mesh_scan
+                            .push_front((dependent, pending.revision));
+                    }
                     continue;
                 }
-                self.mark_dirty_exact(dependent, now);
+                self.mark_dirty_exact_with_priority(dependent, now, urgent);
             }
         }
     }
@@ -130,14 +187,34 @@ impl WorldStream {
         }
     }
     pub(super) fn mark_forced_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
+        let urgent = self
+            .pending_mesh
+            .get(&key)
+            .is_some_and(|pending| pending.urgent)
+            || self.urgent_mesh_in_flight.contains(&key)
+            || self.mesh_changes.iter().any(|change| {
+                matches!(
+                    change,
+                    WorldMeshChange::Upsert {
+                        key: changed_key,
+                        urgent: true,
+                        ..
+                    } if *changed_key == key
+                )
+            });
         let revision = self.revisions.force_dirty_since(key, now);
-        self.pending_mesh_scan.push_back((key, revision));
+        if urgent {
+            self.pending_mesh_scan.push_front((key, revision));
+        } else {
+            self.pending_mesh_scan.push_back((key, revision));
+        }
         self.pending_mesh.insert(
             key,
             PendingMesh {
                 revision,
                 since: now,
                 queued_at: now,
+                urgent,
             },
         );
         revision
@@ -152,6 +229,7 @@ impl WorldStream {
         for key in renderable {
             self.mark_forced_dirty_exact(key, now);
             self.in_flight.remove(&key);
+            self.urgent_mesh_in_flight.remove(&key);
         }
         self.mesh_changes
             .retain(|change| !matches!(change, WorldMeshChange::Upsert { .. }));

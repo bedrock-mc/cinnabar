@@ -51,6 +51,17 @@ pub(in crate::chunk) fn direct_stream_addresses(
         liquid_lighting: allocation.liquid_lighting_range.clone(),
     }
 }
+pub(in crate::chunk) fn absolutize_liquid_lighting_indices(
+    liquid_quads: &mut [[u32; 4]],
+    lighting_word_start: u32,
+) {
+    let lighting_record_base = lighting_word_start / 2;
+    for words in liquid_quads {
+        words[3] = words[3]
+            .checked_add(lighting_record_base)
+            .expect("atomic liquid-lighting arena plan fits u32 record addressing");
+    }
+}
 
 pub(in crate::chunk) fn mdi_stream_addresses(allocation: &GpuChunkAllocation) -> StreamAddresses {
     direct_stream_addresses(allocation)
@@ -175,6 +186,7 @@ pub(in crate::chunk) fn extracted_camera_identity(
 pub(in crate::chunk) struct QueueFrameProbeParams<'w> {
     pub(in crate::chunk) frame_probe: Res<'w, ActiveFrameProbe>,
     pub(in crate::chunk) input: Res<'w, VisibilityDiagnosticsInput>,
+    pub(in crate::chunk) profiler: Option<Res<'w, RuntimeStageProfiler>>,
     pub(in crate::chunk) visibility_probe: Res<'w, ActiveVisibilityFrameProbe>,
     pub(in crate::chunk) camera_identity_tracker: ResMut<'w, ExtractedCameraIdentityTracker>,
 }

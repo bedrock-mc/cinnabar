@@ -1,12 +1,10 @@
-use std::{
-    collections::BTreeSet,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 
 use bevy::{
+    platform::collections::HashSet,
     prelude::{Entity, Resource},
     render::extract_resource::ExtractResource,
 };
@@ -43,7 +41,7 @@ pub struct VisibilityKeyDelta {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct VisibilityKeySet {
-    keys: BTreeSet<SubChunkKey>,
+    keys: HashSet<SubChunkKey>,
     overflowed: bool,
 }
 
@@ -124,11 +122,11 @@ impl VisibilityDiagnosticsInput {
             frame_generation: 0,
             witness_column: None,
             resident_mesh: VisibilityKeySet {
-                keys: BTreeSet::new(),
+                keys: HashSet::new(),
                 overflowed: false,
             },
             cave_visible: VisibilityKeySet {
-                keys: BTreeSet::new(),
+                keys: HashSet::new(),
                 overflowed: false,
             },
         }

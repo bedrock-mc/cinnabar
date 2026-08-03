@@ -50,6 +50,23 @@ pub struct PreparedSubChunkMutation {
     changed: bool,
 }
 
+impl PreparedSubChunkMutation {
+    #[must_use]
+    pub const fn key(&self) -> SubChunkKey {
+        self.key
+    }
+
+    #[must_use]
+    pub const fn replacement(&self) -> Option<&SubChunk> {
+        self.replacement.as_ref()
+    }
+
+    #[must_use]
+    pub const fn changed(&self) -> bool {
+        self.changed
+    }
+}
+
 /// A completely validated full-column block decode ready for a cheap commit.
 ///
 /// Packed sub-chunks are wrapped in `Arc`s during decode so this value can be

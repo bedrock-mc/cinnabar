@@ -126,6 +126,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: std::time::Duration::ZERO,
+        urgent: false,
     });
 
     assert!(stream.revisions.is_current(key, current_revision));

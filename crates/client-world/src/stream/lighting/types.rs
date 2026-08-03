@@ -4,6 +4,7 @@ use super::super::*;
 pub(in crate::stream) struct PendingLight {
     pub(in crate::stream) revision: u64,
     pub(in crate::stream) queued_at: Instant,
+    pub(in crate::stream) urgent: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub(in crate::stream) struct LightJobIdentity {
     pub(in crate::stream) block_generation: u64,
     pub(in crate::stream) previous_light_generation: Option<u64>,
     pub(in crate::stream) batch_id: u64,
+    pub(in crate::stream) urgent: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

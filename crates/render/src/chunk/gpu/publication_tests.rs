@@ -176,6 +176,7 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
             .push(PendingGpuRemoval {
                 key,
                 token: Some(token),
+                priority: ChunkUploadPriority::new(0.0),
                 permit,
             })
             .is_ok()
@@ -229,6 +230,7 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
             .push(PendingGpuRemoval {
                 key,
                 token: Some(token),
+                priority: ChunkUploadPriority::new(0.0),
                 permit,
             })
             .is_ok()
@@ -279,6 +281,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
             .push(PendingGpuRemoval {
                 key,
                 token: None,
+                priority: ChunkUploadPriority::new(0.0),
                 permit: first,
             })
             .is_ok()
@@ -290,6 +293,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
             .push(PendingGpuRemoval {
                 key,
                 token: None,
+                priority: ChunkUploadPriority::new(0.0),
                 permit: second,
             })
             .is_ok()

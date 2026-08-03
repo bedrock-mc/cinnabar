@@ -126,15 +126,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     let mut cube_lighting = Vec::new();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     for face in Face::ALL {
-        let columns = exposed_columns(
-            *classifier,
-            visuals,
-            network_id_mode,
-            neighbourhood,
-            face,
-            &facts,
-            &masks,
-        );
+        let columns = exposed_columns(palette_context, face, &facts, &masks, &neighbour_facts);
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
             let mut lighting_scratch = [PackedQuadLighting::default(); SIDE * SIDE];
@@ -172,7 +164,11 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     let mut model_lighting = Vec::new();
     let mut model_draw_refs = Vec::new();
     let mut transparent_model_draw_refs = Vec::new();
-    for x in 0..SIDE {
+    for x in if facts.has_model_geometry() {
+        0..SIDE
+    } else {
+        0..0
+    } {
         for y in 0..SIDE {
             for z in 0..SIDE {
                 let entry = facts.at(x, y, z);

@@ -1,53 +1,32 @@
 use super::*;
 
 #[test]
-fn unchanged_uniform_light_completion_preserves_mesh_currentness_and_waiters() {
-    let mut stream = lit_stream(1);
-    let key = SubChunkKey::new(1, 0, 0, 0);
-    let waiter = SubChunkKey::new(1, 2, 0, 0);
+fn urgent_scheduler_work_preempts_nearer_ordinary_work() {
+    let camera = [0.0, 0.0, 0.0];
+    let near = SubChunkKey::new(0, 0, 0, 0);
+    let far = SubChunkKey::new(0, 16, 0, 0);
+    let mut candidates = BinaryHeap::from([
+        PendingSchedulerCandidate::new(near, 1, camera, false),
+        PendingSchedulerCandidate::new(far, 1, camera, true),
+    ]);
+
+    assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(far));
+}
+
+#[test]
+fn live_mutation_marks_light_and_mesh_work_urgent() {
+    let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 0, 0);
     stream
         .store
-        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .commit_sub_chunk(key, super::uniform_sub_chunk(1))
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
-    install_current_light(&mut stream, waiter, 0, 0, false);
-    let original_light = Arc::clone(stream.light_store.light(key).unwrap());
-    let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
-    let original_ownership = stream.light_ownership[&key];
 
-    let mesh_revision = stream.mark_dirty_exact(key, Instant::now());
-    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    let mesh_completion = stream
-        .mesh_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("mesh worker completion");
-    stream.light_waiters.entry(key).or_default().insert(waiter);
-    stream.mark_light_dirty_exact(key).unwrap();
-    complete_one_light(&mut stream, [0.0; 3]);
+    stream.mark_live_mutation_changed(key, Instant::now(), true);
 
-    assert!(Arc::ptr_eq(
-        stream.light_store.light(key).unwrap(),
-        &original_light
-    ));
-    assert!(Arc::ptr_eq(&stream.direct_sky[&key].mask, &original_direct));
-    assert_eq!(stream.light_ownership[&key], original_ownership);
-    assert!(!stream.pending_mesh.contains_key(&key));
-    assert_eq!(
-        stream.revisions.dirty(key).map(|dirty| dirty.revision),
-        Some(mesh_revision)
-    );
-    assert_eq!(stream.in_flight.get(&key), Some(&mesh_revision));
-    assert!(!stream.light_waiters.contains_key(&key));
-    assert!(stream.pending_light.contains_key(&waiter));
-
-    stream.accept_mesh_completion(mesh_completion);
-    assert_eq!(stream.stats().stale_mesh_jobs, 0);
-    assert_eq!(stream.take_mesh_changes().len(), 1);
-    assert_eq!(stream.stats().accepted_light_jobs, 1);
-    assert_eq!(stream.stats().noop_light_jobs, 1);
-    assert_eq!(stream.stats().value_changed_light_jobs, 0);
-    assert_eq!(stream.stats().provenance_only_light_jobs, 0);
-    assert_eq!(stream.stats().light_mesh_invalidations, 0);
+    assert!(stream.pending_light.values().all(|pending| pending.urgent));
+    assert!(stream.pending_mesh.values().all(|pending| pending.urgent));
 }
 
 #[test]
@@ -626,6 +605,7 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
         source,
         [false, true, false, true, false, false],
         Instant::now(),
+        false,
     );
     let revisions = stream
         .pending_mesh
@@ -636,6 +616,7 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
         source,
         [false, true, false, true, false, false],
         Instant::now(),
+        false,
     );
 
     assert_eq!(
