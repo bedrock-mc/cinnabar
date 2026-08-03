@@ -143,7 +143,7 @@ fn append_shell(
 
     let compact = width < COMPACT_BREAKPOINT;
     let account_width = if compact {
-        168.0_f32.min((width * 0.28).max(132.0))
+        156.0_f32.min((width * 0.26).max(128.0))
     } else {
         224.0_f32.min((width * 0.3).max(150.0))
     };
@@ -167,7 +167,7 @@ fn append_shell(
     )?;
 
     if compact {
-        let exit_width = 76.0;
+        let exit_width = 96.0;
         button(
             view,
             nodes,

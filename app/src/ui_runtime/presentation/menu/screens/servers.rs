@@ -34,7 +34,7 @@ pub(super) fn append(
         metrics,
         solid_page,
         "Servers",
-        "Featured discovery and your own list, without exposing endpoints until you ask for them",
+        "Official discovery, Gatherings, favorites, recent, and saved servers",
         [area.left, area.top],
         area.width - 170.0,
     )?;
@@ -221,17 +221,32 @@ fn featured_servers(
         .featured
         .iter()
         .enumerate()
-        .map(|(index, server)| (MenuAction::PlayFeatured(index), server, view.featured_icon))
+        .map(|(index, server)| {
+            (
+                MenuAction::PlayFeatured(index),
+                server,
+                view.featured_icon,
+                "Featured",
+            )
+        })
         .chain(view.gatherings.iter().enumerate().map(|(index, server)| {
             (
                 MenuAction::PlayGathering(index),
                 server,
                 view.gathering_icon,
+                "Gathering",
             )
         }));
-    for (display_index, (action, server, fallback)) in entries.take(max_cards).enumerate() {
+    for (display_index, (action, server, fallback, category)) in entries.take(max_cards).enumerate()
+    {
         let column = display_index % columns;
         let row = display_index / columns;
+        let mut card_model = server.clone();
+        card_model.caption = if server.caption.is_empty() {
+            category.to_owned()
+        } else {
+            format!("{category} • {}", server.caption)
+        };
         card(
             view,
             nodes,
@@ -243,7 +258,7 @@ fn featured_servers(
             solid_page,
             action,
             usize::MAX,
-            server,
+            &card_model,
             server.icon.or(fallback),
             [
                 position[0] + column as f32 * (card_width + gap),

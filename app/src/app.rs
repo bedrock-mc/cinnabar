@@ -461,8 +461,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
+    let clear_color = if connection_requested {
+        Color::srgb(0.46, 0.70, 0.92)
+    } else {
+        Color::srgb(0.035, 0.043, 0.059)
+    };
     app.insert_resource(frame_limited_winit_settings(args.frame_cap))
-        .insert_resource(ClearColor(Color::srgb(0.46, 0.70, 0.92)))
+        .insert_resource(ClearColor(clear_color))
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(present_mode_runtime)
         .insert_resource(core_process)
