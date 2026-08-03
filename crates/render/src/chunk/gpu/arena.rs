@@ -649,31 +649,6 @@ pub(in crate::chunk) fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
     }
 }
 
-pub(in crate::chunk) fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
-    if let Some(allocation) = arena.allocations.remove(&entity) {
-        if let Some(range) = allocation.cube_range {
-            release_quad_range(
-                &mut arena.quad_len,
-                &mut arena.free_quads,
-                range.start..range.start + allocation.quad_capacity,
-            );
-        }
-        if let Some(range) = allocation.geometry_stream_range {
-            release_quad_range(
-                &mut arena.geometry_stream_len,
-                &mut arena.free_geometry_stream_words,
-                range.start..range.start + allocation.geometry_stream_capacity,
-            );
-        }
-        if allocation.biome_capacity != 0 {
-            let freed = allocation.biome_range.start
-                ..allocation.biome_range.start + allocation.biome_capacity;
-            release_quad_range(&mut arena.biome_len, &mut arena.free_biomes, freed);
-        }
-        release_origin(arena, allocation.gpu.metadata_index);
-    }
-}
-
 pub(in crate::chunk) fn release_completed_transparent_retirements(
     arena: &mut ChunkGpuArena,
     completed_epoch: u64,

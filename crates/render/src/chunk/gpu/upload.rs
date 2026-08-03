@@ -183,10 +183,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 continue;
             }
         };
-        if old.is_none()
-            && arena.free_origins.is_empty()
-            && arena.origin_len >= arena.limits.max_origin_items
-        {
+        if arena.free_origins.is_empty() && arena.origin_len >= arena.limits.max_origin_items {
             bevy::log::warn!("chunk origin arena is at the adapter storage-buffer limit");
             continue;
         }
@@ -200,15 +197,17 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             liquid: liquid_required,
             liquid_lighting: liquid_lighting_required,
         };
-        let preserve_old_geometry = old
+        // Every generation update rewrites GPU-visible data. Reusing a range
+        // that a previously submitted frame can still read lets a queued
+        // write mutate that frame in place, which presents as intermittent
+        // blank water, whole-chunk flashes, or stale geometry. Allocate a
+        // fresh complete allocation and keep the old one resident until the
+        // queue-completion fence proves that no submitted frame can refer to
+        // it anymore.
+        let preserve_old_allocation = old.is_some();
+        let retirement = old
             .as_ref()
-            .is_some_and(|old| transparent_geometry_update_requires_cow(old, stream_counts));
-        let retirement = preserve_old_geometry
-            .then(|| {
-                old.as_ref()
-                    .and_then(|old| RetiredArenaAllocation::geometry_only(entity, old))
-            })
-            .flatten();
+            .map(|old| RetiredArenaAllocation::full(entity, old.clone()));
         if let Some(retirement) = retirement.as_ref()
             && !arena
                 .retirement_budget
@@ -219,6 +218,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
             continue;
         }
+        let reusable_old = (!preserve_old_allocation).then_some(old.as_ref()).flatten();
         let Some(projected_ranges) = plan_chunk_range_update(
             arena.quad_len,
             &arena.free_quads,
@@ -228,15 +228,15 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             &arena.free_biomes,
             stream_counts,
             biome_required,
-            old.as_ref(),
-            preserve_old_geometry,
+            reusable_old,
+            false,
             arena.limits,
         ) else {
             continue;
         };
         let projected_origin_len = arena
             .origin_len
-            .saturating_add(usize::from(old.is_none() && arena.free_origins.is_empty()));
+            .saturating_add(usize::from(arena.free_origins.is_empty()));
         let Some(projected_growth_copy_bytes) = planned_arena_growth_copy_bytes(
             ArenaRequiredLengths {
                 quads: arena.quad_capacity,
@@ -320,11 +320,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             assert!(arena.retirement_budget.try_reserve(1, bytes));
             arena.retired_allocations.push(retirement);
         }
-        let metadata_index = match old {
-            Some(old) => old.gpu.metadata_index,
-            None => allocate_origin(&mut arena)
-                .expect("origin capacity was checked before quad allocation"),
-        };
+        let metadata_index = allocate_origin(&mut arena)
+            .expect("origin capacity was checked before quad allocation");
         let cube_range = checked_geometry_range(plan.quad_start, required);
         let cube_lighting_range = checked_geometry_range(
             plan.cube_lighting_start,

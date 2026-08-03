@@ -18,7 +18,10 @@ use ui::{
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
-    runtime::{shutdown::record_fatal_error, world::ClientWorld},
+    runtime::{
+        shutdown::record_fatal_error,
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
     ui_runtime::render_adapter::adapt_ui_draw_list,
 };
 
@@ -151,6 +154,7 @@ pub struct UiPresentationRuntime {
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
+    loading_message: Option<&'static str>,
 }
 
 impl UiPresentationRuntime {
@@ -187,7 +191,12 @@ impl UiPresentationRuntime {
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
+            loading_message: None,
         })
+    }
+
+    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
+        self.loading_message = message;
     }
 
     pub fn build(
@@ -332,6 +341,7 @@ impl UiPresentationRuntime {
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
             }
         }
+
         let suggestion_reserved_height = suggestion_layouts
             .iter()
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
@@ -489,6 +499,50 @@ impl UiPresentationRuntime {
             }
         }
 
+        if let Some(message) = self.loading_message {
+            // Keep the pre-world frame intentional: the sky clear color is a
+            // renderer fallback, not a user-facing loading screen. The opaque
+            // cover hides partial terrain and HUD state while the world cohort
+            // is still settling.
+            // Append it after the normal HUD/chat nodes so no partial terrain
+            // or UI leaks through while the world cohort is still settling.
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(0.0, 0.0, logical_width, logical_height)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [8, 10, 14, 255],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+            let layout = self
+                .layouts
+                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
+                .map_err(UiPresentationError::Text)?;
+            let width = layout.size_64()[0] as f32 / 64.0;
+            let height = layout.size_64()[1] as f32 / 64.0;
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(
+                        ((logical_width - width) * 0.5).max(0.0),
+                        (logical_height * 0.5 - height * 0.5).max(0.0),
+                        (logical_width + width) * 0.5,
+                        (logical_height * 0.5 + height * 0.5).max(height),
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: [235, 238, 245, 255],
+                    shadow: metrics.shadow(),
+                }),
+            );
+        }
+
         let chat_suggestion_hits = positioned_suggestions
             .iter()
             .map(|(index, _, top, bottom, _)| {
@@ -518,6 +572,7 @@ impl UiPresentationRuntime {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -525,6 +580,7 @@ pub(crate) fn publish_ui_runtime(
     stats: Res<UiRenderStats>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
+    frame_poll: Res<WorldStreamFramePoll>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -543,6 +599,14 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
+    let loading_message = match client_world.stream.as_ref() {
+        None => Some("Connecting to server..."),
+        Some(_) if !frame_poll.cohort.is_some_and(|status| status.is_exact()) => {
+            Some("Loading terrain...")
+        }
+        Some(_) => None,
+    };
+    presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
