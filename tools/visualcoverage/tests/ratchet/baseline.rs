@@ -245,6 +245,45 @@ fn diagnostic_regression_fails_and_shrinkage_is_exact() {
 }
 
 #[test]
+fn ratchet_rejects_fallbacks_outside_the_reviewed_diagnostic_baseline() {
+    let records = fixture_records();
+    let registry = registry_bytes(&records);
+    let initial = analyze_bytes(
+        &registry,
+        &blob(
+            &records,
+            &[
+                VisualKind::Invisible,
+                VisualKind::Cube,
+                VisualKind::Diagnostic,
+            ],
+        ),
+    )
+    .unwrap();
+    let expected = baseline(&initial);
+    let mut newly_provisional = visual(VisualKind::Cube);
+    newly_provisional.support = VisualSupport::VanillaFallback;
+    let regression = analyze_bytes(
+        &registry,
+        &blob_with_visuals(
+            &records,
+            &[
+                visual(VisualKind::Invisible),
+                newly_provisional,
+                visual(VisualKind::Diagnostic),
+            ],
+        ),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        ratchet(regression, &expected),
+        Err(CoverageError::FallbackRegression { states })
+            if states.len() == 1 && states[0].name == "minecraft:stone"
+    ));
+}
+
+#[test]
 fn invisible_laundering_requires_a_source_cited_exact_allowlist_entry() {
     let records = fixture_records();
     let registry = registry_bytes(&records);

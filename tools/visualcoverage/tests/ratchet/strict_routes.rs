@@ -76,13 +76,18 @@ fn strict_rejects_provisional_vanilla_fallbacks() {
     );
     let snapshot = strict_snapshot(&records, &runtime);
     let expected = snapshot.states[1].clone();
+    let mut baseline = strict_baseline(&snapshot, &[]);
+    baseline
+        .diagnostic_sequential_ids
+        .push(expected.sequential_id);
+    baseline.diagnostic_sequential_ids.sort_unstable();
 
     assert!(matches!(
         strict_records(
             &records,
             &runtime,
             snapshot.clone(),
-            &strict_baseline(&snapshot, &[]),
+            &baseline,
             false,
         ),
         Err(CoverageError::ProvisionalFallback { state }) if state == expected

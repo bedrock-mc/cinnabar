@@ -242,6 +242,20 @@ pub fn ratchet(
         return Err(CoverageError::DiagnosticRegression { states: added });
     }
     let removed = old.difference(&current).cloned().collect::<Vec<_>>();
+    let current_fallbacks = snapshot
+        .fallback_states
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let added_fallbacks = current_fallbacks
+        .difference(&old)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !added_fallbacks.is_empty() {
+        return Err(CoverageError::FallbackRegression {
+            states: added_fallbacks,
+        });
+    }
 
     if snapshot.vine_diagnostic_masks != baseline.expected_vine_diagnostic_masks {
         return Err(CoverageError::VineDiagnosticsMismatch {

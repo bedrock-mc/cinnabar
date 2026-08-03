@@ -240,6 +240,8 @@ pub enum CoverageError {
     StateInventoryMismatch,
     #[error("new diagnostic states: {states:?}")]
     DiagnosticRegression { states: Vec<StateIdentity> },
+    #[error("new provisional fallback states: {states:?}")]
+    FallbackRegression { states: Vec<StateIdentity> },
     #[error("invisible state is not source-cited in the reviewed allowlist: {state:?}")]
     UnreviewedInvisible { state: StateIdentity },
     #[error("invisible allowlist citation is missing or invalid: {state:?}")]

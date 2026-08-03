@@ -68,14 +68,20 @@ pub(super) fn visual(kind: VisualKind) -> BlockVisual {
 }
 
 pub(super) fn blob(records: &[RegistryRecord], kinds: &[VisualKind]) -> Vec<u8> {
+    let visuals = kinds.iter().copied().map(visual).collect::<Vec<_>>();
+    blob_with_visuals(records, &visuals)
+}
+
+pub(super) fn blob_with_visuals(records: &[RegistryRecord], visuals: &[BlockVisual]) -> Vec<u8> {
     let mut hashed = records
         .iter()
         .map(|record| (record.network_hash, record.sequential_id))
         .collect::<Vec<_>>();
     hashed.sort_unstable();
     let compiled = CompiledAssets {
-        visuals: kinds.iter().copied().map(visual).collect(),
-        light_properties: vec![assets::LightProperties::default(); kinds.len()].into_boxed_slice(),
+        visuals: visuals.to_vec().into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); visuals.len()]
+            .into_boxed_slice(),
         hashed: hashed.into_boxed_slice(),
         materials: vec![
             Material {
