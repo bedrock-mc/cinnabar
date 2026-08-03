@@ -103,6 +103,19 @@ pub(crate) fn orient_mutation_camera(
     transform.rotation = camera::look_at_target(transform.translation, target);
     true
 }
+pub(crate) fn orient_acceptance_camera(
+    auto_fly: &mut camera::AutoFly,
+    transform: &mut Transform,
+    coordinate: Option<[i32; 3]>,
+) -> bool {
+    if !auto_fly.controls_acceptance_camera() {
+        return false;
+    }
+    if let Some(target) = mutation_look_target(coordinate) {
+        auto_fly.set_look_target(target);
+    }
+    orient_mutation_camera(transform, coordinate)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WorldReadyWork {
@@ -659,11 +672,8 @@ pub(crate) fn emit_world_ready(
         return;
     }
     let mutation_coordinate = acceptance.mutation_coordinate();
-    if let Some(target) = mutation_look_target(mutation_coordinate) {
-        auto_fly.set_look_target(target);
-    }
     if let Ok(mut transform) = cameras.single_mut() {
-        orient_mutation_camera(&mut transform, mutation_coordinate);
+        orient_acceptance_camera(&mut auto_fly, &mut transform, mutation_coordinate);
     }
     let mutation_target = mutation_coordinate.map(|coordinate| {
         SubChunkKey::new(
