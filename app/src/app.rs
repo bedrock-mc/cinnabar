@@ -35,7 +35,7 @@ use crate::{
     },
     args,
     asset_startup::{
-        LoadedAssetKind, load_runtime_assets, require_hud_assets,
+        LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
         select_asset_path_from_environment,
     },
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
@@ -307,6 +307,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
+    let icon_assets = require_icon_assets(
+        &loaded_assets.selected_path,
+        crate::asset_startup::vanilla_source_manifest_json(),
+    )
+    .context("load pinned official Mojang sample item-icon carrier")?;
+    eprintln!("{}", icon_assets.startup_summary());
     let lang_assets = crate::asset_startup::require_lang_assets(
         &loaded_assets.selected_path,
         crate::asset_startup::vanilla_source_manifest_json(),
@@ -314,9 +320,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
-    let mut ui_presentation =
-        UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
-            .context("prepare bounded font and HUD texture array for UI rendering")?;
+    let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
+        font_runtime,
+        hud_assets.into_runtime(),
+        icon_assets.into_runtime(),
+    )
+    .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
     // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
     // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
     // server publishes a sidebar objective.

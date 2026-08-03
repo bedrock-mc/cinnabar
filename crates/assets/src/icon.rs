@@ -183,20 +183,30 @@ impl RuntimeIconCatalog {
     /// back to the metadata-0 variant exactly like the visual-route lookup.
     #[must_use]
     pub fn lookup(&self, identifier: &str, metadata: u32) -> Option<&IconSprite> {
-        self.lookup_exact(identifier, metadata).or_else(|| {
+        self.lookup_index(identifier, metadata)
+            .map(|index| &self.sprites[index])
+    }
+
+    /// Returns the canonical sprite index for one `(identifier, metadata)`
+    /// visual key, falling back to metadata 0 when the exact variant is not
+    /// carried. The index is stable with the carrier and can be paired with
+    /// a render-time atlas reference.
+    #[must_use]
+    pub fn lookup_index(&self, identifier: &str, metadata: u32) -> Option<usize> {
+        self.lookup_exact_index(identifier, metadata).or_else(|| {
             (metadata != 0)
-                .then(|| self.lookup_exact(identifier, 0))
+                .then(|| self.lookup_exact_index(identifier, 0))
                 .flatten()
         })
     }
 
-    fn lookup_exact(&self, identifier: &str, metadata: u32) -> Option<&IconSprite> {
+    fn lookup_exact_index(&self, identifier: &str, metadata: u32) -> Option<usize> {
         self.entries
             .binary_search_by(|entry| {
                 (entry.identifier.as_ref(), entry.metadata).cmp(&(identifier, metadata))
             })
             .ok()
-            .map(|index| &self.sprites[self.entries[index].sprite as usize])
+            .map(|index| self.entries[index].sprite as usize)
     }
 }
 

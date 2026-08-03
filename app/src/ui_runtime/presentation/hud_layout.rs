@@ -16,7 +16,7 @@ use ui::{
     UiVisual,
 };
 
-use super::{HudSprite, HudTexturePages, UiPresentationError, UiRuntime, rect};
+use super::{HudSprite, HudTexturePages, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::gameplay_hud::HudEffect;
 
 mod pinned;
@@ -42,6 +42,10 @@ pub(crate) struct HudFrame {
     /// Remaining-durability fraction per hotbar slot, resolved this frame.
     pub hotbar_durability: [Option<f32>; 9],
     pub offhand_durability: Option<f32>,
+    /// Item icon atlas references resolved against the authoritative item
+    /// registry immediately before presentation.
+    pub hotbar_icons: [Option<IconRef>; 9],
+    pub offhand_icon: Option<IconRef>,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
@@ -266,9 +270,15 @@ impl<'a> HudLayout<'a> {
                 continue;
             };
             let cell = [left + 3.0 + f32::from(slot) * 20.0, g.gui_height - 19.0];
+            if let Some(icon) = frame.hotbar_icons[usize::from(slot)] {
+                self.icon_gui(icon, cell)?;
+            }
             self.stack_decorations(&stack, cell, frame.hotbar_durability[usize::from(slot)])?;
         }
         if let Some(stack) = offhand {
+            if let Some(icon) = frame.offhand_icon {
+                self.icon_gui(icon, [left - 29.0 + 3.0, g.gui_height - 19.0])?;
+            }
             self.stack_decorations(
                 &stack,
                 [left - 29.0 + 3.0, g.gui_height - 19.0],
@@ -276,6 +286,26 @@ impl<'a> HudLayout<'a> {
             )?;
         }
         self.selected_item_label(runtime, frame)?;
+        Ok(())
+    }
+
+    /// Item carriers may contain a small number of larger source rasters, but
+    /// the gameplay hotbar presents every icon in the fixed 16x16 Java cell.
+    fn icon_gui(&mut self, icon: IconRef, gui: [f32; 2]) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        let [x, y] = g.logical(gui);
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + 16.0 * g.scale, y + 16.0 * g.scale)?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: icon.page,
+            uv: icon.uv,
+            color: [255; 4],
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use assets::{RuntimeFontCatalog, RuntimeHudCatalog};
+use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
     prelude::{Query, Res, ResMut, Resource, Time, With},
     time::Real,
@@ -32,7 +32,8 @@ use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
 };
 use texture_atlas::{
-    HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_optional_hud,
+    HudSprite, HudTexturePages, IconRef, font_texture_array, font_texture_array_with_hud_and_icons,
+    font_texture_array_with_optional_hud,
 };
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
@@ -155,6 +156,8 @@ pub struct UiPresentationRuntime {
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
+    icon_catalog: Option<Arc<RuntimeIconCatalog>>,
+    icon_refs: Option<Box<[IconRef]>>,
     layouts: TextLayoutCache,
     revision: u64,
     scoreboard: PresentedScoreboardCache,
@@ -182,24 +185,42 @@ impl UiPresentationRuntime {
         font: Arc<RuntimeFontCatalog>,
         hud: Arc<RuntimeHudCatalog>,
     ) -> Result<Self, UiPresentationError> {
-        Self::with_optional_hud(font, Some(hud))
+        Self::with_optional_assets(font, Some(hud), None)
     }
 
-    fn with_optional_hud(
+    pub fn with_hud_and_icons(
+        font: Arc<RuntimeFontCatalog>,
+        hud: Arc<RuntimeHudCatalog>,
+        icons: Arc<RuntimeIconCatalog>,
+    ) -> Result<Self, UiPresentationError> {
+        Self::with_optional_assets(font, Some(hud), Some(icons))
+    }
+
+    fn with_optional_assets(
         font: Arc<RuntimeFontCatalog>,
         hud: Option<Arc<RuntimeHudCatalog>>,
+        icons: Option<Arc<RuntimeIconCatalog>>,
     ) -> Result<Self, UiPresentationError> {
-        let (textures, solid_texture_page, hud_textures) = if let Some(hud) = hud.as_deref() {
-            font_texture_array_with_optional_hud(&font, Some(hud))?
-        } else {
-            let (textures, solid_texture_page) = font_texture_array(&font)?;
-            (textures, solid_texture_page, None)
-        };
+        let (textures, solid_texture_page, hud_textures, icon_refs) =
+            match (hud.as_deref(), icons.as_deref()) {
+                (Some(hud), None) => {
+                    let (textures, solid_texture_page, hud_textures) =
+                        font_texture_array_with_optional_hud(&font, Some(hud))?;
+                    (textures, solid_texture_page, hud_textures, None)
+                }
+                (None, None) => {
+                    let (textures, solid_texture_page) = font_texture_array(&font)?;
+                    (textures, solid_texture_page, None, None)
+                }
+                (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
+            };
         Ok(Self {
             font,
             textures: Arc::new(textures),
             solid_texture_page,
             hud_textures,
+            icon_catalog: icons,
+            icon_refs,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             scoreboard: PresentedScoreboardCache::default(),
@@ -212,6 +233,24 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
         })
+    }
+
+    /// Resolves an authoritative item identity to the packed icon atlas.
+    /// Unknown/custom items fail closed and keep the hotbar frame and server
+    /// state intact.
+    pub(crate) fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        let sprite = self
+            .icon_catalog
+            .as_ref()?
+            .lookup_index(identifier, metadata)?;
+        self.icon_refs.as_deref()?.get(sprite).copied()
+    }
+
+    fn with_optional_hud(
+        font: Arc<RuntimeFontCatalog>,
+        hud: Option<Arc<RuntimeHudCatalog>>,
+    ) -> Result<Self, UiPresentationError> {
+        Self::with_optional_assets(font, hud, None)
     }
 
     /// Selects a fixed Java GUI scale (1..=4); `None` or 0 restores auto.
@@ -774,15 +813,25 @@ pub(crate) fn refresh_hud_frame(
         .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
 
     let mut hotbar_durability = [None; 9];
+    let mut hotbar_icons = [None; 9];
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
         if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
             let identifier = resolve_identifier(stack);
             *durability = item_facts::durability_fraction(stack, identifier.as_deref());
+            hotbar_icons[slot] = identifier
+                .as_deref()
+                .and_then(|identifier| presentation.item_icon(identifier, stack.metadata));
         }
     }
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
         item_facts::durability_fraction(stack, identifier.as_deref())
+    });
+    let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
+        let identifier = resolve_identifier(stack);
+        identifier
+            .as_deref()
+            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
     });
     let selected_item_name = runtime.selected_stack().and_then(|stack| {
         resolve_identifier(stack)
@@ -807,6 +856,8 @@ pub(crate) fn refresh_hud_frame(
     frame.mount_health = mount_health;
     frame.hotbar_durability = hotbar_durability;
     frame.offhand_durability = offhand_durability;
+    frame.hotbar_icons = hotbar_icons;
+    frame.offhand_icon = offhand_icon;
     frame.selected_item_name = selected_item_name;
     frame.mount_jump = mount_jump;
     // Bedrock is authoritative for melee readiness and exposes no cooldown
