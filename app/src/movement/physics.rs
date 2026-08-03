@@ -567,9 +567,10 @@ impl LocalPhysicsController {
         if tick > current_tick {
             return Err(PhysicsCorrectionError::NotRetained { tick });
         }
-        if self.history.state_at(tick).is_none()
-            || !self.sample_history.iter().any(|sample| sample.tick == tick)
-        {
+        let Some(mut corrected) = self.history.state_at(tick).cloned() else {
+            return Err(PhysicsCorrectionError::NotRetained { tick });
+        };
+        if !self.sample_history.iter().any(|sample| sample.tick == tick) {
             return Err(PhysicsCorrectionError::NotRetained { tick });
         }
 
@@ -578,8 +579,12 @@ impl LocalPhysicsController {
             f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(network_position[2]),
         );
-        let mut corrected = PlayerState::new(feet);
-        corrected.tick = tick;
+        // CorrectPlayerMovePrediction replaces the retained position at one
+        // tick, then requires movement after that tick to be replayed from the
+        // corrected anchor. It does not supply a replacement velocity. Keep
+        // the retained dynamic state so a confirmation or small correction
+        // cannot restart acceleration from rest.
+        corrected.position = feet;
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
         // cannot be recomputed from a corrected anchor. They are retained only
@@ -592,12 +597,13 @@ impl LocalPhysicsController {
         // an established vanilla or protocol guarantee. Retaining the flags
         // avoids stuttering a legitimate wall climb on matching corrections.
         // Any missing proof or mismatch clears the flags and keeps the discrete
-        // climb branch closed. Identity query failure is semantic
-        // unavailability, so it clears these optional flags without
-        // disconnecting. The position comparison is exact in the sent `f32`
-        // network space because that is the serialized position available to
-        // compare. The loss is bounded to the first replayed tick:
-        // `Simulator::tick` re-derives collisions for every tick after it.
+        // climb branch closed. An upward velocity produced while a stale
+        // horizontal collision was retained is the same unconfirmed ladder
+        // response, so it is cleared with those flags. Identity query failure
+        // is semantic unavailability and does not disconnect. The position
+        // comparison is exact in the sent `f32` network space because that is
+        // the serialized position available to compare. The loss is bounded
+        // to the corrected tick: `Simulator::tick` re-derives collisions.
         let retained_sample = self
             .sample_history
             .iter()
@@ -610,13 +616,12 @@ impl LocalPhysicsController {
                 && collision_identity_is_current(world, feet, &confirmation.world_identity)
                     .unwrap_or(false)
         });
-        corrected.collisions = if server_confirmed_prediction {
-            self.history
-                .state_at(tick)
-                .map_or_else(sim::AxisCollisions::default, |retained| retained.collisions)
-        } else {
-            sim::AxisCollisions::default()
-        };
+        if !server_confirmed_prediction {
+            if (corrected.collisions.x || corrected.collisions.z) && corrected.velocity.y > 0.0 {
+                corrected.velocity.y = 0.0;
+            }
+            corrected.collisions = sim::AxisCollisions::default();
+        }
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_traced(
