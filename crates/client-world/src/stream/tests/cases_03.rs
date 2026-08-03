@@ -126,6 +126,7 @@ fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
     let status = stream.cohort_status(target);
 
     assert_eq!(status.foreign_loaded, 1);
+    assert!(status.target_is_complete());
     assert!(!status.is_exact());
 }
 

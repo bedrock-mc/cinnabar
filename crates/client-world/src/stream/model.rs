@@ -121,11 +121,16 @@ pub struct ViewCohortStatus {
 
 impl ViewCohortStatus {
     #[must_use]
-    pub fn is_exact(self) -> bool {
+    pub fn target_is_complete(self) -> bool {
         self.committed == Some(self.target)
             && self.expected != 0
             && self.loaded_target == self.expected
             && self.missing_target == 0
+    }
+
+    #[must_use]
+    pub fn is_exact(self) -> bool {
+        self.target_is_complete()
             && self.foreign_loaded == 0
             && self.foreign_requested == 0
             && self.foreign_resident == 0

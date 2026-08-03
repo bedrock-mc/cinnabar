@@ -7,8 +7,9 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
-    UiRenderTextureArray,
+    ChunkRenderQueue, ChunkUploadAcknowledgements, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
+    UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput,
 };
 use sha2::{Digest, Sha256};
 use ui::{
@@ -18,18 +19,24 @@ use ui::{
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
-    runtime::{shutdown::record_fatal_error, world::ClientWorld},
+    runtime::{
+        shutdown::record_fatal_error,
+        visibility::CaveVisibilityCache,
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
     ui_runtime::render_adapter::adapt_ui_draw_list,
 };
 
 mod chat;
 mod retained_hud;
+mod startup;
 mod survival_hud;
 
 use chat::visible_suggestion_range;
 use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
 };
+use startup::{StartupPresentationState, StartupReadinessInput};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -151,6 +158,8 @@ pub struct UiPresentationRuntime {
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
+    loading_message: Option<&'static str>,
+    startup: StartupPresentationState,
 }
 
 impl UiPresentationRuntime {
@@ -187,7 +196,13 @@ impl UiPresentationRuntime {
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
+            loading_message: None,
+            startup: StartupPresentationState::default(),
         })
+    }
+
+    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
+        self.loading_message = message;
     }
 
     pub fn build(
@@ -332,6 +347,7 @@ impl UiPresentationRuntime {
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
             }
         }
+
         let suggestion_reserved_height = suggestion_layouts
             .iter()
             .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
@@ -489,6 +505,50 @@ impl UiPresentationRuntime {
             }
         }
 
+        if let Some(message) = self.loading_message {
+            // Keep the pre-world frame intentional: the sky clear color is a
+            // renderer fallback, not a user-facing loading screen. The opaque
+            // cover hides partial terrain and HUD state while the world cohort
+            // is still settling.
+            // Append it after the normal HUD/chat nodes so no partial terrain
+            // or UI leaks through while the world cohort is still settling.
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(0.0, 0.0, logical_width, logical_height)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [8, 10, 14, 255],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+            let layout = self
+                .layouts
+                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
+                .map_err(UiPresentationError::Text)?;
+            let width = layout.size_64()[0] as f32 / 64.0;
+            let height = layout.size_64()[1] as f32 / 64.0;
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(
+                        ((logical_width - width) * 0.5).max(0.0),
+                        (logical_height * 0.5 - height * 0.5).max(0.0),
+                        (logical_width + width) * 0.5,
+                        (logical_height * 0.5 + height * 0.5).max(height),
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: [235, 238, 245, 255],
+                    shadow: metrics.shadow(),
+                }),
+            );
+        }
+
         let chat_suggestion_hits = positioned_suggestions
             .iter()
             .map(|(index, _, top, bottom, _)| {
@@ -518,6 +578,7 @@ impl UiPresentationRuntime {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -525,6 +586,12 @@ pub(crate) fn publish_ui_runtime(
     stats: Res<UiRenderStats>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
+    frame_poll: Res<WorldStreamFramePoll>,
+    visibility: Res<CaveVisibilityCache>,
+    mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
+    render_queue: Res<ChunkRenderQueue>,
+    upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -543,6 +610,52 @@ pub(crate) fn publish_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
+
+    let (connected, stream_work_drained) =
+        client_world
+            .stream
+            .as_ref()
+            .map_or((false, false), |stream| {
+                let stream_stats = stream.stats();
+                let work_drained = stream_stats.queued_decode_jobs == 0
+                    && stream_stats.in_flight_decode_jobs == 0
+                    && stream_stats.pending_light_jobs == 0
+                    && stream_stats.in_flight_light_jobs == 0
+                    && stream_stats.pending_mesh_jobs == 0
+                    && stream_stats.in_flight_mesh_jobs == 0
+                    && stream_stats.pending_retry_requests == 0
+                    && stream_stats.awaiting_sub_chunk_responses == 0
+                    && stream_stats.admitted_world_events == 0
+                    && stream_stats.admitted_heavy_events == 0
+                    && stream.pending_request_work_count() == 0
+                    && stream.outstanding_sub_chunk_count() == 0
+                    && stream.pending_mesh_change_count() == 0
+                    && stream.unacknowledged_mesh_count() == 0;
+                (true, work_drained)
+            });
+    let render_work_drained =
+        render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
+    let startup_released = presentation.startup.observe(StartupReadinessInput {
+        session_generation: runtime.session_id(),
+        connected,
+        diagnostics_frame_generation: diagnostics_input.frame_generation(),
+        snapshot: visibility_diagnostics.snapshot(),
+        visible_rendered: visibility.visible_rendered,
+        cohort_target_complete: frame_poll
+            .cohort
+            .is_some_and(|status| status.target_is_complete()),
+        stream_work_drained,
+        render_work_drained,
+    });
+    diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
+    let loading_message = if !connected {
+        Some("Connecting to server...")
+    } else if startup_released {
+        None
+    } else {
+        Some("Loading terrain...")
+    };
+    presentation.set_loading_message(loading_message);
     if presentation.scoreboard_opacity.is_some() {
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());

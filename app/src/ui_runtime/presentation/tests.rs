@@ -1,3 +1,5 @@
+use super::*;
+use crate::ui_runtime::SequencedUiEvent;
 use assets::{
     FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
     RuntimeHudCatalog, encode_font_catalog, encode_hud_catalog,
@@ -10,9 +12,6 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use ui::BoundedStat;
-
-use super::*;
-use crate::ui_runtime::SequencedUiEvent;
 
 mod retained_hud_tests;
 

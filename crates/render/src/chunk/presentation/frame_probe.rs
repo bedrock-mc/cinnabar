@@ -615,9 +615,14 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     witness_request: Res<TransparentWitnessRequest>,
     witness_evidence: Res<TransparentWitnessEvidence>,
     visibility_probe: Res<ActiveVisibilityFrameProbe>,
+    visibility_completion_fence: Res<VisibilityCompletionFence>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
 ) {
-    let visibility_snapshot = visibility_probe.take_completed();
+    let visibility_snapshot = visibility_probe.take_completed().and_then(|snapshot| {
+        visibility_completion_fence
+            .try_reserve()
+            .then_some(snapshot)
+    });
     let completed_probe = frame_probe.take_completed().and_then(|probe| {
         presented_frame_gate
             .try_reserve_callback(&probe.expectation)
@@ -686,9 +691,11 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let callback_retirement_fence = retirement_fence.clone();
     let callback_witness_evidence = witness_evidence.clone();
     let callback_visibility_diagnostics = visibility_diagnostics.clone();
+    let callback_visibility_completion_fence = visibility_completion_fence.clone();
     command_buffer.on_submitted_work_done(move || {
         if let Some(snapshot) = visibility_snapshot {
             callback_visibility_diagnostics.publish(snapshot.gpu_completed());
+            callback_visibility_completion_fence.complete();
         }
         if let Some(completed_probe) = completed_probe {
             callback_gate.publish_reserved_probe(

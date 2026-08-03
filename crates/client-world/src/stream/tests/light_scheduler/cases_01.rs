@@ -1141,6 +1141,18 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
 }
 
 #[test]
+fn light_worker_cap_retains_dependency_progress_on_small_pools() {
+    assert_eq!(super::super::light_job_cap_for_threads(1), 2);
+    assert_eq!(super::super::light_job_cap_for_threads(4), 2);
+    assert_eq!(super::super::light_job_cap_for_threads(8), 2);
+    assert_eq!(super::super::light_job_cap_for_threads(12), 3);
+    assert_eq!(
+        super::super::light_job_cap_for_threads(usize::MAX),
+        super::super::MAX_IN_FLIGHT_LIGHT_JOBS
+    );
+}
+
+#[test]
 fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     let mut stream = lit_stream(1);
     let capacity = super::super::effective_light_job_cap();

@@ -49,6 +49,37 @@ pub(in crate::chunk) fn arena_limits_from_device_limits(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::chunk) struct OriginAllocationPlan {
+    pub(in crate::chunk) projected_origin_len: usize,
+}
+
+/// Plans one origin allocation without mutating the arena.
+///
+/// Fresh allocations preserve one available origin slot for a later
+/// copy-on-write replacement whenever the adapter can hold both the fresh
+/// allocation and that reserve. A one-entry adapter has no room for that
+/// reserve, so its single fresh allocation is allowed but cannot be replaced
+/// until its origin is released.
+pub(in crate::chunk) fn plan_origin_allocation(
+    origin_len: usize,
+    free_origin_count: usize,
+    max_origin_items: usize,
+    replacing: bool,
+) -> Option<OriginAllocationPlan> {
+    if origin_len > max_origin_items || origin_len > u32::MAX as usize {
+        return None;
+    }
+    let available_slots = free_origin_count.saturating_add(max_origin_items - origin_len);
+    let reserved_slots = usize::from(!replacing && max_origin_items > 1);
+    if available_slots <= reserved_slots {
+        return None;
+    }
+    Some(OriginAllocationPlan {
+        projected_origin_len: origin_len.saturating_add(usize::from(free_origin_count == 0)),
+    })
+}
+
 #[derive(Resource)]
 pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) quad_buffer: Buffer,
@@ -646,31 +677,6 @@ pub(in crate::chunk) fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
         };
         arena.free_origins.swap_remove(position);
         arena.origin_len -= 1;
-    }
-}
-
-pub(in crate::chunk) fn free_allocation(arena: &mut ChunkGpuArena, entity: Entity) {
-    if let Some(allocation) = arena.allocations.remove(&entity) {
-        if let Some(range) = allocation.cube_range {
-            release_quad_range(
-                &mut arena.quad_len,
-                &mut arena.free_quads,
-                range.start..range.start + allocation.quad_capacity,
-            );
-        }
-        if let Some(range) = allocation.geometry_stream_range {
-            release_quad_range(
-                &mut arena.geometry_stream_len,
-                &mut arena.free_geometry_stream_words,
-                range.start..range.start + allocation.geometry_stream_capacity,
-            );
-        }
-        if allocation.biome_capacity != 0 {
-            let freed = allocation.biome_range.start
-                ..allocation.biome_range.start + allocation.biome_capacity;
-            release_quad_range(&mut arena.biome_len, &mut arena.free_biomes, freed);
-        }
-        release_origin(arena, allocation.gpu.metadata_index);
     }
 }
 
