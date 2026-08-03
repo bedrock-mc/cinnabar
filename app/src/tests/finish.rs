@@ -363,6 +363,35 @@ fn acceptance_orients_a_normal_camera_toward_the_mutation_before_readiness() {
     let expected = (Vec3::new(14.5, 71.5, -5.5) - camera.translation).normalize();
     assert!(forward.abs_diff_eq(expected, 0.0001));
 }
+#[test]
+fn candidate_startup_capture_does_not_override_the_gameplay_camera() {
+    let mut capture_only = crate::camera::AutoFly::with_startup_capture(false, true);
+    let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
+    let original = camera;
+
+    assert!(!orient_acceptance_camera(
+        &mut capture_only,
+        &mut camera,
+        Some([14, 71, -6]),
+    ));
+    assert_eq!(camera, original);
+}
+
+#[test]
+fn auto_fly_keeps_acceptance_camera_ownership_while_presentation_is_paused() {
+    let mut auto_fly = crate::camera::AutoFly::new(true);
+    auto_fly.pause_for_stable_presentation();
+    let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
+
+    assert!(orient_acceptance_camera(
+        &mut auto_fly,
+        &mut camera,
+        Some([14, 71, -6]),
+    ));
+    let forward = camera.rotation * Vec3::NEG_Z;
+    let expected = (Vec3::new(14.5, 71.5, -5.5) - camera.translation).normalize();
+    assert!(forward.abs_diff_eq(expected, 0.0001));
+}
 
 #[test]
 fn world_ready_markers_require_radius_rendering_and_include_the_exact_coordinate() {

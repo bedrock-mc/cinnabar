@@ -300,7 +300,7 @@ impl AutoFly {
     }
 
     #[must_use]
-    const fn with_startup_capture(enabled: bool, capture_pending: bool) -> Self {
+    pub(crate) const fn with_startup_capture(enabled: bool, capture_pending: bool) -> Self {
         Self {
             enabled,
             capture_pending,
@@ -319,6 +319,10 @@ impl AutoFly {
     #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
+    }
+    #[must_use]
+    pub(crate) const fn controls_acceptance_camera(&self) -> bool {
+        self.enabled || self.presentation_paused
     }
 
     pub fn set_look_target(&mut self, target: Vec3) {
