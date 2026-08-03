@@ -96,11 +96,23 @@ pub(crate) fn publish_ui_runtime(
     }
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
+        let artwork_paths = view
+            .featured
+            .iter()
+            .chain(view.gatherings.iter())
+            .filter(|server| !server.image_path.is_empty())
+            .map(|server| server.image_path.clone())
+            .collect();
+        presentation.sync_menu_artwork(artwork_paths);
+        for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
+            server.icon = presentation.menu_artwork_icon(&server.image_path);
+        }
         view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
         view.gathering_icon = presentation.item_icon("minecraft:map_empty", 0);
         view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
         view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
         view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);
+        view.profile_icon = presentation.player_preview_icon();
         view
     });
     presentation.set_menu_view(menu_view);

@@ -20,7 +20,7 @@ pub(super) fn card(
     metrics: TextMetrics,
     solid_page: u16,
     action: MenuAction,
-    focus_index: usize,
+    _focus_index: usize,
     server: &crate::menu::MenuServerCard,
     icon: Option<IconRef>,
     position: [f32; 2],
@@ -38,26 +38,34 @@ pub(super) fn card(
         next_id,
         solid_page,
         bounds,
-        card_color(view, action, focus_index, PANEL_ALT),
+        card_color(view, action, PANEL_ALT),
     );
     hits.push((action, bounds));
     if let Some(icon) = icon {
+        let artwork = server.icon.is_some();
+        let sprite_bounds = if artwork {
+            rect(
+                position[0] + 10.0,
+                position[1] + 10.0,
+                position[0] + 64.0,
+                position[1] + 64.0,
+            )?
+        } else {
+            rect(
+                position[0] + 12.0,
+                position[1] + 12.0,
+                position[0] + 60.0,
+                position[1] + 60.0,
+            )?
+        };
         nodes.push(
-            UiNode::new(
-                UiNodeId::new(*next_id),
-                None,
-                rect(
-                    position[0] + 12.0,
-                    position[1] + 12.0,
-                    position[0] + 60.0,
-                    position[1] + 60.0,
-                )?,
-            )
-            .with_visual(UiVisual::Sprite {
-                texture_page: icon.page,
-                uv: icon.uv,
-                color: [255; 4],
-            }),
+            UiNode::new(UiNodeId::new(*next_id), None, sprite_bounds).with_visual(
+                UiVisual::Sprite {
+                    texture_page: icon.page,
+                    uv: icon.uv,
+                    color: [255; 4],
+                },
+            ),
         );
         *next_id = next_id.saturating_add(1);
     }
@@ -121,7 +129,7 @@ pub(super) fn field(
     metrics: TextMetrics,
     solid_page: u16,
     action: MenuAction,
-    focus_index: usize,
+    _focus_index: usize,
     field: MenuField,
     label: &str,
     value: &str,
@@ -142,7 +150,7 @@ pub(super) fn field(
         next_id,
         solid_page,
         bounds,
-        if view.field == Some(field) || view.focused == focus_index {
+        if view.field == Some(field) || view.focused_action == Some(action) {
             BUTTON_FOCUSED
         } else {
             PANEL_ALT
@@ -177,7 +185,7 @@ pub(super) fn button(
     metrics: TextMetrics,
     solid_page: u16,
     action: MenuAction,
-    focus_index: usize,
+    _focus_index: usize,
     label: &str,
     x: f32,
     y: f32,
@@ -191,7 +199,7 @@ pub(super) fn button(
         next_id,
         solid_page,
         bounds,
-        button_color(view, action, focus_index, BUTTON),
+        button_color(view, action, BUTTON),
     );
     hits.push((action, bounds));
     text(
@@ -208,20 +216,20 @@ pub(super) fn button(
     )
 }
 
-fn button_color(view: &MenuView, action: MenuAction, focus_index: usize, idle: [u8; 4]) -> [u8; 4] {
+pub(super) fn button_color(view: &MenuView, action: MenuAction, idle: [u8; 4]) -> [u8; 4] {
     if view.pressed == Some(action) {
         BUTTON_PRESSED
     } else if view.hovered == Some(action) {
         BUTTON_HOVERED
-    } else if view.focused == focus_index {
+    } else if view.focused_action == Some(action) {
         BUTTON_FOCUSED
     } else {
         idle
     }
 }
 
-fn card_color(view: &MenuView, action: MenuAction, focus_index: usize, idle: [u8; 4]) -> [u8; 4] {
-    button_color(view, action, focus_index, idle)
+fn card_color(view: &MenuView, action: MenuAction, idle: [u8; 4]) -> [u8; 4] {
+    button_color(view, action, idle)
 }
 
 pub(super) fn solid(

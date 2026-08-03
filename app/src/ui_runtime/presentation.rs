@@ -5,7 +5,7 @@ use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
 };
-use render::{MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderTextureArray};
+use render::{MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
@@ -19,6 +19,7 @@ use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 mod chat;
 mod hud_layout;
 mod menu;
+mod menu_artwork;
 mod player_preview;
 mod publish;
 mod retained_hud;
@@ -144,6 +145,7 @@ impl std::error::Error for UiPresentationError {}
 #[derive(Resource)]
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
+    base_textures: Arc<UiRenderTextureArray>,
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
@@ -167,12 +169,12 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
-    /// Identity of the static font/HUD/item carrier before the optional
-    /// cached player-preview layer is appended.
-    base_texture_identity: [u8; 32],
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
+    player_preview_pixels: Option<Vec<u8>>,
     player_preview_icon: Option<IconRef>,
+    menu_artwork_paths: Vec<String>,
+    menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
 }
@@ -215,10 +217,11 @@ impl UiPresentationRuntime {
                 }
                 (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
             };
-        let base_texture_identity = textures.identity;
+        let textures = Arc::new(textures);
         Ok(Self {
             font,
-            textures: Arc::new(textures),
+            base_textures: Arc::clone(&textures),
+            textures,
             solid_texture_page,
             hud_textures,
             icon_catalog: icons,
@@ -235,10 +238,12 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
-            base_texture_identity,
             player_preview_page: None,
             player_preview_source_hash: None,
+            player_preview_pixels: None,
             player_preview_icon: None,
+            menu_artwork_paths: Vec::new(),
+            menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
         })
@@ -267,72 +272,101 @@ impl UiPresentationRuntime {
         if self.player_preview_source_hash == Some(source_hash) {
             return;
         }
-        let Some(page) = self.player_preview_page.or_else(|| {
-            (self.textures.layers < MAX_UI_TEXTURE_LAYERS).then_some(self.textures.layers as u16)
-        }) else {
-            self.player_preview_icon = None;
-            return;
-        };
-        let layer_bytes = usize::try_from(self.textures.width)
-            .ok()
-            .and_then(|width| width.checked_mul(self.textures.height as usize))
-            .and_then(|pixels| pixels.checked_mul(4));
-        let Some(layer_bytes) = layer_bytes else {
-            self.player_preview_icon = None;
-            return;
-        };
-        if self.textures.width < player_preview::PREVIEW_WIDTH
-            || self.textures.height < player_preview::PREVIEW_HEIGHT
-        {
-            self.player_preview_icon = None;
-            return;
-        }
-        let preview = player_preview::render(skin);
-        let mut rgba8 = self.textures.rgba8.to_vec();
-        if self.player_preview_page.is_none() {
-            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
-            self.player_preview_page = Some(page);
-        }
-        let layer_start = usize::from(page) * layer_bytes;
-        for row in 0..player_preview::PREVIEW_HEIGHT as usize {
-            let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
-            let target_start = layer_start + row * self.textures.width as usize * 4;
-            let target_end = target_start + player_preview::PREVIEW_WIDTH as usize * 4;
-            rgba8[target_start..target_end].copy_from_slice(
-                &preview[source_start..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
-            );
-        }
-        let layers = self
-            .player_preview_page
-            .map_or(self.textures.layers, |page| {
-                self.textures.layers.max(u32::from(page) + 1)
-            });
-        let mut identity = Sha256::new();
-        identity.update(self.base_texture_identity);
-        identity.update(b"cinnabar-player-preview-v1");
-        identity.update(source_hash);
-        let identity: [u8; 32] = identity.finalize().into();
-        self.textures = Arc::new(UiRenderTextureArray {
-            identity,
-            width: self.textures.width,
-            height: self.textures.height,
-            layers,
-            rgba8: rgba8.into(),
-        });
+        self.player_preview_pixels = Some(player_preview::render(skin));
         self.player_preview_source_hash = Some(source_hash);
-        self.player_preview_icon = Some(IconRef {
-            page,
-            uv: [
-                0,
-                0,
-                player_preview::PREVIEW_WIDTH as u16,
-                player_preview::PREVIEW_HEIGHT as u16,
-            ],
-        });
+        self.rebuild_dynamic_textures();
     }
 
     pub(crate) const fn player_preview_icon(&self) -> Option<IconRef> {
         self.player_preview_icon
+    }
+
+    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
+        if self.menu_artwork_paths == paths {
+            return;
+        }
+        self.menu_artwork_paths = paths;
+        self.rebuild_dynamic_textures();
+    }
+
+    pub(crate) fn menu_artwork_icon(&self, path: &str) -> Option<IconRef> {
+        self.menu_artwork.refs.get(path).copied()
+    }
+
+    fn rebuild_dynamic_textures(&mut self) {
+        let width = self.base_textures.width;
+        let height = self.base_textures.height;
+        let Some(layer_bytes) = usize::try_from(width)
+            .ok()
+            .and_then(|width| width.checked_mul(height as usize))
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return;
+        };
+        let mut rgba8 = self.base_textures.rgba8.to_vec();
+        let mut layers = self.base_textures.layers;
+        let mut identity = Sha256::new();
+        identity.update(self.base_textures.identity);
+        self.player_preview_page = None;
+        self.player_preview_icon = None;
+
+        if let (Some(preview), Some(source_hash)) = (
+            self.player_preview_pixels.as_deref(),
+            self.player_preview_source_hash,
+        ) && width >= player_preview::PREVIEW_WIDTH
+            && height >= player_preview::PREVIEW_HEIGHT
+            && layers < MAX_UI_TEXTURE_LAYERS
+            && rgba8.len().saturating_add(layer_bytes) <= MAX_UI_TEXTURE_BYTES
+        {
+            let page = layers as u16;
+            let layer_start = rgba8.len();
+            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
+            for row in 0..player_preview::PREVIEW_HEIGHT as usize {
+                let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
+                let target_start = layer_start + row * width as usize * 4;
+                rgba8[target_start..target_start + player_preview::PREVIEW_WIDTH as usize * 4]
+                    .copy_from_slice(
+                        &preview[source_start
+                            ..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
+                    );
+            }
+            layers += 1;
+            self.player_preview_page = Some(page);
+            self.player_preview_icon = Some(IconRef {
+                page,
+                uv: [
+                    0,
+                    0,
+                    player_preview::PREVIEW_WIDTH as u16,
+                    player_preview::PREVIEW_HEIGHT as u16,
+                ],
+            });
+            identity.update(b"cinnabar-player-preview-v1");
+            identity.update(source_hash);
+        }
+
+        let remaining_layers = MAX_UI_TEXTURE_LAYERS.saturating_sub(layers);
+        let remaining_bytes = MAX_UI_TEXTURE_BYTES.saturating_sub(rgba8.len());
+        self.menu_artwork = menu_artwork::load(
+            &self.menu_artwork_paths,
+            width,
+            height,
+            layers as u16,
+            remaining_layers,
+            remaining_bytes,
+        );
+        if self.menu_artwork.layers > 0 {
+            layers += self.menu_artwork.layers;
+            rgba8.extend_from_slice(&self.menu_artwork.rgba8);
+            identity.update(self.menu_artwork.signature);
+        }
+        self.textures = Arc::new(UiRenderTextureArray {
+            identity: identity.finalize().into(),
+            width,
+            height,
+            layers,
+            rgba8: rgba8.into(),
+        });
     }
 
     pub(crate) fn set_menu_view(&mut self, view: Option<MenuView>) {
@@ -342,6 +376,7 @@ impl UiPresentationRuntime {
     pub(crate) fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
         self.menu_hit_targets
             .iter()
+            .rev()
             .find_map(|(action, bounds)| bounds.contains(position).then_some(*action))
     }
 

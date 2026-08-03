@@ -5,15 +5,20 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/df-mc/go-playfab/v2"
+	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -34,9 +39,11 @@ type File struct {
 }
 
 type Server struct {
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Caption string `json:"caption"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	Caption   string `json:"caption"`
+	ImagePath string `json:"image_path,omitempty"`
+	imageURL  string
 }
 
 type Realm struct {
@@ -120,9 +127,10 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 				continue
 			}
 			result.Featured = append(result.Featured, Server{
-				Name:    displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
-				Address: server.Address(),
-				Caption: firstGameCaption(server.AvailableGames, "Featured server"),
+				Name:     displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
+				Address:  server.Address(),
+				Caption:  firstGameCaption(server.AvailableGames, "Featured server"),
+				imageURL: artworkURL(server.Item, server.AvailableGames),
 			})
 		}
 	}
@@ -140,9 +148,10 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 				continue
 			}
 			result.Gatherings = append(result.Gatherings, Server{
-				Name:    displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-				Address: address.String(),
-				Caption: firstGameCaption(experience.AvailableGames, "Community gathering"),
+				Name:     displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
+				Address:  address.String(),
+				Caption:  firstGameCaption(experience.AvailableGames, "Community gathering"),
+				imageURL: artworkURL(experience.Item, experience.AvailableGames),
 			})
 		}
 	}
@@ -155,19 +164,20 @@ func Write(ctx context.Context, path string, src oauth2.TokenSource) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("catalog output path is empty")
 	}
-	fetchContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve catalog output: %w", err)
+	}
+	fetchContext, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	result, err := Fetch(fetchContext, src)
 	if err != nil {
 		return err
 	}
+	cacheArtwork(fetchContext, filepath.Join(filepath.Dir(absolute), "catalog-images"), &result)
 	contents, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("encode catalog: %w", err)
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("resolve catalog output: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
 		return fmt.Errorf("create catalog output directory: %w", err)
@@ -193,6 +203,108 @@ func Write(ctx context.Context, path string, src oauth2.TokenSource) error {
 		return fmt.Errorf("publish catalog output: %w", err)
 	}
 	return nil
+}
+
+const maxArtworkBytes = 8 * 1024 * 1024
+
+func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) string {
+	for _, game := range games {
+		if game.ImageTag == "" {
+			continue
+		}
+		for _, image := range item.Images {
+			if image.Tag == game.ImageTag && validArtworkURL(image.URL) {
+				return image.URL
+			}
+		}
+	}
+	for _, image := range item.Images {
+		if image.Type == playfabcatalog.ImageTypeThumbnail && validArtworkURL(image.URL) {
+			return image.URL
+		}
+	}
+	for _, image := range item.Images {
+		if validArtworkURL(image.URL) {
+			return image.URL
+		}
+	}
+	return ""
+}
+
+func validArtworkURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != ""
+}
+
+func cacheArtwork(ctx context.Context, directory string, result *File) {
+	if result == nil {
+		return
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return
+	}
+	for _, servers := range [][]Server{result.Featured, result.Gatherings} {
+		for index := range servers {
+			path, err := cacheArtworkFile(ctx, directory, servers[index].imageURL)
+			if err == nil {
+				servers[index].ImagePath = path
+			}
+		}
+	}
+}
+
+func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, error) {
+	if !validArtworkURL(rawURL) {
+		return "", errors.New("invalid artwork URL")
+	}
+	identity := sha256.Sum256([]byte(rawURL))
+	path := filepath.Join(directory, fmt.Sprintf("%x.img", identity))
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 && info.Size() <= maxArtworkBytes {
+		return path, nil
+	}
+	downloadContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(downloadContext, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Cinnabar/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("artwork HTTP status %s", resp.Status)
+	}
+	bytes, err := io.ReadAll(io.LimitReader(resp.Body, maxArtworkBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(bytes) == 0 || len(bytes) > maxArtworkBytes {
+		return "", errors.New("artwork payload is empty or too large")
+	}
+	temporary, err := os.CreateTemp(directory, ".artwork-*.img")
+	if err != nil {
+		return "", err
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return "", err
+	}
+	if _, err := temporary.Write(bytes); err != nil {
+		_ = temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(temporaryName, path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {

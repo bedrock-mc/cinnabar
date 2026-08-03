@@ -6,29 +6,22 @@
 //! no-argument path is light, keyboard/controller friendly, and uses exactly
 //! the same font, safe-area, and pointer coordinates as the gameplay HUD.
 
+mod input;
+
+pub(crate) use input::{drive_menu_connection, drive_menu_input};
+
 use std::{
     fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail};
-use bevy::{
-    input::{ButtonState, keyboard::KeyboardInput},
-    prelude::{
-        AppExit, ButtonInput, KeyCode, MessageReader, MessageWriter, MouseButton, Res, ResMut,
-        Resource, Single, With,
-    },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
-};
+use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
-use ui::UiPoint;
 
-use crate::{
-    runtime::{endpoint::bridge_endpoint_exists, network::NetworkHandle},
-    ui_runtime::presentation::{IconRef, UiPresentationRuntime},
-};
+use crate::{runtime::endpoint::bridge_endpoint_exists, ui_runtime::presentation::IconRef};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -36,13 +29,28 @@ const DEFAULT_SERVER_FILE: &str = ".local/cinnabar/servers.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuScreen {
-    Main,
+    Home,
     Play,
-    Realms,
-    Friends,
+    Social,
+    Servers,
+    Profile,
     Settings,
     AddServer,
     Pause,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MenuServerTab {
+    Featured,
+    Favorites,
+    Recent,
+    Saved,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MenuDialog {
+    Exit,
+    RemoveSaved(usize),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,27 +61,27 @@ pub(crate) enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuAction {
-    MainPlay,
-    MainRealms,
-    MainFriends,
-    MainSettings,
-    MainExit,
+    Navigate(MenuScreen),
+    OpenExitDialog,
+    ConfirmExit,
+    DismissDialog,
+    SelectServerTab(MenuServerTab),
+    RefreshCatalog,
     PlayAddServer,
-    PlayBack,
     PlaySaved(usize),
     PlayFeatured(usize),
     PlayGathering(usize),
     PlayRealm(usize),
     PlayFriend(usize),
+    ToggleFavorite(usize),
+    RemoveSavedDialog(usize),
+    ConfirmRemoveSaved(usize),
     AddName,
     AddAddress,
     AddSave,
     AddSaveConnect,
     AddBack,
     SettingsScale(u8),
-    SettingsBack,
-    RealmsBack,
-    FriendsBack,
     PauseResume,
     PauseDisconnect,
     PauseSettings,
@@ -83,6 +91,10 @@ pub(crate) enum MenuAction {
 pub(crate) struct SavedServer {
     pub(crate) name: String,
     pub(crate) address: String,
+    #[serde(default)]
+    pub(crate) favorite: bool,
+    #[serde(default)]
+    pub(crate) last_joined_unix: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -90,6 +102,8 @@ pub(crate) struct MenuServerCard {
     pub(crate) name: String,
     pub(crate) address: String,
     pub(crate) caption: String,
+    #[serde(default)]
+    pub(crate) image_path: String,
     #[serde(skip)]
     pub(crate) icon: Option<IconRef>,
 }
@@ -116,14 +130,17 @@ pub(crate) struct MenuFriendCard {
 pub(crate) struct MenuView {
     pub(crate) visible: bool,
     pub(crate) screen: MenuScreen,
-    pub(crate) focused: usize,
+    pub(crate) focused_action: Option<MenuAction>,
     pub(crate) hovered: Option<MenuAction>,
     pub(crate) pressed: Option<MenuAction>,
+    pub(crate) server_tab: MenuServerTab,
+    pub(crate) dialog: Option<MenuDialog>,
     pub(crate) field: Option<MenuField>,
     pub(crate) name: String,
     pub(crate) address: String,
     pub(crate) message: Option<String>,
     pub(crate) gui_scale: u8,
+    pub(crate) display_name: String,
     pub(crate) servers: Vec<SavedServer>,
     pub(crate) featured: Vec<MenuServerCard>,
     pub(crate) gatherings: Vec<MenuServerCard>,
@@ -134,6 +151,8 @@ pub(crate) struct MenuView {
     pub(crate) realm_icon: Option<IconRef>,
     pub(crate) friend_icon: Option<IconRef>,
     pub(crate) saved_icon: Option<IconRef>,
+    pub(crate) profile_icon: Option<IconRef>,
+    pub(crate) catalog_loading: bool,
     pub(crate) catalog_message: Option<String>,
 }
 
@@ -184,6 +203,8 @@ pub(crate) struct MenuRuntime {
     hovered: Option<MenuAction>,
     pressed: Option<MenuAction>,
     pointer_down: bool,
+    server_tab: MenuServerTab,
+    dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     name: String,
     address: String,
@@ -213,11 +234,13 @@ impl MenuRuntime {
         let servers = load_servers(&config_path);
         Self {
             visible,
-            screen: MenuScreen::Main,
+            screen: MenuScreen::Home,
             focused: 0,
             hovered: None,
             pressed: None,
             pointer_down: false,
+            server_tab: MenuServerTab::Featured,
+            dialog: None,
             field: None,
             name: String::new(),
             address: String::new(),
@@ -257,6 +280,7 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
+            self.dialog = None;
         }
     }
 
@@ -264,14 +288,17 @@ impl MenuRuntime {
         MenuView {
             visible: self.visible,
             screen: self.screen,
-            focused: self.focused,
+            focused_action: self.focus_actions().get(self.focused).copied(),
             hovered: self.hovered,
             pressed: self.pressed,
+            server_tab: self.server_tab,
+            dialog: self.dialog,
             field: self.field,
             name: self.name.clone(),
             address: self.address.clone(),
             message: self.message.clone(),
             gui_scale: self.gui_scale,
+            display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
             gatherings: self.gatherings.clone(),
@@ -282,6 +309,8 @@ impl MenuRuntime {
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,
+            profile_icon: None,
+            catalog_loading: !self.catalog_started || self.catalog_process.is_some(),
             catalog_message: self.catalog_message.clone(),
         }
     }
@@ -303,7 +332,7 @@ impl MenuRuntime {
     pub(crate) fn mark_connected(&mut self) {
         self.connecting = false;
         self.visible = false;
-        self.screen = MenuScreen::Main;
+        self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
     }
@@ -332,21 +361,34 @@ impl MenuRuntime {
         self.pressed = Some(action);
         self.message = None;
         match action {
-            MenuAction::MainPlay => self.enter(MenuScreen::Play),
-            MenuAction::MainRealms => self.enter(MenuScreen::Realms),
-            MenuAction::MainFriends => self.enter(MenuScreen::Friends),
-            MenuAction::MainSettings => self.enter(MenuScreen::Settings),
-            MenuAction::MainExit => self.exit_requested = true,
+            MenuAction::Navigate(screen) => self.enter(screen),
+            MenuAction::OpenExitDialog => self.dialog = Some(MenuDialog::Exit),
+            MenuAction::ConfirmExit => {
+                self.dialog = None;
+                self.exit_requested = true;
+            }
+            MenuAction::DismissDialog => self.dialog = None,
+            MenuAction::SelectServerTab(tab) => {
+                self.server_tab = tab;
+                self.focused = 0;
+            }
+            MenuAction::RefreshCatalog => {
+                self.stop_catalog();
+                self.catalog_started = false;
+                self.catalog_message = None;
+            }
             MenuAction::PlayAddServer => {
                 self.name.clear();
                 self.address.clear();
                 self.field = Some(MenuField::Name);
                 self.enter(MenuScreen::AddServer);
             }
-            MenuAction::PlayBack => self.go_back(),
             MenuAction::PlaySaved(index) => {
-                if let Some(server) = self.servers.get(index) {
-                    self.request_connect(server.address.clone());
+                if index < self.servers.len() {
+                    self.servers[index].last_joined_unix = now_unix();
+                    let address = self.servers[index].address.clone();
+                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.request_connect(address);
                 }
             }
             MenuAction::PlayFeatured(index) => {
@@ -376,6 +418,30 @@ impl MenuRuntime {
                     }
                 }
             }
+            MenuAction::ToggleFavorite(index) => {
+                if let Some(server) = self.servers.get_mut(index) {
+                    server.favorite = !server.favorite;
+                    self.message = Some(if server.favorite {
+                        format!("{} added to Favorites.", server.name)
+                    } else {
+                        format!("{} removed from Favorites.", server.name)
+                    });
+                    let _ = save_servers(&self.config_path, &self.servers);
+                }
+            }
+            MenuAction::RemoveSavedDialog(index) => {
+                if index < self.servers.len() {
+                    self.dialog = Some(MenuDialog::RemoveSaved(index));
+                }
+            }
+            MenuAction::ConfirmRemoveSaved(index) => {
+                if index < self.servers.len() {
+                    let removed = self.servers.remove(index);
+                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.message = Some(format!("Removed {}.", removed.name));
+                }
+                self.dialog = None;
+            }
             MenuAction::PlayFriend(index) => {
                 if let Some(friend) = self.friends.get(index) {
                     if friend.xuid.is_empty() {
@@ -400,8 +466,6 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
-            MenuAction::SettingsBack => self.go_back(),
-            MenuAction::RealmsBack | MenuAction::FriendsBack => self.go_back(),
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
                 self.disconnect_requested = true;
@@ -460,43 +524,98 @@ impl MenuRuntime {
     }
 
     fn focus_actions(&self) -> Vec<MenuAction> {
+        if let Some(dialog) = self.dialog {
+            return match dialog {
+                MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
+                MenuDialog::RemoveSaved(index) => vec![
+                    MenuAction::ConfirmRemoveSaved(index),
+                    MenuAction::DismissDialog,
+                ],
+            };
+        }
+        let nav = || {
+            vec![
+                MenuAction::Navigate(MenuScreen::Home),
+                MenuAction::Navigate(MenuScreen::Play),
+                MenuAction::Navigate(MenuScreen::Social),
+                MenuAction::Navigate(MenuScreen::Servers),
+                MenuAction::Navigate(MenuScreen::Profile),
+                MenuAction::Navigate(MenuScreen::Settings),
+                MenuAction::OpenExitDialog,
+            ]
+        };
         match self.screen {
-            MenuScreen::Main => vec![
-                MenuAction::MainPlay,
-                MenuAction::MainRealms,
-                MenuAction::MainFriends,
-                MenuAction::MainSettings,
-                MenuAction::MainExit,
-            ],
+            MenuScreen::Home => {
+                let mut actions = nav();
+                actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
+                actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
+                actions.extend((0..self.featured.len().min(2)).map(MenuAction::PlayFeatured));
+                actions
+            }
             MenuScreen::Play => {
-                let mut actions = vec![MenuAction::PlayAddServer];
-                actions.extend((0..self.servers.len()).map(MenuAction::PlaySaved));
-                actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
-                actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
-                actions.push(MenuAction::PlayBack);
+                let mut actions = nav();
+                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
+                actions.extend((0..self.realms.len()).map(MenuAction::PlayRealm));
+                actions.extend(
+                    self.servers
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, server)| server.last_joined_unix > 0)
+                        .map(|(index, _)| MenuAction::PlaySaved(index)),
+                );
                 actions
             }
-            MenuScreen::Realms => {
-                let mut actions = (0..self.realms.len())
-                    .map(MenuAction::PlayRealm)
-                    .collect::<Vec<_>>();
-                actions.push(MenuAction::RealmsBack);
+            MenuScreen::Social => {
+                let mut actions = nav();
+                actions.push(MenuAction::RefreshCatalog);
+                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
                 actions
             }
-            MenuScreen::Friends => {
-                let mut actions = (0..self.friends.len())
-                    .map(MenuAction::PlayFriend)
-                    .collect::<Vec<_>>();
-                actions.push(MenuAction::FriendsBack);
+            MenuScreen::Servers => {
+                let mut actions = nav();
+                actions.extend([
+                    MenuAction::SelectServerTab(MenuServerTab::Featured),
+                    MenuAction::SelectServerTab(MenuServerTab::Favorites),
+                    MenuAction::SelectServerTab(MenuServerTab::Recent),
+                    MenuAction::SelectServerTab(MenuServerTab::Saved),
+                    MenuAction::PlayAddServer,
+                ]);
+                match self.server_tab {
+                    MenuServerTab::Featured => {
+                        actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
+                        actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
+                    }
+                    MenuServerTab::Favorites => actions.extend(
+                        self.servers
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, server)| server.favorite)
+                            .map(|(index, _)| MenuAction::PlaySaved(index)),
+                    ),
+                    MenuServerTab::Recent => actions.extend(
+                        self.servers
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, server)| server.last_joined_unix > 0)
+                            .map(|(index, _)| MenuAction::PlaySaved(index)),
+                    ),
+                    MenuServerTab::Saved => {
+                        actions.extend((0..self.servers.len()).map(MenuAction::PlaySaved));
+                    }
+                }
                 actions
             }
-            MenuScreen::Settings => vec![
-                MenuAction::SettingsScale(1),
-                MenuAction::SettingsScale(2),
-                MenuAction::SettingsScale(3),
-                MenuAction::SettingsScale(4),
-                MenuAction::SettingsBack,
-            ],
+            MenuScreen::Profile => nav(),
+            MenuScreen::Settings => {
+                let mut actions = nav();
+                actions.extend([
+                    MenuAction::SettingsScale(1),
+                    MenuAction::SettingsScale(2),
+                    MenuAction::SettingsScale(3),
+                    MenuAction::SettingsScale(4),
+                ]);
+                actions
+            }
             MenuScreen::AddServer => vec![
                 MenuAction::AddName,
                 MenuAction::AddAddress,
@@ -517,18 +636,22 @@ impl MenuRuntime {
         self.focused = 0;
         self.hovered = None;
         self.field = None;
+        self.dialog = None;
         self.message = None;
         self.visible = true;
     }
 
     fn go_back(&mut self) {
+        if self.dialog.take().is_some() {
+            return;
+        }
         match self.screen {
-            MenuScreen::Main => {}
+            MenuScreen::Home => {}
             MenuScreen::Pause => self.set_visible(false),
             _ => self.enter(if self.screen == MenuScreen::AddServer {
-                MenuScreen::Play
+                MenuScreen::Servers
             } else {
-                MenuScreen::Main
+                MenuScreen::Home
             }),
         }
     }
@@ -543,13 +666,21 @@ impl MenuRuntime {
         let server = SavedServer {
             name: name.to_owned(),
             address: address.to_owned(),
+            favorite: false,
+            last_joined_unix: 0,
         };
         if let Some(existing) = self
             .servers
             .iter_mut()
             .find(|existing| existing.address.eq_ignore_ascii_case(&server.address))
         {
-            *existing = server;
+            let favorite = existing.favorite;
+            let last_joined_unix = existing.last_joined_unix;
+            *existing = SavedServer {
+                favorite,
+                last_joined_unix,
+                ..server
+            };
         } else {
             self.servers.push(server);
         }
@@ -763,138 +894,9 @@ fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn drive_menu_input(
-    mut keyboard_messages: MessageReader<KeyboardInput>,
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
-    presentation: Res<UiPresentationRuntime>,
-    mut menu: ResMut<MenuRuntime>,
-) {
-    let (window, mut cursor) = window.into_inner();
-    menu.pressed = None;
-    if !window.focused {
-        menu.pointer_down = false;
-        return;
-    }
-    if !menu.is_visible() {
-        menu.hovered = None;
-        menu.pointer_down = false;
-        if keys.just_pressed(KeyCode::Escape) {
-            menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
-            keys.reset_all();
-        }
-        return;
-    }
-
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
-    menu.hovered = window
-        .cursor_position()
-        .and_then(|position| UiPoint::new(position.x, position.y).ok())
-        .and_then(|position| presentation.hit_test_menu(position));
-    let pointer_pressed = mouse_buttons.pressed(MouseButton::Left);
-    let pointer_just_pressed = pointer_pressed && !menu.pointer_down;
-    menu.pointer_down = pointer_pressed;
-    if pointer_just_pressed && let Some(action) = menu.hovered {
-        menu.activate(action);
-    }
-    for input in keyboard_messages.read() {
-        if input.state != ButtonState::Pressed {
-            continue;
-        }
-        match input.key_code {
-            KeyCode::Escape => menu.go_back_from_input(),
-            KeyCode::ArrowUp => menu.move_focus(-1),
-            KeyCode::ArrowDown | KeyCode::Tab => menu.move_focus(1),
-            KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
-            KeyCode::Backspace if menu.field.is_some() => menu.backspace_text(),
-            _ if menu.field.is_some() => {
-                if let Some(text) = input.text.as_deref() {
-                    menu.edit_text(text);
-                }
-            }
-            _ => {}
-        }
-    }
-    // The menu owns the pointer and keyboard for this frame. This also keeps
-    // the camera's recapture-on-click path from turning a menu click into a
-    // gameplay attack or mouse grab.
-    keys.reset_all();
-    mouse_buttons.reset_all();
-}
-
-impl MenuRuntime {
-    fn go_back_from_input(&mut self) {
-        self.go_back();
-    }
-}
-
-pub(crate) fn drive_menu_connection(
-    mut commands: bevy::prelude::Commands,
-    mut exits: MessageWriter<AppExit>,
-    mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
-    mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
-    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
-) {
-    menu.poll_catalog();
-    if menu.is_connecting() && client_world.stream.is_some() {
-        menu.mark_connected();
-    }
-    if let Some(address) = menu.take_pending_connect() {
-        let generation = menu.next_session_generation();
-        let socket_dir = PathBuf::from(format!(".local/cinnabar/connect-{generation}"));
-        if let Err(error) = fs::create_dir_all(&socket_dir)
-            .and_then(|_| {
-                spawn_core_for_address(&socket_dir, &address).map_err(std::io::Error::other)
-            })
-            .and_then(|child| {
-                guard.replace(child);
-                wait_for_core(&socket_dir).map_err(std::io::Error::other)
-            })
-        {
-            menu.message = Some(format!("Could not start {address}: {error}"));
-            menu.connecting = false;
-            return;
-        }
-        network.shutdown();
-        match crate::runtime::network::spawn_network(crate::runtime::network::NetworkConfig {
-            session_generation: generation,
-            socket_dir,
-            display_name: menu.display_name.clone(),
-            client_blob_cache: protocol::ClientBlobCache::default(),
-        }) {
-            Ok(replacement) => {
-                runtime.begin_session(generation);
-                client_world.stream = None;
-                client_world.pending_surface_spawn = None;
-                client_world.fatal_error = None;
-                commands.insert_resource(replacement.movement_ticker());
-                commands.insert_resource(replacement);
-                menu.mark_connecting();
-            }
-            Err(error) => {
-                menu.message = Some(format!("Could not connect: {error}"));
-                menu.connecting = false;
-            }
-        }
-    }
-    if menu.take_disconnect_request() {
-        network.shutdown();
-        guard.stop();
-        runtime.begin_session(menu.next_session_generation());
-        client_world.stream = None;
-        menu.visible = true;
-        menu.screen = MenuScreen::Main;
-        menu.connecting = false;
-    }
-    if menu.take_exit_request() {
-        network.shutdown();
-        guard.stop();
-        exits.write(AppExit::Success);
-    }
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
