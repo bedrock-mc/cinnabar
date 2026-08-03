@@ -311,7 +311,7 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, client_world::WorldStream::current_dimension);
-    let context = if ui.chat_focused() {
+    let context = if ui.ui_focused() {
         InputContext::UiFocused
     } else {
         InputContext::Gameplay

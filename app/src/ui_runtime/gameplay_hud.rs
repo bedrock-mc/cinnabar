@@ -9,6 +9,16 @@ use protocol::{
 };
 
 pub const MAX_HUD_EFFECTS: usize = 32;
+pub const PLAYER_INVENTORY_SLOT_COUNT: usize = 36;
+
+#[derive(Clone, Debug)]
+struct PlayerInventory([Option<NetworkItemStack>; PLAYER_INVENTORY_SLOT_COUNT]);
+
+impl Default for PlayerInventory {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| None))
+    }
+}
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
@@ -107,6 +117,7 @@ pub struct GameplayHudDiagnostics {
 /// authoritative events.
 #[derive(Clone, Debug, Default)]
 pub struct GameplayHudState {
+    inventory: PlayerInventory,
     hotbar: [Option<NetworkItemStack>; HOTBAR_SLOT_COUNT as usize],
     hotbar_known: bool,
     offhand: Option<NetworkItemStack>,
@@ -135,6 +146,17 @@ impl GameplayHudState {
     pub fn hotbar_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.hotbar
             .get(usize::from(slot))?
+            .as_ref()
+            .filter(|stack| !stack.is_empty())
+    }
+
+    /// One authoritative player-inventory stack. Bedrock window `0` exposes
+    /// the nine hotbar cells first, followed by the 27 storage cells.
+    #[must_use]
+    pub fn inventory_stack(&self, slot: usize) -> Option<&NetworkItemStack> {
+        self.inventory
+            .0
+            .get(slot)?
             .as_ref()
             .filter(|stack| !stack.is_empty())
     }
@@ -371,8 +393,11 @@ impl GameplayHudState {
         match event {
             InventoryEvent::Content(content) => match content.container.window_id {
                 Some(0) => {
+                    for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
+                        self.inventory.0[slot] = content.slots.get(slot).cloned();
+                    }
                     for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
-                        self.hotbar[slot] = content.slots.get(slot).cloned();
+                        self.hotbar[slot] = self.inventory.0[slot].clone();
                     }
                     self.hotbar_known = true;
                 }
@@ -388,8 +413,12 @@ impl GameplayHudState {
                 let slot = usize::from(slot_event.identity.slot);
                 match slot_event.identity.container.window_id {
                     Some(0) if slot < usize::from(HOTBAR_SLOT_COUNT) => {
+                        self.inventory.0[slot] = Some(slot_event.stack.clone());
                         self.hotbar[slot] = Some(slot_event.stack.clone());
                         self.hotbar_known = true;
+                    }
+                    Some(0) if slot < PLAYER_INVENTORY_SLOT_COUNT => {
+                        self.inventory.0[slot] = Some(slot_event.stack.clone());
                     }
                     Some(0) => {}
                     Some(119) if slot == 0 => {

@@ -29,9 +29,7 @@ use render::{
 use crate::{
     acceptance::{
         AcceptanceRun,
-        markers::{
-            CAMERA_COMMITTED, SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER,
-        },
+        markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER},
         model_witness::ModelWitnessFileSource,
         mutation::{deterministic_mutation_coordinate, write_stdout_marker},
     },
@@ -54,6 +52,10 @@ use crate::{
     },
     ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
+
+mod model_gallery;
+
+pub(crate) use model_gallery::model_gallery_camera_committed_marker;
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -977,27 +979,4 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::Weather { .. } => return false,
     };
     acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))
-}
-
-pub(crate) fn model_gallery_camera_committed_marker(
-    configured: bool,
-    control: &CommittedControlEvent,
-) -> Option<String> {
-    if !configured {
-        return None;
-    }
-    let CommittedControlEvent::MovePlayer {
-        sequence,
-        movement,
-        resolved,
-        ..
-    } = control
-    else {
-        return None;
-    };
-    let [x, y, z] = resolved.position;
-    Some(format!(
-        "{CAMERA_COMMITTED} sequence={sequence} position={x:.5},{y:.5},{z:.5} yaw={:.5} pitch={:.5}",
-        movement.yaw, movement.pitch
-    ))
 }

@@ -767,8 +767,8 @@ fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
         .unwrap();
     let panel_vertices = 4;
     let history_vertices = history.chars().count() * 4 * TEXT_PASSES;
-    let editor_vertices = "> /g|".chars().count() * 4 * TEXT_PASSES;
-    let suggestion_vertices = "> /give-0".chars().count() * 4 * TEXT_PASSES;
+    let editor_vertices = "/g|".chars().count() * 4 * TEXT_PASSES;
+    let suggestion_vertices = "/give-0".chars().count() * 4 * TEXT_PASSES;
     let history_bounds =
         vertical_bounds(&active.vertices[panel_vertices..panel_vertices + history_vertices]);
     let editor_start = panel_vertices + history_vertices;

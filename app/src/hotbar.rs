@@ -61,7 +61,7 @@ pub(crate) fn select_hotbar_slot(
     if input.phase(Action::HotbarPrevious).pressed {
         cycle -= 1;
     }
-    if !runtime.chat_focused() {
+    if !runtime.ui_focused() {
         // One slot per scroll frame. Scroll up selects the previous slot, scroll down the next
         // (matches vanilla). The wheel is read directly, so it is gated on chat focus here.
         if scroll.delta.y > 0.0 {

@@ -17,9 +17,11 @@ use render::{
 };
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+use ui::UiPoint;
 use ui::{
     DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
-    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    UiNode, UiNodeId, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -35,7 +37,10 @@ use crate::{
 
 mod chat;
 mod hud_layout;
+mod item_viewmodel;
 mod player_preview;
+mod primitives;
+mod publish;
 mod retained_hud;
 mod startup;
 mod texture_atlas;
@@ -43,6 +48,8 @@ mod texture_atlas;
 use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
+use primitives::{bounded_visible_text, hud_position, rect};
+pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
 use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
     ScoreboardOwnerNameAuthority,
@@ -193,6 +200,10 @@ pub struct UiPresentationRuntime {
     player_preview_icon: Option<IconRef>,
     left_hand_icon: Option<IconRef>,
     right_hand_icon: Option<IconRef>,
+    held_viewmodel_source: Option<IconRef>,
+    offhand_viewmodel_source: Option<IconRef>,
+    held_viewmodel_icon: Option<IconRef>,
+    offhand_viewmodel_icon: Option<IconRef>,
     loading_message: Option<&'static str>,
     startup: StartupPresentationState,
 }
@@ -262,6 +273,10 @@ impl UiPresentationRuntime {
             player_preview_icon: None,
             left_hand_icon: None,
             right_hand_icon: None,
+            held_viewmodel_source: None,
+            offhand_viewmodel_source: None,
+            held_viewmodel_icon: None,
+            offhand_viewmodel_icon: None,
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
@@ -371,12 +386,8 @@ impl UiPresentationRuntime {
             });
         let mut identity = Sha256::new();
         identity.update(self.base_texture_identity);
-        identity.update(b"cinnabar-player-preview-v2");
-        identity.update(source_hash);
-        identity.update(pose.body_yaw_degrees.to_bits().to_le_bytes());
-        identity.update(pose.head_yaw_degrees.to_bits().to_le_bytes());
-        identity.update(pose.pitch_degrees.to_bits().to_le_bytes());
-        identity.update([u8::from(pose.sneaking)]);
+        identity.update(b"cinnabar-dynamic-hud-v3");
+        identity.update(&rgba8);
         let identity: [u8; 32] = identity.finalize().into();
         self.textures = Arc::new(UiRenderTextureArray {
             identity,
@@ -516,9 +527,13 @@ impl UiPresentationRuntime {
             layout.append(runtime, &frame)?;
         }
 
+        let inventory_open = runtime.inventory_open();
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
         for node in hud_nodes.iter() {
+            if inventory_open {
+                break;
+            }
             if matches!(
                 node.role,
                 HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
@@ -560,7 +575,8 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
-        if let Some(opacity) = self.scoreboard_opacity
+        if !inventory_open
+            && let Some(opacity) = self.scoreboard_opacity
             && let Some(scoreboard) = self
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
@@ -581,7 +597,7 @@ impl UiPresentationRuntime {
 
         // The tab player-list overlay presents every known player with the
         // list-objective score while the player-list action is held.
-        if self.hud_frame.tab_list_open {
+        if !inventory_open && self.hud_frame.tab_list_open {
             let players = runtime.player_list_overlay_rows();
             retained_hud::append_player_list_nodes(
                 &mut nodes,
@@ -596,17 +612,19 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        retained_hud::append_below_name_nodes(
-            &mut nodes,
-            &mut next_id,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            content_width,
-            content_height,
-            &self.below_name_anchors,
-        )?;
+        if !inventory_open {
+            retained_hud::append_below_name_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                content_width,
+                content_height,
+                &self.below_name_anchors,
+            )?;
+        }
 
         let chat_focused = runtime.chat_focused();
         let visible_suggestions = if chat_focused {
@@ -639,20 +657,21 @@ impl UiPresentationRuntime {
                 .take(visible_suggestions.len())
             {
                 let selected = runtime.chat_selected_suggestion() == Some(index);
-                let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
-                visible.push_str(if selected { "> " } else { "  " });
-                visible.push_str(suggestion);
                 let layout = self
                     .layouts
-                    .layout(metrics.request(bounded_visible_text(&visible), wrap_width, &self.font))
+                    .layout(metrics.request(
+                        bounded_visible_text(suggestion),
+                        wrap_width,
+                        &self.font,
+                    ))
                     .map_err(UiPresentationError::Text)?;
-                suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
+                suggestion_layouts.push((index, layout, [220, 220, 220, 255], selected));
             }
         }
 
         let suggestion_reserved_height = suggestion_layouts
             .iter()
-            .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
+            .map(|(_, layout, _, _)| layout.size_64()[1] as f32 / 64.0 + 2.0)
             .sum::<f32>();
         let chat_region_top = (content_height - 220.0 - suggestion_reserved_height).max(0.0);
         let bottom_hud_top = hud_geometry.map_or_else(
@@ -665,17 +684,21 @@ impl UiPresentationRuntime {
         });
         let mut suggestion_cursor = (editor_y - 4.0).max(chat_region_top);
         let mut positioned_suggestions = Vec::new();
-        for (index, layout, color) in suggestion_layouts {
+        for (index, layout, color, selected) in suggestion_layouts {
             let layout_height = layout.size_64()[1] as f32 / 64.0;
             if layout_height > suggestion_cursor - chat_region_top {
                 break;
             }
             let y = suggestion_cursor - layout_height;
-            positioned_suggestions.push((index, layout, y, suggestion_cursor, color));
-            suggestion_cursor = (y - 4.0).max(chat_region_top);
+            positioned_suggestions.push((index, layout, y, suggestion_cursor, color, selected));
+            suggestion_cursor = (y - 2.0).max(chat_region_top);
         }
         let chat = runtime.chat().messages();
-        let first = chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS);
+        let first = if inventory_open {
+            chat.len()
+        } else {
+            chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS)
+        };
         let chat_bottom = if chat_focused {
             suggestion_cursor
         } else {
@@ -756,13 +779,7 @@ impl UiPresentationRuntime {
             let panel_right = (chat_right + CHAT_PANEL_PAD)
                 .min(logical_width)
                 .max(panel_left);
-            let content_top = visible_chat
-                .iter()
-                .map(|(_, top, _, _)| *top)
-                .chain(positioned_suggestions.iter().map(|(_, _, top, _, _)| *top))
-                .chain(std::iter::once(editor_y))
-                .fold(editor_y, f32::min);
-            let panel_top = (content_top - 4.0).max(chat_region_top);
+            let panel_top = (editor_y - 2.0).max(chat_region_top);
             let panel_bottom = (editor_bottom + 2.0).min(bottom_hud_top);
             nodes.push(
                 UiNode::new(
@@ -844,7 +861,23 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            for (_, layout, y, bottom, color) in &positioned_suggestions {
+            for (_, layout, y, bottom, color, selected) in &positioned_suggestions {
+                nodes.push(
+                    UiNode::new(
+                        UiNodeId::new(next_id),
+                        None,
+                        rect(chat_left - 2.0, *y, chat_right, *bottom)?,
+                    )
+                    .with_visual(UiVisual::Solid {
+                        texture_page: self.solid_texture_page,
+                        color: if *selected {
+                            [96, 96, 96, 224]
+                        } else {
+                            [0, 0, 0, 192]
+                        },
+                    }),
+                );
+                next_id = next_id.saturating_add(1);
                 nodes.push(
                     UiNode::new(
                         UiNodeId::new(next_id),
@@ -909,7 +942,7 @@ impl UiPresentationRuntime {
 
         let chat_suggestion_hits = positioned_suggestions
             .iter()
-            .map(|(index, _, top, bottom, _)| {
+            .map(|(index, _, top, bottom, _, _)| {
                 rect(
                     chat_left + safe_area.left(),
                     *top + safe_area.top(),
@@ -940,381 +973,6 @@ impl UiPresentationRuntime {
         self.chat_suggestion_hits = chat_suggestion_hits;
         Ok(input)
     }
-}
-
-/// Observes the held HUD inputs — jump for the mount jump-charge ramp and
-/// the player-list action for the tab overlay — before the frame publishes.
-pub(crate) fn observe_mount_jump_input(
-    input: Res<crate::semantic_controls::SemanticInputSnapshot>,
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
-    time: Res<Time<Real>>,
-) {
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
-    presentation.hud_frame_mut().tab_list_open =
-        input.phase(semantic_input::Action::PlayerList).held;
-}
-
-/// The platform's safe-area insets for the primary surface, in logical px.
-/// Win32 and macOS desktop surfaces carry no display cutouts, so their real
-/// reported inset is zero on every edge; platforms that report cutouts bind
-/// their values here and every consumer — HUD geometry, retained layout,
-/// render clipping — picks them up through `set_safe_area`.
-pub(crate) fn platform_safe_area_insets() -> SafeArea {
-    SafeArea::ZERO
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn publish_ui_runtime(
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
-    mut scene: ResMut<UiRenderScene>,
-    stats: Res<UiRenderStats>,
-    visibility: Res<CaveVisibilityCache>,
-    mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
-    visibility_diagnostics: Res<VisibilityDiagnostics>,
-    render_queue: Res<ChunkRenderQueue>,
-    upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut client_world: ResMut<ClientWorld>,
-    camera_settings: Res<CameraSettingsAuthority>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    frame_poll: Res<WorldStreamFramePoll>,
-    time: Res<Time<Real>>,
-) {
-    let Ok(window) = windows.single() else {
-        return;
-    };
-    let physical_size = [window.physical_width(), window.physical_height()];
-    if physical_size.contains(&0) {
-        return;
-    }
-    let logical_width = physical_size[0] as f32 / window.scale_factor();
-    let logical_height = physical_size[1] as f32 / window.scale_factor();
-    let Ok(dpi_scale) = DpiScale::new(window.scale_factor()) else {
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            "primary window reported an unsupported UI DPI scale".to_owned(),
-        );
-        return;
-    };
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.hud.expire(now_millis);
-    let (connected, stream_work_drained) =
-        client_world
-            .stream
-            .as_ref()
-            .map_or((false, false), |stream| {
-                let stream_stats = stream.stats();
-                let work_drained = stream_stats.queued_decode_jobs == 0
-                    && stream_stats.in_flight_decode_jobs == 0
-                    && stream_stats.pending_light_jobs == 0
-                    && stream_stats.in_flight_light_jobs == 0
-                    && stream_stats.pending_mesh_jobs == 0
-                    && stream_stats.in_flight_mesh_jobs == 0
-                    && stream_stats.pending_retry_requests == 0
-                    && stream_stats.awaiting_sub_chunk_responses == 0
-                    && stream_stats.admitted_world_events == 0
-                    && stream_stats.admitted_heavy_events == 0
-                    && stream.pending_request_work_count() == 0
-                    && stream.outstanding_sub_chunk_count() == 0
-                    && stream.pending_mesh_change_count() == 0
-                    && stream.unacknowledged_mesh_count() == 0;
-                (true, work_drained)
-            });
-    let render_work_drained =
-        render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
-    let startup_released = presentation.startup.observe(StartupReadinessInput {
-        session_generation: runtime.session_id(),
-        connected,
-        diagnostics_frame_generation: diagnostics_input.frame_generation(),
-        snapshot: visibility_diagnostics.snapshot(),
-        visible_rendered: visibility.visible_rendered,
-        cohort_target_complete: frame_poll
-            .cohort
-            .is_some_and(|status| status.target_is_complete()),
-        stream_work_drained,
-        render_work_drained,
-    });
-    diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
-    runtime.drain_pending_inventory();
-    runtime.expire_gameplay_effects(now_millis);
-    runtime.observe_selected_item_identity(now_millis);
-    let player_preview_skin = client_world.stream.as_ref().and_then(|stream| {
-        let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
-        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
-            return None;
-        };
-        normalize_actor_skin(&ActorSkinPixels {
-            width: skin.width,
-            height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
-        })
-    });
-    let player_preview_pose = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .map_or_else(player_preview::PlayerPreviewPose::default, |actor| {
-            let sneaking = matches!(
-                actor.metadata.get(&0),
-                Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
-            );
-            player_preview::PlayerPreviewPose::new(
-                actor.body_yaw,
-                actor.head_yaw,
-                actor.pitch,
-                sneaking,
-            )
-        });
-    presentation.set_player_preview_skin(player_preview_skin.as_deref(), player_preview_pose);
-    refresh_hud_frame(
-        &mut runtime,
-        &mut presentation,
-        client_world.stream.as_ref(),
-        &camera_settings,
-        now_millis,
-    );
-    let below_name_anchors = client_world
-        .stream
-        .as_ref()
-        .zip(cameras.single().ok())
-        .map(|(stream, (camera, camera_transform))| {
-            project_below_name_anchors(
-                runtime.scoreboards(),
-                stream,
-                camera,
-                camera_transform,
-                [logical_width, logical_height],
-                presentation.safe_area,
-            )
-        })
-        .unwrap_or_default();
-    presentation.set_below_name_anchors(below_name_anchors);
-    let loading_message = if !connected {
-        Some("Connecting to server...")
-    } else if startup_released {
-        None
-    } else {
-        Some("Loading terrain...")
-    };
-    presentation.set_loading_message(loading_message);
-    if presentation.scoreboard_opacity.is_some() {
-        presentation
-            .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
-    }
-    let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
-        Ok(input) => input,
-        Err(error) => {
-            record_fatal_error(&mut client_world.fatal_error, error.to_string());
-            return;
-        }
-    };
-    if let Err(error) = scene.publish(input, &stats) {
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            UiPresentationError::Render(error).to_string(),
-        );
-    }
-}
-
-/// Refreshes the per-frame HUD inputs that need the world stream: derived
-/// armor points, per-slot durability, the selected-item name, and the mount's
-/// authoritative health. Without a stream every derived value fails closed.
-pub(crate) fn refresh_hud_frame(
-    runtime: &mut UiRuntime,
-    presentation: &mut UiPresentationRuntime,
-    stream: Option<&client_world::WorldStream>,
-    camera_settings: &CameraSettingsAuthority,
-    now_millis: u64,
-) {
-    let resolve_identifier = |stack: &protocol::NetworkItemStack| {
-        stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
-    };
-
-    let derived_armor = runtime.gameplay_hud().armor().map(|slots| {
-        let identifiers = [
-            &slots.helmet,
-            &slots.chestplate,
-            &slots.leggings,
-            &slots.boots,
-        ]
-        .map(|stack| {
-            (!stack.is_empty())
-                .then(|| resolve_identifier(stack))
-                .flatten()
-        });
-        item_facts::total_armor_points(identifiers.iter().map(|identifier| identifier.as_deref()))
-    });
-    runtime.set_derived_armor(derived_armor);
-
-    let mount_health = runtime
-        .gameplay_hud()
-        .mount_unique_id()
-        .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
-
-    let mut hotbar_durability = [None; 9];
-    let mut hotbar_icons = [None; 9];
-    for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
-        if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
-            let identifier = resolve_identifier(stack);
-            *durability = item_facts::durability_fraction(stack, identifier.as_deref());
-            let icon = identifier
-                .as_deref()
-                .and_then(|identifier| presentation.item_icon(identifier, stack.metadata));
-            hotbar_icons[slot] = icon;
-        }
-    }
-    let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let identifier = resolve_identifier(stack);
-        item_facts::durability_fraction(stack, identifier.as_deref())
-    });
-    let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let identifier = resolve_identifier(stack);
-        identifier
-            .as_deref()
-            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
-    });
-    let held_item_icon = runtime.selected_stack().and_then(|stack| {
-        resolve_identifier(stack)
-            .as_deref()
-            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
-    });
-    let selected_item_name = runtime.selected_stack().and_then(|stack| {
-        resolve_identifier(stack)
-            .map(|identifier| Arc::from(runtime.localized_item_name(&identifier)))
-    });
-
-    // The mount jump bar activates while riding a mount whose authoritative
-    // attributes include jump strength; the charge follows the held jump
-    // input's ramp and stays at zero while the input is released.
-    let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
-        stream
-            .filter(|stream| {
-                stream.actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
-            })
-            .map(|_| runtime.mount_jump_charge(now_millis))
-    });
-
-    let first_person =
-        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let player_preview_icon = presentation.player_preview_icon();
-    let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
-    let frame = presentation.hud_frame_mut();
-    frame.first_person = first_person;
-    frame.mount_health = mount_health;
-    frame.hotbar_durability = hotbar_durability;
-    frame.offhand_durability = offhand_durability;
-    frame.hotbar_icons = hotbar_icons;
-    frame.offhand_icon = offhand_icon;
-    frame.held_item_icon = held_item_icon;
-    frame.player_preview = player_preview_icon;
-    frame.left_hand = left_hand_icon;
-    frame.right_hand = right_hand_icon;
-    frame.viewmodel_pitch_degrees = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .map_or(0.0, |actor| actor.pitch);
-    frame.selected_item_name = selected_item_name;
-    frame.mount_jump = mount_jump;
-    // Bedrock is authoritative for melee readiness and exposes no cooldown
-    // state: the charge is exactly full, which the reference presents as a
-    // hidden indicator. The presentation branch below full stays witnessed.
-    frame.attack_indicator_charge = Some(1.0);
-
-    // Odd remote gameplay data is skipped and counted, never fatal; surface
-    // each counter change once so live sessions record what was dropped.
-    let diagnostics = runtime.gameplay_hud().diagnostics();
-    if diagnostics != presentation.last_hud_diagnostics {
-        bevy::log::debug!(
-            skipped_effect_actions = diagnostics.skipped_effect_actions,
-            evicted_effects = diagnostics.evicted_effects,
-            odd_metadata_values = diagnostics.odd_metadata_values,
-            dropped_inventory_events = diagnostics.dropped_inventory_events,
-            odd_attribute_values = diagnostics.odd_attribute_values,
-            odd_hud_packets = diagnostics.odd_hud_packets,
-            oversized_chat_rows = diagnostics.oversized_chat_rows,
-            unknown_effect_ids = diagnostics.unknown_effect_ids,
-            "gameplay HUD skipped odd remote data"
-        );
-        presentation.last_hud_diagnostics = diagnostics;
-    }
-}
-
-fn project_below_name_anchors(
-    scoreboards: &ui::ScoreboardStore,
-    stream: &client_world::WorldStream,
-    camera: &Camera,
-    camera_transform: &GlobalTransform,
-    logical_size: [f32; 2],
-    safe_area: SafeArea,
-) -> Vec<BelowNameAnchor> {
-    let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
-    let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
-    stream
-        .render_players()
-        .into_iter()
-        .filter_map(|(actor, _profile)| {
-            let below_name = scoreboards
-                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
-                .or_else(|| {
-                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
-                })?;
-            let name = stream.actor_display_name(actor.unique_id)?;
-            let position = Vec3::from_array(actor.position) + Vec3::Y * 2.35;
-            let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
-            let x = viewport.x - safe_area.left();
-            let y = viewport.y - safe_area.top();
-            (x.is_finite()
-                && y.is_finite()
-                && x >= 0.0
-                && x <= content_width
-                && y >= 0.0
-                && y <= content_height)
-                .then_some(BelowNameAnchor {
-                    x,
-                    y,
-                    name,
-                    score: below_name.0,
-                    objective: below_name.1,
-                })
-        })
-        .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
-        .collect()
-}
-
-fn bounded_visible_text(value: &str) -> &str {
-    if value.len() <= MAX_PRESENTED_TEXT_BYTES {
-        return value;
-    }
-    let mut end = MAX_PRESENTED_TEXT_BYTES;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    &value[..end]
-}
-
-fn hud_position(role: HudViewRole, ordinal: usize, width: f32, height: f32) -> [f32; 2] {
-    match role {
-        HudViewRole::Health => [12.0, (height - 42.0).max(0.0)],
-        HudViewRole::Hunger => [(width - 180.0).max(0.0), (height - 42.0).max(0.0)],
-        HudViewRole::Armor => [12.0, (height - 62.0).max(0.0)],
-        HudViewRole::Air => [(width - 180.0).max(0.0), (height - 62.0).max(0.0)],
-        HudViewRole::Title => [(width * 0.3).max(0.0), (height * 0.3).max(0.0)],
-        HudViewRole::Subtitle => [(width * 0.3).max(0.0), (height * 0.3 + 24.0).max(0.0)],
-        HudViewRole::ActionBar => [(width * 0.35).max(0.0), (height - 90.0).max(0.0)],
-        HudViewRole::ToastTitle | HudViewRole::ToastMessage => {
-            [(width - 320.0).max(0.0), 12.0 + ordinal as f32 * 18.0]
-        }
-    }
-}
-
-fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, UiPresentationError> {
-    UiRect::new(
-        UiPoint::new(left, top).map_err(UiPresentationError::Geometry)?,
-        UiPoint::new(right, bottom).map_err(UiPresentationError::Geometry)?,
-    )
-    .map_err(UiPresentationError::Geometry)
 }
 
 #[cfg(test)]

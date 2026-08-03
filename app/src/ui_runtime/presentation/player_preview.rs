@@ -250,24 +250,24 @@ fn project_hand(vertex: ActorVertex, pose: PlayerPreviewPose, left: bool) -> Pro
     // Re-center the standard biped arm into a compact first-person carrier.
     // The two arms are uploaded into separate sprites, so each remains at the
     // edge of the view instead of inheriting the paper-doll's shoulder span.
-    local[0] = (local[0] - side * 0.375) * 0.82 + side * 0.08;
+    local[0] = (local[0] - side * 0.375) * 0.82 + side * 0.05;
     local[1] = (local[1] - 0.75) * 0.86 + 0.08;
-    local[2] *= 0.55;
     if pose.sneaking {
         local[1] -= 0.03;
     }
     let pitch = (-pose.pitch_degrees.to_radians() * 0.18)
         .clamp(-std::f32::consts::FRAC_PI_6, std::f32::consts::FRAC_PI_6);
-    local = rotate_x(local, pitch, [0.0, 0.18, 0.0]);
-    // Bedrock's first-person arm carrier is angled inward rather than being a
-    // pair of vertical rectangles. Rotate around the wrist-side pivot after
-    // the pitch so the silhouette follows the same hand-in-frame gesture on
-    // both sides.
-    local = rotate_z(local, side * 0.30, [0.0, 0.08, 0.0]);
+    local = rotate_x(local, pitch - 0.34, [0.0, 0.18, 0.0]);
+    // The first-person carrier exposes the top and inner faces of the arm.
+    // Applying yaw before the inward roll preserves the cuboid silhouette;
+    // the previous roll-only projection collapsed the depth axis and read as
+    // a large flat rectangle even though the source geometry was 3-D.
+    local = rotate_y(local, -side * 0.72, [0.0, 0.08, 0.0]);
+    local = rotate_z(local, side * 0.24, [0.0, 0.08, 0.0]);
     ProjectedVertex {
         screen: [
-            HAND_WIDTH as f32 * 0.5 + local[0] * 155.0,
-            HAND_HEIGHT as f32 - 4.0 - local[1] * 48.0,
+            HAND_WIDTH as f32 * 0.5 + local[0] * 104.0,
+            HAND_HEIGHT as f32 - 3.0 - local[1] * 55.0,
         ],
         depth: local[2],
         uv: vertex.uv,
