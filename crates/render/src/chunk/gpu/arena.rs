@@ -192,6 +192,19 @@ pub(in crate::chunk) struct GpuUpdateCandidate {
     pub(in crate::chunk) key: SubChunkKey,
     pub(in crate::chunk) generation: u64,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
+    pub(in crate::chunk) priority: ChunkUploadPriority,
+}
+
+impl GpuUpdateCandidate {
+    pub(in crate::chunk) fn from_instance(entity: Entity, instance: &ChunkRenderInstance) -> Self {
+        Self {
+            entity,
+            key: instance.key,
+            generation: instance.generation,
+            tint_identity: instance.tint_identity,
+            priority: instance.priority,
+        }
+    }
 }
 
 pub(in crate::chunk) const MAX_GPU_UPDATE_FAIRNESS_ENTRIES: usize = 65_536;
@@ -200,7 +213,9 @@ pub(in crate::chunk) const GPU_UPDATE_OVERDUE_FRAMES: u32 = 2;
 #[derive(Resource)]
 pub(in crate::chunk) struct GpuUpdateFairness {
     pub(in crate::chunk) wait_ages: HashMap<Entity, u32>,
+    pub(in crate::chunk) urgent_waiters: HashSet<Entity>,
     pub(in crate::chunk) limit: usize,
+    pub(in crate::chunk) last_tint_identity: Option<ChunkBiomeTintIdentity>,
 }
 
 impl Default for GpuUpdateFairness {
@@ -213,6 +228,8 @@ impl GpuUpdateFairness {
     pub(in crate::chunk) fn with_limit(limit: usize) -> Self {
         Self {
             wait_ages: HashMap::new(),
+            urgent_waiters: HashSet::new(),
+            last_tint_identity: None,
             limit,
         }
     }
@@ -221,13 +238,25 @@ impl GpuUpdateFairness {
         self.wait_ages.get(&entity).copied().unwrap_or(0)
     }
 
-    pub(in crate::chunk) fn finish_frame(&mut self, active: &[Entity], successful: &[Entity]) {
+    pub(in crate::chunk) fn is_urgent(&self, entity: Entity) -> bool {
+        self.urgent_waiters.contains(&entity)
+    }
+
+    pub(in crate::chunk) fn finish_frame(
+        &mut self,
+        active: &[Entity],
+        successful: &[Entity],
+        urgent: &[Entity],
+    ) {
         let active_set = active.iter().copied().collect::<HashSet<_>>();
         let successful = successful.iter().copied().collect::<HashSet<_>>();
         self.wait_ages
             .retain(|entity, _| active_set.contains(entity));
+        self.urgent_waiters
+            .retain(|entity| active_set.contains(entity));
         for &entity in &successful {
             self.wait_ages.remove(&entity);
+            self.urgent_waiters.remove(&entity);
         }
         for &entity in active.iter().filter(|entity| !successful.contains(entity)) {
             if let Some(age) = self.wait_ages.get_mut(&entity) {
@@ -236,11 +265,18 @@ impl GpuUpdateFairness {
                 self.wait_ages.insert(entity, 1);
             }
         }
+        for &entity in urgent.iter().filter(|entity| !successful.contains(entity)) {
+            if self.wait_ages.contains_key(&entity) {
+                self.urgent_waiters.insert(entity);
+            }
+        }
     }
 
     #[cfg(test)]
     pub(in crate::chunk) fn reset(&mut self) {
         self.wait_ages.clear();
+        self.urgent_waiters.clear();
+        self.last_tint_identity = None;
     }
 
     #[cfg(test)]
@@ -280,8 +316,11 @@ pub(in crate::chunk) fn plan_gpu_chunk_updates(
         let right_age = fairness.wait_age(right.entity);
         let left_overdue = left_age >= GPU_UPDATE_OVERDUE_FRAMES;
         let right_overdue = right_age >= GPU_UPDATE_OVERDUE_FRAMES;
-        right_overdue
-            .cmp(&left_overdue)
+        let left_urgent = left.priority.is_urgent() || fairness.is_urgent(left.entity);
+        let right_urgent = right.priority.is_urgent() || fairness.is_urgent(right.entity);
+        right_urgent
+            .cmp(&left_urgent)
+            .then_with(|| right_overdue.cmp(&left_overdue))
             .then_with(|| {
                 if left_overdue && right_overdue {
                     right_age.cmp(&left_age)

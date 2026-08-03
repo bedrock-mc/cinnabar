@@ -153,7 +153,12 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     witness_request: Res<TransparentWitnessRequest>,
     witness_evidence: Res<TransparentWitnessEvidence>,
     mut upload_budget: ResMut<TransparentUploadBudget>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let worker_profiler = profiler.as_deref().cloned();
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::TransparentPreparation));
     upload_budget.reset();
     let completed = {
         let receiver = runtime
@@ -242,7 +247,7 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             Err(TransparentSortError::InvalidCameraTransform) => {}
         }
         if let Some((_generation, work)) = next {
-            spawn_transparent_sort(runtime.result_sender.clone(), work);
+            spawn_transparent_sort(runtime.result_sender.clone(), work, worker_profiler.clone());
         }
         runtime.prune_request_metadata();
     }
@@ -439,7 +444,11 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
                         runtime.staged_distinct_tint_counts.remove(&replaced);
                     }
                     if let Some((_generation, work)) = start {
-                        spawn_transparent_sort(runtime.result_sender.clone(), work);
+                        spawn_transparent_sort(
+                            runtime.result_sender.clone(),
+                            work,
+                            worker_profiler.clone(),
+                        );
                     }
                     runtime.prune_request_metadata();
                 }

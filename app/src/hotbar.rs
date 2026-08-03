@@ -99,7 +99,7 @@ pub(crate) fn select_hotbar_slot(
     let Some(runtime_id) = runtime.local_runtime_id() else {
         return;
     };
-    match network.send_packet(select_hotbar_slot_packet(runtime_id, target)) {
+    match network.send_hotbar_packet(select_hotbar_slot_packet(runtime_id, target)) {
         // A dropped selection under backpressure is tolerable: the local prediction still moved
         // the highlight, and the next selection supersedes it.
         Ok(()) | Err(PacketSendError::Full(_)) => {}

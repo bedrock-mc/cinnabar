@@ -2,9 +2,8 @@ use std::{collections::HashMap, num::NonZeroU64};
 
 use bevy::prelude::{Res, ResMut, Resource};
 use semantic_input::{
-    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, ControllerFrame,
-    DeviceFrame, InputContext, KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter,
-    TouchContact,
+    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, DeviceFrame, InputContext,
+    KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
 mod physical;
@@ -91,13 +90,15 @@ impl SemanticInputRuntime {
     }
 
     pub(crate) fn route_device_frame(&mut self, mut frame: DeviceFrame) -> Result<(), RouterError> {
-        for previous in &self.previous.controllers {
-            if !frame
-                .controllers
-                .iter()
-                .any(|current| current.device_id == previous.device_id)
-            {
-                frame.disconnected_controllers.push(previous.device_id);
+        if !frame.window_focus_lost {
+            for previous in &self.previous.controllers {
+                if !frame
+                    .controllers
+                    .iter()
+                    .any(|current| current.device_id == previous.device_id)
+                {
+                    frame.disconnected_controllers.push(previous.device_id);
+                }
             }
         }
         frame.disconnected_controllers.sort_unstable();
@@ -112,7 +113,21 @@ impl SemanticInputRuntime {
     }
 
     pub(crate) fn finalize_routed_input(&mut self) -> Result<ActionSnapshot, RouterError> {
-        self.router.finalize()
+        let snapshot = self.router.finalize()?;
+        if self
+            .previous
+            .keyboard_mouse
+            .as_ref()
+            .is_some_and(|keyboard| !keyboard.keys.is_empty())
+        {
+            bevy::log::debug!(
+                authority = ?self.authority,
+                movement = ?snapshot.movement,
+                input_mode = ?snapshot.input_mode,
+                "finalized keyboard semantic input"
+            );
+        }
+        Ok(snapshot)
     }
 
     pub fn set_context(&mut self, context: InputContext) {
@@ -134,7 +149,7 @@ impl SemanticInputRuntime {
     pub fn synchronize_authority(
         &mut self,
         frame: SemanticInputAuthorityFrame,
-    ) -> Result<(), BindingError> {
+    ) -> Result<bool, BindingError> {
         let identity = SemanticInputAuthorityIdentity {
             context: frame.context,
             controls_generation: frame.controls_generation,
@@ -142,6 +157,7 @@ impl SemanticInputRuntime {
             dimension: frame.dimension,
         };
         let previous = self.authority;
+        let changed = previous != Some(identity);
         if previous
             .is_none_or(|previous| previous.controls_generation != identity.controls_generation)
         {
@@ -163,7 +179,7 @@ impl SemanticInputRuntime {
             self.release_all(ReleaseReason::DimensionReplaced);
         }
         self.authority = Some(identity);
-        Ok(())
+        Ok(changed)
     }
 
     fn next_activity(&mut self) -> u64 {
@@ -184,18 +200,35 @@ impl SemanticInputRuntime {
         frame
             .controllers
             .sort_by_key(|controller| controller.device_id);
+        let known_controller_activity_changed = {
+            let previous = &self.previous.controllers;
+            self.router.controller_activity_changed(
+                previous.iter().filter(|previous| {
+                    frame
+                        .controllers
+                        .iter()
+                        .any(|current| current.device_id == previous.device_id)
+                }),
+                frame.controllers.iter().filter(|current| {
+                    previous
+                        .iter()
+                        .any(|previous| previous.device_id == current.device_id)
+                }),
+            )
+        };
+        let known_controller_activity =
+            known_controller_activity_changed.then(|| self.next_activity());
         for current in &mut frame.controllers {
             let previous = self
                 .previous
                 .controllers
                 .iter()
                 .find(|previous| previous.device_id == current.device_id);
-            current.activity_sequence =
-                if previous.is_some_and(|previous| controller_physical_eq(previous, current)) {
-                    previous.map_or(0, |previous| previous.activity_sequence)
-                } else {
-                    self.next_activity()
-                };
+            current.activity_sequence = match (previous, known_controller_activity) {
+                (Some(_), Some(activity)) => activity,
+                (Some(previous), None) => previous.activity_sequence,
+                (None, _) => self.next_activity(),
+            };
         }
         frame.touches.sort_by_key(|touch| touch.contact_id);
         for current in &mut frame.touches {
@@ -221,17 +254,12 @@ fn keyboard_physical_eq(left: &KeyboardMouseFrame, right: &KeyboardMouseFrame) -
         && left.modifiers == right.modifiers
 }
 
-fn controller_physical_eq(left: &ControllerFrame, right: &ControllerFrame) -> bool {
-    left.axes == right.axes && left.buttons == right.buttons
-}
-
 fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
     left.position == right.position && left.delta == right.delta && left.hit_id == right.hit_id
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SemanticTouchTarget {
-    Movement,
     Control(u16),
 }
 
@@ -242,10 +270,6 @@ impl SemanticTouchTargets {
     pub fn set(&mut self, contact_id: u64, hit_id: u16) {
         self.0
             .insert(contact_id, SemanticTouchTarget::Control(hit_id));
-    }
-
-    pub(crate) fn set_movement(&mut self, contact_id: u64) {
-        self.0.insert(contact_id, SemanticTouchTarget::Movement);
     }
 
     pub fn clear(&mut self, contact_id: u64) {
@@ -262,16 +286,9 @@ impl SemanticTouchTargets {
 
     #[must_use]
     pub fn target(&self, contact_id: u64) -> Option<u16> {
-        match self.0.get(&contact_id) {
-            Some(SemanticTouchTarget::Control(hit_id)) => Some(*hit_id),
-            Some(SemanticTouchTarget::Movement) | None => None,
-        }
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn is_movement(&self, contact_id: u64) -> bool {
-        self.0.get(&contact_id) == Some(&SemanticTouchTarget::Movement)
+        self.0
+            .get(&contact_id)
+            .map(|SemanticTouchTarget::Control(hit_id)| *hit_id)
     }
 
     pub fn release_all(&mut self) {
@@ -284,6 +301,7 @@ pub(crate) fn synchronize_semantic_input_authority(
     ui: Option<Res<UiRuntime>>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
+    mut touch_targets: ResMut<SemanticTouchTargets>,
 ) {
     let Some(ui) = ui.filter(|ui| ui.session_id() != 0) else {
         return;
@@ -301,13 +319,77 @@ pub(crate) fn synchronize_semantic_input_authority(
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };
-    if let Err(error) = runtime.synchronize_authority(SemanticInputAuthorityFrame {
+    match runtime.synchronize_authority(SemanticInputAuthorityFrame {
         context,
         controls_generation,
         controls: user_settings.controls.clone(),
         session_generation,
         dimension,
     }) {
-        bevy::log::warn!(?error, "rejected semantic input authority replacement");
+        Ok(true) => touch_targets.release_all(),
+        Ok(false) => {}
+        Err(error) => {
+            touch_targets.release_all();
+            bevy::log::warn!(?error, "rejected semantic input authority replacement");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SemanticInputRuntime;
+    use semantic_input::{Action, ControllerFrame, DeviceFrame, ReleaseReason};
+
+    #[test]
+    fn cursor_unlock_does_not_synthesize_controller_disconnect() {
+        let controller = ControllerFrame {
+            device_id: 7,
+            buttons: vec![0],
+            ..ControllerFrame::default()
+        };
+        let mut runtime = SemanticInputRuntime::default();
+        runtime
+            .route_and_finalize(DeviceFrame {
+                controllers: vec![controller.clone()],
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+
+        let unlocked = runtime
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: None,
+                controllers: vec![controller],
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        assert!(unlocked.phases[Action::Jump as usize].held);
+        assert!(!unlocked.phases[Action::Jump as usize].released);
+        assert_eq!(unlocked.release_reasons[Action::Jump as usize], None);
+    }
+
+    #[test]
+    fn focus_loss_is_not_misreported_as_controller_disconnect() {
+        let mut runtime = SemanticInputRuntime::default();
+        runtime
+            .route_and_finalize(DeviceFrame {
+                controllers: vec![ControllerFrame {
+                    device_id: 7,
+                    buttons: vec![0],
+                    ..ControllerFrame::default()
+                }],
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+
+        let unfocused = runtime
+            .route_and_finalize(DeviceFrame {
+                window_focus_lost: true,
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        assert_eq!(
+            unfocused.release_reasons[Action::Jump as usize],
+            Some(ReleaseReason::WindowFocusLost)
+        );
     }
 }

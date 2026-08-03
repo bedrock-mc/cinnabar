@@ -12,6 +12,13 @@ pub struct PlayerState {
     pub movement: Vec3,
     pub on_ground: bool,
     pub jump_delay: u8,
+    /// Axis collisions resolved by the previous tick. Bedrock reads these one
+    /// tick late — `bedsim v0.1.3` `simulateMovement` consults `state.CollideX`
+    /// and `state.CollideZ` before the current tick resolves motion — so they
+    /// are retained state, not a derived output. Traces recorded before this
+    /// field existed default to "no retained collision".
+    #[serde(default)]
+    pub collisions: AxisCollisions,
 }
 
 impl PlayerState {
@@ -24,6 +31,11 @@ impl PlayerState {
             movement: Vec3::ZERO,
             on_ground: false,
             jump_delay: 0,
+            collisions: AxisCollisions {
+                x: false,
+                y: false,
+                z: false,
+            },
         }
     }
 }

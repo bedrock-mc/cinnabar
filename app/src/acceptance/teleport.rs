@@ -32,13 +32,15 @@ pub(crate) struct TeleportReadySnapshot {
     pub(crate) last_mesh_completion_at: Option<Instant>,
     pub(crate) last_mesh_ack_at: Option<Instant>,
     pub(crate) work: WorldReadyWork,
+    pub(crate) readiness_produced: u64,
+    pub(crate) readiness_consumed: u64,
 }
 
 impl TeleportReadySnapshot {
     pub(crate) fn is_binding_ready(self) -> bool {
         authoritative_received_radius(self.received_radius_chunks).is_some()
             && self.cohort.is_some_and(ViewCohortStatus::is_exact)
-            && self.work.is_empty()
+            && self.work.is_empty_after_ingress_fence()
     }
 
     pub(crate) fn is_ready(self) -> bool {
@@ -74,6 +76,7 @@ pub(crate) struct PendingFullViewTeleport {
     pub(crate) last_sub_chunk_latency: Option<Duration>,
     pub(crate) sub_chunk_events: u64,
     pub(crate) peak_network_events: usize,
+    pub(crate) readiness_ingress_fence: Option<u64>,
     pub(crate) presented_candidate: Option<TeleportPresentedCandidate>,
     pub(crate) last_progress_at: Option<Instant>,
 }
@@ -358,6 +361,7 @@ impl FullViewTeleportTracker {
             last_sub_chunk_latency: None,
             sub_chunk_events: 0,
             peak_network_events: 0,
+            readiness_ingress_fence: None,
             presented_candidate: None,
             last_progress_at: None,
         });
@@ -420,6 +424,14 @@ impl FullViewTeleportTracker {
             || proposed.source_cohort != Some(source)
             || proposed.manifest.is_empty()
         {
+            pending.readiness_ingress_fence = None;
+            pending.presented_candidate = None;
+            return None;
+        }
+        let fence = *pending
+            .readiness_ingress_fence
+            .get_or_insert(snapshot.readiness_produced);
+        if snapshot.readiness_consumed < fence {
             pending.presented_candidate = None;
             return None;
         }
@@ -588,7 +600,7 @@ impl FullViewTeleportTracker {
             .committed
             .map_or_else(|| "none".to_owned(), cohort_tag);
         Some(format!(
-            "{TELEPORT_COHORT} target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_light_jobs={} in_flight_light_jobs={} terminal_light_failures={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
+            "{TELEPORT_COHORT} target={} committed={} exact={} expected={} loaded_target={} missing_target={} foreign_loaded={} foreign_requested={} foreign_resident={} source_leftover={} resident_count={} resident_hash={:016x} known_air_count={} known_air_hash={:016x} network_events={} readiness_events={} network_commands={} admitted_world_events={} queued_decode_jobs={} in_flight_decode_jobs={} completed_decode_results={} pending_light_jobs={} in_flight_light_jobs={} terminal_light_failures={} pending_mesh_jobs={} in_flight_mesh_jobs={} pending_mesh_changes={} outbound_requests={} outstanding_sub_chunks={} pending_retry_requests={} awaiting_sub_chunk_responses={} sub_chunk_timeouts={} sub_chunk_retries_scheduled={} sub_chunk_retry_exhaustions={} render_queue_items={} pending_gpu_acknowledgements={} unacknowledged_meshes={}",
             cohort_tag(pending.target),
             committed,
             status.is_exact(),
@@ -604,6 +616,7 @@ impl FullViewTeleportTracker {
             status.known_air_count,
             status.known_air_hash,
             work.network_events,
+            work.readiness_events,
             work.network_commands,
             work.admitted_world_events,
             work.queued_decode_jobs,

@@ -1,3 +1,4 @@
+use crate::RuntimeStageProfiler;
 use crate::chunk::*;
 
 #[derive(Resource, Default)]
@@ -98,6 +99,7 @@ impl Plugin for ChunkRenderPlugin {
         let transparent_sort_metrics = app.world().resource::<TransparentSortMetrics>().clone();
         let model_workload_metrics = app.world().resource::<ModelWorkloadMetrics>().clone();
         let visibility_diagnostics = app.world().resource::<VisibilityDiagnostics>().clone();
+        let runtime_stage_profiler = app.world().get_resource::<RuntimeStageProfiler>().cloned();
         let transparent_witness_evidence =
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
@@ -127,6 +129,9 @@ impl Plugin for ChunkRenderPlugin {
             .init_resource::<TransparentUploadBudget>()
             .init_resource::<TransparentPresentationFence>()
             .init_resource::<TransparentRetirementFence>();
+        if let Some(runtime_stage_profiler) = runtime_stage_profiler {
+            render_app.insert_resource(runtime_stage_profiler);
+        }
         install_chunk_commands(render_app);
         render_app
             .add_systems(

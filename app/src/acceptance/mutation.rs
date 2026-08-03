@@ -277,7 +277,7 @@ pub(crate) fn world_ready_markers(snapshot: WorldReadySnapshot) -> Option<[Strin
         || !snapshot.mutation_target_rendered
         || !snapshot.mutation_target_visible
         || !snapshot.mutation_target_clean
-        || !snapshot.work.is_empty()
+        || !snapshot.work.is_empty_after_ingress_fence()
     {
         return None;
     }

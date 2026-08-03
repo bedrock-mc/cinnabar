@@ -98,7 +98,7 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
     let now = Instant::now();
     let config = client_world::PublicationServiceConfig::PHASE2_GATE;
     let allowance = client_world::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 0, 0, 512);
+    allowance.begin_frame(1, 256, 0, 512, config.maximum_frame_items);
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -136,7 +136,7 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
         256
     );
     assert_eq!(allowance.live_permits(), 256);
-    allowance.begin_frame(2, 0, 0, 512);
+    allowance.begin_frame(2, 1, 0, 512, config.maximum_frame_items);
     assert!(allowance.try_admit_zero_byte().is_none());
 
     drop(app);
@@ -155,7 +155,13 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 1);
+    allowance.begin_frame(
+        1,
+        1,
+        0,
+        1,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let permit = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -170,6 +176,7 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
             .push(PendingGpuRemoval {
                 key,
                 token: Some(token),
+                priority: ChunkUploadPriority::new(0.0),
                 permit,
             })
             .is_ok()
@@ -202,7 +209,13 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 1);
+    allowance.begin_frame(
+        1,
+        1,
+        0,
+        1,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let permit = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -217,6 +230,7 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
             .push(PendingGpuRemoval {
                 key,
                 token: Some(token),
+                priority: ChunkUploadPriority::new(0.0),
                 permit,
             })
             .is_ok()
@@ -240,7 +254,13 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 0, 0, 2);
+    allowance.begin_frame(
+        1,
+        2,
+        0,
+        2,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let first = allowance
         .try_admit_zero_byte()
         .unwrap()
@@ -261,6 +281,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
             .push(PendingGpuRemoval {
                 key,
                 token: None,
+                priority: ChunkUploadPriority::new(0.0),
                 permit: first,
             })
             .is_ok()
@@ -272,6 +293,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
             .push(PendingGpuRemoval {
                 key,
                 token: None,
+                priority: ChunkUploadPriority::new(0.0),
                 permit: second,
             })
             .is_ok()
@@ -285,6 +307,160 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
 }
 
 #[test]
+fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
+    let config = client_world::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = client_world::PublicationAllowance::new(config);
+    let gpu_removals = ChunkGpuRemovalQueue::default();
+    allowance.begin_frame(
+        1,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    for index in 0..config.maximum_zero_byte_operations_per_frame {
+        let permit = allowance
+            .try_admit_zero_byte()
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        assert!(
+            gpu_removals
+                .push(PendingGpuRemoval {
+                    key: SubChunkKey::new(0, index as i32, 0, 0),
+                    token: None,
+                    priority: ChunkUploadPriority::new(0.0),
+                    permit,
+                })
+                .is_ok()
+        );
+    }
+
+    allowance.begin_frame(2, 2, 0, 2, config.maximum_frame_items);
+    let ordinary_overflow = allowance
+        .try_admit_zero_byte_with_priority(true)
+        .unwrap()
+        .into_handoff()
+        .unwrap()
+        .into_render_entity()
+        .unwrap();
+    assert!(
+        gpu_removals
+            .push(PendingGpuRemoval {
+                key: SubChunkKey::new(0, 256, 0, 0),
+                token: None,
+                priority: ChunkUploadPriority::new(0.0),
+                permit: ordinary_overflow,
+            })
+            .is_err()
+    );
+    let urgent = allowance
+        .try_admit_zero_byte_with_priority(true)
+        .unwrap()
+        .into_handoff()
+        .unwrap()
+        .into_render_entity()
+        .unwrap();
+    assert!(
+        gpu_removals
+            .push(PendingGpuRemoval {
+                key: SubChunkKey::new(0, 257, 0, 0),
+                token: None,
+                priority: ChunkUploadPriority::urgent(),
+                permit: urgent,
+            })
+            .is_ok()
+    );
+    assert_eq!(
+        gpu_removals.pending_len(),
+        config.maximum_zero_byte_operations_per_frame + 1
+    );
+
+    drop(gpu_removals);
+    assert_eq!(allowance.live_permits(), 0);
+}
+
+#[test]
+fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
+    let config = client_world::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = client_world::PublicationAllowance::new(config);
+    let gpu_removals = ChunkGpuRemovalQueue::default();
+    allowance.begin_frame(
+        1,
+        config.urgent_zero_byte_reserve,
+        0,
+        config.urgent_zero_byte_reserve,
+        config.maximum_frame_items,
+    );
+    for index in 0..config.urgent_zero_byte_reserve {
+        let permit = allowance
+            .try_admit_zero_byte_with_priority(true)
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        assert!(
+            gpu_removals
+                .push(PendingGpuRemoval {
+                    key: SubChunkKey::new(0, index as i32, 0, 0),
+                    token: None,
+                    priority: ChunkUploadPriority::urgent(),
+                    permit,
+                })
+                .is_ok()
+        );
+    }
+
+    allowance.begin_frame(
+        2,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    for index in config.urgent_zero_byte_reserve
+        ..config.maximum_zero_byte_operations_per_frame + config.urgent_zero_byte_reserve
+    {
+        let permit = allowance
+            .try_admit_zero_byte_with_priority(true)
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        assert!(
+            gpu_removals
+                .push(PendingGpuRemoval {
+                    key: SubChunkKey::new(0, index as i32, 0, 0),
+                    token: None,
+                    priority: ChunkUploadPriority::urgent(),
+                    permit,
+                })
+                .is_ok()
+        );
+    }
+
+    let completed =
+        gpu_removals.take_ready(config.maximum_zero_byte_operations_per_frame, |_| true);
+    assert_eq!(
+        completed
+            .iter()
+            .take(config.urgent_zero_byte_reserve)
+            .map(|removal| removal.key.x)
+            .collect::<Vec<_>>(),
+        (0..config.urgent_zero_byte_reserve as i32).collect::<Vec<_>>()
+    );
+    assert_eq!(gpu_removals.pending_len(), config.urgent_zero_byte_reserve);
+
+    drop(completed);
+    drop(gpu_removals);
+    assert_eq!(allowance.live_permits(), 0);
+}
+
+#[test]
 fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
     let now = Instant::now();
     let key = SubChunkKey::new(0, 12, 0, 12);
@@ -294,7 +470,13 @@ fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 1, bytes, 0);
+    allowance.begin_frame(
+        1,
+        1,
+        bytes,
+        0,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let permit = allowance.try_admit_payload(bytes).unwrap();
 
     let mut app = App::new();
@@ -364,6 +546,7 @@ fn admitted_payload_reaches_real_gpu_preparation_with_one_linear_permit_and_exac
         1,
         client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes,
         0,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance.try_admit_payload(bytes).unwrap();
     let acknowledgements = ChunkUploadAcknowledgements::default();
@@ -433,7 +616,13 @@ fn growth_deferred_for_frame_byte_authority_restores_the_linear_permit_then_acks
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 1, bytes, 0);
+    allowance.begin_frame(
+        1,
+        1,
+        bytes,
+        0,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let permit = allowance.try_admit_payload(bytes).unwrap();
     assert_eq!(allowance.frame_remaining_bytes(), 0);
 
@@ -498,6 +687,7 @@ fn growth_deferred_for_frame_byte_authority_restores_the_linear_permit_then_acks
         0,
         client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes,
         0,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     gpu_app
         .world_mut()
@@ -533,7 +723,13 @@ fn render_handoff_rejects_a_permit_with_the_wrong_class_or_exact_bytes() {
     let allowance = client_world::PublicationAllowance::new(
         client_world::PublicationServiceConfig::PHASE2_GATE,
     );
-    allowance.begin_frame(1, 1, 64, 1);
+    allowance.begin_frame(
+        1,
+        2,
+        64,
+        1,
+        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+    );
     let payload = allowance.try_admit_payload(64).unwrap();
     let zero = allowance.try_admit_zero_byte().unwrap();
     let mut queue = ChunkRenderQueue::default();
@@ -613,6 +809,7 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
             1_024,
             16 * 1024 * 1024,
             config.maximum_zero_byte_operations_per_frame,
+            config.maximum_frame_items,
         );
         let frame_end = next_payload
             .saturating_add(PAYLOADS_PER_FRAME)

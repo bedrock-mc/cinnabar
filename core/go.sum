@@ -1,3 +1,5 @@
+github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
+github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
@@ -18,10 +20,10 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec h1:V/lDQl14Uyez/1uhrVEeJ4F/UJ8zS1H/NdYGIOE+N+Q=
-github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260716204458-48765b0f2652 h1:iFQkkBUTpznwmb+qmE9enMybdl9HcIbZQZmITtOl83Q=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260716204458-48765b0f2652/go.mod h1:BHr17c5+172v/bAgfcUEMaPHm+o+9s/pFl9ZyfVWB04=
+github.com/hashimthearab/go-raknet v1.15.1-0.20260717160613-0b3a6a7d4f25 h1:JNR+G/5UO1IXq0q/wggNZ1ZRGAmqbiSJ5xoHDpnVXAk=
+github.com/hashimthearab/go-raknet v1.15.1-0.20260717160613-0b3a6a7d4f25/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697 h1:/OBmKrpaUtoRc2EGTVfZQVFrm7ZnzIv9n8b0em6N3eU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697/go.mod h1:BHr17c5+172v/bAgfcUEMaPHm+o+9s/pFl9ZyfVWB04=
 github.com/klauspost/compress v1.18.1 h1:bcSGx7UbpBqMChDtsF28Lw6v/G94LPrrbMbdC3JH2co=
 github.com/klauspost/compress v1.18.1/go.mod h1:ZQFFVG+MdnR0P+l6wpXgIL4NTtwiKIdBnrBd8Nrxr+0=
 github.com/pion/datachannel v1.6.2 h1:7EXQ8TH3vTouBUdRWYbcX2edSx9Yj6k5zl5P+qyxEPc=

@@ -79,6 +79,36 @@ func (w scriptedWorld) GetNearbyBBoxes(query cube.BBox) []cube.BBox {
 
 func (scriptedWorld) IsChunkLoaded(_, _ int32) bool { return true }
 
+// scenarioSemantics is the authoritative PREG-to-bedsim environment query. A
+// scenario world reports one homogeneous set of movement facts for every block,
+// exactly as crates/sim's ScenarioWorld::block_physics does, so the semantics
+// resolve from those facts rather than from a Dragonfly block type. This is the
+// bedsim v0.1.3 BlockSemanticsProvider contract (simulator.go), which is what
+// lets climbable, friction, and named-surface strata be observed instead of
+// asserted.
+type scenarioSemantics struct{ facts blockPhysics }
+
+func (s scenarioSemantics) BlockName(dfworld.Block) string {
+	// bedsim keys soul sand, slime, and bed behaviour off these exact vanilla
+	// identifiers. Anything else must not collide with a name bedsim reacts to.
+	switch s.facts.SurfaceResponse {
+	case "soul_sand":
+		return "minecraft:soul_sand"
+	case "slime":
+		return "minecraft:slime"
+	case "bed":
+		return "minecraft:bed"
+	default:
+		return "minecraft:stone"
+	}
+}
+
+func (s scenarioSemantics) BlockFriction(dfworld.Block) float64 { return s.facts.Friction }
+
+func (s scenarioSemantics) BlockClimbable(dfworld.Block) bool {
+	return s.facts.Flags&flagClimbable != 0
+}
+
 type vec3 struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
@@ -113,12 +143,13 @@ type tickResult struct {
 }
 
 type playerState struct {
-	Tick      uint64 `json:"tick"`
-	Position  vec3   `json:"position"`
-	Velocity  vec3   `json:"velocity"`
-	Movement  vec3   `json:"movement"`
-	OnGround  bool   `json:"on_ground"`
-	JumpDelay uint8  `json:"jump_delay"`
+	Tick       uint64     `json:"tick"`
+	Position   vec3       `json:"position"`
+	Velocity   vec3       `json:"velocity"`
+	Movement   vec3       `json:"movement"`
+	OnGround   bool       `json:"on_ground"`
+	JumpDelay  uint8      `json:"jump_delay"`
+	Collisions collisions `json:"collisions"`
 }
 
 type movementEnvironment struct {
@@ -262,7 +293,11 @@ func newSimulator() bedsim.Simulator {
 }
 
 func newScenarioSimulator(world scenarioWorld) bedsim.Simulator {
-	return bedsim.Simulator{World: scriptedWorld{boxes: world.Boxes}, Options: bedsim.SimulationOptions{SprintTiming: bedsim.SprintTimingModern, IgnoreClientStepTiebreaker: true}}
+	return bedsim.Simulator{
+		World:          scriptedWorld{boxes: world.Boxes},
+		BlockSemantics: scenarioSemantics{facts: world.Physics},
+		Options:        bedsim.SimulationOptions{SprintTiming: bedsim.SprintTimingModern, IgnoreClientStepTiebreaker: true},
+	}
 }
 
 func toBedsimState(state playerState) bedsim.MovementState {
@@ -270,6 +305,11 @@ func toBedsimState(state playerState) bedsim.MovementState {
 	result.Pos = mgl64.Vec3{state.Position.X, state.Position.Y, state.Position.Z}
 	result.Vel = mgl64.Vec3{state.Velocity.X, state.Velocity.Y, state.Velocity.Z}
 	result.OnGround = state.OnGround
+	// Bedrock reads the previous tick's axis collisions during the current one,
+	// so a scenario that starts mid-contact must seed them.
+	result.CollideX = state.Collisions.X
+	result.CollideY = state.Collisions.Y
+	result.CollideZ = state.Collisions.Z
 	return result
 }
 
@@ -370,9 +410,17 @@ func terrainScripts() []scenarioScript {
 	climb.Flags = flagClimbable
 	descend := airborne
 	descend.Velocity.Y = -1
-	unsupported("ladder_ascend", "generator has no authoritative PREG-to-bedsim environment query", airborne, []scenarioWorld{world("ladder_ascend_0", nil, climb, 11), world("ladder_ascend_1", nil, climb, 11)}, []movementInput{{Jumping: true}, {Jumping: true}})
-	unsupported("ladder_descend", "generator has no authoritative PREG-to-bedsim environment query", descend, []scenarioWorld{world("ladder_descend_0", nil, climb, 12), world("ladder_descend_1", nil, climb, 12)}, []movementInput{{}, {}})
-	unsupported("ladder_hold", "generator has no authoritative PREG-to-bedsim environment query", descend, []scenarioWorld{world("ladder_hold_0", nil, climb, 13), world("ladder_hold_1", nil, climb, 13)}, []movementInput{{Sneaking: true}, {Sneaking: true}})
+	scripts = append(scripts,
+		observedScript("ladder_ascend", world("ladder_ascend_world", nil, climb, 11), airborne, []movementInput{{Jumping: true}, {Jumping: true}}),
+		observedScript("ladder_descend", world("ladder_descend_world", nil, climb, 12), descend, []movementInput{{}, {}}),
+		observedScript("ladder_hold", world("ladder_hold_world", nil, climb, 13), descend, []movementInput{{Sneaking: true}, {Sneaking: true}}),
+	)
+	// Walking into a ladder climbs it: bedsim ascends on the *previous* tick's
+	// horizontal collision as well as on a held jump. Tick 2 has no retained
+	// collision, so one script witnesses both the firing and the non-firing arm.
+	wallClimb := descend
+	wallClimb.Collisions = collisions{Z: true}
+	scripts = append(scripts, observedScript("ladder_wall_climb", world("ladder_wall_climb_world", nil, climb, 31), wallClimb, []movementInput{{}, {}}))
 
 	water := ordinary
 	water.Flags, water.FluidHeightBlocks = flagWater, 1
@@ -387,7 +435,7 @@ func terrainScripts() []scenarioScript {
 	cobweb.Flags = flagCobweb
 	cobwebState := airborne
 	cobwebState.Velocity = vec3{0.8, -0.8, 0.8}
-	unsupported("cobweb", "generator has no authoritative PREG-to-bedsim environment query", cobwebState, []scenarioWorld{world("cobweb_0", nil, cobweb, 20), world("cobweb_1", nil, cobweb, 20)}, []movementInput{{}, {}})
+	unsupported("cobweb", "bedsim v0.1.3 detects cobweb through BlockCollisions geometry, which a passable scenario block cannot supply without also blocking movement", cobwebState, []scenarioWorld{world("cobweb_0", nil, cobweb, 20), world("cobweb_1", nil, cobweb, 20)}, []movementInput{{}, {}})
 
 	bounce := playerState{Position: vec3{0, 1.2, 0}, Velocity: vec3{0, -0.7, 0}}
 	for revision, surface := range []struct {
@@ -397,19 +445,32 @@ func terrainScripts() []scenarioScript {
 		{"slime_bounce", "slime", movementInput{}},
 		{"slime_sneak", "slime", movementInput{Sneaking: true}},
 		{"bed_bounce", "bed", movementInput{}},
+		{"bed_sneak", "bed", movementInput{Sneaking: true}},
 	} {
 		facts := ordinary
 		facts.SurfaceResponse = surface.response
-		unsupported(surface.name, "generator has no authoritative PREG-to-bedsim environment query", bounce, []scenarioWorld{world(surface.name+"_0", floorBoxes, facts, uint64(21+revision)), world(surface.name+"_1", floorBoxes, facts, uint64(21+revision))}, []movementInput{surface.input, surface.input})
+		scripts = append(scripts, observedScript(surface.name, world(surface.name+"_world", floorBoxes, facts, uint64(21+revision)), bounce, []movementInput{surface.input, surface.input}))
 	}
-	for revision, surface := range []struct{ name, response string }{{"soul_sand", "soul_sand"}, {"honey", "honey"}} {
-		facts := ordinary
-		facts.HorizontalSpeedFactor, facts.SurfaceResponse = 0.4, surface.response
-		unsupported(surface.name, "generator has no authoritative PREG-to-bedsim environment query", grounded, []scenarioWorld{world(surface.name+"_0", floorBoxes, facts, uint64(24+revision)), world(surface.name+"_1", floorBoxes, facts, uint64(24+revision))}, []movementInput{{Forward: 1}, {Forward: 1}})
-	}
+	// Standing on slime damps horizontal velocity on flat ticks. The bounce
+	// scripts above never produce one, so this witnesses walkOnBlock directly.
+	slimeWalk := grounded
+	slimeWalk.Velocity = vec3{0.3, 0, 0.3}
+	slimeWalkFacts := ordinary
+	slimeWalkFacts.SurfaceResponse = "slime"
+	scripts = append(scripts, observedScript("slime_walk", world("slime_walk_world", floorBoxes, slimeWalkFacts, 32), slimeWalk, []movementInput{{}, {}}))
+
+	// bedsim scales soul sand by a hardcoded 0.543 keyed on the block name,
+	// while crates/sim consumes the PREG horizontal speed factor. Pinning the
+	// scenario factor to bedsim's constant makes the two directly comparable.
+	soulSand := ordinary
+	soulSand.HorizontalSpeedFactor, soulSand.SurfaceResponse = 0.543, "soul_sand"
+	scripts = append(scripts, observedScript("soul_sand", world("soul_sand_world", floorBoxes, soulSand, 24), grounded, []movementInput{{Forward: 1}, {Forward: 1}}))
+	honey := ordinary
+	honey.HorizontalSpeedFactor, honey.SurfaceResponse = 0.4, "honey"
+	unsupported("honey", "bedsim v0.1.3 implements no honey movement stratum", grounded, []scenarioWorld{world("honey_0", floorBoxes, honey, 25), world("honey_1", floorBoxes, honey, 25)}, []movementInput{{Forward: 1}, {Forward: 1}})
 	scaffolding := ordinary
 	scaffolding.Flags = flagScaffolding
-	unsupported("scaffolding", "generator has no authoritative PREG-to-bedsim environment query", airborne, []scenarioWorld{world("scaffolding_0", nil, scaffolding, 26), world("scaffolding_1", nil, scaffolding, 26)}, []movementInput{{Jumping: true}, {}})
+	unsupported("scaffolding", "bedsim v0.1.3 implements no scaffolding movement stratum", airborne, []scenarioWorld{world("scaffolding_0", nil, scaffolding, 26), world("scaffolding_1", nil, scaffolding, 26)}, []movementInput{{Jumping: true}, {}})
 	for revision, bubble := range []struct{ name, response string }{{"bubble_up", "bubble_up"}, {"bubble_down", "bubble_down"}} {
 		facts := water
 		facts.SurfaceResponse = bubble.response

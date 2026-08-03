@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	gameVersion     = "1.26.30"
+	gameVersion     = "1.26.33"
 	protocolID      = 1001
 	senderSubClient = 1
 	targetSubClient = 2

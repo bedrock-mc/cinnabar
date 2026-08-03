@@ -55,6 +55,11 @@ pub(super) fn visual(kind: VisualKind) -> BlockVisual {
             BlockFlags::empty()
         },
         kind,
+        support: if kind == VisualKind::Diagnostic {
+            VisualSupport::Diagnostic
+        } else {
+            VisualSupport::Exact
+        },
         contributor_role: ContributorRole::Primary,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -63,14 +68,20 @@ pub(super) fn visual(kind: VisualKind) -> BlockVisual {
 }
 
 pub(super) fn blob(records: &[RegistryRecord], kinds: &[VisualKind]) -> Vec<u8> {
+    let visuals = kinds.iter().copied().map(visual).collect::<Vec<_>>();
+    blob_with_visuals(records, &visuals)
+}
+
+pub(super) fn blob_with_visuals(records: &[RegistryRecord], visuals: &[BlockVisual]) -> Vec<u8> {
     let mut hashed = records
         .iter()
         .map(|record| (record.network_hash, record.sequential_id))
         .collect::<Vec<_>>();
     hashed.sort_unstable();
     let compiled = CompiledAssets {
-        visuals: kinds.iter().copied().map(visual).collect(),
-        light_properties: vec![assets::LightProperties::default(); kinds.len()].into_boxed_slice(),
+        visuals: visuals.to_vec().into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); visuals.len()]
+            .into_boxed_slice(),
         hashed: hashed.into_boxed_slice(),
         materials: vec![
             Material {
@@ -220,6 +231,7 @@ pub(super) fn strict_no_draw(flags: BlockFlags, role: ContributorRole) -> BlockV
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags,
         kind: VisualKind::Invisible,
+        support: VisualSupport::Exact,
         contributor_role: role,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -232,6 +244,7 @@ pub(super) fn strict_cube(faces: [u32; 6]) -> BlockVisual {
         faces,
         flags: BlockFlags::CUBE_GEOMETRY,
         kind: VisualKind::Cube,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::Primary,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -244,6 +257,7 @@ pub(super) fn strict_model(kind: VisualKind, template: u32) -> BlockVisual {
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::empty(),
         kind,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::Primary,
         model_template: template,
         animation: NO_ANIMATION,
@@ -256,6 +270,7 @@ pub(super) fn strict_liquid(faces: [u32; 6], variant: u32) -> BlockVisual {
         faces,
         flags: BlockFlags::empty(),
         kind: VisualKind::Liquid,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::LiquidAdditional,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -268,6 +283,7 @@ pub(super) fn strict_diagnostic(flags: BlockFlags, role: ContributorRole) -> Blo
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags,
         kind: VisualKind::Diagnostic,
+        support: VisualSupport::Diagnostic,
         contributor_role: role,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,

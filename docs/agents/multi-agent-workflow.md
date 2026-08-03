@@ -1,9 +1,10 @@
 # Multi-agent workflow
 
-Load this when coordinating subagents on a non-trivial implementation, protocol,
-asset, rendering, performance, or integration tranche. For read-only diagnosis or
-review, apply only the preflight, evidence, and reporting portions; do not create
-branches, edit, commit, integrate, or push unless the request authorizes changes.
+Load this when coordinating agents or Luna CLI worker threads on a non-trivial
+implementation, protocol, asset, rendering, performance, or integration tranche.
+For read-only diagnosis or review, apply only the preflight, evidence, and
+reporting portions; do not create branches, edit, commit, integrate, or push
+unless the request authorizes changes.
 
 ## Model routing
 
@@ -13,22 +14,23 @@ completion outrank list price.
 
 | Agent role | Default model | Reasoning | Use and limits |
 | --- | --- | --- | --- |
-| Root coordinator and integrator | `gpt-5.6-sol` | `medium` | Own decomposition, architectural consistency, synthesis, integration, and the final completion decision. |
+| Root coordinator and integrator | `gpt-5.6-sol` | `high` | Own decomposition, architectural consistency, synthesis, integration, review of worker evidence, and the final completion decision. |
 | Implementation writer | `gpt-5.6-sol` | `medium` | Use for all production code, behavior changes, refactors, tests tied to changed behavior, and fixes that may ship. Run at most two isolated writers concurrently. |
-| Independent reviewer | `gpt-5.6-sol` | `high` | Use after implementation for architecture, correctness, protocol, concurrency, performance, security, and player-visible review. `medium` is sufficient for routine low-risk review. |
-| Read-only explorer | `gpt-5.6-luna` | `high` | Use for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Return concise evidence to a Sol agent; do not make shipping edits or give final approval. |
-| Mechanical read-only worker | `gpt-5.6-luna` | `medium` | Use for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
+| Independent reviewer | `gpt-5.6-sol` | `high` | Use after implementation for architecture, correctness, protocol, concurrency, performance, security, and player-visible review. This must be a fresh agent when independence is required. |
+| Read-only explorer | `gpt-5.6-luna` | `xhigh` or `max` | Use a Fast Codex CLI worker thread for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Use `max` for subtle or ambiguity-heavy work. Return concise evidence to the Sol-high coordinator; do not make shipping edits or give final approval. |
+| Mechanical read-only worker | `gpt-5.6-luna` | `xhigh` | Use a Fast Codex CLI worker thread for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
 
-The normal starting topology is one Sol-medium coordinator, zero to two isolated
+The normal starting topology is one Sol-high coordinator, zero to two isolated
 Sol-medium writers, zero to two Luna read-only workers, and one fresh Sol-high
 reviewer after the writing tranche; do not spawn every slot merely because it is
 available. Do not route work to `gpt-5.6-terra` — escalate Luna misses directly
 to Sol. These are defaults, not ceilings: rerun weak work at Sol or higher effort
 without asking, because escalation is cheaper than integrating mediocre work.
-Escalate above medium only for genuinely architectural, unsafe, protocol-ambiguous,
-concurrency-sensitive, cross-cutting, or difficult review work. For UI, HUD, copy,
-public APIs, and other player/developer-facing work, use Sol and enforce the
-applicable visual or API acceptance bar. Benchmark routes on representative
+For non-coordinator Sol work, escalate above medium only when it is genuinely
+architectural, unsafe, protocol-ambiguous, concurrency-sensitive, cross-cutting,
+or difficult review work. For UI, HUD, copy, public APIs, and other
+player/developer-facing work, use Sol and enforce the applicable visual or API
+acceptance bar. Benchmark routes on representative
 Cinnabar tasks; generic intelligence charts are inputs, not proof of reliability
 here. When the runtime exposes model and reasoning controls, use the exact model
 and effort above; if controls are unavailable, use the runtime default, record

@@ -19,7 +19,7 @@ use client_world::PublicationServiceConfig;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
-    UiRenderPlugin, VisibilityDiagnosticsInput,
+    RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
 use sha2::{Digest, Sha256};
 
@@ -49,7 +49,7 @@ use crate::{
     },
     metrics::MetricsCollector,
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsAuthorityGate, PhysicsCollisionRegistries,
+        LocalPhysicsController, PhysicsAuthorityGate, PhysicsCollisionRegistries,
         advance_local_physics,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
@@ -67,8 +67,8 @@ use crate::{
             exit_on_fatal_runtime_error, exit_on_window_close_requested, finish_acceptance_run,
         },
         telemetry::{
-            AcceptanceRuntimeConfig, frame_limited_winit_settings, record_metrics_and_title,
-            send_player_auth_inputs, update_visibility_diagnostics,
+            AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
+            record_metrics_and_title, send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -375,8 +375,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_blob_cache: protocol::ClientBlobCache::default(),
     })
     .context("spawn Bedrock network worker")?;
+    let movement_ticker = network.movement_ticker();
     let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
+    let stage_profile_enabled = std::env::var_os(crate::acceptance::markers::STAGE_PROFILE)
+        .as_deref()
+        == Some(OsStr::new("1"));
     let present_mode_runtime =
         PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
     let present_mode_policy = present_mode_runtime.policy();
@@ -438,7 +442,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(environment::CameraMediumState::default())
         .insert_resource(EnvironmentContext::default())
         .insert_resource(EnvironmentProfileRoute::default())
-        .insert_resource(MovementTicker::default())
+        .insert_resource(movement_ticker)
         .insert_resource(if args.phase3_candidate_physics {
             PhysicsAuthorityGate::CandidateEvidence
         } else {
@@ -484,16 +488,22 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.metrics_out,
             args.full_view_teleport_gate,
             args.require_transparent_presentation,
-        ))
-        .add_plugins((
-            ActorRenderPlugin,
-            AtmospherePlugin,
-            ChunkRenderPlugin::with_budget(
-                PublicationController::new(PublicationServiceConfig::PHASE2_GATE).budget(),
-            ),
-            FlyCameraPlugin::new(args.auto_fly),
-            UiRenderPlugin,
         ));
+    if stage_profile_enabled {
+        app.insert_resource(RuntimeStageProfiler::new(true));
+    }
+    app.add_plugins((
+        ActorRenderPlugin,
+        AtmospherePlugin,
+        ChunkRenderPlugin::with_budget(
+            PublicationController::new(PublicationServiceConfig::PHASE2_GATE).budget(),
+        ),
+        FlyCameraPlugin::with_startup_capture(
+            args.auto_fly,
+            args.auto_fly || args.phase3_candidate_physics,
+        ),
+        UiRenderPlugin,
+    ));
     if let Some(identity) = phase3_identity_source {
         app.insert_resource(identity);
     }
@@ -534,6 +544,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 drive_model_witness,
                 apply_runtime_vsync_setting,
                 record_metrics_and_title,
+                publish_runtime_stage_profile,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
@@ -542,11 +553,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
-    shutdown_watchdog.complete();
-    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
+    drop(app);
+    shutdown_watchdog.complete();
+    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");
     }

@@ -680,6 +680,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
     static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
     ASSETS.get_or_init(|| {
         let diagnostic = BlockVisual {
+            support: assets::VisualSupport::Diagnostic,
             faces: [DIAGNOSTIC_MATERIAL; 6],
             flags: BlockFlags::empty(),
             kind: VisualKind::Diagnostic,
@@ -690,6 +691,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
         };
         let mut visuals = vec![diagnostic; 26];
         visuals[AIR as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
             flags: BlockFlags::AIR,
             kind: VisualKind::Invisible,
             contributor_role: ContributorRole::Air,
@@ -707,18 +709,21 @@ fn runtime_assets() -> &'static RuntimeAssets {
         visuals[FACED_DEPTH_7 as usize] = liquid_visual(faced, 7);
         visuals[NON_WATER_LIQUID as usize] = liquid_visual([14, 14, 13, 13, 14, 14], 0);
         visuals[SOLID as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
             faces: [5; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Cube,
             ..diagnostic
         };
         visuals[CROSS as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
             faces: [6; 6],
             kind: VisualKind::Cross,
             model_template: 0,
             ..diagnostic
         };
         visuals[GLASS as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
             faces: [15; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Cube,
@@ -823,6 +828,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
 
 fn liquid_visual(faces: [u32; 6], variant: u32) -> BlockVisual {
     BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces,
         flags: BlockFlags::empty(),
         kind: VisualKind::Liquid,

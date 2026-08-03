@@ -26,9 +26,12 @@ pub use actor::{
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
-    ClientBlobCache, MAX_CLIENT_BLOB_BYTES, MAX_CLIENT_BLOB_CACHE_BYTES,
-    MAX_CLIENT_BLOB_CACHE_ENTRIES, MAX_CLIENT_BLOB_HASHES_PER_PACKET,
-    MAX_CLIENT_BLOB_PENDING_BYTES, MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, client_blob_hash,
+    BlobCacheStatus, CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES, CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES,
+    ClientBlobCache, MAX_CLIENT_BLOB_HASHES_PER_PACKET, MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
+    MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS, MAX_CLIENT_BLOB_PENDING_BYTES,
+    MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, MAX_CLIENT_BLOB_READY_BYTES,
+    MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
+    MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use inventory::{
@@ -76,11 +79,12 @@ pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_30::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
-    LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
+    HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS,
+    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
+    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
     SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
     WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
     request_sub_chunk_column, vanilla_dimension_range,

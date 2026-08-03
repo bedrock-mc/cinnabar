@@ -1,5 +1,7 @@
 use super::*;
 
+mod recovery;
+
 #[test]
 fn collision_revision_commit_errors_are_mutation_failures_not_decode_failures() {
     assert!(crate::stream::sequencing::chunk_commit_is_mutation_failure(
@@ -405,6 +407,19 @@ fn request_mode_all_air_completion_marks_sparse_collision_residency() {
 }
 
 #[test]
+fn successful_request_sub_chunk_is_collision_ready_before_column_completion() {
+    let (mut stream, keys, _) = stream_with_unsent_sub_chunks(2);
+    let chunk = keys[0].chunk();
+
+    apply_sub_chunk_result(&mut stream, keys[0], super::PreparedSubChunkResult::AllAir);
+
+    assert!(!stream.loaded_columns.contains(&chunk));
+    assert!(!stream.store.is_chunk_loaded(chunk));
+    assert!(stream.store.is_sub_chunk_loaded(keys[0]));
+    assert!(!stream.store.is_sub_chunk_loaded(keys[1]));
+}
+
+#[test]
 fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
     let (mut stream, keys, _) = stream_with_unsent_sub_chunks(2);
     let chunk = keys[0].chunk();
@@ -418,6 +433,8 @@ fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
     apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
     assert!(stream.loaded_columns.contains(&chunk));
     assert!(!stream.store.is_chunk_loaded(chunk));
+    assert!(!stream.store.is_sub_chunk_loaded(keys[0]));
+    assert!(stream.store.is_sub_chunk_loaded(keys[1]));
 
     stream.evict_column(chunk);
     stream
@@ -531,101 +548,6 @@ fn response_deadline_begins_only_after_successful_send() {
     assert_eq!(stream.stats().sub_chunk_timeouts, 0);
     stream.expire_sub_chunk_deadlines(sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.stats().sub_chunk_timeouts, 1);
-}
-
-#[test]
-fn reply_from_already_sent_retry_is_not_unexpected_after_first_attempt_completes() {
-    let started = Instant::now();
-    let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
-    let key = keys[0];
-    acknowledge_request_sent(&mut stream, &initial, started);
-
-    let retry_sent_at = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
-    stream.expire_sub_chunk_deadlines(retry_sent_at);
-    let retry = stream
-        .pop_next_request()
-        .expect("the expired initial attempt should queue an exact retry");
-    acknowledge_request_sent(&mut stream, &retry, retry_sent_at);
-
-    stream
-        .submit(
-            2,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: key.dimension,
-                entries: vec![SubChunkEntryEvent {
-                    position: [key.x, key.y, key.z],
-                    result: SubChunkResult::AllAir,
-                }],
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-    let unexpected_before = stream.stats().normalization_reasons.unexpected_sub_chunks;
-    stream
-        .submit(
-            3,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: key.dimension,
-                entries: vec![SubChunkEntryEvent {
-                    position: [key.x, key.y, key.z],
-                    result: SubChunkResult::AllAir,
-                }],
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-
-    assert_eq!(
-        stream.stats().normalization_reasons.unexpected_sub_chunks,
-        unexpected_before
-    );
-}
-
-#[test]
-fn timely_sub_chunk_admission_disarms_and_cancels_before_decode_or_expiry() {
-    let started = Instant::now();
-    let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
-    acknowledge_request_sent(&mut stream, &initial, started);
-
-    let first_deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
-    stream.expire_sub_chunk_deadlines(first_deadline);
-    let sent_retry = stream
-        .pop_next_request()
-        .expect("the first exact retry should retain FIFO order");
-    acknowledge_request_sent(&mut stream, &sent_retry, first_deadline);
-    assert_eq!(stream.pending_request_count(), 1);
-    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
-
-    stream
-        .submit(
-            2,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: 0,
-                entries: keys
-                    .iter()
-                    .map(|key| SubChunkEntryEvent {
-                        position: [key.x, key.y, key.z],
-                        result: SubChunkResult::AllAir,
-                    })
-                    .collect(),
-            }),
-        )
-        .unwrap();
-
-    assert_eq!(stream.pending_decode.len(), 1);
-    assert!(stream.sub_chunk_deadlines.is_empty());
-    assert_eq!(stream.pending_request_count(), 0);
-    let retry_deadline = first_deadline + super::SUB_CHUNK_RESPONSE_TIMEOUT;
-    stream.expire_sub_chunk_deadlines(retry_deadline);
-    assert_eq!(stream.stats().sub_chunk_timeouts, 2);
-    assert_eq!(stream.outstanding_sub_chunk_count(), 2);
-
-    stream.dispatch_decode_jobs();
-    assert!(stream.pending_decode.is_empty());
-    assert_eq!(stream.in_flight_decode_jobs, 1);
-    stream.expire_sub_chunk_deadlines(retry_deadline);
-    assert_eq!(stream.stats().sub_chunk_timeouts, 2);
-    assert_eq!(stream.outstanding_sub_chunk_count(), 2);
 }
 
 #[test]

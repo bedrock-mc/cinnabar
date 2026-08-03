@@ -51,22 +51,17 @@ fn decompress_with_guard<R: Read>(
     max_decompressed_size: Option<usize>,
 ) -> Result<Vec<u8>, std::io::Error> {
     let mut out = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        let new_len = out.len() + n;
-        if let Some(max) = max_decompressed_size
-            && new_len > max
-        {
+    if let Some(max) = max_decompressed_size {
+        let read_limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+        reader.by_ref().take(read_limit).read_to_end(&mut out)?;
+        if out.len() > max {
             return Err(std::io::Error::new(
                 ErrorKind::InvalidData,
                 format!("decompressed data exceeds max size of {max} bytes"),
             ));
         }
-        out.extend_from_slice(&buf[..n]);
+    } else {
+        reader.read_to_end(&mut out)?;
     }
     Ok(out)
 }

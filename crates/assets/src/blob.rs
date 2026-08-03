@@ -24,11 +24,11 @@ use crate::{
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS05";
-pub const BLOB_VERSION: u32 = 5;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS06";
+pub const BLOB_VERSION: u32 = 6;
 pub(crate) const HEADER_BYTES: usize = 200;
 pub(crate) const HASH_BYTES: usize = 32;
-pub(crate) const VISUAL_BYTES: usize = 40;
+pub(crate) const VISUAL_BYTES: usize = 44;
 pub(crate) const HASH_ENTRY_BYTES: usize = 8;
 pub(crate) const MATERIAL_BYTES: usize = 12;
 pub(crate) const TEMPLATE_BYTES: usize = 12;
@@ -39,7 +39,7 @@ pub(crate) const PAGE_BYTES: usize = 64;
 pub(crate) const BIOME_RULE_BYTES: usize = 36;
 pub(crate) const MAX_VISUALS: usize = 65_536;
 
-/// Serializes canonical, bounded `MCBEAS05` compiler output with a trailing SHA-256.
+/// Serializes canonical, bounded `MCBEAS06` compiler output with a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     validate_compiled(compiled)?;
     let sizes = [
@@ -127,6 +127,8 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         bytes.push(visual.kind as u8);
         bytes.push(visual.contributor_role as u8);
         bytes.push(light.packed());
+        bytes.push(visual.support as u8);
+        bytes.extend_from_slice(&[0; 3]);
         push_u32(&mut bytes, visual.model_template);
         push_u32(&mut bytes, visual.animation);
         push_u32(&mut bytes, visual.variant);
@@ -293,7 +295,12 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         {
             return Err(invalid(format!("visual {index} has invalid flags")));
         }
-        if !visual_semantics_are_valid(visual.kind, visual.flags, visual.contributor_role) {
+        if !visual_semantics_are_valid(
+            visual.kind,
+            visual.support,
+            visual.flags,
+            visual.contributor_role,
+        ) {
             return Err(invalid(format!(
                 "visual {index} kind, flags, and contributor role disagree"
             )));

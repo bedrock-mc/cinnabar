@@ -528,7 +528,7 @@ mod tests {
 
     use super::{AtmosphereGpu, AtmosphereRenderInstalled, prepare_atmosphere_textures};
     use crate::cloud_render::{CloudGpu, prepare_cloud_records};
-    use crate::{AtmosphereTextureAssets, ChunkRenderPlugin};
+    use crate::{AtmosphereTextureAssets, ChunkRenderPlugin, RuntimeStageProfiler};
 
     fn app_with_noop_render_sub_app() -> App {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -597,14 +597,33 @@ mod tests {
         app.add_plugins(ChunkRenderPlugin::new(1));
         app.finish();
 
+        assert!(!app.world().contains_resource::<RuntimeStageProfiler>());
         let render_app = app.sub_app_mut(RenderApp);
         assert!(
             render_app
                 .world()
                 .contains_resource::<AtmosphereRenderInstalled>()
         );
+        assert!(
+            !render_app
+                .world()
+                .contains_resource::<RuntimeStageProfiler>()
+        );
         render_app.world_mut().run_schedule(RenderStartup);
         assert!(render_app.world().contains_resource::<AtmosphereGpu>());
+    }
+
+    #[test]
+    fn enabled_stage_profiler_is_shared_with_the_render_world() {
+        let mut app = app_with_noop_render_sub_app();
+        app.insert_resource(RuntimeStageProfiler::new(true));
+        app.add_plugins(ChunkRenderPlugin::new(1));
+
+        assert!(
+            app.sub_app(RenderApp)
+                .world()
+                .contains_resource::<RuntimeStageProfiler>()
+        );
     }
 
     #[test]

@@ -11,6 +11,9 @@ use crate::{
     collision_revision::{CollisionRevisionAllocator, process_collision_revisions},
 };
 
+mod helpers;
+use self::helpers::*;
+
 /// Maximum sub-chunks accepted in one full inline LevelChunk payload.
 pub const MAX_LEVEL_SUBCHUNKS: usize = 64;
 
@@ -45,6 +48,23 @@ pub struct PreparedSubChunkMutation {
     key: SubChunkKey,
     replacement: Option<SubChunk>,
     changed: bool,
+}
+
+impl PreparedSubChunkMutation {
+    #[must_use]
+    pub const fn key(&self) -> SubChunkKey {
+        self.key
+    }
+
+    #[must_use]
+    pub const fn replacement(&self) -> Option<&SubChunk> {
+        self.replacement.as_ref()
+    }
+
+    #[must_use]
+    pub const fn changed(&self) -> bool {
+        self.changed
+    }
 }
 
 /// A completely validated full-column block decode ready for a cheap commit.
@@ -194,6 +214,7 @@ impl DecodedLevelChunk {
 pub struct ChunkStore {
     chunks: HashMap<ChunkKey, Chunk>,
     loaded_chunks: BTreeSet<ChunkKey>,
+    authoritative_sub_chunks: BTreeSet<SubChunkKey>,
     collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
 }
@@ -203,6 +224,7 @@ impl Default for ChunkStore {
         Self {
             chunks: HashMap::new(),
             loaded_chunks: BTreeSet::new(),
+            authoritative_sub_chunks: BTreeSet::new(),
             collision_revisions: HashMap::new(),
             collision_revision_allocator: process_collision_revisions(),
         }
@@ -232,6 +254,16 @@ impl ChunkStore {
         self.loaded_chunks.contains(&key)
     }
 
+    /// Returns whether this exact 16³ block scope has authoritative data.
+    ///
+    /// Inline LevelChunk columns cover every Y. Request-mode columns become
+    /// usable one successful SubChunk response at a time, including all-air
+    /// responses that intentionally allocate no sparse palette storage.
+    #[must_use]
+    pub fn is_sub_chunk_loaded(&self, key: SubChunkKey) -> bool {
+        self.loaded_chunks.contains(&key.chunk()) || self.authoritative_sub_chunks.contains(&key)
+    }
+
     /// Returns the collision identity for a currently loaded column.
     #[must_use]
     pub fn collision_revision(&self, key: ChunkKey) -> Option<ChunkCollisionRevision> {
@@ -246,7 +278,26 @@ impl ChunkStore {
         }
         let revision = self.collision_revision_allocator.allocate()?;
         self.loaded_chunks.insert(key);
+        self.authoritative_sub_chunks
+            .retain(|sub_chunk| sub_chunk.chunk() != key);
         self.set_collision_revision(key, revision);
+        Ok(true)
+    }
+
+    /// Marks one successful request-mode SubChunk response as authoritative.
+    ///
+    /// This is separate from sparse block storage so an all-air response still
+    /// permits fail-closed collision queries within that exact 16³ scope.
+    pub fn mark_sub_chunk_loaded(
+        &mut self,
+        key: SubChunkKey,
+    ) -> Result<bool, CollisionRevisionError> {
+        if self.is_sub_chunk_loaded(key) {
+            return Ok(false);
+        }
+        let revision = self.collision_revision_allocator.allocate()?;
+        self.authoritative_sub_chunks.insert(key);
+        self.set_collision_revision(key.chunk(), revision);
         Ok(true)
     }
 
@@ -318,7 +369,7 @@ impl ChunkStore {
         {
             return Ok(None);
         }
-        let revision = self.reserve_loaded_change(key.chunk())?;
+        let revision = self.reserve_loaded_change(key)?;
         self.chunks
             .entry(key.chunk())
             .or_default()
@@ -519,9 +570,7 @@ impl ChunkStore {
     ) -> Result<Vec<SubChunkKey>, MutationError> {
         let changed_columns = prepared
             .iter()
-            .filter(|mutation| {
-                mutation.changed && self.loaded_chunks.contains(&mutation.key.chunk())
-            })
+            .filter(|mutation| mutation.changed && self.is_sub_chunk_loaded(mutation.key))
             .map(|mutation| mutation.key.chunk())
             .collect::<BTreeSet<_>>();
         let allocated = self
@@ -560,6 +609,8 @@ impl ChunkStore {
     /// by Y. External `Arc<SubChunk>` snapshots remain valid.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
         self.loaded_chunks.remove(&key);
+        self.authoritative_sub_chunks
+            .retain(|sub_chunk| sub_chunk.chunk() != key);
         self.collision_revisions.remove(&key);
         self.chunks
             .remove(&key)
@@ -580,7 +631,7 @@ impl ChunkStore {
         if !present {
             return Ok(None);
         }
-        let revision = self.reserve_loaded_change(key.chunk())?;
+        let revision = self.reserve_loaded_change(key)?;
         let removed = self.remove_sub_chunk_without_revision(key);
         self.apply_reserved_revision(key.chunk(), revision);
         Ok(removed)
@@ -597,9 +648,11 @@ impl ChunkStore {
         removed.then_some(key)
     }
 
-    fn reserve_loaded_change(&self, key: ChunkKey) -> Result<Option<u64>, CollisionRevisionError> {
-        self.loaded_chunks
-            .contains(&key)
+    fn reserve_loaded_change(
+        &self,
+        key: SubChunkKey,
+    ) -> Result<Option<u64>, CollisionRevisionError> {
+        self.is_sub_chunk_loaded(key)
             .then(|| self.collision_revision_allocator.allocate())
             .transpose()
     }
@@ -882,6 +935,8 @@ impl ChunkStore {
         }
         if newly_loaded {
             self.loaded_chunks.insert(key);
+            self.authoritative_sub_chunks
+                .retain(|sub_chunk| sub_chunk.chunk() != key);
         }
         self.apply_reserved_revision(key, revision);
         Ok(ApplyLevelChunk {
@@ -893,83 +948,6 @@ impl ChunkStore {
     }
 }
 
-fn ensure_chunk_block_entity_bytes(bytes: usize) -> Result<(), BlockEntityError> {
-    if bytes > MAX_BLOCK_ENTITY_BYTES_PER_CHUNK {
-        Err(BlockEntityError::ChunkEntityBytesTooLarge {
-            len: bytes,
-            max: MAX_BLOCK_ENTITY_BYTES_PER_CHUNK,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn reuse_equal_biome_arcs(
-    replacement: &mut DecodedBiomeColumn,
-    previous: Option<&DecodedBiomeColumn>,
-) {
-    let Some(previous) = previous else {
-        return;
-    };
-    for (offset, storage) in replacement.storages.iter_mut().enumerate() {
-        let Some(y) = replacement
-            .base_sub_chunk_y
-            .checked_add(i32::try_from(offset).expect("biome columns are bounded"))
-        else {
-            continue;
-        };
-        let Some(previous) = previous.storage(y) else {
-            continue;
-        };
-        if previous.as_ref() == storage.as_ref() {
-            *storage = previous;
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "store_revision_tests.rs"]
 mod collision_revision_allocator_tests;
-
-fn changed_biome_ys(
-    previous: Option<&DecodedBiomeColumn>,
-    replacement: Option<&DecodedBiomeColumn>,
-) -> BTreeSet<i32> {
-    let ys = |column: &DecodedBiomeColumn| {
-        let base = column.base_sub_chunk_y();
-        let len = column.len();
-        (0..len).filter_map(move |offset| base.checked_add(i32::try_from(offset).ok()?))
-    };
-    previous
-        .into_iter()
-        .flat_map(ys)
-        .chain(replacement.into_iter().flat_map(ys))
-        .filter(|&y| {
-            let before = previous.and_then(|column| column.storage(y));
-            let after = replacement.and_then(|column| column.storage(y));
-            match (before, after) {
-                (Some(before), Some(after)) => !Arc::ptr_eq(&before, &after),
-                (None, None) => false,
-                _ => true,
-            }
-        })
-        .collect()
-}
-
-fn expand_mesh_dependents(changed: Vec<SubChunkKey>) -> Vec<SubChunkKey> {
-    changed
-        .into_iter()
-        .flat_map(SubChunkKey::mesh_dependents)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
-}
-
-fn expand_biome_mesh_dependents(changed: Vec<SubChunkKey>) -> Vec<SubChunkKey> {
-    changed
-        .into_iter()
-        .flat_map(SubChunkKey::biome_mesh_dependents)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
-}

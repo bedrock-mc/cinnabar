@@ -217,6 +217,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 faces: [DIAGNOSTIC_MATERIAL; 6],
                 flags: BlockFlags::empty(),
                 kind: VisualKind::Diagnostic,
+                support: assets::VisualSupport::Diagnostic,
                 contributor_role: assets::ContributorRole::Primary,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
@@ -226,6 +227,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
         ];
         for material_id in 1..14_u32 {
             visuals[material_id as usize] = BlockVisual {
+                support: assets::VisualSupport::Exact,
                 faces: [material_id; 6],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,

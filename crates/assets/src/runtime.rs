@@ -6,6 +6,7 @@ use crate::{
     Animation, BlockFace, BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, LightProperties, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
     NO_MODEL_TEMPLATE, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    VisualSupport,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +66,10 @@ impl ResolvedBlock {
         self.visual.kind
     }
     #[must_use]
+    pub const fn support(self) -> VisualSupport {
+        self.visual.support
+    }
+    #[must_use]
     pub const fn contributor_role(self) -> ContributorRole {
         self.visual.contributor_role
     }
@@ -99,6 +104,7 @@ const fn diagnostic_visual() -> BlockVisual {
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::empty(),
         kind: VisualKind::Diagnostic,
+        support: VisualSupport::Diagnostic,
         contributor_role: ContributorRole::Primary,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,

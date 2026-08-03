@@ -22,6 +22,29 @@ pub(in crate::compiler) enum CompileRuleResult {
     Reject,
     Compiled(BlockVisual),
 }
+const CANONICAL_AIR_SEQUENTIAL_ID: u32 = 13_094;
+const CANONICAL_AIR_NETWORK_HASH: u32 = 0xdbf4_4120;
+
+fn is_canonical_air(record: &RegistryRecord) -> bool {
+    record.sequential_id == CANONICAL_AIR_SEQUENTIAL_ID
+        && record.network_hash == CANONICAL_AIR_NETWORK_HASH
+        && record.name.as_ref() == "minecraft:air"
+        && record.canonical_state.as_ref() == "{}"
+        && record.flags.contains(BlockFlags::AIR)
+        && record.contributor_role == ContributorRole::Air
+}
+
+fn diagnostic_for_unmatched_record(record: &RegistryRecord) -> BlockVisual {
+    let mut visual = diagnostic_visual(record);
+    if record.flags.contains(BlockFlags::AIR)
+        && record.contributor_role == ContributorRole::Air
+        && !is_canonical_air(record)
+    {
+        visual.flags.remove(BlockFlags::AIR);
+        visual.contributor_role = ContributorRole::Primary;
+    }
+    visual
+}
 
 #[derive(Default)]
 struct VisualCompiler {
@@ -62,7 +85,22 @@ impl VisualCompiler {
                 }
             };
         }
+        if is_canonical_air(record) {
+            let mut visual = diagnostic_visual(record);
+            visual.kind = VisualKind::Invisible;
+            visual.support = VisualSupport::Exact;
+            return Ok(CompileRuleResult::Compiled(visual));
+        }
 
+        ordered_rule!(super::fallback::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         let mut exact_visual = diagnostic_visual(record);
         ordered_rule!(super::exact::compile_exact_families(
             record,
@@ -222,6 +260,7 @@ pub(in crate::compiler) fn compile_visuals(
     records: &[RegistryRecord],
     pack: &PackSources,
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
+    vanilla_fallback_material: u32,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let visual_count = records
@@ -236,14 +275,24 @@ pub(in crate::compiler) fn compile_visuals(
     let inputs = RuleInputs {
         pack,
         material_by_descriptor,
+        vanilla_fallback_material,
     };
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         visuals[record.sequential_id as usize] =
             match compiler.compile_record(record, &inputs, admissions)? {
-                CompileRuleResult::Compiled(visual) => visual,
-                CompileRuleResult::NoMatch | CompileRuleResult::Reject => diagnostic_visual(record),
+                CompileRuleResult::Compiled(mut visual) => {
+                    if visual.kind != VisualKind::Diagnostic
+                        && visual.support == VisualSupport::Diagnostic
+                    {
+                        visual.support = VisualSupport::Exact;
+                    }
+                    visual
+                }
+                CompileRuleResult::NoMatch | CompileRuleResult::Reject => {
+                    diagnostic_for_unmatched_record(record)
+                }
             };
         hashed.push((record.network_hash, record.sequential_id));
     }
@@ -254,4 +303,38 @@ pub(in crate::compiler) fn compile_visuals(
         compiler.model_templates.into_boxed_slice(),
         compiler.model_quads.into_boxed_slice(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_air_route_matches_only_the_pinned_canonical_identity() {
+        let records = assets::read_registry(include_bytes!(
+            "../../../../assets/data/block-registry-v1001.bin"
+        ))
+        .expect("decode pinned registry");
+        let air = records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:air")
+            .expect("canonical air");
+        assert!(is_canonical_air(air));
+
+        let mut custom = air.clone();
+        custom.name = "custom:air".into();
+        assert!(!is_canonical_air(&custom));
+
+        let mut wrong_state = air.clone();
+        wrong_state.canonical_state = r#"{"custom":true}"#.into();
+        assert!(!is_canonical_air(&wrong_state));
+
+        let mut wrong_hash = air.clone();
+        wrong_hash.network_hash ^= 1;
+        assert!(!is_canonical_air(&wrong_hash));
+
+        let mut wrong_id = air.clone();
+        wrong_id.sequential_id -= 1;
+        assert!(!is_canonical_air(&wrong_id));
+    }
 }

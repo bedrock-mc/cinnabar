@@ -115,6 +115,9 @@ pub fn analyze_records(
     let mut air_states = Vec::new();
     let mut diagnostics_by_family = BTreeMap::new();
     let mut diagnostics_by_name = BTreeMap::new();
+    let mut fallbacks = Vec::new();
+    let mut fallbacks_by_family = BTreeMap::new();
+    let mut fallbacks_by_name = BTreeMap::new();
     let mut vine_masks = Vec::new();
     for record in &ordered {
         if runtime.sequential_id_for_hash(record.network_hash) != Some(record.sequential_id) {
@@ -132,6 +135,13 @@ pub fn analyze_records(
             });
         }
         let identity = StateIdentity::from_record(record);
+        if sequential.support() == VisualSupport::VanillaFallback {
+            *fallbacks_by_family
+                .entry(identity.model_family.clone())
+                .or_insert(0) += 1;
+            *fallbacks_by_name.entry(identity.name.clone()).or_insert(0) += 1;
+            fallbacks.push(identity.clone());
+        }
         if identity.is_air {
             air_states.push(identity.clone());
         }
@@ -156,6 +166,7 @@ pub fn analyze_records(
         }
     }
     diagnostics.sort();
+    fallbacks.sort();
     invisible.sort();
     air_states.sort();
     vine_masks.sort_unstable();
@@ -186,6 +197,9 @@ pub fn analyze_records(
         diagnostic_states: diagnostics,
         diagnostics_by_family,
         diagnostics_by_name,
+        fallback_states: fallbacks,
+        fallbacks_by_family,
+        fallbacks_by_name,
         invisible_states: invisible,
         air_states,
         vine_diagnostic_masks: vine_masks,
@@ -228,6 +242,20 @@ pub fn ratchet(
         return Err(CoverageError::DiagnosticRegression { states: added });
     }
     let removed = old.difference(&current).cloned().collect::<Vec<_>>();
+    let current_fallbacks = snapshot
+        .fallback_states
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let added_fallbacks = current_fallbacks
+        .difference(&old)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !added_fallbacks.is_empty() {
+        return Err(CoverageError::FallbackRegression {
+            states: added_fallbacks,
+        });
+    }
 
     if snapshot.vine_diagnostic_masks != baseline.expected_vine_diagnostic_masks {
         return Err(CoverageError::VineDiagnosticsMismatch {
@@ -295,6 +323,9 @@ pub fn ratchet(
         diagnostic_states: snapshot.diagnostic_states,
         diagnostics_by_family: snapshot.diagnostics_by_family,
         diagnostics_by_name: snapshot.diagnostics_by_name,
+        fallback_states: snapshot.fallback_states,
+        fallbacks_by_family: snapshot.fallbacks_by_family,
+        fallbacks_by_name: snapshot.fallbacks_by_name,
         added_diagnostics: Vec::new(),
         removed_diagnostics: removed,
         invisible_decisions,

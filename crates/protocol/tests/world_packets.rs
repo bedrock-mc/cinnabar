@@ -15,7 +15,7 @@ use valentine::bedrock::version::v1_26_30::{
     GameRuleI32, GameRuleI32Type, GameRuleI32Value, GameRuleVarint, GameRuleVarintType,
     GameRuleVarintValue, GameRulesChangedPacket, LevelChunkPacket, LevelEventPacket,
     LevelEventPacketEvent, McpePacketData, MovePlayerPacket, MovePlayerPacketMode,
-    NetworkChunkPublisherUpdatePacket, SetTimePacket, StartGamePacketDimension,
+    NetworkChunkPublisherUpdatePacket, RespawnPacket, SetTimePacket, StartGamePacketDimension,
     SubChunkEntryWithCachingItem, SubChunkEntryWithCachingItemResult,
     SubChunkEntryWithoutCachingItem, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
     SubchunkPacketEntries, UpdateBlockFlags, UpdateBlockPacket, UpdateSubchunkBlocksPacket, Vec2F,
@@ -826,6 +826,25 @@ fn normalizes_post_spawn_set_time() {
         into_world_event(packet.into(), 0).unwrap(),
         Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
     );
+}
+
+#[test]
+fn normalizes_respawn_as_a_local_position_authority_change() {
+    let packet = RespawnPacket {
+        position: Vec3F {
+            x: 8.5,
+            y: 71.620_01,
+            z: -4.25,
+        },
+        state: 1,
+        runtime_entity_id: 42,
+    };
+    let Some(WorldEvent::Respawn(respawn)) = into_world_event(packet.into(), 0).unwrap() else {
+        panic!("expected respawn position-authority event")
+    };
+    assert_eq!(respawn.position, [8.5, 71.620_01, -4.25]);
+    assert_eq!(respawn.state, 1);
+    assert_eq!(respawn.runtime_entity_id, 42);
 }
 
 #[test]

@@ -1,4 +1,191 @@
 use super::*;
+#[test]
+fn equivalent_block_light_properties_skip_relighting() {
+    let mut stream = lit_stream(0);
+    let opaque = super::uniform_sub_chunk(2);
+    let equivalent_opaque = super::uniform_sub_chunk(4);
+    let air = super::uniform_sub_chunk(0);
+    let zero_light_transparent = super::uniform_sub_chunk(3);
+    assert!(!stream.block_light_semantics_changed(Some(&opaque), Some(&equivalent_opaque),));
+    assert!(stream.block_light_semantics_changed(Some(&air), Some(&opaque)));
+    assert!(stream.block_light_semantics_changed(Some(&air), Some(&zero_light_transparent),));
+    assert!(stream.block_light_semantics_changed(Some(&zero_light_transparent), Some(&air),));
+    assert!(stream.block_light_semantics_changed(None, Some(&air)));
+    assert!(stream.block_light_semantics_changed(Some(&air), None));
+
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.mark_live_mutation_changed(key, Instant::now(), false);
+
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.pending_mesh.values().all(|pending| pending.urgent));
+}
+
+#[test]
+fn urgent_light_completion_keeps_follow_on_work_urgent() {
+    let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let neighbour = SubChunkKey::new(0, 1, 0, 0);
+    install_current_light(&mut stream, key, 0, 0, false);
+    install_current_light(&mut stream, neighbour, 0, 0, false);
+    let ordinary_revision = stream.mark_light_dirty_exact(neighbour).unwrap();
+    let mut changed_faces = [false; 6];
+    let changed_face = LIGHT_NEIGHBOUR_OFFSETS
+        .iter()
+        .position(|&offset| offset_sub_chunk_key(key, offset) == Some(neighbour))
+        .unwrap();
+    changed_faces[changed_face] = true;
+    let direct_sky = stream.direct_sky[&key].clone();
+
+    stream.finish_accepted_light_completion(key, 1, &direct_sky, changed_faces, true);
+
+    assert!(stream.pending_light[&neighbour].urgent);
+    assert_eq!(stream.pending_light[&neighbour].revision, ordinary_revision);
+    assert_eq!(
+        stream.light_priority_wakeups.get(&neighbour),
+        Some(&ordinary_revision)
+    );
+}
+#[test]
+fn unchanged_uniform_light_completion_preserves_mesh_currentness_and_waiters() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    let waiter = SubChunkKey::new(1, 2, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, key, 0, 0, false);
+    install_current_light(&mut stream, waiter, 0, 0, false);
+    let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+    let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
+    let original_ownership = stream.light_ownership[&key];
+
+    let mesh_revision = stream.mark_dirty_exact(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    let mesh_completion = stream
+        .mesh_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("mesh worker completion");
+    stream.light_waiters.entry(key).or_default().insert(waiter);
+    stream.mark_light_dirty_exact(key).unwrap();
+    complete_one_light(&mut stream, [0.0; 3]);
+
+    assert!(Arc::ptr_eq(
+        stream.light_store.light(key).unwrap(),
+        &original_light
+    ));
+    assert!(Arc::ptr_eq(&stream.direct_sky[&key].mask, &original_direct));
+    assert_eq!(stream.light_ownership[&key], original_ownership);
+    assert!(!stream.pending_mesh.contains_key(&key));
+    assert_eq!(
+        stream.revisions.dirty(key).map(|dirty| dirty.revision),
+        Some(mesh_revision)
+    );
+    assert_eq!(stream.in_flight.get(&key), Some(&mesh_revision));
+    assert!(!stream.light_waiters.contains_key(&key));
+    assert!(stream.pending_light.contains_key(&waiter));
+
+    stream.accept_mesh_completion(mesh_completion);
+    assert_eq!(stream.stats().stale_mesh_jobs, 0);
+    assert_eq!(stream.take_mesh_changes().len(), 1);
+    assert_eq!(stream.stats().accepted_light_jobs, 1);
+    assert_eq!(stream.stats().noop_light_jobs, 1);
+    assert_eq!(stream.stats().value_changed_light_jobs, 0);
+    assert_eq!(stream.stats().provenance_only_light_jobs, 0);
+    assert_eq!(stream.stats().light_mesh_invalidations, 0);
+}
+#[test]
+fn light_column_batch_inherits_any_member_urgency() {
+    let mut stream = lit_stream(1);
+    let top = SubChunkKey::new(1, 0, 7, 0);
+    let below = SubChunkKey::new(1, 0, 6, 0);
+    for key in [top, below] {
+        stream.record_known_air(key);
+        install_current_light(&mut stream, key, 1, 0, false);
+    }
+    stream.mark_light_dirty_exact_with_priority(top, true);
+    stream.mark_light_dirty_exact(below);
+
+    assert_eq!(stream.dispatch_light_jobs([8.0, 120.0, 8.0], 1), 2);
+    assert!(stream.in_flight_light[&top].urgent);
+    assert!(stream.in_flight_light[&below].urgent);
+    stream.mark_light_dirty_exact(below);
+    assert!(stream.pending_light[&below].urgent);
+}
+
+#[test]
+fn ordinary_mesh_redirty_inherits_in_flight_urgency() {
+    let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.urgent_mesh_in_flight.insert(key);
+
+    stream.mark_dirty_exact(key, Instant::now());
+
+    assert!(stream.pending_mesh[&key].urgent);
+}
+
+#[test]
+fn forced_remesh_inherits_queued_publication_urgency() {
+    let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.mesh_changes.push_back(WorldMeshChange::Upsert {
+        key,
+        mesh: ChunkMesh::default(),
+        biome: PackedBiomeRecord::fallback(),
+        tint_identity: ChunkBiomeTintIdentity::default(),
+        generation: 1,
+        dirty_since: Instant::now(),
+        urgent: true,
+        permit: None,
+    });
+
+    stream.mark_forced_dirty_exact(key, Instant::now());
+
+    assert!(stream.pending_mesh[&key].urgent);
+}
+
+#[test]
+fn urgent_known_air_removal_uses_reserved_permit_after_ordinary_saturation() {
+    let config = PublicationServiceConfig::PHASE2_GATE;
+    let allowance = PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    let ordinary = (0..config.maximum_zero_byte_operations_per_frame)
+        .map(|_| allowance.try_admit_zero_byte().unwrap())
+        .collect::<Vec<_>>();
+    allowance.begin_frame(2, 1, 0, 1, config.maximum_frame_items);
+
+    let mut stream = lit_stream(0);
+    stream.set_publication_allowance(allowance.clone());
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.record_known_air(key);
+    stream.mark_dirty_exact_with_priority(key, Instant::now(), true);
+
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+
+    let change = stream
+        .pop_mesh_change()
+        .expect("urgent known-air removal uses the reserved permit");
+    assert!(matches!(
+        &change,
+        WorldMeshChange::Remove {
+            key: removed,
+            urgent: true,
+            permit: Some(_),
+            ..
+        } if *removed == key
+    ));
+    assert_eq!(allowance.remaining_zero_byte_operations(), 0);
+    assert_eq!(config.maximum_zero_byte_operations_per_frame, 256);
+    drop(change);
+    drop(ordinary);
+    assert_eq!(allowance.live_permits(), 0);
+}
 
 #[test]
 #[ignore = "release-only Phase 2 full-view lighting completion gate"]
@@ -19,11 +206,23 @@ fn release_full_view_known_air_lighting_completes_within_two_seconds() {
 
     let started = Instant::now();
     let mut completions = 0_usize;
+    let mut stalled_polls = 0_usize;
     while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
         stream.dispatch_light_jobs([8.0, 80.0, 8.0], usize::MAX);
         if stream.in_flight_light.is_empty() {
-            panic!("full-view lighting made no progress without an in-flight solve");
+            stalled_polls += 1;
+            assert!(
+                stalled_polls <= 256,
+                "full-view lighting made no progress after bounded scheduler scans: \
+                 pending={} ready={} deferred={} waiters={}",
+                stream.pending_light.len(),
+                stream.pending_light_ready.len(),
+                stream.pending_light_deferred.len(),
+                stream.light_waiters.len()
+            );
+            continue;
         }
+        stalled_polls = 0;
         let completion = stream
             .light_rx
             .recv_timeout(Duration::from_secs(5))
@@ -66,9 +265,9 @@ fn overworld_initial_sky_work_waits_for_the_current_upper_subchunk() {
     stream.record_known_air(below);
     stream.mark_light_changed_sources([top, below]);
 
-    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 4), 1);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 4), 2);
     assert!(stream.in_flight_light.contains_key(&top));
-    assert!(!stream.in_flight_light.contains_key(&below));
+    assert!(stream.in_flight_light.contains_key(&below));
 }
 
 #[test]

@@ -777,7 +777,7 @@ fn partial_local_attributes_patch_without_clearing_authoritative_health() {
 }
 
 #[test]
-fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions() {
+fn gameplay_touch_targets_remain_unreachable_without_native_layout_authority() {
     use crate::semantic_controls::SemanticTouchTargets;
     use crate::ui_runtime::gameplay_touch::{
         GameplayTouchSample, reconcile_gameplay_touch_targets,
@@ -795,25 +795,49 @@ fn gameplay_touch_targets_cover_movement_jump_use_look_and_release_transitions()
         ],
     );
 
-    assert!(targets.is_movement(1));
     assert_eq!(targets.target(1), None);
-    assert_eq!(targets.target(2), Some(semantic_input::touch::JUMP));
-    assert_eq!(targets.target(3), Some(semantic_input::touch::USE));
-    assert_eq!(targets.target(4), Some(semantic_input::touch::LOOK_RIGHT));
-    assert!(!targets.is_movement(5));
+    assert_eq!(targets.target(2), None);
+    assert_eq!(targets.target(3), None);
+    assert_eq!(targets.target(4), None);
     assert_eq!(targets.target(5), None);
 
     reconcile_gameplay_touch_targets(
         &mut targets,
         &[GameplayTouchSample::new(4, [0.62, 0.40], [-0.08, 0.01])],
     );
-    assert!(!targets.is_movement(1));
     assert_eq!(targets.target(2), None);
     assert_eq!(targets.target(3), None);
-    assert_eq!(targets.target(4), Some(semantic_input::touch::LOOK_LEFT));
+    assert_eq!(targets.target(4), None);
 
     reconcile_gameplay_touch_targets(&mut targets, &[]);
     assert_eq!(targets.target(4), None);
+}
+
+#[test]
+fn chat_focus_clears_stale_gameplay_touch_targets() {
+    use crate::semantic_controls::SemanticTouchTargets;
+    use crate::ui_runtime::gameplay_touch::drive_gameplay_touch_targets;
+    use bevy::{
+        input::touch::Touches,
+        prelude::{App, Update},
+    };
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat();
+    let mut app = App::new();
+    let mut targets = SemanticTouchTargets::default();
+    targets.set(7, semantic_input::touch::JUMP);
+    app.insert_resource(runtime)
+        .init_resource::<Touches>()
+        .insert_resource(targets)
+        .add_systems(Update, drive_gameplay_touch_targets);
+
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<SemanticTouchTargets>().target(7),
+        None
+    );
 }
 
 mod chat_tests;

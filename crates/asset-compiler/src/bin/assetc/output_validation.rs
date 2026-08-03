@@ -5,8 +5,6 @@ use std::{
 
 use assets::AssetError;
 
-use super::paths_alias;
-
 pub(super) fn validate_output_bundle(blob: &Path, report: &Path) -> Result<(), AssetError> {
     let normalized_blob = normalized_absolute(blob)?;
     let normalized_report = normalized_absolute(report)?;
@@ -135,4 +133,10 @@ fn canonicalized_location(path: &Path) -> Result<PathBuf, AssetError> {
             }
         }
     }
+}
+
+fn paths_alias(left: &Path, right: &Path) -> bool {
+    left.to_string_lossy()
+        .to_lowercase()
+        .eq(&right.to_string_lossy().to_lowercase())
 }

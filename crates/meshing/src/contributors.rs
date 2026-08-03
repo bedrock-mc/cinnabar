@@ -236,6 +236,20 @@ impl<'a> PaletteFacts<'a> {
         matches!(self.source, PaletteSource::Air)
     }
 
+    pub(crate) fn has_model_geometry(&self) -> bool {
+        let is_model = |entry: ResolvedPaletteEntry| {
+            matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
+                && entry.model_template != NO_MODEL_TEMPLATE
+        };
+        match &self.source {
+            PaletteSource::Air => false,
+            PaletteSource::Uniform(contributors) => is_model(contributors.geometry_entry()),
+            PaletteSource::Mixed(storages) => storages
+                .iter()
+                .any(|storage| storage.entries.iter().copied().any(is_model)),
+        }
+    }
+
     fn contributors_at(&self, x: usize, y: usize, z: usize) -> ResolvedContributors {
         match &self.source {
             PaletteSource::Air => ResolvedContributors::default(),

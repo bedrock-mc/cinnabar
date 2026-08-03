@@ -339,6 +339,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: Duration::ZERO,
+        urgent: false,
     });
     assert_eq!(stream.pending_mesh_change_count(), 1);
     stream.in_flight.insert(key, old_generation);
@@ -370,6 +371,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: Duration::ZERO,
+        urgent: false,
     });
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert!(stream.pop_mesh_change().is_none());

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -17,12 +17,14 @@ use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
+use hashbrown::HashMap as FastHashMap;
 use protocol::{
     ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
-    request_sub_chunk_column, vanilla_dimension_range,
+    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
+    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
+    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
+    UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -101,10 +103,75 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
-pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 512;
+const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
+const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
+pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
+const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
+fn effective_light_job_cap() -> usize {
+    MAX_IN_FLIGHT_LIGHT_JOBS.min(rayon::current_num_threads().saturating_div(2).max(1))
+}
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
-const LIGHT_RESULT_CAPACITY: usize = LIGHT_DISPATCH_BUDGET_PER_POLL;
+const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;
 const LIGHT_SOLVE_LIMITS: SolverLimits = SolverLimits::new(4_096, 1_000_000);
+const LIGHT_COLUMN_SOLVE_LIMITS: SolverLimits = SolverLimits::new(
+    4_096 * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS,
+    1_000_000 * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS,
+);
+
+#[derive(Debug, Clone, Copy)]
+struct PendingSchedulerCandidate {
+    distance_squared: f32,
+    key: SubChunkKey,
+    revision: u64,
+    urgent: bool,
+}
+
+impl PendingSchedulerCandidate {
+    fn new(key: SubChunkKey, revision: u64, camera_position: [f32; 3], urgent: bool) -> Self {
+        Self {
+            distance_squared: distance_squared(key, camera_position),
+            key,
+            revision,
+            urgent,
+        }
+    }
+}
+
+impl PartialEq for PendingSchedulerCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.urgent == other.urgent
+            && self
+                .distance_squared
+                .total_cmp(&other.distance_squared)
+                .is_eq()
+            && self.key == other.key
+            && self.revision == other.revision
+    }
+}
+
+impl Eq for PendingSchedulerCandidate {}
+
+impl PartialOrd for PendingSchedulerCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PendingSchedulerCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.urgent.cmp(&other.urgent).then_with(|| {
+            other
+                .distance_squared
+                .total_cmp(&self.distance_squared)
+                .then_with(|| other.key.cmp(&self.key))
+                .then_with(|| other.revision.cmp(&self.revision))
+        })
+    }
+}
+
+fn scheduler_camera_cell(camera_position: [f32; 3]) -> [i32; 3] {
+    camera_position.map(|value| floor_to_i32(value).div_euclid(16))
+}
 
 use model::{
     BlockMutationBatch, CorrelatedSubChunkAttempts, DecodeCompletion, DecodeJob, MeshCompletion,
@@ -158,7 +225,15 @@ pub struct WorldStream {
     light_failures: HashMap<SubChunkKey, LightFailure>,
     light_revisions: RevisionTracker,
     pending_light: HashMap<SubChunkKey, PendingLight>,
+    pending_light_scan: VecDeque<(SubChunkKey, u64)>,
+    pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
+    pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
+    light_priority_wakeups: HashMap<SubChunkKey, u64>,
+    light_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
+    next_light_batch_id: u64,
+    in_flight_light_batches: HashMap<u64, usize>,
+    last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
     fatal_error: Option<WorldStreamFatalError>,
@@ -166,7 +241,14 @@ pub struct WorldStream {
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
     pending_mesh: HashMap<SubChunkKey, PendingMesh>,
+    pending_mesh_scan: VecDeque<(SubChunkKey, u64)>,
+    pending_resident_mesh_deferred: BinaryHeap<PendingSchedulerCandidate>,
+    pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
+    pending_mesh_removal_deferred: BinaryHeap<PendingSchedulerCandidate>,
+    pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
+    mesh_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
+    urgent_mesh_in_flight: HashSet<SubChunkKey>,
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
@@ -177,7 +259,8 @@ pub struct WorldStream {
     admitted_sub_chunk_replies: HashMap<SubChunkKey, u8>,
     deferred_retries: VecDeque<SubChunkKey>,
     deferred_retry_set: HashSet<SubChunkKey>,
-    connectivity: HashMap<SubChunkKey, FaceConnectivity>,
+    deferred_recovery_requests: VecDeque<PendingSubChunkRequest>,
+    connectivity: FastHashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
     requests: RequestQueue,
     transport_pending_requests: usize,

@@ -12,19 +12,67 @@ use std::{
 use protocol::{
     ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, InventoryAuthority, InventoryEvent,
     MovePlayerEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    SetTimeEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
     NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
-    PacketSendError, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress, run_network_pump,
-    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
-    send_world_event_or_cancel, start_game_inventory_authority, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    PacketSendError, ReadinessIngressCounter, SequencedWorldEvent, WORLD_EVENT_CAPACITY,
+    WorldIngress, bounded_counter_log_due, run_network_pump, send_control_event_or_cancel,
+    send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
+    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+    wait_for_send_or_cancel, wrap_readiness_tracked_event, write_network_pump_terminal_marker,
 };
 
+#[path = "physics_send_tests.rs"]
+mod physics_send_tests;
+#[path = "routing_tests.rs"]
+mod routing_tests;
+
+#[test]
+fn readiness_ingress_counter_excludes_transport_only_events() {
+    let counter = ReadinessIngressCounter::default();
+    let transport_only = WorldEvent::SetTime(SetTimeEvent { time: 6_000 });
+    counter.record_produced(&transport_only);
+    assert_eq!(counter.pending(), 0);
+
+    let readiness_event = WorldEvent::ChunkRadiusUpdated(16);
+    counter.record_produced(&readiness_event);
+    assert_eq!(counter.pending(), 1);
+    counter.record_consumed(&readiness_event);
+    assert_eq!(counter.pending(), 0);
+
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
+    let remote_move = wrap_readiness_tracked_event(
+        &mut sequencer,
+        &counter,
+        WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 99,
+            ..Default::default()
+        }),
+    );
+    assert!(matches!(remote_move.event, WorldEvent::Actor(_)));
+    assert_eq!(
+        counter.pending(),
+        0,
+        "remote movement is normalized to actor presentation before classification"
+    );
+
+    let local_move = wrap_readiness_tracked_event(
+        &mut sequencer,
+        &counter,
+        WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 42,
+            ..Default::default()
+        }),
+    );
+    assert!(matches!(local_move.event, WorldEvent::MovePlayer(_)));
+    assert_eq!(counter.pending(), 1);
+    counter.record_consumed(&local_move.event);
+    assert_eq!(counter.pending(), 0);
+}
 #[test]
 fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
     let config = NetworkConfig {
@@ -43,23 +91,76 @@ fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
 }
 
 #[test]
-fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
-    assert_eq!(
-        start_game_inventory_authority(&game_data),
-        InventoryEvent::Authority(InventoryAuthority::Client)
+fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
+    assert!(bounded_counter_log_due(0, 1));
+    assert!(bounded_counter_log_due(1, 2));
+    assert!(!bounded_counter_log_due(2, 3));
+    assert!(bounded_counter_log_due(3, 4));
+    assert!(!bounded_counter_log_due(4, 7));
+    assert!(bounded_counter_log_due(7, 8));
+    assert!(bounded_counter_log_due(8, 17));
+    assert!(!bounded_counter_log_due(17, 17));
+    assert!(!bounded_counter_log_due(17, 16));
+}
+
+#[test]
+fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
+    let source = include_str!("../session.rs");
+    let telemetry = source
+        .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
+        .expect("blob-cache telemetry function")
+        .1
+        .split_once("fn emit_bounded_blob_cache_warning")
+        .expect("blob-cache telemetry function body")
+        .0;
+    let expected = [
+        "retained_cached_transactions",
+        "ordinary_ready_events",
+        "ordinary_ready_bytes",
+        "recovery_ready_events",
+        "recovery_ready_bytes",
+        "redundant_missing_requests",
+        "abandoned_cached_transactions",
+        "recovery_requests",
+        "ordinary_backpressure",
+        "cached_packet_transaction_pressure",
+        "cached_packet_pending_pressure",
+        "cached_packet_staged_pressure",
+        "cached_packet_reconstruction_pressure",
+        "cached_packet_ready_pressure",
+    ];
+    let missing = expected
+        .into_iter()
+        .filter(|field| !telemetry.contains(&format!("{field} = stats.{field},")))
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing.is_empty(),
+        "blob-cache log line is missing pressure counters: {missing:?}"
     );
-    game_data.start_game.server_authoritative_inventory = true;
-    assert_eq!(
-        start_game_inventory_authority(&game_data),
-        InventoryEvent::Authority(InventoryAuthority::Server)
+}
+
+#[test]
+fn network_pump_terminal_marker_carries_the_unmasked_error() {
+    let mut output = Vec::new();
+    write_network_pump_terminal_marker(
+        &mut output,
+        "receive",
+        "socket read failed: \"peer reset\"",
+        7,
     );
+    let line = String::from_utf8(output).expect("marker is UTF-8");
+    let payload = line
+        .trim()
+        .strip_prefix("RUST_MCBE_NETWORK_PUMP_TERMINAL=")
+        .expect("durable marker prefix");
+    let marker: serde_json::Value = serde_json::from_str(payload).expect("marker JSON");
+
+    assert_eq!(marker["schema"], "rust-mcbe-network-pump-terminal-v1");
+    assert_eq!(marker["outcome"], "failed");
+    assert_eq!(marker["stage"], "receive");
+    assert_eq!(marker["message"], "socket read failed: \"peer reset\"");
+    assert_eq!(marker["decode_error_count"], 7);
 }
 
 struct ReadyInboundSession {
@@ -110,7 +211,7 @@ impl NetworkSession for TraceOrderingFailSession {
         self.calls.lock().unwrap().push("cancel");
     }
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
         self.calls.lock().unwrap().push("rotate");
     }
 }
@@ -213,7 +314,7 @@ impl NetworkSession for QueuedInboundSession {
         0
     }
 
-    fn rotate_blob_cache_pending_for_fast_transfer(&mut self) {
+    fn arm_blob_cache_reset_for_fast_transfer(&mut self) {
         self.rotations.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -346,102 +447,6 @@ async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() 
     assert!(!delivered);
 }
 
-#[test]
-fn sequence_is_fifo_and_dimension_changes_apply_to_following_packets() {
-    let mut sequencer = NetworkSequencer::new(7, 2, 42);
-    let first = sequencer.wrap(WorldEvent::ChunkRadiusUpdated(16));
-    assert_eq!(first.session_generation, 7);
-    assert_eq!(first.sequence, 1);
-    assert_eq!(sequencer.current_dimension(), 2);
-
-    let change = sequencer.wrap(WorldEvent::ChangeDimension(ChangeDimensionEvent {
-        dimension: 1,
-        position: [0.0, 80.0, 0.0],
-    }));
-    assert_eq!(change.sequence, 2);
-    assert_eq!(sequencer.current_dimension(), 1);
-
-    let following = sequencer.wrap(WorldEvent::ChunkRadiusUpdated(8));
-    assert_eq!(following.sequence, 3);
-}
-
-#[test]
-fn foreign_player_movement_is_routed_to_the_actor_stream() {
-    let mut sequencer = NetworkSequencer::new(7, 0, 42);
-    let movement = |runtime_id| {
-        WorldEvent::MovePlayer(MovePlayerEvent {
-            runtime_id,
-            // MovePlayer carries the network-offset position for a standing
-            // player whose spawn/render feet position is Y=64.
-            position: [1.0, 64.0 + PLAYER_NETWORK_OFFSET, 2.0],
-            pitch: 5.0,
-            yaw: 90.0,
-            head_yaw: 110.0,
-            mode: protocol::MovePlayerMode::Teleport,
-            on_ground: true,
-            teleported: true,
-            source_tick: 1_234,
-        })
-    };
-
-    assert!(matches!(
-        sequencer.wrap(movement(42)).event,
-        WorldEvent::MovePlayer(MovePlayerEvent { runtime_id: 42, .. })
-    ));
-    let WorldEvent::Actor(protocol::ActorEvent::Move(remote)) = sequencer.wrap(movement(7)).event
-    else {
-        panic!("foreign MovePlayer was not routed to the actor stream");
-    };
-    assert_eq!(remote.runtime_id, 7);
-    assert_eq!(remote.dimension, 0);
-    assert_eq!(remote.position[0], Some(1.0));
-    assert!((remote.position[1].unwrap() - (64.0 + PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
-    assert_eq!(remote.position[2], Some(2.0));
-    assert_eq!(remote.position_origin, ActorPositionOrigin::NetworkOffset);
-    assert_eq!(remote.head_yaw, Some(110.0));
-    assert_eq!(remote.on_ground, Some(true));
-    assert!(remote.teleported);
-    assert_eq!(remote.player_mode, Some(protocol::MovePlayerMode::Teleport));
-    assert_eq!(remote.source_tick, Some(1_234));
-}
-
-#[test]
-fn foreign_move_player_retains_network_origin_for_actor_store_normalization() {
-    const SPAWN_FEET_Y: f32 = 64.0;
-    let mut sequencer = NetworkSequencer::new(7, 0, 42);
-    let movement = WorldEvent::MovePlayer(MovePlayerEvent {
-        runtime_id: 7,
-        position: [1.0, SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET, 2.0],
-        ..Default::default()
-    });
-
-    let WorldEvent::Actor(protocol::ActorEvent::Move(remote)) = sequencer.wrap(movement).event
-    else {
-        panic!("foreign MovePlayer was not routed to the actor stream");
-    };
-
-    assert!((remote.position[1].unwrap() - (SPAWN_FEET_Y + PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
-    assert_eq!(remote.position_origin, ActorPositionOrigin::NetworkOffset);
-}
-
-#[test]
-fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
-    let mut sequencer = NetworkSequencer::new(7, 0, 42);
-    let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-        position: [27.5, 111.0, 91.5],
-        delta: [0.0; 3],
-        pitch: -15.0,
-        yaw: 90.0,
-        on_ground: true,
-        tick: 55,
-    });
-
-    assert!(matches!(
-        sequencer.wrap(correction).event,
-        WorldEvent::PlayerMovementCorrection(_)
-    ));
-}
-
 #[tokio::test]
 async fn saturated_event_queue_is_cancelled_without_waiting_for_capacity() {
     let (events, mut event_rx) = mpsc::channel(1);
@@ -534,6 +539,8 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
                 sequence: 11,
                 fast_transfer_action: None,
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -574,6 +581,8 @@ async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_
                 sequence: 11,
                 fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -643,6 +652,8 @@ async fn failed_fast_transfer_never_arms_a_reset() {
                 sequence: 12,
                 fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -683,6 +694,8 @@ async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
                 sequence: 11,
                 fast_transfer_action: None,
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -725,6 +738,8 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
                 sequence: 12,
                 fast_transfer_action: None,
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -767,6 +782,8 @@ async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
                 sequence: 12,
                 fast_transfer_action: Some(crate::ui_runtime::FastTransferAction::TransferSm3),
             }),
+            physics: None,
+            physics_reanchor: None,
         })
         .unwrap();
     let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -814,6 +831,8 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
                     count: 1,
                 }),
                 chat: None,
+                physics: None,
+                physics_reanchor: None,
             })
             .unwrap();
     }
@@ -1094,6 +1113,8 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
                 packet: test_packet(),
                 sub_chunk: None,
                 chat: None,
+                physics: None,
+                physics_reanchor: None,
             })
             .unwrap();
     }
@@ -1102,13 +1123,16 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
     drop(control_event_tx);
     drop(world_event_tx);
     let (shutdown, _shutdown_rx) = watch::channel(false);
+    let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let worker = thread::spawn(|| thread::sleep(Duration::from_millis(250)));
     let mut handle = NetworkHandle {
         control_events,
         world_events,
         commands,
+        physics_reanchor,
         shutdown,
         thread: Some(worker),
+        readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
     };
 
     let packet = test_packet();
@@ -1127,12 +1151,15 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
     let (world_event_tx, world_events) = mpsc::channel(2);
     let (commands, mut command_rx) = mpsc::channel(2);
     let (shutdown, _shutdown_rx) = watch::channel(false);
+    let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let mut handle = NetworkHandle {
         control_events,
         world_events,
         commands,
+        physics_reanchor,
         shutdown,
         thread: None,
+        readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
     };
 
     assert_eq!(handle.pending_event_count(), 0);

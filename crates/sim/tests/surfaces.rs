@@ -60,7 +60,7 @@ fn cobweb_scales_each_axis_and_stops_residual_motion_after_move() {
 }
 
 #[test]
-fn slime_and_bed_bounce_while_sneaking_suppresses_slime() {
+fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
     for (response, expected) in [
         (SurfaceResponse::Slime, 0.6076),
         (SurfaceResponse::Bed, 0.374_36),
@@ -117,9 +117,15 @@ fn authoritative_soul_sand_and_honey_factors_slow_horizontal_motion() {
         )
         .unwrap();
 
-    for response in [SurfaceResponse::SoulSand, SurfaceResponse::Honey] {
+    // Soul sand carries the pinned bedsim Bedrock factor; honey carries the
+    // explicitly unproven Java-derived one that no bedsim oracle can correct.
+    // Both come from PREG, so this only proves the force law consumes them.
+    for (response, factor) in [
+        (SurfaceResponse::SoulSand, 0.543),
+        (SurfaceResponse::Honey, 0.4),
+    ] {
         let mut slowed_world = surface(response);
-        slowed_world.facts.horizontal_speed_factor = 0.4;
+        slowed_world.facts.horizontal_speed_factor = factor;
         let mut slowed_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
         slowed_state.on_ground = true;
         let slowed = Simulator::default()

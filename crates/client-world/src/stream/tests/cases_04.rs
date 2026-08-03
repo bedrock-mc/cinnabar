@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn respawn_commits_as_a_local_position_authority_change() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let respawn = RespawnEvent {
+        position: [8.5, 71.620_01, -4.25],
+        state: 1,
+        runtime_entity_id: 1,
+    };
+
+    stream.submit(1, WorldEvent::Respawn(respawn)).unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![super::CommittedControlEvent::Respawn {
+            sequence: 1,
+            respawn,
+            resolved: super::server_position::ResolvedServerPosition {
+                position: respawn.position,
+                surface_anchor: None,
+            },
+        }]
+    );
+}
+
+#[test]
 fn older_movement_correction_tick_cannot_rewind_newer_correction() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
@@ -100,6 +131,7 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
             key: first,
             generation: 1,
             dirty_since: Instant::now(),
+            urgent: false,
             permit: None,
         });
     stream
@@ -108,6 +140,7 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
             key: second,
             generation: 2,
             dirty_since: Instant::now(),
+            urgent: false,
             permit: None,
         });
     stream.stats.phase2_stages.mesh_changes_queued = 2;
@@ -130,6 +163,47 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
     assert_eq!(stream.pop_mesh_change().unwrap().key(), first);
     assert_eq!(stream.pop_mesh_change().unwrap().key(), second);
     assert!(stream.pop_mesh_change().is_none());
+}
+
+#[test]
+fn urgent_mesh_change_preempts_queued_bulk_publication() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let bulk = SubChunkKey::new(0, 8, 0, 0);
+    let urgent = SubChunkKey::new(0, 0, 0, 0);
+    stream
+        .mesh_changes
+        .push_back(super::WorldMeshChange::Remove {
+            key: bulk,
+            generation: 1,
+            dirty_since: Instant::now(),
+            urgent: false,
+            permit: None,
+        });
+    stream.resident.insert(urgent);
+    stream.known_air.insert(urgent);
+    stream.mark_dirty_exact_with_priority(urgent, Instant::now(), true);
+
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(super::WorldMeshChange::Remove {
+            key,
+            urgent: true,
+            ..
+        }) if key == urgent
+    ));
+    assert_eq!(
+        stream.pop_mesh_change().map(|change| change.key()),
+        Some(bulk)
+    );
 }
 
 #[test]
@@ -161,6 +235,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
             tint_identity: stream.biome_tint_identity(),
             generation: 1,
             dirty_since: Instant::now(),
+            urgent: false,
             permit: None,
         });
 
@@ -180,6 +255,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
             key,
             generation: 2,
             dirty_since: Instant::now(),
+            urgent: false,
             permit: None,
         });
     assert!(matches!(
@@ -254,6 +330,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: Duration::ZERO,
+        urgent: false,
     });
 
     let super::WorldMeshChange::Upsert { biome, .. } = stream.pop_mesh_change().unwrap() else {
@@ -323,6 +400,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: Duration::ZERO,
+        urgent: false,
     });
 
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
@@ -392,6 +470,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: Duration::ZERO,
+        urgent: false,
     });
 
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
@@ -455,6 +534,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
         duration: std::time::Duration::from_millis(5),
+        urgent: false,
     });
 
     assert_eq!(
@@ -624,14 +704,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
     let known_air = SubChunkKey::new(0, 2, -4, 3);
     stream.record_known_air(known_air);
     stream.mark_light_changed_sources(keys.into_iter().chain([known_air]));
-    assert_eq!(stream.dispatch_light_jobs([0.0; 3], 4), 4);
-    for _ in 0..4 {
-        let completion = stream
-            .light_rx
-            .recv_timeout(Duration::from_secs(2))
-            .expect("forced-remesh setup light completion");
-        stream.accept_light_completion(completion);
-    }
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
     let previously_dirty_at = std::time::Instant::now();
     stream.mark_dirty_exact(keys[0], previously_dirty_at);
     let started = previously_dirty_at + Duration::from_millis(1);
@@ -978,4 +1051,25 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
             source_cohort: None,
         }]
     );
+}
+
+#[test]
+fn urgent_mesh_completion_retry_stays_at_the_front() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let revision = stream.mark_dirty_exact(key, Instant::now());
+    stream.pending_mesh.remove(&key);
+    stream.pending_mesh_scan.clear();
+
+    stream.requeue_current_mesh_completion(key, revision, true);
+
+    assert!(stream.pending_mesh[&key].urgent);
+    assert_eq!(stream.pending_mesh_scan.front(), Some(&(key, revision)));
 }

@@ -146,6 +146,26 @@ impl VisualKind {
     }
 }
 
+/// Evidence status of a compiled canonical block visual.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VisualSupport {
+    Exact = 0,
+    VanillaFallback = 1,
+    Diagnostic = 2,
+}
+
+impl VisualSupport {
+    pub(crate) fn from_raw(raw: u8) -> Result<Self, AssetError> {
+        match raw {
+            0 => Ok(Self::Exact),
+            1 => Ok(Self::VanillaFallback),
+            2 => Ok(Self::Diagnostic),
+            _ => Err(invalid(format!("unknown visual support {raw}"))),
+        }
+    }
+}
+
 /// A bounded span of immutable model quads.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

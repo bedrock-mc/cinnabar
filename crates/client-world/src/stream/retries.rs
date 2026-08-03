@@ -4,10 +4,14 @@ impl WorldStream {
     pub(super) fn complete_requested_sub_chunk(
         &mut self,
         key: SubChunkKey,
-        collision_authoritative: bool,
+        mut collision_authoritative: bool,
     ) {
         self.cancel_sub_chunk_retry(key);
         let chunk = key.chunk();
+        if collision_authoritative && self.store.mark_sub_chunk_loaded(key).is_err() {
+            collision_authoritative = false;
+            self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+        }
         if !collision_authoritative {
             self.request_collision_failures.insert(chunk);
         }
@@ -52,46 +56,55 @@ impl WorldStream {
     }
     pub(super) fn record_sub_chunk_reply_admissions(&mut self, batch: &SubChunkBatchEvent) {
         for entry in &batch.entries {
-            let key = SubChunkKey::new(
-                batch.dimension,
-                entry.position[0],
-                entry.position[1],
-                entry.position[2],
-            );
-            if !self.column_is_active(key.chunk()) {
-                continue;
-            }
-            let expected = self.is_expected_sub_chunk(key);
-            let available = self
-                .requested_sub_chunks
-                .get(&key.chunk())
-                .and_then(|column| column.get(&key.y))
-                .map_or_else(
-                    || {
-                        self.correlated_sub_chunk_attempts
-                            .get(&key)
-                            .map_or(0, |attempts| attempts.confirmed_attempts)
-                    },
-                    |pending| pending.confirmed_attempts.max(1),
-                );
-            let admitted = self
-                .admitted_sub_chunk_replies
-                .get(&key)
-                .copied()
-                .unwrap_or(0);
-            if admitted < available {
-                self.stats.phase2_stages.responses_admitted = self
-                    .stats
-                    .phase2_stages
-                    .responses_admitted
-                    .saturating_add(1);
-                if expected {
-                    self.cancel_sub_chunk_retry(key);
-                }
-                self.admitted_sub_chunk_replies
-                    .insert(key, admitted.saturating_add(1));
-            }
+            self.record_sub_chunk_reply_admission_position(batch.dimension, entry.position);
         }
+    }
+    pub(super) fn record_sub_chunk_reply_admission(
+        &mut self,
+        admission: &SubChunkReplyAdmissionEvent,
+    ) {
+        for position in &admission.positions {
+            self.record_sub_chunk_reply_admission_position(admission.dimension, *position);
+        }
+    }
+    fn record_sub_chunk_reply_admission_position(&mut self, dimension: i32, position: [i32; 3]) {
+        let key = SubChunkKey::new(dimension, position[0], position[1], position[2]);
+        if !self.column_is_active(key.chunk()) {
+            return;
+        }
+        let expected = self.is_expected_sub_chunk(key);
+        let available = self
+            .requested_sub_chunks
+            .get(&key.chunk())
+            .and_then(|column| column.get(&key.y))
+            .map_or_else(
+                || {
+                    self.correlated_sub_chunk_attempts
+                        .get(&key)
+                        .map_or(0, |attempts| attempts.confirmed_attempts)
+                },
+                |pending| pending.confirmed_attempts.max(1),
+            );
+        let admitted = self
+            .admitted_sub_chunk_replies
+            .get(&key)
+            .copied()
+            .unwrap_or(0);
+        if admitted < available {
+            self.stats.phase2_stages.responses_admitted = self
+                .stats
+                .phase2_stages
+                .responses_admitted
+                .saturating_add(1);
+            if expected {
+                self.cancel_sub_chunk_retry(key);
+            }
+            self.admitted_sub_chunk_replies
+                .insert(key, admitted.saturating_add(1));
+        }
+    }
+    pub(super) fn clear_admitted_sub_chunk_replies(&mut self, key: SubChunkKey) -> bool {
+        self.admitted_sub_chunk_replies.remove(&key).is_some()
     }
     pub(super) fn consume_admitted_sub_chunk_reply(&mut self, key: SubChunkKey) -> bool {
         let Some(admitted) = self.admitted_sub_chunk_replies.get_mut(&key) else {
@@ -266,6 +279,7 @@ impl WorldStream {
         debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
     }
     pub(super) fn pump_deferred_retries(&mut self) {
+        self.pump_deferred_recovery_requests();
         while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
             let Some(key) = self.deferred_retries.pop_front() else {
                 break;
@@ -277,6 +291,26 @@ impl WorldStream {
             if !self.enqueue_exact_retry(key) {
                 self.complete_requested_sub_chunk(key, false);
             }
+        }
+    }
+
+    pub(super) fn pump_deferred_recovery_requests(&mut self) {
+        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+            let Some(request) = self.deferred_recovery_requests.pop_front() else {
+                break;
+            };
+            let has_expected = (0..request.count).any(|offset| {
+                self.is_expected_sub_chunk(SubChunkKey::from_chunk(
+                    request.chunk,
+                    request
+                        .base_sub_chunk_y
+                        .saturating_add(i32::try_from(offset).unwrap_or(i32::MAX)),
+                ))
+            });
+            if !has_expected {
+                continue;
+            }
+            self.requests.push_ready(request, true);
         }
     }
     pub(super) fn cancel_sub_chunk_retry(&mut self, key: SubChunkKey) {
@@ -319,6 +353,8 @@ impl WorldStream {
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
         self.deferred_retry_set
             .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+        self.deferred_recovery_requests
+            .retain(|request| request.chunk != chunk);
         self.correlated_sub_chunk_attempts
             .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
         self.admitted_sub_chunk_replies
@@ -340,6 +376,8 @@ impl WorldStream {
                         .is_some_and(|pending| pending.retry_attempts != 0)
             })
             .count();
-        outbound.saturating_add(self.deferred_retries.len())
+        outbound
+            .saturating_add(self.deferred_retries.len())
+            .saturating_add(self.deferred_recovery_requests.len())
     }
 }

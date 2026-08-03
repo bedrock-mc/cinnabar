@@ -132,6 +132,17 @@ pub trait Transport: Unpin + Send {
         msg: TransportMessage,
     ) -> Poll<Result<(), Self::Error>>;
 
+    /// Completes transport-owned work from a previously accepted send whose future was cancelled.
+    ///
+    /// Stateless transports have nothing to drain. Implementations that retain sends across
+    /// `Poll::Pending` must override this method.
+    fn poll_drain_send(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
     /// Receive the next message from the transport.
     fn poll_recv(
         self: Pin<&mut Self>,

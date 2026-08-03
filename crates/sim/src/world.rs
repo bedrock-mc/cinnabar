@@ -590,10 +590,10 @@ impl<'a> PaletteWorld<'a> {
     fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {
         let [x, y, z] = block;
         let chunk = ChunkKey::new(self.dimension, x >> 4, z >> 4);
-        if !self.store.is_chunk_loaded(chunk) {
+        let key = SubChunkKey::new(self.dimension, x >> 4, y >> 4, z >> 4);
+        if !self.store.is_sub_chunk_loaded(key) {
             return Err(WorldQueryError::UnloadedChunk(chunk));
         }
-        let key = SubChunkKey::new(self.dimension, x >> 4, y >> 4, z >> 4);
         let Some(sub_chunk) = self.store.sub_chunk(key) else {
             return Ok(vec![self.registry.air_runtime_id]);
         };

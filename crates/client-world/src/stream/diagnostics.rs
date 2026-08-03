@@ -228,6 +228,7 @@ impl WorldStream {
                 && self.transport_pending_requests == 0
                 && self.requested_sub_chunks.is_empty()
                 && self.deferred_retries.is_empty()
+                && self.deferred_recovery_requests.is_empty()
                 && self.pending_light.is_empty()
                 && self.in_flight_light.is_empty()
                 && self.light_rx.is_empty()

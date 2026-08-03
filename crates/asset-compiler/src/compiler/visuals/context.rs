@@ -3,6 +3,7 @@ use super::super::*;
 pub(in crate::compiler) struct RuleInputs<'a> {
     pub(in crate::compiler) pack: &'a PackSources,
     pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
+    pub(in crate::compiler) vanilla_fallback_material: u32,
 }
 
 impl RuleInputs<'_> {

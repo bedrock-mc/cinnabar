@@ -5,7 +5,7 @@ use assets::{
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, Material,
     ModelFamily, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, RegistryProvenance,
     RegistryRecord, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
-    TextureRef, TintSource, VisualKind, encode_blob, read_registry,
+    TextureRef, TintSource, VisualKind, VisualSupport, encode_blob, read_registry,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};

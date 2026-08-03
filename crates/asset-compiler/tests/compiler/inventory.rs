@@ -76,6 +76,43 @@ fn compiled_checked_in_air_preserves_both_runtime_network_identities() {
 }
 
 #[test]
+fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
+    let directory = TempDir::new().unwrap();
+    write_pack(
+        directory.path(),
+        r#"{"format_version":[1,1,0]}"#,
+        r#"{"texture_data":{}}"#,
+        "[]",
+    );
+    let mut record = read_registry(include_bytes!(
+        "../../../assets/data/block-registry-v1001.bin"
+    ))
+    .expect("decode committed generated registry")
+    .into_iter()
+    .find(|record| record.name.as_ref() == "minecraft:air")
+    .expect("canonical air");
+    record.name = "custom:air".into();
+    let compiled =
+        compile_pack(directory.path(), std::slice::from_ref(&record)).expect("compile custom air");
+    assert_eq!(
+        compiled.visuals[record.sequential_id as usize].kind,
+        VisualKind::Diagnostic
+    );
+    assert_eq!(
+        compiled.visuals[record.sequential_id as usize].support,
+        assets::VisualSupport::Diagnostic
+    );
+    let runtime = RuntimeAssets::decode(
+        &encode_blob(&compiled)
+            .expect("encode custom air diagnostic")
+            .into_vec(),
+    )
+    .expect("decode custom air diagnostic");
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), None);
+    assert_eq!(runtime.air_network_id(NetworkIdMode::Hashed), None);
+}
+
+#[test]
 fn generated_registry_has_exact_copper_grate_inventory() {
     let copper_grates = generated_copper_grate_records();
     assert_eq!(copper_grates.len(), 8);

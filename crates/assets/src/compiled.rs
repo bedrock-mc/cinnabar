@@ -1,6 +1,7 @@
 use crate::{
     Animation, BlockFlags, CompiledBiomeAssets, ContributorRole, LightProperties, ModelQuad,
     ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TexturePage, TextureRef, VisualKind,
+    VisualSupport,
 };
 
 /// Bedrock block-face order, matching the packed renderer's face discriminants.
@@ -89,6 +90,7 @@ pub struct BlockVisual {
     pub faces: [u32; 6],
     pub flags: BlockFlags,
     pub kind: VisualKind,
+    pub support: VisualSupport,
     pub contributor_role: ContributorRole,
     pub model_template: u32,
     pub animation: u32,
@@ -102,6 +104,7 @@ impl BlockVisual {
             faces: [DIAGNOSTIC_MATERIAL; 6],
             flags,
             kind: VisualKind::Diagnostic,
+            support: VisualSupport::Diagnostic,
             contributor_role,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
@@ -112,6 +115,7 @@ impl BlockVisual {
 
 pub(crate) fn visual_semantics_are_valid(
     kind: VisualKind,
+    support: VisualSupport,
     flags: BlockFlags,
     role: ContributorRole,
 ) -> bool {
@@ -119,6 +123,9 @@ pub(crate) fn visual_semantics_are_valid(
         && !flags.contains(BlockFlags::CUBE_GEOMETRY)
         && !matches!(kind, VisualKind::Model)
     {
+        return false;
+    }
+    if matches!(kind, VisualKind::Diagnostic) != matches!(support, VisualSupport::Diagnostic) {
         return false;
     }
     match kind {

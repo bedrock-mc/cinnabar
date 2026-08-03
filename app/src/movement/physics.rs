@@ -20,6 +20,15 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// catch-up spike. Outbound movement remains independently disabled.
 pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 8;
 
+pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
+    matches!(
+        error,
+        SimulationError::World(
+            sim::WorldQueryError::UnloadedChunk(_) | sim::WorldQueryError::UnknownRuntimeId { .. }
+        )
+    )
+}
+
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
 #[must_use]
 pub fn physics_movement_input(
@@ -212,6 +221,12 @@ pub struct PhysicsMovementSample {
     pub world_identity: WorldCollisionIdentity,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PhysicsCorrectionConfirmation {
+    pub position: [f32; 3],
+    pub world_identity: WorldCollisionIdentity,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsCorrectionMode {
     ReplayIfRetained,
@@ -253,8 +268,10 @@ pub(super) struct PhysicsCorrectionPlan {
 
 #[derive(Debug, Default)]
 pub struct LocalPhysicsFrame {
+    pub due_ticks: u64,
     pub completed_ticks: usize,
     pub dropped_ticks: u64,
+    pub blocked_tick_index: Option<usize>,
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
 }
@@ -321,6 +338,12 @@ impl LocalPhysicsController {
     /// Bedrock player movement positions carry the protocol network offset;
     /// collision simulation uses the feet origin. Non-finite anchors disable
     /// local prediction instead of allowing invalid state to reach collision.
+    ///
+    /// This is a hard reset used by StartGame, session/dimension replacement,
+    /// teleports, and un-replayable corrections. It deliberately clears the
+    /// retained axis collisions along with the rest of the history: no prior
+    /// motion survives the reset, so nothing can justify the discrete
+    /// ladder-climb branch until a fresh tick re-derives them.
     pub fn reanchor_network_position(
         &mut self,
         network_position: [f32; 3],
@@ -407,6 +430,7 @@ impl LocalPhysicsController {
         self.accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
         let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
         let mut frame = LocalPhysicsFrame {
+            due_ticks: due,
             dropped_ticks: due.saturating_sub(allowed as u64),
             samples: Vec::with_capacity(allowed),
             ..LocalPhysicsFrame::default()
@@ -465,11 +489,30 @@ impl LocalPhysicsController {
                     input.jump_pressed = false;
                 }
                 Err(error) => {
-                    self.previous_position = state.position;
-                    self.accumulated_seconds = 0.0;
-                    frame.dropped_ticks = frame
-                        .dropped_ticks
-                        .saturating_add((allowed - tick_index) as u64);
+                    let transient_collision_blocked = matches!(
+                        &error,
+                        sim::PredictionError::Simulation(error)
+                            if is_transient_collision_unavailability(error)
+                    );
+                    if transient_collision_blocked {
+                        // Prediction is transactional: the failed tick did
+                        // not mutate state or history. Discard all elapsed
+                        // time in this blocked frame instead of retaining a
+                        // retry backlog that could become a false overflow
+                        // or a large catch-up burst when collision data
+                        // returns. New elapsed time starts a fresh tick.
+                        self.previous_position = state.position;
+                        self.accumulated_seconds = 0.0;
+                        frame.dropped_ticks = 0;
+                    } else {
+                        // Keep a failed non-transient tick pending. The
+                        // existing overflow count remains authoritative for
+                        // genuine overload with usable collision data.
+                        let unconsumed_ticks = allowed - tick_index;
+                        self.accumulated_seconds +=
+                            unconsumed_ticks as f64 * LOCAL_PHYSICS_TICK_SECONDS;
+                    }
+                    frame.blocked_tick_index = Some(tick_index);
                     frame.blocked = Some(match error {
                         sim::PredictionError::Simulation(error) => error,
                         sim::PredictionError::ZeroCapacity
@@ -494,6 +537,7 @@ impl LocalPhysicsController {
         tick: u64,
         on_ground: bool,
         mode: PhysicsCorrectionMode,
+        confirmation: Option<&PhysicsCorrectionConfirmation>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
         if !network_position.into_iter().all(f32::is_finite) {
@@ -537,6 +581,42 @@ impl LocalPhysicsController {
         let mut corrected = PlayerState::new(feet);
         corrected.tick = tick;
         corrected.on_ground = on_ground;
+        // Axis collisions describe the motion that produced a position, so they
+        // cannot be recomputed from a corrected anchor. They are retained only
+        // when a bounded transport-success record shows that the correction
+        // exactly matches the network position this client sent for that tick,
+        // the retained sample used that same immutable collision identity, and
+        // every chunk in that identity is still loaded at the same revision.
+        // Cinnabar provisionally interprets that combination as confirmation of
+        // the motion behind the position; this is a client replay policy, not
+        // an established vanilla or protocol guarantee. Retaining the flags
+        // avoids stuttering a legitimate wall climb on matching corrections.
+        // Any missing proof or mismatch clears the flags and keeps the discrete
+        // climb branch closed. Identity query failure is semantic
+        // unavailability, so it clears these optional flags without
+        // disconnecting. The position comparison is exact in the sent `f32`
+        // network space because that is the serialized position available to
+        // compare. The loss is bounded to the first replayed tick:
+        // `Simulator::tick` re-derives collisions for every tick after it.
+        let retained_sample = self
+            .sample_history
+            .iter()
+            .find(|sample| sample.tick == tick)
+            .expect("retained correction sample was checked");
+        let server_confirmed_prediction = confirmation.is_some_and(|confirmation| {
+            confirmation.position == network_position
+                && retained_sample.position == network_position
+                && confirmation.world_identity == retained_sample.world_identity
+                && collision_identity_is_current(world, feet, &confirmation.world_identity)
+                    .unwrap_or(false)
+        });
+        corrected.collisions = if server_confirmed_prediction {
+            self.history
+                .state_at(tick)
+                .map_or_else(sim::AxisCollisions::default, |retained| retained.collisions)
+        } else {
+            sim::AxisCollisions::default()
+        };
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_traced(
@@ -658,4 +738,44 @@ impl LocalPhysicsController {
     pub const fn last_world_identity(&self) -> Option<&WorldCollisionIdentity> {
         self.last_world_identity.as_ref()
     }
+}
+
+fn collision_identity_is_current(
+    world: &impl CollisionWorld,
+    corrected_feet: Vec3,
+    expected: &WorldCollisionIdentity,
+) -> Result<bool, sim::WorldQueryError> {
+    let y = checked_block_coordinate(corrected_feet.y)?;
+    let mut current: Option<WorldCollisionIdentity> = None;
+    if expected.chunks.is_empty() {
+        let block = [
+            checked_block_coordinate(corrected_feet.x)?,
+            y,
+            checked_block_coordinate(corrected_feet.z)?,
+        ];
+        current = Some(world.block_physics(block)?.identity);
+    } else {
+        for revision in &expected.chunks {
+            let Some(x) = revision.chunk.x.checked_mul(16) else {
+                return Err(sim::WorldQueryError::CoordinateOutOfRange);
+            };
+            let Some(z) = revision.chunk.z.checked_mul(16) else {
+                return Err(sim::WorldQueryError::CoordinateOutOfRange);
+            };
+            let identity = world.block_physics([x, y, z])?.identity;
+            current = Some(match current {
+                None => identity,
+                Some(previous) => previous.merge(&identity)?,
+            });
+        }
+    }
+    Ok(current.as_ref() == Some(expected))
+}
+
+fn checked_block_coordinate(value: f64) -> Result<i32, sim::WorldQueryError> {
+    let value = value.floor();
+    if value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
+        return Err(sim::WorldQueryError::CoordinateOutOfRange);
+    }
+    Ok(value as i32)
 }

@@ -337,6 +337,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         biome: PackedBiomeRecord::fallback(),
         tint_identity: tint,
         generation: 6,
+        priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
@@ -410,6 +411,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         biome: PackedBiomeRecord::fallback(),
         tint_identity: ChunkBiomeTintIdentity::new(4, 5),
         generation: 6,
+        priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
@@ -467,4 +469,89 @@ fn water_and_models_share_one_transparent_upload_allowance() {
         budget.remaining(),
         DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME
     );
+}
+#[test]
+fn urgent_gpu_update_preempts_nearest_bulk_work() {
+    let mut world = World::new();
+    let urgent = world.spawn_empty().id();
+    let ordinary = world.spawn_empty().id();
+    let tint = ChunkBiomeTintIdentity::default();
+    let selected = plan_gpu_chunk_updates(
+        vec![
+            GpuUpdateCandidate {
+                entity: ordinary,
+                key: SubChunkKey::new(0, 0, 0, 0),
+                generation: 1,
+                tint_identity: tint,
+                priority: ChunkUploadPriority::new(0.0),
+            },
+            GpuUpdateCandidate {
+                entity: urgent,
+                key: SubChunkKey::new(0, 100, 0, 100),
+                generation: 1,
+                tint_identity: tint,
+                priority: ChunkUploadPriority::urgent(),
+            },
+        ],
+        &HashMap::new(),
+        Vec3::ZERO,
+        tint,
+        &GpuUpdateFairness::default(),
+    );
+
+    assert_eq!(selected[0], urgent);
+}
+
+#[test]
+fn urgent_gpu_update_stays_urgent_after_an_ordinary_replacement() {
+    let mut world = World::new();
+    let urgent = world.spawn_empty().id();
+    let ordinary = world.spawn_empty().id();
+    let tint = ChunkBiomeTintIdentity::default();
+    let mut fairness = GpuUpdateFairness::default();
+    fairness.finish_frame(&[urgent], &[], &[urgent]);
+    let selected = plan_gpu_chunk_updates(
+        vec![
+            GpuUpdateCandidate {
+                entity: ordinary,
+                key: SubChunkKey::new(0, 0, 0, 0),
+                generation: 1,
+                tint_identity: tint,
+                priority: ChunkUploadPriority::new(0.0),
+            },
+            GpuUpdateCandidate {
+                entity: urgent,
+                key: SubChunkKey::new(0, 100, 0, 100),
+                generation: 2,
+                tint_identity: tint,
+                priority: ChunkUploadPriority::new(0.0),
+            },
+        ],
+        &HashMap::new(),
+        Vec3::ZERO,
+        tint,
+        &fairness,
+    );
+
+    assert_eq!(selected[0], urgent);
+    fairness.finish_frame(&selected, &[urgent], &[]);
+    assert!(!fairness.is_urgent(urgent));
+}
+
+#[test]
+fn same_key_render_replacement_preserves_urgent_priority() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let mut queue = ChunkRenderQueue::default();
+    queue
+        .try_insert(key, solid_test_mesh(), ChunkUploadPriority::urgent())
+        .unwrap();
+    queue
+        .try_insert(key, solid_test_mesh(), ChunkUploadPriority::new(0.0))
+        .unwrap();
+    assert!(queue.pending[&key].priority.is_urgent());
+
+    queue
+        .try_remove_inner(key, ChunkUploadPriority::new(0.0), None)
+        .unwrap();
+    assert!(queue.removals[&key].priority.is_urgent());
 }

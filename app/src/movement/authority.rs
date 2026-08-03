@@ -1,6 +1,7 @@
 use bevy::prelude::Resource;
+use sim::SimulationError;
 
-use super::MovementSource;
+use super::{LocalPhysicsController, MovementSource, MovementTicker};
 
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PhysicsAuthorityGate {
@@ -9,20 +10,46 @@ pub enum PhysicsAuthorityGate {
     CandidateEvidence,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhysicsAuthorityFault {
     Unauthorized,
     IncompleteCollisionRegistry,
-    TickMismatch { expected: u64, actual: u64 },
+    TickMismatch {
+        expected: u64,
+        actual: u64,
+    },
     OutboxOverflow,
     InvalidCompletedSample,
-    PhysicsTickOverflow { dropped: u64 },
-    CorrectionNotRetained { tick: u64 },
+    PhysicsTickOverflow {
+        due: u64,
+        dropped: u64,
+    },
+    PhysicsSimulationError {
+        due: u64,
+        tick_index: usize,
+        error: SimulationError,
+    },
+    CorrectionNotRetained {
+        tick: u64,
+    },
     CorrectionReplayFailed,
-    ReplayWorldIdentityMismatch { tick: u64 },
-    PendingWorldIdentityMismatch { tick: u64 },
-    PendingTickMismatch { expected: u64, actual: u64 },
-    PendingSessionMismatch { expected: u64, actual: u64 },
+    ReplayWorldIdentityMismatch {
+        tick: u64,
+    },
+    PendingWorldIdentityMismatch {
+        tick: u64,
+    },
+    PendingTickMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    PendingSessionMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    IndeterminatePhysicsSend {
+        tick: u64,
+    },
 }
 
 impl PhysicsAuthorityGate {
@@ -38,5 +65,22 @@ impl PhysicsAuthorityGate {
             return Err(PhysicsAuthorityFault::IncompleteCollisionRegistry);
         }
         Ok(MovementSource::Physics)
+    }
+
+    /// Installs the StartGame movement authority after the physics anchor is prepared.
+    ///
+    /// A free camera and local prediction are mutually exclusive: an active
+    /// controller suppresses free-camera translation.
+    pub(crate) fn apply_start_game(
+        self,
+        auto_fly: bool,
+        collision_registry_complete: bool,
+        movement: &mut MovementTicker,
+        local_physics: &mut LocalPhysicsController,
+    ) -> Result<MovementSource, PhysicsAuthorityFault> {
+        let source = self.authorize(auto_fly, collision_registry_complete)?;
+        movement.set_source(source);
+        movement.enforce_local_physics_authority(local_physics);
+        Ok(source)
     }
 }

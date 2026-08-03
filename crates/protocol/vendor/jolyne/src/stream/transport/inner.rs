@@ -184,6 +184,13 @@ impl<T: Transport> BedrockTransport<T> {
         self.send_batch(&packets).await
     }
 
+    /// Completes a transport-owned send retained across cancellation.
+    pub async fn drain_send(&mut self) -> Result<(), JolyneError> {
+        poll_fn(|cx| Pin::new(&mut self.inner).poll_drain_send(cx))
+            .await
+            .map_err(|error| JolyneError::Transport(error.to_string()))
+    }
+
     /// Sends a list of packets as a single batch using `ReliableOrdered` reliability.
     #[instrument(skip_all, level = "trace", fields(peer_addr = %self.peer_addr()))]
     pub async fn send_batch(&mut self, packets: &[McpePacket]) -> Result<(), JolyneError> {

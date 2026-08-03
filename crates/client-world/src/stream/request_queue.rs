@@ -148,6 +148,12 @@ impl RequestQueue {
             .push_back(OutboundRequestSlot::Reserved(world_sequence));
     }
 
+    pub(super) fn has_reservation(&self, world_sequence: u64) -> bool {
+        self.slots.iter().any(|slot| {
+            matches!(slot, OutboundRequestSlot::Reserved(reserved) if *reserved == world_sequence)
+        })
+    }
+
     pub(super) fn replace_reservation(
         &mut self,
         world_sequence: u64,

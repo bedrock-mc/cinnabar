@@ -289,6 +289,7 @@ fn segment_entry_fraction(origin: SimVec3, delta: SimVec3, bounds: Aabb) -> Opti
 pub struct AutoFly {
     enabled: bool,
     capture_pending: bool,
+    presentation_paused: bool,
     path_anchor: Option<Vec3>,
     last_path_position: Option<Vec3>,
     look_target: Option<Vec3>,
@@ -298,9 +299,15 @@ pub struct AutoFly {
 impl AutoFly {
     #[must_use]
     pub const fn new(enabled: bool) -> Self {
+        Self::with_startup_capture(enabled, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_startup_capture(enabled: bool, capture_pending: bool) -> Self {
         Self {
             enabled,
-            capture_pending: enabled,
+            capture_pending,
+            presentation_paused: false,
             path_anchor: None,
             last_path_position: None,
             look_target: None,
@@ -309,12 +316,34 @@ impl AutoFly {
     }
 
     #[must_use]
+    const fn presentation_paused(&self) -> bool {
+        self.presentation_paused
+    }
+    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
+    }
+    #[must_use]
+    pub(crate) const fn controls_acceptance_camera(&self) -> bool {
+        self.enabled || self.presentation_paused
     }
 
     pub fn set_look_target(&mut self, target: Vec3) {
         self.look_target = Some(target);
+    }
+
+    pub(crate) fn pause_for_stable_presentation(&mut self) {
+        if self.enabled {
+            self.enabled = false;
+            self.presentation_paused = true;
+        }
+    }
+
+    pub(crate) fn resume_after_stable_presentation(&mut self) {
+        if self.presentation_paused {
+            self.enabled = true;
+            self.presentation_paused = false;
+        }
     }
 }
 
@@ -342,12 +371,21 @@ pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
     auto_fly: bool,
+    capture_on_start: bool,
 }
 
 impl FlyCameraPlugin {
     #[must_use]
     pub const fn new(auto_fly: bool) -> Self {
-        Self { auto_fly }
+        Self::with_startup_capture(auto_fly, auto_fly)
+    }
+
+    #[must_use]
+    pub const fn with_startup_capture(auto_fly: bool, capture_on_start: bool) -> Self {
+        Self {
+            auto_fly,
+            capture_on_start,
+        }
     }
 }
 
@@ -364,7 +402,10 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()
             .init_resource::<Touches>()
-            .insert_resource(AutoFly::new(self.auto_fly))
+            .insert_resource(AutoFly::with_startup_capture(
+                self.auto_fly,
+                self.capture_on_start,
+            ))
             .init_resource::<CameraSettingsAuthority>()
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
@@ -569,18 +610,33 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if mouse_buttons.just_pressed(MouseButton::Left) || auto_fly.capture_pending {
+    let recapture_click =
+        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
+        if recapture_click {
+            // The click that transitions from an absolute UI cursor to
+            // captured gameplay input is UI authority, not an attack. Remove
+            // its held state so it cannot become gameplay input on the next
+            // scheduled sample; the platform must deliver a later physical
+            // release and press before attack can rearm.
+            mouse_buttons.release(MouseButton::Left);
+            mouse_motion.delta = Vec2::ZERO;
+        }
         auto_fly.capture_pending = false;
     }
 }
 
 fn update_look(
     input: Res<SemanticInputSnapshot>,
+    auto_fly: Res<AutoFly>,
     settings: Res<CameraSettingsAuthority>,
     camera: Single<&FlyCamera>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    if auto_fly.presentation_paused() {
+        return;
+    }
     let look_delta = Vec2::from_array(input.look_delta());
     if look_delta == Vec2::ZERO {
         return;
@@ -600,6 +656,9 @@ fn update_movement(
     camera: Single<&FlyCamera>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    if auto_fly.presentation_paused() {
+        return;
+    }
     if auto_fly.enabled() {
         let externally_moved = auto_fly
             .last_path_position
