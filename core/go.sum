@@ -20,8 +20,8 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec h1:V/lDQl14Uyez/1uhrVEeJ4F/UJ8zS1H/NdYGIOE+N+Q=
-github.com/hashimthearab/go-raknet v1.15.1-0.20260711001310-258399b8f7ec/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
+github.com/hashimthearab/go-raknet v1.15.1-0.20260717160613-0b3a6a7d4f25 h1:JNR+G/5UO1IXq0q/wggNZ1ZRGAmqbiSJ5xoHDpnVXAk=
+github.com/hashimthearab/go-raknet v1.15.1-0.20260717160613-0b3a6a7d4f25/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697 h1:/OBmKrpaUtoRc2EGTVfZQVFrm7ZnzIv9n8b0em6N3eU=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697/go.mod h1:BHr17c5+172v/bAgfcUEMaPHm+o+9s/pFl9ZyfVWB04=
 github.com/klauspost/compress v1.18.1 h1:bcSGx7UbpBqMChDtsF28Lw6v/G94LPrrbMbdC3JH2co=
