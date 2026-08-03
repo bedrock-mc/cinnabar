@@ -5,8 +5,11 @@ fn equivalent_block_light_properties_skip_relighting() {
     let opaque = super::uniform_sub_chunk(2);
     let equivalent_opaque = super::uniform_sub_chunk(4);
     let air = super::uniform_sub_chunk(0);
+    let zero_light_transparent = super::uniform_sub_chunk(3);
     assert!(!stream.block_light_semantics_changed(Some(&opaque), Some(&equivalent_opaque),));
     assert!(stream.block_light_semantics_changed(Some(&air), Some(&opaque)));
+    assert!(stream.block_light_semantics_changed(Some(&air), Some(&zero_light_transparent),));
+    assert!(stream.block_light_semantics_changed(Some(&zero_light_transparent), Some(&air),));
     assert!(stream.block_light_semantics_changed(None, Some(&air)));
     assert!(stream.block_light_semantics_changed(Some(&air), None));
 

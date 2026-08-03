@@ -16,6 +16,7 @@ pub struct PublicationServiceConfig {
     pub maximum_burst_items: usize,
     pub maximum_burst_bytes: u64,
     pub maximum_zero_byte_operations_per_frame: usize,
+    pub urgent_zero_byte_reserve: usize,
 }
 
 impl PublicationServiceConfig {
@@ -29,6 +30,7 @@ impl PublicationServiceConfig {
         maximum_burst_items: 8_192,
         maximum_burst_bytes: 128 * 1024 * 1024,
         maximum_zero_byte_operations_per_frame: 256,
+        urgent_zero_byte_reserve: 16,
     };
 }
 
@@ -173,12 +175,20 @@ impl PublicationAllowance {
 
     #[must_use]
     pub fn try_admit_zero_byte(&self) -> Option<PublicationPermit> {
+        self.try_admit_zero_byte_with_priority(false)
+    }
+
+    #[must_use]
+    pub fn try_admit_zero_byte_with_priority(&self, urgent: bool) -> Option<PublicationPermit> {
         let mut state = self.lock();
+        let live_limit = state
+            .config
+            .maximum_zero_byte_operations_per_frame
+            .saturating_add(usize::from(urgent) * state.config.urgent_zero_byte_reserve);
         if state.remaining_zero_byte_operations == 0
             || state.remaining_items == 0
             || state.frame_remaining_items == 0
-            || state.live_zero_byte_operations
-                >= state.config.maximum_zero_byte_operations_per_frame
+            || state.live_zero_byte_operations >= live_limit
         {
             return None;
         }
@@ -585,6 +595,43 @@ mod tests {
         assert_eq!(allowance.remaining_items(), 0);
         assert_eq!(allowance.frame_remaining_items(), 0);
         assert!(payload.retire());
+    }
+
+    #[test]
+    fn urgent_zero_byte_permits_use_a_reserved_live_window() {
+        let config = PublicationServiceConfig::PHASE2_GATE;
+        let allowance = PublicationAllowance::new(config);
+        allowance.begin_frame(
+            1,
+            config.maximum_zero_byte_operations_per_frame,
+            0,
+            config.maximum_zero_byte_operations_per_frame,
+            config.maximum_frame_items,
+        );
+        let ordinary = (0..config.maximum_zero_byte_operations_per_frame)
+            .map(|_| allowance.try_admit_zero_byte().unwrap())
+            .collect::<Vec<_>>();
+
+        allowance.begin_frame(
+            2,
+            config.urgent_zero_byte_reserve + 1,
+            0,
+            config.urgent_zero_byte_reserve + 1,
+            config.maximum_frame_items,
+        );
+        assert!(allowance.try_admit_zero_byte().is_none());
+        let urgent = (0..config.urgent_zero_byte_reserve)
+            .map(|_| allowance.try_admit_zero_byte_with_priority(true).unwrap())
+            .collect::<Vec<_>>();
+        assert!(allowance.try_admit_zero_byte_with_priority(true).is_none());
+        assert_eq!(
+            allowance.live_permits(),
+            config.maximum_zero_byte_operations_per_frame + config.urgent_zero_byte_reserve
+        );
+
+        drop(ordinary);
+        drop(urgent);
+        assert_eq!(allowance.live_permits(), 0);
     }
 
     #[test]

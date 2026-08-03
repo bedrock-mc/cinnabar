@@ -15,6 +15,7 @@ impl WorldStream {
                 for x in 0..16 {
                     let mut sample = |sub_chunk: Option<&SubChunk>| {
                         let mut emission = 0;
+                        let mut has_non_air = false;
                         let mut filter = 0;
                         if let Some(sub_chunk) = sub_chunk {
                             for layer in 0..sub_chunk.storages().len() {
@@ -24,6 +25,7 @@ impl WorldStream {
                                 if self.classifier.is_air(runtime_id) {
                                     continue;
                                 }
+                                has_non_air = true;
                                 let (block_emission, block_filter) =
                                     *resolved.entry(runtime_id).or_insert_with(|| {
                                         let properties = self
@@ -36,7 +38,7 @@ impl WorldStream {
                                 filter = filter.max(block_filter);
                             }
                         }
-                        (emission, filter)
+                        (has_non_air, emission, filter)
                     };
                     if sample(previous) != sample(replacement) {
                         return true;

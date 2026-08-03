@@ -240,7 +240,8 @@ impl WorldStream {
             }
             let permit = match &self.publication_allowance {
                 Some(allowance) => {
-                    let Some(permit) = allowance.try_admit_zero_byte() else {
+                    let Some(permit) = allowance.try_admit_zero_byte_with_priority(pending.urgent)
+                    else {
                         self.pending_mesh_removal_deferred.push(candidate);
                         self.pending_mesh_removal_deferred
                             .extend(removal_candidates.map(|(candidate, _)| candidate));
@@ -444,7 +445,8 @@ impl WorldStream {
         let publication_bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
         let permit = match &self.publication_allowance {
             Some(allowance) if publication_bytes == 0 => {
-                let Some(permit) = allowance.try_admit_zero_byte() else {
+                let Some(permit) = allowance.try_admit_zero_byte_with_priority(completion.urgent)
+                else {
                     self.requeue_current_mesh_completion(
                         completion.key,
                         completion.revision,

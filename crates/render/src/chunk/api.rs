@@ -3,7 +3,6 @@ use crate::chunk::*;
 pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub(in crate::chunk) const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
-const URGENT_GPU_REMOVAL_RESERVE: usize = 16;
 
 /// Maximum number of non-empty new or changed sub-chunks transferred to the
 /// render world in one main-world update.
@@ -219,7 +218,8 @@ impl ChunkGpuRemovalQueue {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let capacity = if priority.is_urgent() {
-            self.capacity.saturating_add(URGENT_GPU_REMOVAL_RESERVE)
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve)
         } else {
             self.capacity
         };
@@ -244,7 +244,31 @@ impl ChunkGpuRemovalQueue {
         &self,
         removal: PendingGpuRemoval,
     ) -> Result<(), PendingGpuRemoval> {
-        let mut removal = removal;
+        let capacity = if removal.priority.is_urgent() {
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve)
+        } else {
+            self.capacity
+        };
+        self.push_with_capacity(removal, capacity)
+    }
+
+    pub(in crate::chunk) fn requeue(
+        &self,
+        removal: PendingGpuRemoval,
+    ) -> Result<(), PendingGpuRemoval> {
+        self.push_with_capacity(
+            removal,
+            self.capacity
+                .saturating_add(PublicationServiceConfig::PHASE2_GATE.urgent_zero_byte_reserve),
+        )
+    }
+
+    fn push_with_capacity(
+        &self,
+        mut removal: PendingGpuRemoval,
+        capacity: usize,
+    ) -> Result<(), PendingGpuRemoval> {
         let mut pending = self
             .inner
             .lock()
@@ -265,7 +289,7 @@ impl ChunkGpuRemovalQueue {
             drop(superseded);
             return Ok(());
         }
-        if pending.len() >= self.capacity.saturating_add(URGENT_GPU_REMOVAL_RESERVE) {
+        if pending.len() >= capacity {
             return Err(removal);
         }
         if removal.priority.is_urgent() {

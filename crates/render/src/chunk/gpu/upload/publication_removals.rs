@@ -74,7 +74,7 @@ pub(super) fn prepare_publication_removals(
             .is_some_and(|token| !acknowledgements.try_reserve(pending.key, token))
         {
             gpu_removals
-                .push(pending)
+                .requeue(pending)
                 .unwrap_or_else(|_| unreachable!("taking one removal frees one mailbox slot"));
             continue;
         }
