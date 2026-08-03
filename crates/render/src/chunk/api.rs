@@ -1,9 +1,7 @@
 use crate::chunk::*;
-
 pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub(in crate::chunk) const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
-
 /// Maximum number of non-empty new or changed sub-chunks transferred to the
 /// render world in one main-world update.
 #[derive(Resource, ExtractResource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,11 +278,7 @@ impl ChunkGpuRemovalQueue {
             if superseded.priority.is_urgent() {
                 removal.priority = ChunkUploadPriority::urgent();
             }
-            if removal.priority.is_urgent() {
-                pending.push_front(removal);
-            } else {
-                pending.push_back(removal);
-            }
+            insert_gpu_removal_by_priority(&mut pending, removal);
             drop(pending);
             drop(superseded);
             return Ok(());
@@ -292,11 +286,7 @@ impl ChunkGpuRemovalQueue {
         if pending.len() >= capacity {
             return Err(removal);
         }
-        if removal.priority.is_urgent() {
-            pending.push_front(removal);
-        } else {
-            pending.push_back(removal);
-        }
+        insert_gpu_removal_by_priority(&mut pending, removal);
         Ok(())
     }
 
@@ -338,6 +328,21 @@ impl ChunkGpuRemovalQueue {
         urgent_retained.append(&mut ordinary_retained);
         *pending = urgent_retained;
         completed
+    }
+}
+
+fn insert_gpu_removal_by_priority(
+    pending: &mut VecDeque<PendingGpuRemoval>,
+    removal: PendingGpuRemoval,
+) {
+    if removal.priority.is_urgent() {
+        let index = pending
+            .iter()
+            .position(|queued| !queued.priority.is_urgent())
+            .unwrap_or(pending.len());
+        pending.insert(index, removal);
+    } else {
+        pending.push_back(removal);
     }
 }
 

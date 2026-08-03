@@ -383,6 +383,84 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
 }
 
 #[test]
+fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
+    let config = client_world::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = client_world::PublicationAllowance::new(config);
+    let gpu_removals = ChunkGpuRemovalQueue::default();
+    allowance.begin_frame(
+        1,
+        config.urgent_zero_byte_reserve,
+        0,
+        config.urgent_zero_byte_reserve,
+        config.maximum_frame_items,
+    );
+    for index in 0..config.urgent_zero_byte_reserve {
+        let permit = allowance
+            .try_admit_zero_byte_with_priority(true)
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        assert!(
+            gpu_removals
+                .push(PendingGpuRemoval {
+                    key: SubChunkKey::new(0, index as i32, 0, 0),
+                    token: None,
+                    priority: ChunkUploadPriority::urgent(),
+                    permit,
+                })
+                .is_ok()
+        );
+    }
+
+    allowance.begin_frame(
+        2,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+        config.maximum_zero_byte_operations_per_frame,
+        config.maximum_frame_items,
+    );
+    for index in config.urgent_zero_byte_reserve
+        ..config.maximum_zero_byte_operations_per_frame + config.urgent_zero_byte_reserve
+    {
+        let permit = allowance
+            .try_admit_zero_byte_with_priority(true)
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        assert!(
+            gpu_removals
+                .push(PendingGpuRemoval {
+                    key: SubChunkKey::new(0, index as i32, 0, 0),
+                    token: None,
+                    priority: ChunkUploadPriority::urgent(),
+                    permit,
+                })
+                .is_ok()
+        );
+    }
+
+    let completed =
+        gpu_removals.take_ready(config.maximum_zero_byte_operations_per_frame, |_| true);
+    assert_eq!(
+        completed
+            .iter()
+            .take(config.urgent_zero_byte_reserve)
+            .map(|removal| removal.key.x)
+            .collect::<Vec<_>>(),
+        (0..config.urgent_zero_byte_reserve as i32).collect::<Vec<_>>()
+    );
+    assert_eq!(gpu_removals.pending_len(), config.urgent_zero_byte_reserve);
+
+    drop(completed);
+    drop(gpu_removals);
+    assert_eq!(allowance.live_permits(), 0);
+}
+
+#[test]
 fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
     let now = Instant::now();
     let key = SubChunkKey::new(0, 12, 0, 12);

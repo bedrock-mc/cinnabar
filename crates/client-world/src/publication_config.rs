@@ -220,17 +220,21 @@ impl PublicationAllowance {
 
     #[must_use]
     pub fn zero_byte_admission_capacity(&self) -> usize {
+        self.zero_byte_admission_capacity_with_priority(false)
+    }
+
+    #[must_use]
+    pub fn zero_byte_admission_capacity_with_priority(&self, urgent: bool) -> usize {
         let state = self.lock();
+        let live_limit = state
+            .config
+            .maximum_zero_byte_operations_per_frame
+            .saturating_add(usize::from(urgent) * state.config.urgent_zero_byte_reserve);
         state
             .remaining_zero_byte_operations
             .min(state.remaining_items)
             .min(state.frame_remaining_items)
-            .min(
-                state
-                    .config
-                    .maximum_zero_byte_operations_per_frame
-                    .saturating_sub(state.live_zero_byte_operations),
-            )
+            .min(live_limit.saturating_sub(state.live_zero_byte_operations))
     }
 
     #[must_use]
@@ -618,6 +622,11 @@ mod tests {
             0,
             config.urgent_zero_byte_reserve + 1,
             config.maximum_frame_items,
+        );
+        assert_eq!(allowance.zero_byte_admission_capacity(), 0);
+        assert_eq!(
+            allowance.zero_byte_admission_capacity_with_priority(true),
+            config.urgent_zero_byte_reserve
         );
         assert!(allowance.try_admit_zero_byte().is_none());
         let urgent = (0..config.urgent_zero_byte_reserve)

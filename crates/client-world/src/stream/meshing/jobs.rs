@@ -134,7 +134,9 @@ impl WorldStream {
         let removal_authority = self
             .publication_allowance
             .as_ref()
-            .map_or(budget, PublicationAllowance::zero_byte_admission_capacity)
+            .map_or(budget, |allowance| {
+                allowance.zero_byte_admission_capacity_with_priority(true)
+            })
             .min(budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
         if removal_authority != 0 {
