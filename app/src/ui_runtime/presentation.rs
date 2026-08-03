@@ -2,11 +2,17 @@ use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
-    prelude::{Query, Res, ResMut, Resource, Time, With},
+    camera::Camera,
+    math::Vec3,
+    prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Resource, Time, With},
     time::Real,
     window::{PrimaryWindow, Window},
 };
-use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
+use render::{ActorSkinPixels, normalize_actor_skin};
+use render::{
+    MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray,
+};
+use sha2::{Digest, Sha256};
 
 use ui::{
     DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
@@ -22,14 +28,16 @@ use crate::{
 
 mod chat;
 mod hud_layout;
+mod player_preview;
 mod retained_hud;
 mod texture_atlas;
 
 use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout};
+use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use retained_hud::{
-    PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
+    BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
+    ScoreboardOwnerNameAuthority,
 };
 use texture_atlas::{
     HudSprite, HudTexturePages, IconRef, font_texture_array, font_texture_array_with_hud_and_icons,
@@ -69,13 +77,9 @@ const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS) * 
 const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
 /// Mojang offsets the shadow by exactly one design pixel on both axes.
 const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
-/// Mojang's automatic GUI scale stops before a logical axis falls under
-/// 320x240. Doubling those bounds accounts for Monocraft's doubled grid.
-const MIN_SAFE_WIDTH: f32 = 640.0;
-const MIN_SAFE_HEIGHT: f32 = 480.0;
-
 /// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
-/// single frame cannot mix scales or line pitches.
+/// single frame cannot mix scales or line pitches. Font atlas texels are two
+/// texels per Java GUI design pixel, while sprite geometry uses one GUI pixel.
 #[derive(Clone, Copy)]
 pub(super) struct TextMetrics {
     scale: UiScale,
@@ -85,23 +89,14 @@ pub(super) struct TextMetrics {
 }
 
 impl TextMetrics {
-    /// Picks the largest whole number of physical pixels per atlas texel that
-    /// still leaves Mojang's minimum safe area, then divides out the DPI so the
-    /// product stays whole. Choosing the integer on the *physical* side is what
-    /// keeps a fractional-DPI display (Windows at 150%) landing every design
-    /// pixel on a whole pixel instead of resampling the atlas.
-    fn for_viewport(physical_size: [u32; 2], dpi_scale: DpiScale) -> Self {
+    /// Uses the same Java GUI-scale choice as sprite geometry. The font atlas
+    /// is authored at two texels per GUI design pixel, so its logical scale is
+    /// half the sprite scale before the platform DPI is removed.
+    fn for_viewport(physical_size: [u32; 2], dpi_scale: DpiScale, preference: Option<u8>) -> Self {
         let dpi = dpi_scale.get();
-        let width = physical_size[0] as f32;
-        let height = physical_size[1] as f32;
-        let mut texel_pixels = 1.0_f32;
-        while (texel_pixels + 1.0) / dpi <= UiScale::MAX
-            && width / (texel_pixels + 1.0) >= MIN_SAFE_WIDTH
-            && height / (texel_pixels + 1.0) >= MIN_SAFE_HEIGHT
-        {
-            texel_pixels += 1.0;
-        }
-        let scale = (texel_pixels / dpi).clamp(UiScale::MIN, UiScale::MAX);
+        let gui_scale = java_gui_scale(physical_size, preference) as f32;
+        let scale =
+            (gui_scale / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)).clamp(UiScale::MIN, UiScale::MAX);
         Self {
             scale: UiScale::new(scale).expect("the clamped scale is inside the UiScale range"),
             line_height_64: TEXT_LINE_HEIGHT_64,
@@ -174,6 +169,14 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
+    /// World-projected below-name score anchors for the current frame.
+    below_name_anchors: Vec<BelowNameAnchor>,
+    /// Identity of the static font/HUD/item carrier before the optional
+    /// cached player-preview layer is appended.
+    base_texture_identity: [u8; 32],
+    player_preview_page: Option<u16>,
+    player_preview_source_hash: Option<[u8; 32]>,
+    player_preview_icon: Option<IconRef>,
 }
 
 impl UiPresentationRuntime {
@@ -214,6 +217,7 @@ impl UiPresentationRuntime {
                 }
                 (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
             };
+        let base_texture_identity = textures.identity;
         Ok(Self {
             font,
             textures: Arc::new(textures),
@@ -232,6 +236,11 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
+            below_name_anchors: Vec::new(),
+            base_texture_identity,
+            player_preview_page: None,
+            player_preview_source_hash: None,
+            player_preview_icon: None,
         })
     }
 
@@ -244,6 +253,84 @@ impl UiPresentationRuntime {
             .as_ref()?
             .lookup_index(identifier, metadata)?;
         self.icon_refs.as_deref()?.get(sprite).copied()
+    }
+
+    /// Updates the cached corner avatar. The raster is regenerated and the UI
+    /// texture array is replaced only when the authoritative skin changes;
+    /// normal camera/HUD frames reuse the same GPU texture allocation.
+    pub(crate) fn set_player_preview_skin(&mut self, skin: Option<&[u8]>) {
+        let source_hash: [u8; 32] = Sha256::digest(skin.unwrap_or_default()).into();
+        if self.player_preview_source_hash == Some(source_hash) {
+            return;
+        }
+        let Some(page) = self.player_preview_page.or_else(|| {
+            (self.textures.layers < MAX_UI_TEXTURE_LAYERS).then_some(self.textures.layers as u16)
+        }) else {
+            self.player_preview_icon = None;
+            return;
+        };
+        let layer_bytes = usize::try_from(self.textures.width)
+            .ok()
+            .and_then(|width| width.checked_mul(self.textures.height as usize))
+            .and_then(|pixels| pixels.checked_mul(4));
+        let Some(layer_bytes) = layer_bytes else {
+            self.player_preview_icon = None;
+            return;
+        };
+        if self.textures.width < player_preview::PREVIEW_WIDTH
+            || self.textures.height < player_preview::PREVIEW_HEIGHT
+        {
+            self.player_preview_icon = None;
+            return;
+        }
+        let preview = skin.map(player_preview::render).unwrap_or_else(|| {
+            vec![0; (player_preview::PREVIEW_WIDTH * player_preview::PREVIEW_HEIGHT * 4) as usize]
+        });
+        let mut rgba8 = self.textures.rgba8.to_vec();
+        if self.player_preview_page.is_none() {
+            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
+            self.player_preview_page = Some(page);
+        }
+        let layer_start = usize::from(page) * layer_bytes;
+        for row in 0..player_preview::PREVIEW_HEIGHT as usize {
+            let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
+            let target_start = layer_start + row * self.textures.width as usize * 4;
+            let target_end = target_start + player_preview::PREVIEW_WIDTH as usize * 4;
+            rgba8[target_start..target_end].copy_from_slice(
+                &preview[source_start..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
+            );
+        }
+        let layers = self
+            .player_preview_page
+            .map_or(self.textures.layers, |page| {
+                self.textures.layers.max(u32::from(page) + 1)
+            });
+        let mut identity = Sha256::new();
+        identity.update(self.base_texture_identity);
+        identity.update(b"cinnabar-player-preview-v1");
+        identity.update(source_hash);
+        let identity: [u8; 32] = identity.finalize().into();
+        self.textures = Arc::new(UiRenderTextureArray {
+            identity,
+            width: self.textures.width,
+            height: self.textures.height,
+            layers,
+            rgba8: rgba8.into(),
+        });
+        self.player_preview_source_hash = Some(source_hash);
+        self.player_preview_icon = skin.map(|_| IconRef {
+            page,
+            uv: [
+                0,
+                0,
+                player_preview::PREVIEW_WIDTH as u16,
+                player_preview::PREVIEW_HEIGHT as u16,
+            ],
+        });
+    }
+
+    pub(crate) const fn player_preview_icon(&self) -> Option<IconRef> {
+        self.player_preview_icon
     }
 
     fn with_optional_hud(
@@ -269,6 +356,15 @@ impl UiPresentationRuntime {
         &mut self.hud_frame
     }
 
+    fn set_below_name_anchors(&mut self, anchors: impl IntoIterator<Item = BelowNameAnchor>) {
+        self.below_name_anchors.clear();
+        self.below_name_anchors.extend(
+            anchors
+                .into_iter()
+                .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS),
+        );
+    }
+
     /// Retained text-layout cache entries, exposed for the bounded-memory
     /// steady-state witnesses.
     #[cfg(test)]
@@ -285,7 +381,8 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
-        let metrics = TextMetrics::for_viewport(physical_size, dpi_scale);
+        let metrics =
+            TextMetrics::for_viewport(physical_size, dpi_scale, self.gui_scale_preference);
         // The gameplay HUD lays out in Java GUI pixels; it fails closed to no
         // HUD when the safe viewport cannot contain the fixed-width hotbar.
         let safe_area = self.safe_area;
@@ -408,6 +505,18 @@ impl UiPresentationRuntime {
             )?;
         }
 
+        retained_hud::append_below_name_nodes(
+            &mut nodes,
+            &mut next_id,
+            &mut self.layouts,
+            &self.font,
+            metrics,
+            self.solid_texture_page,
+            content_width,
+            content_height,
+            &self.below_name_anchors,
+        )?;
+
         let chat_focused = runtime.chat_focused();
         let visible_suggestions = if chat_focused {
             visible_suggestion_range(
@@ -479,7 +588,7 @@ impl UiPresentationRuntime {
         let chat_bottom = if chat_focused {
             suggestion_cursor
         } else {
-            (logical_height - 72.0).max(chat_region_top)
+            (content_height - 72.0).max(chat_region_top)
         };
         let mut chat_cursor = chat_bottom;
         let mut visible_chat = Vec::new();
@@ -730,6 +839,7 @@ pub(crate) fn publish_ui_runtime(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
 ) {
     let Ok(window) = windows.single() else {
@@ -739,6 +849,8 @@ pub(crate) fn publish_ui_runtime(
     if physical_size.contains(&0) {
         return;
     }
+    let logical_width = physical_size[0] as f32 / window.scale_factor();
+    let logical_height = physical_size[1] as f32 / window.scale_factor();
     let Ok(dpi_scale) = DpiScale::new(window.scale_factor()) else {
         record_fatal_error(
             &mut client_world.fatal_error,
@@ -751,6 +863,18 @@ pub(crate) fn publish_ui_runtime(
     runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
     runtime.observe_selected_item_identity(now_millis);
+    let player_preview_skin = client_world.stream.as_ref().and_then(|stream| {
+        let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
+        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
+            return None;
+        };
+        normalize_actor_skin(&ActorSkinPixels {
+            width: skin.width,
+            height: skin.height,
+            rgba8: Arc::clone(&skin.rgba8),
+        })
+    });
+    presentation.set_player_preview_skin(player_preview_skin.as_deref());
     refresh_hud_frame(
         &mut runtime,
         &mut presentation,
@@ -758,6 +882,22 @@ pub(crate) fn publish_ui_runtime(
         &camera_settings,
         now_millis,
     );
+    let below_name_anchors = client_world
+        .stream
+        .as_ref()
+        .zip(cameras.single().ok())
+        .map(|(stream, (camera, camera_transform))| {
+            project_below_name_anchors(
+                runtime.scoreboards(),
+                stream,
+                camera,
+                camera_transform,
+                [logical_width, logical_height],
+                presentation.safe_area,
+            )
+        })
+        .unwrap_or_default();
+    presentation.set_below_name_anchors(below_name_anchors);
     if presentation.scoreboard_opacity.is_some() {
         presentation
             .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
@@ -851,6 +991,7 @@ pub(crate) fn refresh_hud_frame(
 
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let player_preview_icon = presentation.player_preview_icon();
     let frame = presentation.hud_frame_mut();
     frame.first_person = first_person;
     frame.mount_health = mount_health;
@@ -858,6 +999,7 @@ pub(crate) fn refresh_hud_frame(
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
     frame.offhand_icon = offhand_icon;
+    frame.player_preview = player_preview_icon;
     frame.selected_item_name = selected_item_name;
     frame.mount_jump = mount_jump;
     // Bedrock is authoritative for melee readiness and exposes no cooldown
@@ -882,6 +1024,48 @@ pub(crate) fn refresh_hud_frame(
         );
         presentation.last_hud_diagnostics = diagnostics;
     }
+}
+
+fn project_below_name_anchors(
+    scoreboards: &ui::ScoreboardStore,
+    stream: &client_world::WorldStream,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    logical_size: [f32; 2],
+    safe_area: SafeArea,
+) -> Vec<BelowNameAnchor> {
+    let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
+    let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
+    stream
+        .render_players()
+        .into_iter()
+        .filter_map(|(actor, _profile)| {
+            let below_name = scoreboards
+                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
+                .or_else(|| {
+                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
+                })?;
+            let name = stream.actor_display_name(actor.unique_id)?;
+            let position = Vec3::from_array(actor.position) + Vec3::Y * 2.35;
+            let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
+            let x = viewport.x - safe_area.left();
+            let y = viewport.y - safe_area.top();
+            (x.is_finite()
+                && y.is_finite()
+                && x >= 0.0
+                && x <= content_width
+                && y >= 0.0
+                && y <= content_height)
+                .then_some(BelowNameAnchor {
+                    x,
+                    y,
+                    name,
+                    score: below_name.0,
+                    objective: below_name.1,
+                })
+        })
+        .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
+        .collect()
 }
 
 fn bounded_visible_text(value: &str) -> &str {

@@ -49,9 +49,10 @@ section remain open, so no phase checkbox is closed by this delta.
   popping air bubbles; mount hearts replacing hunger while riding; the
   classic 182x5 XP bar with outlined level; top-right effect chips with
   ambient backgrounds and expiry blink; stacked tinted boss bars with titles
-  and title/actionbar coexistence; hotbar counts, durability bars, offhand
-  cell, and the fading selected-item label; Java chat fade (10 s + 1 s) with
-  per-line contiguous backdrops.
+  and title/actionbar coexistence; hotbar counts, authoritative item icons,
+  durability bars, offhand cell, and the fading selected-item label; a cached
+  3-D skinned player preview in the gameplay corner; Java chat fade (10 s +
+  1 s) with per-line contiguous backdrops.
 - Rawtext and localization: typed documents now resolve instead of dropping —
   score components read the retained scoreboard (real player/entity owners
   through the stream's authoritative id-to-name map, plus the `*` reader
@@ -101,17 +102,15 @@ section remain open, so no phase checkbox is closed by this delta.
   reference matrix (GUI scales 2/3/4/Auto at 1280x720, 1920x1080, 2560x1440,
   100%/150% desktop scaling, macOS Retina). No such pass has been performed
   on this branch; unit geometry/draw-list tests are not a substitute.
-- [ ] Hotbar/offhand item icon pixels: no runtime artifact carries item
-  sprite pixels yet (the entity carrier stores routes and hashes only), so
-  icons are not drawn. Requires an item-sprite payload in the entity carrier
-  or a dedicated reviewed carrier before the icons can render.
+- [x] Hotbar/offhand item icon pixels: the pinned item-icon carrier resolves
+  vanilla identifiers and metadata to nearest-neighbour atlas pixels; unknown
+  Zeqa/custom identifiers fail closed without disturbing authoritative stack
+  state.
 - [ ] Non-English locales (only the pinned `en_US` table is compiled; locale
   selection is future work).
-- [ ] Below-name world anchoring: the tab player-list overlay renders (held
-  PlayerList action), but the actor-nameplate surface does not exist, so
-  below-name scores have projections and per-owner lookups without a
-  world-anchored presentation. Requires world-to-screen projection plumbing
-  from the camera authority.
+- [x] Below-name world anchoring: bounded player name/objective plates are
+  projected from the live camera and retained actor stream, with Java-like
+  white names and yellow score/objective lines.
 - [ ] Native Bedrock and third-party live server acceptance, including live
   chat send/receive and disconnect validation from the stable executable
   paths.

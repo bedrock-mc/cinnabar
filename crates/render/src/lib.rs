@@ -24,7 +24,7 @@ pub use actor::{
     ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
     ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError,
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels,
+    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorVertex,
     DEFAULT_SKIN_PROVENANCE, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,

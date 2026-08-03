@@ -471,7 +471,7 @@ fn focused_chat_uses_compact_java_style_text_and_does_not_dim_the_hud() {
     // The fixture glyph is 16 texels tall, so 16 px is the expected height and
     // anything larger means a fractional or inflated scale crept back in.
     assert_eq!(
-        super::TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap())
+        super::TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap(), None)
             .scale
             .get(),
         1.0

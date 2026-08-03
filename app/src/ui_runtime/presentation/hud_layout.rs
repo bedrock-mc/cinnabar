@@ -20,6 +20,7 @@ use super::{HudSprite, HudTexturePages, IconRef, UiPresentationError, UiRuntime,
 use crate::ui_runtime::gameplay_hud::HudEffect;
 
 mod pinned;
+mod player;
 
 use pinned::{
     BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
@@ -46,6 +47,9 @@ pub(crate) struct HudFrame {
     /// registry immediately before presentation.
     pub hotbar_icons: [Option<IconRef>; 9],
     pub offhand_icon: Option<IconRef>,
+    /// Cached software-rendered 3-D local avatar shown in the gameplay HUD's
+    /// upper-left corner.
+    pub player_preview: Option<IconRef>,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
@@ -178,6 +182,9 @@ impl<'a> HudLayout<'a> {
         let shows_hotbar = mode_allows_hotbar && runtime.selected_hotbar_slot().is_some();
         let survival_stats = runtime.survival_stats_visible();
 
+        if let Some(preview) = frame.player_preview {
+            self.player_preview(preview)?;
+        }
         if frame.first_person && mode_allows_hotbar {
             self.crosshair()?;
             self.attack_indicator(frame)?;
@@ -201,31 +208,6 @@ impl<'a> HudLayout<'a> {
         }
         self.effects(runtime, now_tick)?;
         self.boss_bars(runtime)?;
-        Ok(())
-    }
-
-    /// 15x15 vanilla-alpha crosshair centered exactly on the framebuffer
-    /// center: the fractional GUI remainder of a non-divisible viewport is
-    /// kept rather than floored, so the quad's center equals width/2 and
-    /// height/2 in physical pixels at every GUI scale, aspect, and DPI.
-    fn crosshair(&mut self) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let x = (g.gui_width - 15.0) / 2.0;
-        let y = (g.gui_height - 15.0) / 2.0;
-        let sprite = self.textures.sprite(HudTextureRole::Crosshair);
-        let [left, top] = g.logical([x, y]);
-        let node = UiNode::new(
-            UiNodeId::new(*self.next_id),
-            None,
-            rect(left, top, left + 15.0 * g.scale, top + 15.0 * g.scale)?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: self.textures.page,
-            uv: sprite.uv,
-            color: [255; 4],
-        });
-        self.nodes.push(node);
-        *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
 

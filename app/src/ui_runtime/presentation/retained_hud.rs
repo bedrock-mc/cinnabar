@@ -23,6 +23,9 @@ pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
+const NAMEPLATE_LINE_HEIGHT: f32 = 9.0;
+const NAMEPLATE_VERTICAL_GAP: f32 = 1.0;
+const NAMEPLATE_HORIZONTAL_PADDING: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ScoreboardPresentationScope {
@@ -85,6 +88,18 @@ pub(super) struct PresentedBelowNameScores {
     pub(super) scope: ScoreboardPresentationScope,
     pub(super) objective_display_name: Arc<str>,
     pub(super) rows: Vec<PresentedBelowNameRow>,
+}
+
+/// A projected world-space actor nameplate, prepared on the main thread from
+/// authoritative actor and scoreboard state before the retained UI tree is
+/// built. Coordinates are in the safe content viewport's logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct BelowNameAnchor {
+    pub(super) x: f32,
+    pub(super) y: f32,
+    pub(super) name: Arc<str>,
+    pub(super) score: i32,
+    pub(super) objective: Arc<str>,
 }
 
 #[derive(Debug, Default)]
@@ -394,6 +409,81 @@ pub(super) fn append_player_list_nodes(
                 metrics.shadow(),
             )?;
         }
+    }
+    Ok(())
+}
+
+/// Presents the Java-style two-line actor nameplate: the actor name above the
+/// head and the below-name objective value immediately beneath it. The world
+/// projection is performed by the app because only it owns the live camera and
+/// actor stream; this function remains a pure retained-tree append.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_below_name_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_texture_page: u16,
+    viewport_width: f32,
+    viewport_height: f32,
+    anchors: &[BelowNameAnchor],
+) -> Result<(), UiPresentationError> {
+    for anchor in anchors.iter().take(MAX_PRESENTED_BELOW_NAME_ROWS) {
+        let name = layouts
+            .layout(metrics.request(bounded_visible_text(&anchor.name), 160 * 64, font))
+            .map_err(UiPresentationError::Text)?;
+        let score_text = format!(
+            "{} {}",
+            anchor.score,
+            bounded_visible_text(&anchor.objective)
+        );
+        let score = layouts
+            .layout(metrics.request(&score_text, 160 * 64, font))
+            .map_err(UiPresentationError::Text)?;
+        let name_width = name.size_64()[0] as f32 / 64.0;
+        let score_width = score.size_64()[0] as f32 / 64.0;
+        let width =
+            (name_width.max(score_width) + NAMEPLATE_HORIZONTAL_PADDING * 2.0).min(viewport_width);
+        let height = NAMEPLATE_LINE_HEIGHT * 2.0 + NAMEPLATE_VERTICAL_GAP;
+        let left = (anchor.x - width * 0.5).clamp(0.0, (viewport_width - width).max(0.0));
+        let top = (anchor.y - height).clamp(0.0, (viewport_height - height).max(0.0));
+        let right = left + width;
+        nodes.push(solid_node(
+            take_node_id(next_id),
+            [left, top, right, top + height],
+            solid_texture_page,
+            [0, 0, 0, 96],
+        )?);
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left, top, right, top + NAMEPLATE_LINE_HEIGHT],
+            [
+                anchor.x - name_width * 0.5,
+                top,
+                anchor.x + name_width * 0.5,
+                top + NAMEPLATE_LINE_HEIGHT,
+            ],
+            name,
+            [255; 4],
+            metrics.shadow(),
+        )?;
+        let score_top = top + NAMEPLATE_LINE_HEIGHT + NAMEPLATE_VERTICAL_GAP;
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left, score_top, right, score_top + NAMEPLATE_LINE_HEIGHT],
+            [
+                anchor.x - score_width * 0.5,
+                score_top,
+                anchor.x + score_width * 0.5,
+                score_top + NAMEPLATE_LINE_HEIGHT,
+            ],
+            score,
+            [255, 255, 85, 255],
+            metrics.shadow(),
+        )?;
     }
     Ok(())
 }
