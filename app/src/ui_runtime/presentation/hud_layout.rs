@@ -204,7 +204,7 @@ impl<'a> HudLayout<'a> {
         Ok(())
     }
 
-    /// 15x15 invert-blend crosshair centered exactly on the framebuffer
+    /// 15x15 vanilla-alpha crosshair centered exactly on the framebuffer
     /// center: the fractional GUI remainder of a non-divisible viewport is
     /// kept rather than floored, so the quad's center equals width/2 and
     /// height/2 in physical pixels at every GUI scale, aspect, and DPI.
@@ -219,9 +219,10 @@ impl<'a> HudLayout<'a> {
             None,
             rect(left, top, left + 15.0 * g.scale, top + 15.0 * g.scale)?,
         )
-        .with_visual(UiVisual::InvertedSprite {
+        .with_visual(UiVisual::Sprite {
             texture_page: self.textures.page,
             uv: sprite.uv,
+            color: [255; 4],
         });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);

@@ -85,12 +85,15 @@ fn build(
         .unwrap()
 }
 
-fn invert_batches(input: &render::UiRenderInput) -> usize {
-    input
-        .batches
-        .iter()
-        .filter(|batch| batch.blend_mode == render::UI_BLEND_INVERT)
-        .count()
+fn crosshair_is_present(input: &render::UiRenderInput, physical: [u32; 2], scale: f32) -> bool {
+    if input.vertices.len() < 4 {
+        return false;
+    }
+    let [left, top, right, bottom] = quad_bounds(&input.vertices[..4]);
+    (right - left - 15.0 * scale).abs() < f32::EPSILON
+        && (bottom - top - 15.0 * scale).abs() < f32::EPSILON
+        && ((left + right) / 2.0 - physical[0] as f32 / 2.0).abs() < f32::EPSILON
+        && ((top + bottom) / 2.0 - physical[1] as f32 / 2.0).abs() < f32::EPSILON
 }
 
 fn quad_bounds(quad: &[render::UiRenderVertex]) -> [f32; 4] {
@@ -133,10 +136,9 @@ fn crosshair_centers_exactly_on_the_framebuffer_across_scales_and_dpi() {
         let input = presentation
             .build(&runtime, 0, physical, ui::DpiScale::new(dpi).unwrap())
             .unwrap();
-        assert_eq!(
-            invert_batches(&input),
-            1,
-            "one invert batch at {physical:?}"
+        assert!(
+            crosshair_is_present(&input, physical, k),
+            "crosshair at {physical:?}"
         );
         let [left, top, right, bottom] = quad_bounds(&input.vertices[..4]);
         assert_eq!(right - left, 15.0 * k, "width at {physical:?} scale {k}");
@@ -155,33 +157,29 @@ fn crosshair_centers_exactly_on_the_framebuffer_across_scales_and_dpi() {
 }
 
 #[test]
-fn crosshair_is_invert_blended_first_person_only_and_mode_gated() {
+fn crosshair_is_vanilla_alpha_first_person_only_and_mode_gated() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
 
-    // Third person (default frame): no crosshair, no invert batch.
+    // Third person (default frame): no crosshair.
     let third_person = build(&mut presentation, &runtime, 0);
-    assert_eq!(invert_batches(&third_person), 0);
+    assert!(!crosshair_is_present(&third_person, [1280, 720], 3.0));
 
     *presentation.hud_frame_mut() = first_person_frame();
     let first_person = build(&mut presentation, &runtime, 0);
-    assert_eq!(
-        invert_batches(&first_person),
-        1,
-        "the crosshair draws through exactly one invert-blend batch"
-    );
+    assert!(crosshair_is_present(&first_person, [1280, 720], 3.0));
 
     // Focused chat keeps the crosshair, exactly like the reference.
     runtime.open_chat();
     let chatting = build(&mut presentation, &runtime, 0);
-    assert_eq!(invert_batches(&chatting), 1);
+    assert!(crosshair_is_present(&chatting, [1280, 720], 3.0));
     runtime.close_chat();
 
     // Spectator hides the crosshair entirely (no interaction targeting yet).
     runtime.publish_player_game_mode(PlayerGameMode::Spectator);
     let spectator = build(&mut presentation, &runtime, 0);
-    assert_eq!(invert_batches(&spectator), 0);
+    assert!(!crosshair_is_present(&spectator, [1280, 720], 3.0));
 }
 
 #[test]

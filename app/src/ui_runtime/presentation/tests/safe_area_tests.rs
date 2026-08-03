@@ -62,16 +62,10 @@ fn insets_reposition_the_hud_inside_the_safe_viewport_exactly() {
             (safe_area.left() + (logical[0] - safe_area.left() - safe_area.right()) / 2.0) * dpi,
             (safe_area.top() + (logical[1] - safe_area.top() - safe_area.bottom()) / 2.0) * dpi,
         ];
-        // The crosshair is the sole invert-blended quad; it spans 15k
+        // The crosshair is the first vanilla-alpha quad; it spans 15k
         // physical px and centers exactly on the safe viewport, not the
         // framebuffer.
-        let crosshair = input
-            .batches
-            .iter()
-            .find(|batch| batch.blend_mode == render::UI_BLEND_INVERT)
-            .expect("first person renders the invert-blended crosshair");
-        let first_vertex = input.indices[crosshair.first_index as usize] as usize;
-        let quad = &input.vertices[first_vertex..first_vertex + 4];
+        let quad = &input.vertices[..4];
         let left = quad
             .iter()
             .map(|v| v.position[0])
