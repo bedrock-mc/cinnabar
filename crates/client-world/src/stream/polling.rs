@@ -1,6 +1,9 @@
 use super::*;
 
 impl WorldStream {
+    const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
+    const INITIAL_MESH_BACKLOG_THRESHOLD: usize = 256;
+
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_request_player_chunk = Some(ChunkKey::new(
@@ -37,9 +40,22 @@ impl WorldStream {
             .publication_allowance
             .as_ref()
             .map_or(max_mesh_jobs, PublicationAllowance::frame_remaining_items);
+        // Do not flood the render queue while the first view is still being
+        // lit. A large Bedrock view can contain thousands of resident
+        // sub-chunks; admitting all of their meshes at once makes the GPU
+        // preparation/present path stutter even though only the nearest
+        // handful can be visible. Once the initial backlog drains, restore
+        // the normal publication budget.
+        let mesh_budget = if self.pending_light.len() > Self::INITIAL_MESH_BACKLOG_THRESHOLD
+            || self.in_flight_light.len() > Self::INITIAL_MESH_BACKLOG_THRESHOLD
+        {
+            max_mesh_jobs.min(Self::INITIAL_MESH_DISPATCH_BUDGET_PER_POLL)
+        } else {
+            max_mesh_jobs
+        };
         report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(
             camera_position,
-            max_mesh_jobs
+            mesh_budget
                 .min(live_publication_items)
                 .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
         );
