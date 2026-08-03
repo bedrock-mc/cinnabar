@@ -83,6 +83,19 @@ recomputed from an anchor. The rule is:
   is the only representation the server actually acknowledged.
 - Either way the loss is bounded to the first replayed tick; `Simulator::tick` re-derives
   collisions for every tick after it.
+- A replayed `CorrectPlayerMovePrediction` replaces the retained tick's
+  server-owned position and grounded flag but preserves velocity, movement, and
+  jump state. The packet carries a positional correction delta, not replacement
+  velocity; rebuilding from `PlayerState::new` had restarted acceleration from
+  rest every time a server confirmation arrived. Unconfirmed collision flags
+  and an upward ladder velocity derived from them are still cleared.
+- Current BDS 1.26.32.2 strict-authority evidence at `5312070` used a `0.001`
+  acceptance threshold. An 18-tick ground walk retained continuous acceleration
+  through three six-tick corrections whose magnitudes were
+  `0.000017`–`0.000124`. An open jump stayed within
+  `0.000015`–`0.000126` through takeoff, apex, landing, and continued travel.
+  The same run confirmed the pinned bedsim takeoff/drag ordering; an older
+  recovered 1.16.201 path is not a version-matched authority.
 
 ## Remaining features
 

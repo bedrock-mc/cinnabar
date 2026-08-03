@@ -27,14 +27,11 @@ pub(super) fn prepare_publication_removals(
         if zero_byte_operations >= maximum_zero_byte_operations {
             break;
         }
-        if allocation.liquid_range.is_none() {
-            physically_removed_keys.insert(allocation.gpu.key);
-            free_allocation(arena, entity);
-            arena.pending_removals.remove(&entity);
-            zero_byte_operations = zero_byte_operations.saturating_add(1);
-            continue;
-        }
         let allocation_key = allocation.gpu.key;
+        // Opaque buffers can still be read by a submitted frame just like
+        // liquid buffers. Retire every allocation behind the same completion
+        // fence so a removal cannot recycle its ranges while the GPU is using
+        // them.
         let retirement = RetiredArenaAllocation::full(entity, allocation);
         let bytes = retirement.owned_bytes();
         if !arena.retirement_budget.can_reserve(1, bytes) {

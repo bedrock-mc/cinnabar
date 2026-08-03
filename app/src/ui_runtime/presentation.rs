@@ -23,6 +23,7 @@ mod menu_artwork;
 mod player_preview;
 mod publish;
 mod retained_hud;
+mod startup;
 mod texture_atlas;
 
 use crate::menu::{MenuAction, MenuView};
@@ -33,6 +34,7 @@ use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
     ScoreboardOwnerNameAuthority,
 };
+use startup::{StartupPresentationState, StartupReadinessInput};
 pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
     HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
@@ -177,6 +179,8 @@ pub struct UiPresentationRuntime {
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
+    loading_message: Option<&'static str>,
+    startup: StartupPresentationState,
 }
 
 impl UiPresentationRuntime {
@@ -246,6 +250,8 @@ impl UiPresentationRuntime {
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
+            loading_message: None,
+            startup: StartupPresentationState::default(),
         })
     }
 
@@ -371,6 +377,10 @@ impl UiPresentationRuntime {
 
     pub(crate) fn set_menu_view(&mut self, view: Option<MenuView>) {
         self.menu_view = view;
+    }
+
+    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
+        self.loading_message = message;
     }
 
     pub(crate) fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
@@ -842,6 +852,44 @@ impl UiPresentationRuntime {
         } else {
             Vec::new()
         };
+
+        if let Some(message) = self.loading_message {
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(0.0, 0.0, content_width, content_height)?,
+                )
+                .with_visual(UiVisual::Solid {
+                    texture_page: self.solid_texture_page,
+                    color: [8, 10, 14, 255],
+                }),
+            );
+            next_id = next_id.saturating_add(1);
+            let layout = self
+                .layouts
+                .layout(metrics.request(message, content_width.max(1.0) as u32 * 64, &self.font))
+                .map_err(UiPresentationError::Text)?;
+            let message_width = layout.size_64()[0] as f32 / 64.0;
+            let message_height = layout.size_64()[1] as f32 / 64.0;
+            nodes.push(
+                UiNode::new(
+                    UiNodeId::new(next_id),
+                    None,
+                    rect(
+                        ((content_width - message_width) * 0.5).max(0.0),
+                        ((content_height - message_height) * 0.5).max(0.0),
+                        ((content_width + message_width) * 0.5).max(message_width),
+                        ((content_height + message_height) * 0.5).max(message_height),
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: [235, 238, 245, 255],
+                    shadow: metrics.shadow(),
+                }),
+            );
+        }
 
         // Hit rects are compared against window-logical pointer positions, so
         // translate the content-relative rows by the safe-area origin.

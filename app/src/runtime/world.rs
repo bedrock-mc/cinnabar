@@ -1,3 +1,9 @@
+mod acceptance_helpers;
+
+pub(crate) use acceptance_helpers::{
+    model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
+};
+
 use std::{
     sync::{
         Arc,
@@ -29,9 +35,7 @@ use render::{
 use crate::{
     acceptance::{
         AcceptanceRun,
-        markers::{
-            CAMERA_COMMITTED, SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER,
-        },
+        markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER},
         model_witness::ModelWitnessFileSource,
         mutation::{deterministic_mutation_coordinate, write_stdout_marker},
     },
@@ -45,7 +49,7 @@ use crate::{
         reconcile_candidate_physics_correction,
     },
     runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
@@ -961,43 +965,4 @@ pub(crate) fn apply_committed_control(
     };
     view.set_eye_translation(Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
-}
-
-pub(crate) fn refresh_mutation_anchor_from_committed_control(
-    acceptance: &mut AcceptanceRun,
-    control: &CommittedControlEvent,
-) -> bool {
-    let resolved = match control {
-        CommittedControlEvent::MovePlayer { resolved, .. }
-        | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
-        | CommittedControlEvent::ChangeDimension { resolved, .. }
-        | CommittedControlEvent::Respawn { resolved, .. } => resolved,
-        CommittedControlEvent::SetTime { .. }
-        | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. } => return false,
-    };
-    acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))
-}
-
-pub(crate) fn model_gallery_camera_committed_marker(
-    configured: bool,
-    control: &CommittedControlEvent,
-) -> Option<String> {
-    if !configured {
-        return None;
-    }
-    let CommittedControlEvent::MovePlayer {
-        sequence,
-        movement,
-        resolved,
-        ..
-    } = control
-    else {
-        return None;
-    };
-    let [x, y, z] = resolved.position;
-    Some(format!(
-        "{CAMERA_COMMITTED} sequence={sequence} position={x:.5},{y:.5},{z:.5} yaw={:.5} pitch={:.5}",
-        movement.yaw, movement.pitch
-    ))
 }

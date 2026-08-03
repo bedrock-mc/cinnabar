@@ -7,17 +7,24 @@ use bevy::{
     time::Real,
     window::{PrimaryWindow, Window},
 };
-use render::{ActorSkinPixels, UiRenderScene, UiRenderStats, normalize_actor_skin};
+use render::{
+    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, UiRenderScene, UiRenderStats,
+    VisibilityDiagnostics, VisibilityDiagnosticsInput, normalize_actor_skin,
+};
 use ui::{DpiScale, SafeArea};
 
 use crate::{
     camera::CameraSettingsAuthority,
-    runtime::{shutdown::record_fatal_error, world::ClientWorld},
+    runtime::{
+        shutdown::record_fatal_error,
+        visibility::CaveVisibilityCache,
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
     ui_runtime::{UiRuntime, item_facts},
 };
 
 use super::{
-    UiPresentationError, UiPresentationRuntime,
+    StartupReadinessInput, UiPresentationError, UiPresentationRuntime,
     retained_hud::{self, BelowNameAnchor},
 };
 
@@ -29,6 +36,12 @@ pub(crate) fn publish_ui_runtime(
     stats: Res<UiRenderStats>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
+    frame_poll: Res<WorldStreamFramePoll>,
+    visibility: Res<CaveVisibilityCache>,
+    mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
+    visibility_diagnostics: Res<VisibilityDiagnostics>,
+    render_queue: Res<ChunkRenderQueue>,
+    upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
     menu_runtime: Res<crate::menu::MenuRuntime>,
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
@@ -51,6 +64,55 @@ pub(crate) fn publish_ui_runtime(
         return;
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if menu_runtime.is_visible() {
+        presentation.set_loading_message(None);
+        diagnostics_input.set_startup_probe_enabled(false);
+    } else {
+        let (connected, stream_work_drained) =
+            client_world
+                .stream
+                .as_ref()
+                .map_or((false, false), |stream| {
+                    let stream_stats = stream.stats();
+                    let work_drained = stream_stats.queued_decode_jobs == 0
+                        && stream_stats.in_flight_decode_jobs == 0
+                        && stream_stats.pending_light_jobs == 0
+                        && stream_stats.in_flight_light_jobs == 0
+                        && stream_stats.pending_mesh_jobs == 0
+                        && stream_stats.in_flight_mesh_jobs == 0
+                        && stream_stats.pending_retry_requests == 0
+                        && stream_stats.awaiting_sub_chunk_responses == 0
+                        && stream_stats.admitted_world_events == 0
+                        && stream_stats.admitted_heavy_events == 0
+                        && stream.pending_request_work_count() == 0
+                        && stream.outstanding_sub_chunk_count() == 0
+                        && stream.pending_mesh_change_count() == 0
+                        && stream.unacknowledged_mesh_count() == 0;
+                    (true, work_drained)
+                });
+        let render_work_drained =
+            render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
+        let startup_released = presentation.startup.observe(StartupReadinessInput {
+            session_generation: runtime.session_id(),
+            connected,
+            diagnostics_frame_generation: diagnostics_input.frame_generation(),
+            snapshot: visibility_diagnostics.snapshot(),
+            visible_rendered: visibility.visible_rendered,
+            cohort_target_complete: frame_poll
+                .cohort
+                .is_some_and(|status| status.target_is_complete()),
+            stream_work_drained,
+            render_work_drained,
+        });
+        diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
+        presentation.set_loading_message(if !connected {
+            Some("Connecting to server...")
+        } else if startup_released {
+            None
+        } else {
+            Some("Loading terrain...")
+        });
+    }
     runtime.hud.expire(now_millis);
     runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
