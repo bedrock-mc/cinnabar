@@ -1,9 +1,9 @@
 use super::*;
 
 pub const BASELINE_SCHEMA: &str = "cinnabar-visual-coverage-baseline-v1";
-pub const REPORT_SCHEMA: &str = "cinnabar-visual-coverage-report-v1";
+pub const REPORT_SCHEMA: &str = "cinnabar-visual-coverage-report-v2";
 pub const STRICT_REPORT_SCHEMA: &str = "cinnabar-visual-coverage-strict-v1";
-pub const GALLERY_INVENTORY_SCHEMA: &str = "cinnabar-gallery-inventory-v1";
+pub const GALLERY_INVENTORY_SCHEMA: &str = "cinnabar-gallery-inventory-v2";
 pub const GALLERY_PAGE_CAPACITY: usize = 256;
 pub const PROTOCOL: u32 = 1001;
 pub const PROTOCOL_1001_COUNTS: Counts = Counts {
@@ -88,6 +88,9 @@ pub struct CoverageSnapshot {
     pub diagnostic_states: Vec<StateIdentity>,
     pub diagnostics_by_family: BTreeMap<String, usize>,
     pub diagnostics_by_name: BTreeMap<String, usize>,
+    pub fallback_states: Vec<StateIdentity>,
+    pub fallbacks_by_family: BTreeMap<String, usize>,
+    pub fallbacks_by_name: BTreeMap<String, usize>,
     pub invisible_states: Vec<StateIdentity>,
     pub air_states: Vec<StateIdentity>,
     pub vine_diagnostic_masks: Vec<u8>,
@@ -104,6 +107,9 @@ pub struct RatchetReport {
     pub diagnostic_states: Vec<StateIdentity>,
     pub diagnostics_by_family: BTreeMap<String, usize>,
     pub diagnostics_by_name: BTreeMap<String, usize>,
+    pub fallback_states: Vec<StateIdentity>,
+    pub fallbacks_by_family: BTreeMap<String, usize>,
+    pub fallbacks_by_name: BTreeMap<String, usize>,
     pub added_diagnostics: Vec<StateIdentity>,
     pub removed_diagnostics: Vec<StateIdentity>,
     pub invisible_decisions: Vec<InvisibleDecision>,
@@ -145,6 +151,7 @@ pub struct StrictReport {
 #[serde(rename_all = "snake_case")]
 pub enum GalleryTargetStatus {
     Drawable,
+    Fallback,
     Invisible,
     Diagnostic,
 }
@@ -180,6 +187,7 @@ pub struct GalleryInventory {
     pub baseline_sha256: String,
     pub accepting: bool,
     pub diagnostic_targets: usize,
+    pub fallback_targets: usize,
     pub target_count: usize,
     pub pages: Vec<GalleryPage>,
 }
@@ -242,6 +250,8 @@ pub enum CoverageError {
     VineDiagnosticsMismatch { expected: Vec<u8>, actual: Vec<u8> },
     #[error("non-air diagnostic visual for state {state:?}")]
     NonAirDiagnostic { state: StateIdentity },
+    #[error("provisional vanilla fallback visual for state {state:?}")]
+    ProvisionalFallback { state: StateIdentity },
     #[error("unsupported model family {family} for state {state:?}")]
     UnsupportedModelFamily {
         state: StateIdentity,

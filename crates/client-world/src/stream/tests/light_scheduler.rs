@@ -64,6 +64,7 @@ fn light_test_assets() -> RuntimeAssets {
         ),
     ]
     .map(|(flags, kind, contributor_role)| BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces: [0; 6],
         flags,
         kind,

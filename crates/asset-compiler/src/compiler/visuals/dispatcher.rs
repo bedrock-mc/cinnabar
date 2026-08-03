@@ -62,7 +62,23 @@ impl VisualCompiler {
                 }
             };
         }
+        if record.flags.contains(BlockFlags::AIR) && record.contributor_role == ContributorRole::Air
+        {
+            let mut visual = diagnostic_visual(record);
+            visual.kind = VisualKind::Invisible;
+            visual.support = VisualSupport::Exact;
+            return Ok(CompileRuleResult::Compiled(visual));
+        }
 
+        ordered_rule!(super::fallback::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         let mut exact_visual = diagnostic_visual(record);
         ordered_rule!(super::exact::compile_exact_families(
             record,
@@ -222,6 +238,7 @@ pub(in crate::compiler) fn compile_visuals(
     records: &[RegistryRecord],
     pack: &PackSources,
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
+    vanilla_fallback_material: u32,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let visual_count = records
@@ -236,13 +253,21 @@ pub(in crate::compiler) fn compile_visuals(
     let inputs = RuleInputs {
         pack,
         material_by_descriptor,
+        vanilla_fallback_material,
     };
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {
         visuals[record.sequential_id as usize] =
             match compiler.compile_record(record, &inputs, admissions)? {
-                CompileRuleResult::Compiled(visual) => visual,
+                CompileRuleResult::Compiled(mut visual) => {
+                    if visual.kind != VisualKind::Diagnostic
+                        && visual.support == VisualSupport::Diagnostic
+                    {
+                        visual.support = VisualSupport::Exact;
+                    }
+                    visual
+                }
                 CompileRuleResult::NoMatch | CompileRuleResult::Reject => diagnostic_visual(record),
             };
         hashed.push((record.network_hash, record.sequential_id));

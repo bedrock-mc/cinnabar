@@ -11,7 +11,7 @@ use assets::{
     MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord,
-    RuntimeAssets, TextureRef, VisualKind, read_registry,
+    RuntimeAssets, TextureRef, VisualKind, VisualSupport, read_registry,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

@@ -34,6 +34,7 @@ mod mesh_dependency;
 
 fn non_default_air_runtime_assets() -> RuntimeAssets {
     let cube = BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces: [0; 6],
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         kind: VisualKind::Cube,
@@ -43,6 +44,7 @@ fn non_default_air_runtime_assets() -> RuntimeAssets {
         variant: 0,
     };
     let air = BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces: [0; 6],
         flags: BlockFlags::AIR,
         kind: VisualKind::Invisible,
@@ -106,6 +108,7 @@ fn uniform_sub_chunk(runtime_id: u32) -> SubChunk {
 
 fn camera_medium_assets() -> RuntimeAssets {
     let visual = |kind, role, faces, variant| BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces,
         flags: if kind == VisualKind::Invisible {
             BlockFlags::AIR
@@ -280,6 +283,7 @@ fn idless_note_block_entity_nbt(position: [i32; 3], note: u8, powered: u8, marke
 
 fn block_entity_visual_assets() -> RuntimeAssets {
     let visual = BlockVisual {
+        support: assets::VisualSupport::Exact,
         faces: [0; 6],
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         kind: VisualKind::Cube,
@@ -500,6 +504,7 @@ fn cave_test_assets() -> RuntimeAssets {
                 faces: [0; 6],
                 flags: BlockFlags::AIR,
                 kind: VisualKind::Invisible,
+                support: assets::VisualSupport::Exact,
                 contributor_role: assets::ContributorRole::Air,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
@@ -509,6 +514,7 @@ fn cave_test_assets() -> RuntimeAssets {
                 faces: [1; 6],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
                 kind: VisualKind::Cube,
+                support: assets::VisualSupport::Exact,
                 contributor_role: assets::ContributorRole::Primary,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
@@ -518,6 +524,7 @@ fn cave_test_assets() -> RuntimeAssets {
                 faces: [2; 6],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,
+                support: assets::VisualSupport::Exact,
                 contributor_role: assets::ContributorRole::Primary,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,

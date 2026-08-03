@@ -97,7 +97,7 @@ Phase status at this audit:
 | Gate | Accurate state |
 |---|---|
 | Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
-| Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
+| Phase 2.6 visual coverage | Open: the production carrier has zero diagnostic states, but 2,397 non-air states across 487 names use an explicitly provisional vanilla fallback. This removes pink vanilla blocks without claiming exact geometry/UV parity; each fallback remains an open acceptance item |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
 | Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
 | Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, distinct per-frame render interpolation, and the bounded MCBEENT3 geometry/bone/cube carrier are complete. Runtime rig consumption, animations/Molang, persona/custom rendering, legacy/outer skin layers, and remaining entity families are still open |
@@ -1076,9 +1076,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     - [x] Exhaustive vanilla visual-coverage ratchet: inventory every one of
       the 16,913 protocol-1001 canonical states through the production registry
       and runtime decoders, bind the exact registry/asset hashes, and reject any
-      newly diagnostic or unjustifiably invisible state. Diagnostic shrinkage is
-      allowed while residual families are implemented; the final gate requires
-      zero diagnostic non-air states. The accepted design is recorded in
+      newly diagnostic, newly provisional-fallback, or unjustifiably invisible
+      state. Diagnostic/fallback shrinkage is allowed while residual families are
+      implemented; the final gate requires zero diagnostic and zero provisional
+      fallback non-air states. The accepted design is recorded in
       `docs/superpowers/specs/2026-07-13-exhaustive-vanilla-coverage-design.md`.
       **Complete (2026-07-13):** `visualcoverage` uses the production decoders,
       enforces the exact 1,356-name/16,913-state/one-air protocol corpus and
@@ -1094,15 +1095,25 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       After lava, vine, and those connected/static/multiface/glass/grate
       families plus the exact chiseled-bookshelf, resin-clump, selector-alias
       opaque-cube, cactus, cake, farmland, and exact bee-housing tranches, the
-      current authoritative residual has 2,398 diagnostics including
-      the single air diagnostic, with zero
-      diagnostics in every implemented family; each remaining family must shrink
-      that exact set.
+      reviewed baseline held 2,398 diagnostics including one air state.
+      **Provisional zero-pink cutover (2026-08-02; incomplete):** the compiler
+      now maps the exact 2,397 non-air baseline identities to bounded neutral
+      geometry and pinned-pack textures where safely resolvable, otherwise
+      canonical stone. The identity table is bound to each network hash plus a
+      canonical-state fingerprint, so unknown/custom server blocks remain
+      diagnostic. `VisualSupport` preserves this distinction through MCBEAS06
+      and runtime decode; visualcoverage v2 reports zero diagnostics and 2,397
+      provisional fallbacks across 487 names instead of laundering them as exact.
+      The source inventory and hashes are pinned in
+      `assets/vanilla-fallback-source-v1001.json`. This removes pink vanilla
+      blocks but closes no vanilla parity acceptance gate.
   - [ ] Complete the exhaustive residual-family report, continuing from the
     completed lava/flowing-lava depth-writing non-water-liquid pipeline, so
-    every non-air one of the 16,913 canonical states has a non-diagnostic visual;
-    close deterministic galleries and live acceptance with globally zero
-    diagnostic counters, vanilla-reference screenshots, upload/memory/CPU
+    every non-air one of the 16,913 canonical states has an exact or otherwise
+    authoritative accepted visual; provisional fallbacks do not satisfy this
+    requirement. Close deterministic galleries and live acceptance with
+    globally zero diagnostic and zero provisional-fallback counters,
+    vanilla-reference screenshots, upload/memory/CPU
     metrics, and teleport-remesh evidence.
     - [x] Lava implementation: all 32 `minecraft:lava` and
       `minecraft:flowing_lava` depth states compile through the animated liquid
@@ -1133,9 +1144,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       `minecraft:voxel_shape` files and the installed/pinned vanilla packs
       expose shelf texture routes, texture sets, and pixels, but none defines
       visible render geometry or per-face UV mapping. Collision/voxel bounds
-      must not be promoted into a render model. All 384 shelf states therefore
-      remain diagnostic; the current authoritative global residual is 2,398
-      after the later sulfur/cinnabar tranche. Resume shelf work only
+      must not be promoted into an exact render model. All 384 shelf states use
+      the explicitly provisional non-magenta fallback and remain open visual
+      parity work. Resume shelf work only
       from legitimate version-matched render/UV authority or a reviewed native
       procedure; precise paths and hashes are recorded in
       `docs/evidence/phase-2-shelf-source-reference.md`.

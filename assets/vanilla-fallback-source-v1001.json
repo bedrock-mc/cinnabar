@@ -1,0 +1,31 @@
+{
+  "schema": "cinnabar-vanilla-fallback-source-v1",
+  "protocol": 1001,
+  "states": 2397,
+  "names": 487,
+  "zero_volume_envelopes": 5,
+  "status": "provisional-vanilla-fallback",
+  "inventory": {
+    "path": "crates/asset-compiler/data/vanilla-fallback-v1001.bin",
+    "schema": "CVFB1001",
+    "version": 1,
+    "entry_bytes": 25,
+    "sha256": "6f6f5e8b956a2c2334360b012c5d843ff1dba9a75871667bc8559d0943670bc2"
+  },
+  "registry": {
+    "path": "crates/assets/data/block-registry-v1001.bin",
+    "sha256": "922d287a9a195543644542e84f0d948264bff6cd48b8430024107245fa2e1b73"
+  },
+  "bedrock_pack": {
+    "release": "v1.26.30.32-preview",
+    "blocks_sha256": "a53c486ba078d5824ae9694bb5ad360d8b64645b935c903cf8b4e410c75c1592",
+    "terrain_texture_sha256": "fe8c2199f6b21c095f5f4612ea183f0ab358c74d6ba5580f3c1cabe00fc29329"
+  },
+  "envelope_source": {
+    "repository": "CloudburstMC/Data",
+    "commit": "fb969c547236d87a17181941cd585a0eb18f7ceb",
+    "path": "block_properties.json",
+    "sha256": "6ba1bfbb6a5824cacc39baedadcc5defce845fca14aaa77a48d756106c2bcdf59"
+  },
+  "contract": "Known canonical vanilla identities only. Geometry is a conservative visualShape envelope; zero-volume envelopes use a neutral full cube. Resolvable pinned-pack textures are preferred, otherwise canonical stone is used. This status does not satisfy exact vanilla visual coverage."
+}

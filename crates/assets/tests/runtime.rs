@@ -6,13 +6,13 @@ use assets::{
     MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
-    TextureRef, TintSource, VisualKind, encode_blob,
+    TextureRef, TintSource, VisualKind, VisualSupport, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
 #[test]
-fn runtime_decodes_mcbeas05_tables() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
+fn runtime_decodes_mcbeas06_tables() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS06");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
@@ -56,6 +56,7 @@ fn compiled_assets() -> CompiledAssets {
                 faces: [DIAGNOSTIC_MATERIAL; 6],
                 flags: BlockFlags::empty(),
                 kind: VisualKind::Diagnostic,
+                support: VisualSupport::Diagnostic,
                 contributor_role: assets::ContributorRole::Primary,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
@@ -65,6 +66,7 @@ fn compiled_assets() -> CompiledAssets {
                 faces: [1, 1, 1, 1, 1, 1],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,
+                support: VisualSupport::Exact,
                 contributor_role: assets::ContributorRole::Primary,
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
@@ -141,6 +143,7 @@ fn synthetic_air_visual() -> BlockVisual {
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::AIR,
         kind: VisualKind::Invisible,
+        support: VisualSupport::Exact,
         contributor_role: assets::ContributorRole::Air,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -482,9 +485,9 @@ fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
     ] {
         let mut blob = full_face_model_blob();
         let visuals = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
-        blob[visuals + 40 + 25] = kind as u8;
-        blob[visuals + 40 + 26] = role as u8;
-        write_u32(&mut blob, visuals + 40 + 28, template);
+        blob[visuals + 44 + 25] = kind as u8;
+        blob[visuals + 44 + 26] = role as u8;
+        write_u32(&mut blob, visuals + 44 + 32, template);
         reseal(&mut blob);
         assert_rejected(&blob, &format!("standalone occlusion on {kind:?}"));
     }
@@ -504,7 +507,7 @@ fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
         .expect("encode non-occluding zero-quad model")
         .into_vec();
     let visuals = read_u64(&zero_quad, VISUALS_OFFSET_OFFSET) as usize;
-    zero_quad[visuals + 40 + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
+    zero_quad[visuals + 44 + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
     reseal(&mut zero_quad);
     assert_rejected(&zero_quad, "standalone occlusion on zero-quad Model");
 }
@@ -633,21 +636,21 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     let animations = read_u64(&blob, 136) as usize;
     let frames = read_u64(&blob, 144) as usize;
 
-    mutate_byte(visuals + 40 + 25, 99, "unknown visual kind");
-    mutate_byte(visuals + 40 + 26, 99, "unknown contributor role");
-    mutate_byte(visuals + 40 + 26, 0, "liquid with primary contributor role");
+    mutate_byte(visuals + 44 + 25, 99, "unknown visual kind");
+    mutate_byte(visuals + 44 + 26, 99, "unknown contributor role");
+    mutate_byte(visuals + 44 + 26, 0, "liquid with primary contributor role");
     mutate_byte(
-        visuals + 40 + 25,
+        visuals + 44 + 25,
         VisualKind::Invisible as u8,
         "invisible liquid contributor",
     );
     mutate_byte(
-        visuals + 40 + 24,
+        visuals + 44 + 24,
         BlockFlags::CUBE_GEOMETRY.bits(),
         "liquid with cube flags",
     );
-    mutate(visuals + 40 + 28, 1, "visual template ID");
-    mutate(visuals + 40 + 32, 1, "visual animation ID");
+    mutate(visuals + 44 + 32, 1, "visual template ID");
+    mutate(visuals + 44 + 36, 1, "visual animation ID");
     mutate(templates, 1, "noncanonical template start");
     mutate(
         templates + 8,
@@ -912,7 +915,7 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
     );
 
     let mut tail_referenced = canonical;
-    write_u32(&mut tail_referenced, visuals + 40 + 28, 1);
+    write_u32(&mut tail_referenced, visuals + 44 + 32, 1);
     reseal(&mut tail_referenced);
     assert_rejected(&tail_referenced, "direct compound continuation reference");
 
@@ -1047,6 +1050,7 @@ fn explicit_network_id_mode_keeps_sequential_and_hash_lookups_isolated() {
 
     let sequential = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert!(sequential.is_known());
+    assert_eq!(sequential.support(), VisualSupport::Exact);
     assert_eq!(
         sequential.flags(),
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
@@ -1071,6 +1075,7 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
     for value in 0..10_000 {
         let missing = runtime.resolve(NetworkIdMode::Sequential, value + 100);
         assert!(!missing.is_known());
+        assert_eq!(missing.support(), VisualSupport::Diagnostic);
         assert_eq!(
             missing.face(BlockFace::Up).material_id(),
             DIAGNOSTIC_MATERIAL
@@ -1100,6 +1105,23 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
 }
 
 #[test]
+fn runtime_round_trips_vanilla_fallback_support_without_blurring_misses() {
+    let mut compiled = compiled_assets();
+    compiled.visuals[1].support = VisualSupport::VanillaFallback;
+    let runtime = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+
+    let fallback = runtime.resolve(NetworkIdMode::Sequential, 1);
+    assert!(fallback.is_known());
+    assert_eq!(fallback.support(), VisualSupport::VanillaFallback);
+    assert_eq!(
+        runtime
+            .resolve(NetworkIdMode::Sequential, u32::MAX)
+            .support(),
+        VisualSupport::Diagnostic
+    );
+}
+
+#[test]
 fn decoded_texture_mips_are_exposed_without_lookup_mutation() {
     let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode valid blob");
     let textures = runtime.texture_array();
@@ -1118,6 +1140,7 @@ fn programmatic_diagnostic_runtime_is_minimal_and_self_contained() {
 
     let diagnostic = runtime.resolve(NetworkIdMode::Sequential, 0);
     assert!(diagnostic.is_known());
+    assert_eq!(diagnostic.support(), VisualSupport::Diagnostic);
     assert_eq!(
         diagnostic.face(BlockFace::Up).material_id(),
         DIAGNOSTIC_MATERIAL

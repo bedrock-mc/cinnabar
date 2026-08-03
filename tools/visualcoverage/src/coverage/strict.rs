@@ -46,6 +46,11 @@ pub fn strict_records(
 
         let state = StateIdentity::from_record(record);
         let kind = visual_kind_name(sequential.kind()).to_owned();
+        if !record.flags.contains(BlockFlags::AIR)
+            && sequential.support() == VisualSupport::VanillaFallback
+        {
+            return Err(CoverageError::ProvisionalFallback { state });
+        }
         if record.model_family == ModelFamily::Unknown {
             return Err(CoverageError::UnsupportedModelFamily {
                 state,
@@ -265,6 +270,11 @@ pub(super) fn assemble_gallery_inventory(
         .iter()
         .map(|state| state.sequential_id)
         .collect::<BTreeSet<_>>();
+    let fallback_ids = report
+        .fallback_states
+        .iter()
+        .map(|state| state.sequential_id)
+        .collect::<BTreeSet<_>>();
     let invisible_ids = report
         .invisible_decisions
         .iter()
@@ -276,6 +286,8 @@ pub(super) fn assemble_gallery_inventory(
         .map(|state| {
             let status = if diagnostic_ids.contains(&state.sequential_id) {
                 GalleryTargetStatus::Diagnostic
+            } else if fallback_ids.contains(&state.sequential_id) {
+                GalleryTargetStatus::Fallback
             } else if invisible_ids.contains(&state.sequential_id) {
                 GalleryTargetStatus::Invisible
             } else {
@@ -309,14 +321,16 @@ pub(super) fn assemble_gallery_inventory(
         })
         .collect();
     let diagnostic_targets = diagnostic_ids.len();
+    let fallback_targets = fallback_ids.len();
     Ok(GalleryInventory {
         schema: GALLERY_INVENTORY_SCHEMA.to_owned(),
         protocol: report.protocol,
         registry_sha256: report.registry_sha256,
         assets_sha256: report.assets_sha256,
         baseline_sha256: baseline_sha256.to_owned(),
-        accepting: diagnostic_targets == 0 && strict_semantics_valid,
+        accepting: diagnostic_targets == 0 && fallback_targets == 0 && strict_semantics_valid,
         diagnostic_targets,
+        fallback_targets,
         target_count: PROTOCOL_1001_COUNTS.states,
         pages,
     })

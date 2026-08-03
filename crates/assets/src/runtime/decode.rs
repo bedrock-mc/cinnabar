@@ -17,6 +17,7 @@ use crate::{
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad,
     ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT,
     TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
+    VisualSupport,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -28,7 +29,7 @@ use crate::{
 use std::sync::atomic::AtomicU64;
 
 impl RuntimeAssets {
-    /// Validates the complete `MCBEAS05` envelope and every cross-reference before allocating tables.
+    /// Validates the complete `MCBEAS06` envelope and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
         header.validate_layout(bytes)?;
@@ -67,16 +68,16 @@ struct Header {
 impl Header {
     fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEAS05 blob"));
+            return Err(invalid("truncated MCBEAS06 blob"));
         }
         if bytes[..8] != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS05 magic"));
+            return Err(invalid("invalid MCBEAS06 magic"));
         }
         if u32_at(bytes, 8) != BLOB_VERSION
             || u32_at(bytes, 12) != TILE_SIZE
             || u32_at(bytes, 16) != MIP_COUNT
         {
-            return Err(invalid("unsupported MCBEAS05 header"));
+            return Err(invalid("unsupported MCBEAS06 header"));
         }
         if bytes[64..96] != [0; 32] {
             return Err(invalid("header reserved bytes are non-zero"));
@@ -253,11 +254,17 @@ fn validate_fixed(
         }
         let kind = VisualKind::from_raw(record[25])?;
         let contributor_role = ContributorRole::read(record[26])?;
-        if !visual_semantics_are_valid(kind, flags, contributor_role) {
-            return Err(invalid("visual kind, flags, and contributor role disagree"));
+        let support = VisualSupport::from_raw(record[28])?;
+        if record[29..32] != [0; 3] {
+            return Err(invalid("visual reserved bytes are non-zero"));
         }
-        let template = u32_at(record, 28);
-        let animation = u32_at(record, 32);
+        if !visual_semantics_are_valid(kind, support, flags, contributor_role) {
+            return Err(invalid(
+                "visual kind, support, flags, and contributor role disagree",
+            ));
+        }
+        let template = u32_at(record, 32);
+        let animation = u32_at(record, 36);
         valid_optional(template, header.counts[3], "visual template")?;
         if template != NO_MODEL_TEMPLATE && compound_tails[template as usize] {
             return Err(invalid(
@@ -288,7 +295,7 @@ fn validate_fixed(
                     "stair visual does not reference a topology-group base",
                 ));
             };
-            if kind != VisualKind::Model || u32_at(record, 36) & !7 != 0 {
+            if kind != VisualKind::Model || u32_at(record, 40) & !7 != 0 {
                 return Err(invalid("stair visual has invalid kind or transform"));
             }
             referenced_stair_bases[base_index] = true;
@@ -312,7 +319,7 @@ fn validate_fixed(
                         "connected visual does not reference a topology-group base",
                     ));
                 };
-                if kind != VisualKind::Model || u32_at(record, 36) != 0 {
+                if kind != VisualKind::Model || u32_at(record, 40) != 0 {
                     return Err(invalid("connected visual has invalid kind or transform"));
                 }
                 referenced_connected_bases[base_index] = true;
@@ -596,10 +603,11 @@ fn decode_visuals(bytes: &[u8]) -> Result<Box<[BlockVisual]>, AssetError> {
                 faces,
                 flags: BlockFlags::from_bits(r[24]).expect("validated"),
                 kind: VisualKind::from_raw(r[25])?,
+                support: VisualSupport::from_raw(r[28])?,
                 contributor_role: ContributorRole::read(r[26])?,
-                model_template: u32_at(r, 28),
-                animation: u32_at(r, 32),
-                variant: u32_at(r, 36),
+                model_template: u32_at(r, 32),
+                animation: u32_at(r, 36),
+                variant: u32_at(r, 40),
             })
         })
         .collect::<Result<Vec<_>, _>>()

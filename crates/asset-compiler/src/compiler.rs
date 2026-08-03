@@ -15,7 +15,7 @@ use assets::{
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
     Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
-    TextureArray, TexturePage, TextureRef, VisualKind,
+    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
         compile_animation_plan_selected,
     },
     compile_biome_assets,
-    image::{decode_static_texture, decode_texture},
+    image::{decode_static_texture, decode_texture, normalize_texture_tile},
     pack::{read_pack, resolve_texture_key},
 };
 
@@ -194,36 +194,61 @@ fn compile_pack_inner(
     let admit_bee_housing = bee_housing_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
+    let mut fallback_descriptors = BTreeSet::<Descriptor>::new();
     for record in records.iter().filter(|record| {
         if is_mineral_cube_name(&record.name) {
-            return admit_mineral_cubes && is_mineral_cube_record(record);
+            return (admit_mineral_cubes && is_mineral_cube_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_selector_alias_cube_name(&record.name) {
-            return admit_selector_alias_cubes && is_selector_alias_cube_record(record);
+            return (admit_selector_alias_cubes && is_selector_alias_cube_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_resin_clump_name(&record.name) {
-            return admit_resin_clumps && is_resin_clump_record(record);
+            return (admit_resin_clumps && is_resin_clump_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_chiseled_bookshelf_name(&record.name) {
-            return admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record);
+            return (admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_cactus_name(&record.name) {
-            return admit_cacti && is_cactus_record(record);
+            return (admit_cacti && is_cactus_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_cake_name(&record.name) {
-            return admit_cakes && is_cake_record(record);
+            return (admit_cakes && is_cake_record(record)) || visuals::fallback::is_record(record);
         }
         if is_farmland_name(&record.name) {
-            return admit_farmland && is_farmland_record(record);
+            return (admit_farmland && is_farmland_record(record))
+                || visuals::fallback::is_record(record);
         }
         if is_bee_housing_name(&record.name) {
-            return admit_bee_housing && is_bee_housing_record(record);
+            return (admit_bee_housing && is_bee_housing_record(record))
+                || visuals::fallback::is_record(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
+            || visuals::fallback::is_record(record)
     }) {
+        if visuals::fallback::is_record(record) {
+            for face in BlockFace::ALL {
+                if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
+                    fallback_descriptors.insert(descriptor.clone());
+                    descriptor_keys
+                        .entry(descriptor)
+                        .and_modify(|current| {
+                            if key.as_ref() < current.as_ref() {
+                                *current = key.clone();
+                            }
+                        })
+                        .or_insert(key);
+                }
+            }
+            continue;
+        }
         if admit_mineral_cubes && is_mineral_cube_record(record) {
             if let Some((descriptor, key)) = mineral_cube_material_descriptor(&pack, record) {
                 descriptor_keys.insert(descriptor, key);
@@ -339,15 +364,18 @@ fn compile_pack_inner(
     }
 
     let (animation_plan, alpha_paths) =
-        compile_runtime_animation_plan(root, &pack, &descriptor_keys)?;
+        compile_runtime_animation_plan(root, &pack, &descriptor_keys, &fallback_descriptors)?;
     let texture_pages = animation_plan_pages(&animation_plan)?;
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
     let (materials, material_by_descriptor) =
         compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
+    let vanilla_fallback_material =
+        visuals::fallback::neutral_material(records, &pack, &material_by_descriptor)?;
     let (visuals, hashed, model_templates, model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
+        vanilla_fallback_material,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -432,6 +460,7 @@ fn descriptor_for(
     };
     if !is_model_visual(record)
         && !is_liquid(record)
+        && !visuals::fallback::is_record(record)
         && source_is_deferred(pack, record, &key, path)
     {
         return None;
@@ -441,7 +470,9 @@ fn descriptor_for(
     } else {
         0
     };
-    if is_stained_glass_cube(record) {
+    if let Some(fallback_flags) = visuals::fallback::material_flags(record) {
+        flags |= fallback_flags;
+    } else if is_stained_glass_cube(record) {
         flags |= MATERIAL_FLAG_ALPHA_BLEND;
     } else if is_copper_grate(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
@@ -524,6 +555,7 @@ fn compile_runtime_animation_plan(
     root: &Path,
     pack: &PackSources,
     descriptor_keys: &BTreeMap<Descriptor, Box<str>>,
+    fallback_descriptors: &BTreeSet<Descriptor>,
 ) -> Result<(AnimationPlan, BTreeSet<Box<str>>), AssetError> {
     let referenced_paths = descriptor_keys
         .keys()
@@ -563,8 +595,28 @@ fn compile_runtime_animation_plan(
             .map(|(_, key)| key)
             .min()
             .expect("descriptor path has a source key");
+        let fallback_only = descriptor_keys
+            .keys()
+            .filter(|candidate| candidate.path == source_path)
+            .all(|candidate| fallback_descriptors.contains(candidate));
         let path = static_texture_path(root, &source_path, key)?;
-        let rgba8 = decode_static_texture(&path, key)?;
+        let decoded = decode_texture(&path, key)?;
+        if decoded.width != decoded.height {
+            if fallback_only {
+                continue;
+            }
+            return Err(AssetError::WrongTextureDimensions {
+                key: key.clone(),
+                path,
+                width: decoded.width,
+                height: decoded.height,
+            });
+        }
+        let rgba8 = match normalize_texture_tile(decoded.rgba8, decoded.width, &source_path) {
+            Ok(rgba8) => rgba8,
+            Err(_) if fallback_only => continue,
+            Err(error) => return Err(error),
+        };
         let has_alpha = rgba8.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX);
         let supports_alpha = descriptor_keys
             .keys()
@@ -799,181 +851,5 @@ fn compile_materials(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{fs, path::Path};
-
-    use ::image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-
-    use super::CompileRuleResult;
-    use super::inspect_animation_inventory;
-    use assets::TILE_SIZE;
-
-    fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
-        let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("create fixture parent");
-        }
-        fs::write(path, contents).expect("write fixture");
-    }
-
-    fn write_png(path: impl AsRef<Path>, width: u32, height: u32, rgba8: &[u8]) {
-        let mut png = Vec::new();
-        PngEncoder::new(&mut png)
-            .write_image(rgba8, width, height, ExtendedColorType::Rgba8)
-            .expect("encode synthetic PNG");
-        write(path, png);
-    }
-
-    #[test]
-    fn animation_inventory_inspects_a_bounded_pack_without_installing_it() {
-        let directory = tempfile::tempdir().expect("create inventory fixture");
-        write(directory.path().join("blocks.json"), "{}");
-        write(
-            directory.path().join("textures/terrain_texture.json"),
-            r#"{"texture_data":{
-                "still":{"textures":"textures/blocks/still"},
-                "animated":{"textures":"textures/blocks/animated"}
-            }}"#,
-        );
-        write(
-            directory.path().join("textures/flipbook_textures.json"),
-            r#"[{"flipbook_texture":"textures/blocks/animated","atlas_tile":"animated"}]"#,
-        );
-        write_png(
-            directory.path().join("textures/blocks/still.png"),
-            TILE_SIZE,
-            TILE_SIZE,
-            &vec![7; (TILE_SIZE * TILE_SIZE * 4) as usize],
-        );
-        let mut strip = vec![0; (TILE_SIZE * TILE_SIZE * 2 * 4) as usize];
-        for pixel in strip
-            .chunks_exact_mut(4)
-            .take((TILE_SIZE * TILE_SIZE) as usize)
-        {
-            pixel.copy_from_slice(&[10, 20, 30, 255]);
-        }
-        for pixel in strip
-            .chunks_exact_mut(4)
-            .skip((TILE_SIZE * TILE_SIZE) as usize)
-        {
-            pixel.copy_from_slice(&[40, 50, 60, 255]);
-        }
-        write_png(
-            directory.path().join("textures/blocks/animated.png"),
-            TILE_SIZE,
-            TILE_SIZE * 2,
-            &strip,
-        );
-
-        let inventory = inspect_animation_inventory(directory.path(), 3, 2)
-            .expect("inspect synthetic animation inventory");
-
-        assert_eq!(inventory.static_sources, 1);
-        assert_eq!(inventory.reachable_animations, 1);
-        assert_eq!(inventory.physical_animation_frames, 2);
-        assert_eq!(inventory.deduplicated_layers, 4);
-        assert_eq!(inventory.page_layers.as_ref(), [3, 1]);
-    }
-
-    #[test]
-    fn animation_inventory_counts_catalog_only_missing_static_aliases() {
-        let directory = tempfile::tempdir().expect("create missing-static fixture");
-        write(directory.path().join("blocks.json"), "{}");
-        write(
-            directory.path().join("textures/terrain_texture.json"),
-            r#"{"texture_data":{
-                "virtual":{"textures":"textures/blocks/not_a_physical_file"}
-            }}"#,
-        );
-        write(
-            directory.path().join("textures/flipbook_textures.json"),
-            "[]",
-        );
-
-        let inventory = inspect_animation_inventory(directory.path(), 8, 2)
-            .expect("catalog-only static aliases are measurable, not animation failures");
-
-        assert_eq!(inventory.catalog_static_sources, 1);
-        assert_eq!(inventory.static_sources, 0);
-        assert_eq!(inventory.missing_static_sources, 1);
-        assert_eq!(inventory.deduplicated_layers, 1, "diagnostic only");
-    }
-
-    #[test]
-    fn animation_inventory_counts_non_tile_static_uv_sheets_without_paging_them() {
-        let directory = tempfile::tempdir().expect("create non-tile fixture");
-        write(directory.path().join("blocks.json"), "{}");
-        write(
-            directory.path().join("textures/terrain_texture.json"),
-            r#"{"texture_data":{
-                "model_uv":{"textures":"textures/blocks/model_uv"}
-            }}"#,
-        );
-        write(
-            directory.path().join("textures/flipbook_textures.json"),
-            "[]",
-        );
-        write_png(
-            directory.path().join("textures/blocks/model_uv.png"),
-            24,
-            12,
-            &vec![255; 24 * 12 * 4],
-        );
-
-        let inventory = inspect_animation_inventory(directory.path(), 8, 2)
-            .expect("non-tile model sheets remain outside texture pages");
-
-        assert_eq!(inventory.catalog_static_sources, 1);
-        assert_eq!(inventory.static_sources, 0);
-        assert_eq!(inventory.missing_static_sources, 0);
-        assert_eq!(inventory.non_tile_static_sources, 1);
-        assert_eq!(inventory.deduplicated_layers, 1, "diagnostic only");
-    }
-
-    #[test]
-    fn animation_inventory_rejects_a_missing_flipbook_strip() {
-        let directory = tempfile::tempdir().expect("create missing-animation fixture");
-        write(directory.path().join("blocks.json"), "{}");
-        write(
-            directory.path().join("textures/terrain_texture.json"),
-            r#"{"texture_data":{
-                "animated":{"textures":"textures/blocks/missing_strip"}
-            }}"#,
-        );
-        write(
-            directory.path().join("textures/flipbook_textures.json"),
-            r#"[{
-                "flipbook_texture":"textures/blocks/missing_strip",
-                "atlas_tile":"animated"
-            }]"#,
-        );
-
-        let error = inspect_animation_inventory(directory.path(), 8, 2)
-            .expect_err("a missing physical animation strip must fail closed");
-        assert!(matches!(
-            error,
-            assets::AssetError::MissingAnimationTexture { ref source_path }
-                if source_path.as_ref() == "textures/blocks/missing_strip"
-        ));
-    }
-
-    #[test]
-    fn visual_family_dispatch_uses_explicit_ordered_outcomes() {
-        assert!(matches!(
-            CompileRuleResult::NoMatch,
-            CompileRuleResult::NoMatch
-        ));
-        assert!(matches!(
-            CompileRuleResult::Reject,
-            CompileRuleResult::Reject
-        ));
-        let visual = assets::BlockVisual::diagnostic(
-            assets::BlockFlags::empty(),
-            assets::ContributorRole::Primary,
-        );
-        assert!(matches!(
-            CompileRuleResult::Compiled(visual),
-            CompileRuleResult::Compiled(observed) if observed == visual
-        ));
-    }
-}
+#[path = "compiler/tests.rs"]
+mod tests;

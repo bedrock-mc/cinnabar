@@ -98,9 +98,15 @@ fn gallery_inventory_is_hash_bound_and_byte_identical() {
     let first = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
     let second = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
 
-    assert_eq!(
-        deterministic_json(&first).unwrap(),
-        deterministic_json(&second).unwrap()
+    let first_bytes = deterministic_json(&first).unwrap();
+    let second_bytes = deterministic_json(&second).unwrap();
+    let mismatch = first_bytes
+        .iter()
+        .zip(&second_bytes)
+        .position(|(first, second)| first != second);
+    assert!(
+        first_bytes == second_bytes,
+        "gallery output first differs at byte {mismatch:?}"
     );
     assert_eq!(
         first.registry_sha256,
@@ -116,6 +122,7 @@ fn gallery_inventory_is_hash_bound_and_byte_identical() {
     );
     assert!(first.accepting);
     assert_eq!(first.diagnostic_targets, 0);
+    assert_eq!(first.fallback_targets, 0);
 }
 
 #[test]
@@ -126,12 +133,13 @@ fn gallery_inventory_is_non_accepting_when_zero_diagnostics_hide_a_strict_invali
     let inventory = gallery_inventory_bytes(&registry, &assets, &baseline_bytes).unwrap();
 
     assert_eq!(inventory.diagnostic_targets, 0);
+    assert_eq!(inventory.fallback_targets, 0);
     assert!(!inventory.accepting);
 }
 
 #[test]
 #[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned vanilla-v1001.mcbea"]
-fn current_gallery_inventory_is_non_accepting_with_2398_diagnostics() {
+fn current_gallery_inventory_is_non_accepting_with_2397_provisional_fallbacks() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)
         .expect("set CINNABAR_REAL_PACK to the ignored pinned vanilla-v1001.mcbea");
@@ -141,15 +149,16 @@ fn current_gallery_inventory_is_non_accepting_with_2398_diagnostics() {
     let inventory = gallery_inventory_bytes(registry, &assets, baseline).unwrap();
 
     assert!(!inventory.accepting);
-    assert_eq!(inventory.diagnostic_targets, 2_398);
+    assert_eq!(inventory.diagnostic_targets, 0);
+    assert_eq!(inventory.fallback_targets, 2_397);
     assert_eq!(
         inventory
             .pages
             .iter()
             .flat_map(|page| &page.targets)
-            .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Diagnostic)
+            .filter(|target| target.status == visualcoverage::GalleryTargetStatus::Fallback)
             .count(),
-        2_398
+        2_397
     );
 }
 

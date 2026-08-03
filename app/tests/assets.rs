@@ -65,6 +65,7 @@ fn synthetic_blob() -> Box<[u8]> {
             faces: [1; 6],
             flags: BlockFlags::CUBE_GEOMETRY,
             kind: VisualKind::Cube,
+            support: ::assets::VisualSupport::Exact,
             contributor_role: ::assets::ContributorRole::Primary,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
@@ -295,6 +296,11 @@ fn runtime_with_block_identity(
         BlockFlags::empty()
     };
     let visual = BlockVisual {
+        support: if kind == VisualKind::Diagnostic {
+            assets::VisualSupport::Diagnostic
+        } else {
+            assets::VisualSupport::Exact
+        },
         faces: [0; 6],
         flags,
         kind,

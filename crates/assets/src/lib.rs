@@ -91,7 +91,7 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TexturePage, TextureRef, VisualKind,
+    TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,

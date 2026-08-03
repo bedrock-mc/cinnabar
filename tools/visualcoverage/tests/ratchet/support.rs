@@ -55,6 +55,11 @@ pub(super) fn visual(kind: VisualKind) -> BlockVisual {
             BlockFlags::empty()
         },
         kind,
+        support: if kind == VisualKind::Diagnostic {
+            VisualSupport::Diagnostic
+        } else {
+            VisualSupport::Exact
+        },
         contributor_role: ContributorRole::Primary,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -220,6 +225,7 @@ pub(super) fn strict_no_draw(flags: BlockFlags, role: ContributorRole) -> BlockV
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags,
         kind: VisualKind::Invisible,
+        support: VisualSupport::Exact,
         contributor_role: role,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -232,6 +238,7 @@ pub(super) fn strict_cube(faces: [u32; 6]) -> BlockVisual {
         faces,
         flags: BlockFlags::CUBE_GEOMETRY,
         kind: VisualKind::Cube,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::Primary,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -244,6 +251,7 @@ pub(super) fn strict_model(kind: VisualKind, template: u32) -> BlockVisual {
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::empty(),
         kind,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::Primary,
         model_template: template,
         animation: NO_ANIMATION,
@@ -256,6 +264,7 @@ pub(super) fn strict_liquid(faces: [u32; 6], variant: u32) -> BlockVisual {
         faces,
         flags: BlockFlags::empty(),
         kind: VisualKind::Liquid,
+        support: VisualSupport::Exact,
         contributor_role: ContributorRole::LiquidAdditional,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
@@ -268,6 +277,7 @@ pub(super) fn strict_diagnostic(flags: BlockFlags, role: ContributorRole) -> Blo
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags,
         kind: VisualKind::Diagnostic,
+        support: VisualSupport::Diagnostic,
         contributor_role: role,
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,

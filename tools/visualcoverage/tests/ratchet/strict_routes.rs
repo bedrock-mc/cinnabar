@@ -58,6 +58,38 @@ fn strict_rejects_non_air_diagnostics_and_unknown_families() {
 }
 
 #[test]
+fn strict_rejects_provisional_vanilla_fallbacks() {
+    let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Cube]);
+    let mut fallback = strict_cube([1; 6]);
+    fallback.support = VisualSupport::VanillaFallback;
+    let runtime = strict_runtime(
+        &records,
+        vec![
+            strict_no_draw(BlockFlags::AIR, ContributorRole::Air),
+            fallback,
+        ],
+        strict_materials(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let snapshot = strict_snapshot(&records, &runtime);
+    let expected = snapshot.states[1].clone();
+
+    assert!(matches!(
+        strict_records(
+            &records,
+            &runtime,
+            snapshot.clone(),
+            &strict_baseline(&snapshot, &[]),
+            false,
+        ),
+        Err(CoverageError::ProvisionalFallback { state }) if state == expected
+    ));
+}
+
+#[test]
 fn strict_requires_air_no_draw_and_source_cited_invisibles() {
     let records = strict_fixture_records(&[ModelFamily::Air, ModelFamily::Invisible]);
     let runtime = strict_runtime(

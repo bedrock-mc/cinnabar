@@ -4,14 +4,14 @@ use assets::{
     AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT,
     Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, encode_blob, write_blob_atomic,
+    TextureRef, VisualKind, VisualSupport, encode_blob, write_blob_atomic,
 };
 use sha2::{Digest, Sha256};
 
 #[test]
-fn mcbeas05_exact_bytes() {
-    assert_eq!(&BLOB_MAGIC, b"MCBEAS05");
-    assert_eq!(BLOB_VERSION, 5);
+fn mcbeas06_exact_bytes() {
+    assert_eq!(&BLOB_MAGIC, b"MCBEAS06");
+    assert_eq!(BLOB_VERSION, 6);
     let texture = assets::TextureRef::new(1, 17).expect("bounded texture ref");
     assert_eq!(texture.raw(), 0x8000_0011);
 
@@ -21,6 +21,7 @@ fn mcbeas05_exact_bytes() {
             faces: [0; 6],
             flags: BlockFlags::empty(),
             kind: VisualKind::Diagnostic,
+            support: VisualSupport::Diagnostic,
             contributor_role: assets::ContributorRole::Primary,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
@@ -30,6 +31,7 @@ fn mcbeas05_exact_bytes() {
             faces: [1; 6],
             flags: BlockFlags::empty(),
             kind: VisualKind::Model,
+            support: VisualSupport::Exact,
             contributor_role: assets::ContributorRole::Primary,
             model_template: 0,
             animation: 0,
@@ -90,12 +92,12 @@ fn mcbeas05_exact_bytes() {
     ]
     .into_boxed_slice();
 
-    let bytes = encode_blob(&fixture).expect("encode every MCBEAS05 table");
-    assert_eq!(bytes.len(), 1_576_168);
+    let bytes = encode_blob(&fixture).expect("encode every MCBEAS06 table");
+    assert_eq!(bytes.len(), 1_576_176);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "8625117df2dcebbd90d3be83d4336e02fb1f721cd912b02a175710360b05cf07",
-        "the complete every-table fixture is the byte-exact MCBEAS05 golden"
+        "bae821140b52da84c6cdfc2f4b2c618208cae0faa42595de0fdc277af534b101",
+        "the complete every-table fixture is the byte-exact MCBEAS06 golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
     assert_eq!(read_u32(&bytes, 28), 2);
@@ -106,14 +108,14 @@ fn mcbeas05_exact_bytes() {
     assert_eq!(read_u32(&bytes, 48), 2);
     let visuals = read_u64(&bytes, 96) as usize;
     assert_eq!(bytes[visuals + 27], 0xf0);
-    assert_eq!(bytes[visuals + 40 + 27], 0x0c);
+    assert_eq!(bytes[visuals + 44 + 27], 0x0c);
     let materials = read_u64(&bytes, 112) as usize;
     let templates = read_u64(&bytes, 120) as usize;
     let quads = read_u64(&bytes, 128) as usize;
     let animations = read_u64(&bytes, 136) as usize;
     let frames = read_u64(&bytes, 144) as usize;
     assert_eq!(
-        &bytes[visuals + 40..visuals + 64],
+        &bytes[visuals + 44..visuals + 68],
         &[
             1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0
         ]
@@ -210,6 +212,7 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     let mut stair_group = valid_assets();
     stair_group.visuals[0].flags = BlockFlags::empty();
     stair_group.visuals[0].kind = VisualKind::Model;
+    stair_group.visuals[0].support = VisualSupport::Exact;
     stair_group.visuals[0].model_template = 0;
     stair_group.visuals[0].variant = 7;
     let stair_quad = assets::ModelQuad {
@@ -291,6 +294,7 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
     let mut compound = valid_assets();
     compound.visuals[0].flags = BlockFlags::empty();
     compound.visuals[0].kind = VisualKind::Model;
+    compound.visuals[0].support = VisualSupport::Exact;
     compound.visuals[0].model_template = 0;
     compound.model_templates = vec![
         assets::ModelTemplate {
@@ -393,6 +397,7 @@ fn mcbeas04_accepts_only_canonical_referenced_connected_template_groups() {
         let mut compiled = valid_assets();
         compiled.visuals[0].flags = BlockFlags::empty();
         compiled.visuals[0].kind = VisualKind::Model;
+        compiled.visuals[0].support = VisualSupport::Exact;
         compiled.visuals[0].model_template = 0;
         compiled.visuals[0].variant = 0;
         let mut start = 0;
@@ -477,6 +482,7 @@ fn valid_assets() -> CompiledAssets {
             faces: [0; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Diagnostic,
+            support: VisualSupport::Diagnostic,
             contributor_role: assets::ContributorRole::Primary,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
@@ -504,6 +510,7 @@ fn transparent_cube_assets() -> CompiledAssets {
     let mut compiled = valid_assets();
     compiled.visuals[0].flags = BlockFlags::empty();
     compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].support = VisualSupport::Exact;
     compiled.visuals[0].model_template = 0;
     compiled.visuals[0].faces = [1; 6];
     compiled.materials = vec![
@@ -619,6 +626,7 @@ fn full_face_model_assets(quad_count: u32) -> CompiledAssets {
     let mut compiled = valid_assets();
     compiled.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
     compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].support = VisualSupport::Exact;
     compiled.visuals[0].model_template = 0;
     compiled.model_templates = vec![assets::ModelTemplate {
         quad_start: 0,
@@ -678,7 +686,7 @@ fn blob_has_checked_little_endian_sections_and_trailing_sha256() {
     let biome_names_offset = read_u64(&bytes, 184) as usize;
     let payload_length = read_u64(&bytes, 192) as usize;
     assert_eq!(visuals_offset, HEADER_BYTES);
-    assert_eq!(hashes_offset, visuals_offset + 40);
+    assert_eq!(hashes_offset, visuals_offset + 44);
     assert_eq!(materials_offset, hashes_offset + 8);
     assert_eq!(pages_offset, materials_offset + 12);
     assert_eq!(textures_offset, pages_offset + 64);
