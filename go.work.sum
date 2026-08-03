@@ -15,6 +15,8 @@ github.com/df-mc/go-xsapi v1.0.1/go.mod h1:uKC/a/2/JOamgRDezvgVe7OmXdqERUfmCcIWA
 github.com/go-jose/go-jose/v4 v4.1.3/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697 h1:/OBmKrpaUtoRc2EGTVfZQVFrm7ZnzIv9n8b0em6N3eU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260803043649-fd7b0a0fd697/go.mod h1:BHr17c5+172v/bAgfcUEMaPHm+o+9s/pFl9ZyfVWB04=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
