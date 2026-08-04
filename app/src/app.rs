@@ -499,10 +499,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(EnvironmentContext::default())
         .insert_resource(EnvironmentProfileRoute::default())
         .insert_resource(movement_ticker)
-        .insert_resource(if args.phase3_candidate_physics {
+        .insert_resource(if args.freecam || args.auto_fly {
+            PhysicsAuthorityGate::ProductionDisabled
+        } else if args.phase3_candidate_physics {
             PhysicsAuthorityGate::CandidateEvidence
         } else {
-            PhysicsAuthorityGate::ProductionDisabled
+            PhysicsAuthorityGate::ProductionEnabled
         })
         .insert_resource(MenuRuntime::new(
             !connection_requested,
@@ -561,7 +563,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ),
         FlyCameraPlugin::with_startup_capture(
             args.auto_fly,
-            args.auto_fly || args.phase3_candidate_physics,
+            args.auto_fly || args.freecam || args.phase3_candidate_physics,
         ),
         UiRenderPlugin,
     ));

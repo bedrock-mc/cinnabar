@@ -25,6 +25,7 @@ Options:
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
   --metrics-sample-seconds <N> Freeze frame metrics after N post-warmup seconds
   --auto-fly                   Fly the camera automatically for acceptance
+  --freecam                    Use non-authoritative free-camera movement
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
@@ -88,6 +89,8 @@ pub struct ClientArgs {
     pub metrics_warmup_seconds: u64,
     pub metrics_sample_seconds: Option<u64>,
     pub auto_fly: bool,
+    /// Use non-authoritative camera movement instead of local physics.
+    pub freecam: bool,
     pub force_vsync: bool,
     pub no_vsync: bool,
     pub frame_cap: Option<u32>,
@@ -115,6 +118,7 @@ impl Default for ClientArgs {
             metrics_warmup_seconds: 0,
             metrics_sample_seconds: None,
             auto_fly: false,
+            freecam: false,
             force_vsync: false,
             no_vsync: false,
             frame_cap: None,
@@ -197,6 +201,7 @@ impl ClientArgs {
             match argument.to_str() {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
+                Some("--freecam") => parsed.freecam = true,
                 Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,

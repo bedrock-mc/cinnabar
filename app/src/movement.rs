@@ -238,8 +238,8 @@ impl MovementTicker {
     ///
     /// Changing authority always discards queued/history state so samples from
     /// the prior source cannot cross the boundary. Production StartGame
-    /// explicitly selects [`MovementSource::Physics`]; auto-fly acceptance
-    /// explicitly retains [`MovementSource::FreeCamera`].
+    /// explicitly selects [`MovementSource::Physics`]; `--freecam` and
+    /// auto-fly acceptance explicitly retain [`MovementSource::FreeCamera`].
     pub fn set_source(&mut self, source: MovementSource) {
         if self.source == source {
             return;

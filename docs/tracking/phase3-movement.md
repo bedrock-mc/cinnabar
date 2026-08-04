@@ -124,7 +124,11 @@ does not have:
 
 ## Important current behavior
 
-Production deliberately starts with `PhysicsAuthorityGate::ProductionDisabled`; normal gameplay therefore remains FreeCamera unless the attributable candidate flag is used. Tests for candidate physics do not mean production physics is enabled. Nothing in this tranche changes that gate.
+Normal gameplay now starts with local Physics authority after the validated
+collision registry and StartGame anchor are available. `--freecam` (and the
+existing `--auto-fly` acceptance mode) explicitly selects the non-authoritative
+FreeCamera path. `--phase3-candidate-physics` remains available for attributable
+Phase 3 evidence runs.
 
 ## Historical references
 

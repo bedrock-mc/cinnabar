@@ -8,6 +8,10 @@ pub enum PhysicsAuthorityGate {
     #[default]
     ProductionDisabled,
     CandidateEvidence,
+    /// Normal gameplay authority after the collision registry has been
+    /// validated. `ProductionDisabled` remains available for explicit
+    /// free-camera and acceptance paths.
+    ProductionEnabled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
