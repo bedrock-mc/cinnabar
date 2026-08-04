@@ -8,8 +8,8 @@ use assets::{
     ItemVisualRoute, RuntimeEntityAssets,
 };
 use protocol::{
-    ActorHandedness, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
-    NetworkItemStack,
+    ActorHandedness, ArmorEquipmentEvent, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, NetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -23,6 +23,33 @@ pub struct CanonicalItemStack {
     pub identity: ItemStackIdentity,
     pub identifier: Option<Arc<str>>,
     pub visual: ItemVisualRoute,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ActorItemKind {
+    #[default]
+    Empty,
+    Shield,
+    FilledMap,
+    Crossbow,
+    Bow,
+    Brush,
+    HeavyCore,
+    Spear,
+    Spyglass,
+    GoatHorn,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ActorItemInput {
+    pub(crate) main_hand: ActorItemKind,
+    pub(crate) off_hand: ActorItemKind,
+    pub(crate) armor_layers: [bool; 5],
+    pub(crate) main_hand_remaining_use_duration: f32,
+    pub(crate) off_hand_remaining_use_duration: f32,
+    pub(crate) main_hand_charged: bool,
+    pub(crate) off_hand_charged: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +73,24 @@ pub struct ActorEquipmentSnapshot {
     pub hand_defaulted: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorArmorSnapshot {
+    pub actor: ActorLifetimeId,
+    pub event: ActorEventIdentity,
+    pub helmet: CanonicalItemStack,
+    pub chestplate: CanonicalItemStack,
+    pub leggings: CanonicalItemStack,
+    pub boots: CanonicalItemStack,
+    pub body: CanonicalItemStack,
+}
+
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
     equipment: BTreeMap<ActorLifetimeId, ActorEquipmentSnapshot>,
+    offhand: BTreeMap<ActorLifetimeId, ActorEquipmentSnapshot>,
+    armor: BTreeMap<ActorLifetimeId, ActorArmorSnapshot>,
     pending: VecDeque<ActorLifetimeId>,
 }
 
@@ -68,6 +108,8 @@ impl ItemStateStore {
             assets,
             registry: built_in_registry(),
             equipment: BTreeMap::new(),
+            offhand: BTreeMap::new(),
+            armor: BTreeMap::new(),
             pending: VecDeque::new(),
         }
     }
@@ -80,11 +122,15 @@ impl ItemStateStore {
 
     pub(crate) fn clear_actor_state(&mut self) {
         self.equipment.clear();
+        self.offhand.clear();
+        self.armor.clear();
         self.pending.clear();
     }
 
     pub(crate) fn remove(&mut self, lifetime: ActorLifetimeId) {
         self.equipment.remove(&lifetime);
+        self.offhand.remove(&lifetime);
+        self.armor.remove(&lifetime);
         self.pending.retain(|pending| *pending != lifetime);
     }
 
@@ -134,7 +180,11 @@ impl ItemStateStore {
         let (hand, hand_defaulted) = equipment
             .handedness
             .map_or((ActorHandedness::Right, true), |hand| (hand, false));
-        self.equipment.insert(
+        let target = match hand {
+            ActorHandedness::Left => &mut self.offhand,
+            ActorHandedness::Right => &mut self.equipment,
+        };
+        target.insert(
             lifetime,
             ActorEquipmentSnapshot {
                 actor: lifetime,
@@ -149,6 +199,53 @@ impl ItemStateStore {
                 window_id: equipment.window_id,
                 hand,
                 hand_defaulted,
+            },
+        );
+        self.pending.retain(|pending| *pending != lifetime);
+        if unresolved {
+            self.retain_pending(lifetime);
+        }
+        true
+    }
+
+    pub(crate) fn apply_armor_equipment(
+        &mut self,
+        lifetime: ActorLifetimeId,
+        sequence: u64,
+        armor: ArmorEquipmentEvent,
+    ) -> bool {
+        let Some(helmet) = self.canonicalize(&armor.helmet) else {
+            return false;
+        };
+        let Some(chestplate) = self.canonicalize(&armor.chestplate) else {
+            return false;
+        };
+        let Some(leggings) = self.canonicalize(&armor.leggings) else {
+            return false;
+        };
+        let Some(boots) = self.canonicalize(&armor.boots) else {
+            return false;
+        };
+        let Some(body) = self.canonicalize(&armor.body) else {
+            return false;
+        };
+        let unresolved = [&helmet, &chestplate, &leggings, &boots, &body]
+            .into_iter()
+            .any(|item| !item.identity.is_empty() && item.identifier.is_none());
+        self.armor.insert(
+            lifetime,
+            ActorArmorSnapshot {
+                actor: lifetime,
+                event: event_identity(
+                    lifetime,
+                    sequence,
+                    ActorSourceTick::IngressSequence(sequence),
+                ),
+                helmet,
+                chestplate,
+                leggings,
+                boots,
+                body,
             },
         );
         self.pending.retain(|pending| *pending != lifetime);
@@ -177,20 +274,64 @@ impl ItemStateStore {
         }
         self.registry = next;
 
-        let lifetimes = self.equipment.keys().copied().collect::<Vec<_>>();
+        let mut lifetimes = self.equipment.keys().copied().collect::<Vec<_>>();
+        lifetimes.extend(self.offhand.keys().copied());
+        lifetimes.extend(self.armor.keys().copied());
+        lifetimes.sort_unstable();
+        lifetimes.dedup();
         self.pending.clear();
         for lifetime in lifetimes {
-            let Some(identity) = self
-                .equipment
-                .get(&lifetime)
-                .map(|equipment| equipment.item.identity)
-            else {
+            for offhand in [false, true] {
+                let identity = if offhand {
+                    self.offhand
+                        .get(&lifetime)
+                        .map(|equipment| equipment.item.identity)
+                } else {
+                    self.equipment
+                        .get(&lifetime)
+                        .map(|equipment| equipment.item.identity)
+                };
+                let Some(identity) = identity else { continue };
+                let item = self.resolve_identity(identity);
+                let unresolved = !item.identity.is_empty() && item.identifier.is_none();
+                let target = if offhand {
+                    &mut self.offhand
+                } else {
+                    &mut self.equipment
+                };
+                if let Some(equipment) = target.get_mut(&lifetime) {
+                    equipment.item = item;
+                }
+                if unresolved {
+                    self.retain_pending(lifetime);
+                }
+            }
+            let Some(identities) = self.armor.get(&lifetime).map(|armor| {
+                [
+                    armor.helmet.identity,
+                    armor.chestplate.identity,
+                    armor.leggings.identity,
+                    armor.boots.identity,
+                    armor.body.identity,
+                ]
+            }) else {
                 continue;
             };
-            let item = self.resolve_identity(identity);
-            let unresolved = !item.identity.is_empty() && item.identifier.is_none();
-            if let Some(equipment) = self.equipment.get_mut(&lifetime) {
-                equipment.item = item;
+            let resolved = identities.map(|identity| self.resolve_identity(identity));
+            let unresolved = resolved
+                .iter()
+                .any(|item| !item.identity.is_empty() && item.identifier.is_none());
+            if let Some(armor) = self.armor.get_mut(&lifetime) {
+                [
+                    &mut armor.helmet,
+                    &mut armor.chestplate,
+                    &mut armor.leggings,
+                    &mut armor.boots,
+                    &mut armor.body,
+                ]
+                .into_iter()
+                .zip(resolved)
+                .for_each(|(target, item)| *target = item);
             }
             if unresolved {
                 self.retain_pending(lifetime);
@@ -200,7 +341,47 @@ impl ItemStateStore {
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
-        self.equipment.get(&lifetime)
+        let right = self.equipment.get(&lifetime);
+        if right.is_some_and(|equipment| !equipment.item.identity.is_empty()) {
+            return right;
+        }
+        self.offhand.get(&lifetime).or(right)
+    }
+
+    pub(crate) fn get_hand(
+        &self,
+        lifetime: ActorLifetimeId,
+        hand: ActorHandedness,
+    ) -> Option<&ActorEquipmentSnapshot> {
+        match hand {
+            ActorHandedness::Left => self.offhand.get(&lifetime),
+            ActorHandedness::Right => self.equipment.get(&lifetime),
+        }
+    }
+
+    pub(crate) fn armor(&self, lifetime: ActorLifetimeId) -> Option<&ActorArmorSnapshot> {
+        self.armor.get(&lifetime)
+    }
+
+    pub(crate) fn animation_input(&self, lifetime: ActorLifetimeId) -> ActorItemInput {
+        let armor_layers = self
+            .armor(lifetime)
+            .map(|armor| {
+                [
+                    !armor.helmet.identity.is_empty(),
+                    !armor.chestplate.identity.is_empty(),
+                    !armor.leggings.identity.is_empty(),
+                    !armor.boots.identity.is_empty(),
+                    !armor.body.identity.is_empty(),
+                ]
+            })
+            .unwrap_or_default();
+        ActorItemInput {
+            main_hand: item_kind(self.get_hand(lifetime, ActorHandedness::Right)),
+            off_hand: item_kind(self.get_hand(lifetime, ActorHandedness::Left)),
+            armor_layers,
+            ..ActorItemInput::default()
+        }
     }
 
     pub(crate) fn pending_count(&self) -> usize {
@@ -296,11 +477,32 @@ impl ItemStateStore {
             .equipment
             .keys()
             .copied()
+            .chain(self.offhand.keys().copied())
+            .chain(self.armor.keys().copied())
             .filter(|lifetime| lifetime.runtime_id == runtime_id)
             .collect::<Vec<_>>();
         for lifetime in lifetimes {
             self.remove(lifetime);
         }
+    }
+}
+
+fn item_kind(equipment: Option<&ActorEquipmentSnapshot>) -> ActorItemKind {
+    let Some(identifier) = equipment.and_then(|equipment| equipment.item.identifier.as_deref())
+    else {
+        return ActorItemKind::Empty;
+    };
+    match identifier.rsplit(':').next().unwrap_or(identifier) {
+        "shield" => ActorItemKind::Shield,
+        "filled_map" => ActorItemKind::FilledMap,
+        "crossbow" => ActorItemKind::Crossbow,
+        "bow" => ActorItemKind::Bow,
+        "brush" => ActorItemKind::Brush,
+        "heavy_core" => ActorItemKind::HeavyCore,
+        name if name.ends_with("_spear") => ActorItemKind::Spear,
+        "spyglass" => ActorItemKind::Spyglass,
+        "goat_horn" => ActorItemKind::GoatHorn,
+        _ => ActorItemKind::Other,
     }
 }
 

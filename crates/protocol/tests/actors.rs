@@ -1,7 +1,9 @@
 use protocol::{
     ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    PlayerSkin, PlayerSkinGeometry, PlayerSkinUnavailable, StandardSkin, WorldEvent,
+    into_world_event,
 };
+use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_30::{
     AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
     EntityPropertiesIntsItem, MetadataDictionaryItem, MetadataDictionaryItemKey,
@@ -159,6 +161,21 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
     assert!(!delta.teleported);
+
+    let forced = MoveEntityDeltaPacket {
+        runtime_entity_id: 55,
+        flags: DeltaMoveFlags::FORCE_MOVE | DeltaMoveFlags::HAS_X,
+        x: Some(9.0),
+        ..Default::default()
+    }
+    .into();
+    let Some(WorldEvent::Actor(ActorEvent::Move(forced))) =
+        into_world_event(forced, 0).expect("normalize forced delta move")
+    else {
+        panic!("expected forced delta actor move")
+    };
+    assert_eq!(forced.position_origin, ActorPositionOrigin::FeetImmediate);
+    assert!(!forced.teleported);
 }
 
 #[test]
@@ -318,6 +335,10 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
                     uuid,
                     entity_unique_id: 77,
                     username: "Steve".to_owned(),
+                    skin_data: Skin {
+                        arm_size: "wide".to_owned(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
             )))],
@@ -370,6 +391,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     let classic = PlayerRecordsRecordsItemAdd {
         username: "Classic".to_owned(),
         skin_data: Skin {
+            arm_size: "wide".to_owned(),
             skin_data: SkinImage {
                 width: 64,
                 height: 64,
@@ -379,10 +401,27 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
         },
         ..Default::default()
     };
+    let custom = PlayerRecordsRecordsItemAdd {
+        username: "Custom".to_owned(),
+        skin_data: Skin {
+            arm_size: "wide".to_owned(),
+            skin_resource_pack:
+                r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_owned(),
+            geometry_data: r#"{"minecraft:geometry":[{"description":{"identifier":"geometry.humanoid.custom"},"bones":[]}]}"#.to_owned(),
+            skin_data: SkinImage {
+                width: 64,
+                height: 64,
+                data: vec![0x7f; 64 * 64 * 4],
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     let persona = PlayerRecordsRecordsItemAdd {
         username: "Persona".to_owned(),
         skin_data: Skin {
             persona: true,
+            arm_size: "wide".to_owned(),
             skin_data: SkinImage {
                 width: 64,
                 height: 64,
@@ -395,12 +434,13 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     let packet = PlayerListPacket {
         records: PlayerRecords {
             type_: PlayerRecordsType::Add,
-            records_count: 2,
+            records_count: 3,
             records: vec![
                 Some(PlayerRecordsRecordsItem::Add(Box::new(classic))),
+                Some(PlayerRecordsRecordsItem::Add(Box::new(custom))),
                 Some(PlayerRecordsRecordsItem::Add(Box::new(persona))),
             ],
-            verified: Some(vec![true, false]),
+            verified: Some(vec![true, true, false]),
         },
     }
     .into();
@@ -420,9 +460,31 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
             width: 64,
             height: 64,
             rgba8: vec![0x7f; 64 * 64 * 4].into(),
+            geometry: PlayerSkinGeometry::Wide,
         })
     );
     let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
+        panic!("expected custom add entry")
+    };
+    let PlayerSkin::Standard(StandardSkin {
+        geometry:
+            PlayerSkinGeometry::Custom {
+                identifier,
+                data_sha256,
+                data,
+            },
+        ..
+    }) = skin
+    else {
+        panic!("expected retained custom geometry")
+    };
+    assert_eq!(identifier.as_ref(), "geometry.humanoid.custom");
+    assert_eq!(
+        data_sha256.as_slice(),
+        Sha256::digest(data.as_ref()).as_slice()
+    );
+    assert!(!data.is_empty());
+    let PlayerListEntry::Add { skin, .. } = &update.entries[2] else {
         panic!("expected add entry")
     };
     assert_eq!(

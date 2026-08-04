@@ -108,6 +108,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     inflate: None,
                     never_render: None,
                     reset: None,
+                    locators: Box::new([]),
                     cubes: Box::new([]),
                 }]
                 .into_boxed_slice(),
@@ -130,6 +131,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     inflate: None,
                     never_render: None,
                     reset: None,
+                    locators: Box::new([]),
                     cubes: Box::new([]),
                 }]
                 .into_boxed_slice(),
@@ -140,6 +142,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             symbol: 3,
             length_seconds: scalar(1.0),
             loop_mode: EntityAnimationLoop::Loop,
+            time_expression: None,
             first_channel: 0,
             channel_count: 1,
             source: 1,
@@ -157,11 +160,13 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 time_seconds: scalar(0.0),
                 value: [scalar(0.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
             EntityAnimationKeyframe {
                 time_seconds: scalar(0.1),
                 value: [scalar(2.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
         ]
         .into_boxed_slice(),
@@ -284,6 +289,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [0.0, 64.0, 0.0],
         velocity,
         pitch: 0.0,
@@ -606,16 +612,19 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
             time_seconds: scalar(0.0),
             value: [scalar(0.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.0),
             value: [scalar(2.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.1),
             value: [scalar(4.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
     ]
     .into_boxed_slice();

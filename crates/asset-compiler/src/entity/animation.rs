@@ -3,9 +3,9 @@ use std::{collections::BTreeMap, path::Path};
 use assets::{
     AssetError, EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
     EntityAnimationKeyframe, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
-    EntityControllerAnimation, EntityControllerState, EntityControllerTransition, EntityGeometry,
-    EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding, EntityRigFallback,
-    EntityRigGeometryBinding,
+    EntityControllerAnimation, EntityControllerState, EntityControllerTransition,
+    EntityDependencyKind, EntityDependencyResolution, EntityGeometry, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
 };
 use serde_json::{Map, Value};
 
@@ -16,8 +16,8 @@ mod environment;
 mod outcome;
 
 use clip::{
-    ClipCompileError, compile_clip_for_geometry, has_string_leaf, looks_like_expression, read_json,
-    required_object, source_index,
+    ClipCompileError, compile_clip_for_geometry, looks_like_expression, read_json, required_object,
+    source_index,
 };
 use environment::{
     EntityEnvironment, GeometrySelection, GeometrySelections,
@@ -180,11 +180,10 @@ pub(super) fn compile(
         let definition = definition
             .as_object()
             .ok_or_else(|| invalid("animation definition must be an object"))?;
-        if definition.get("bones").is_some_and(has_string_leaf)
-            || definition
-                .get("animation_length")
-                .and_then(Value::as_str)
-                .is_some_and(looks_like_expression)
+        if definition
+            .get("animation_length")
+            .and_then(Value::as_str)
+            .is_some_and(looks_like_expression)
         {
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source,
@@ -194,6 +193,7 @@ pub(super) fn compile(
             continue;
         }
         for geometry in used_geometries {
+            let mut transaction = molang.clone();
             match compile_clip_for_geometry(
                 symbol,
                 source,
@@ -202,8 +202,10 @@ pub(super) fn compile(
                 &mut clips,
                 &mut channels,
                 &mut keyframes,
+                &mut transaction,
             ) {
                 Ok(clip) => {
+                    molang.clone_from(&transaction);
                     clip_indices.insert((identifier.into(), geometry), clip);
                 }
                 Err(ClipCompileError::UnknownBone) => {
@@ -211,6 +213,13 @@ pub(super) fn compile(
                         source,
                         symbol,
                         reason: FallbackReason::UnsupportedGeometryBinding,
+                    });
+                }
+                Err(ClipCompileError::UnsupportedExpression) => {
+                    outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
+                        source,
+                        symbol,
+                        reason: FallbackReason::UnsupportedOptionalExpression,
                     });
                 }
                 Err(ClipCompileError::Invalid(error)) => return Err(error),
@@ -706,6 +715,7 @@ fn compile_rigs(
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
     {
+        let is_player = entity.identifier.as_ref() == "minecraft:player";
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
         let description = value
@@ -784,7 +794,12 @@ fn compile_rigs(
             for (name, target) in &animation_aliases {
                 names.push(name.clone());
                 if target.starts_with("controller.animation.") {
-                    if controller_symbols
+                    if has_external_dependency(
+                        entity,
+                        EntityDependencyKind::AnimationController,
+                        target,
+                    ) {
+                    } else if controller_symbols
                         .get(target.as_ref())
                         .is_some_and(Option::is_none)
                     {
@@ -795,9 +810,10 @@ fn compile_rigs(
                         candidate_geometry,
                     )) {
                         controller_bindings.push((name.clone(), target.clone()));
-                    } else {
+                    } else if !is_player {
                         static_fallback = true;
                     }
+                } else if has_external_dependency(entity, EntityDependencyKind::Animation, target) {
                 } else if animation_symbols
                     .get(target.as_ref())
                     .is_some_and(Option::is_none)
@@ -807,14 +823,21 @@ fn compile_rigs(
                 {
                     animation_bindings.push((name.clone(), clip));
                 } else if animation_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
+                    if !is_player {
+                        static_fallback = true;
+                    }
                 } else {
                     rejected = true;
                 }
             }
             for (name, target) in &controller_aliases {
                 names.push(name.clone());
-                if controller_symbols
+                if has_external_dependency(
+                    entity,
+                    EntityDependencyKind::AnimationController,
+                    target,
+                ) {
+                } else if controller_symbols
                     .get(target.as_ref())
                     .is_some_and(Option::is_none)
                 {
@@ -826,7 +849,9 @@ fn compile_rigs(
                 )) {
                     controller_bindings.push((name.clone(), target.clone()));
                 } else if controller_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
+                    if !is_player {
+                        static_fallback = true;
+                    }
                 } else {
                     rejected = true;
                 }
@@ -861,11 +886,13 @@ fn compile_rigs(
             });
             continue;
         }
-        static_fallback |= optional_condition.is_some_and(|expression| {
-            super::molang::MolangCompiler::default()
-                .compile(expression)
-                .is_err()
-        });
+        if !is_player {
+            static_fallback |= optional_condition.is_some_and(|expression| {
+                super::molang::MolangCompiler::default()
+                    .compile(expression)
+                    .is_err()
+            });
+        }
         let fallback = if static_fallback {
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source: entity.source_index,
@@ -886,6 +913,47 @@ fn compile_rigs(
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
     Ok((PendingRigPayload { rigs, outcomes }, names))
+}
+
+fn has_external_dependency(
+    entity: &EntityAssetSymbol,
+    kind: EntityDependencyKind,
+    identifier: &str,
+) -> bool {
+    matches!(
+        kind,
+        EntityDependencyKind::Animation | EntityDependencyKind::AnimationController
+    ) && entity.dependencies.iter().any(|dependency| {
+        dependency.kind == kind
+            && dependency.identifier.as_ref() == identifier
+            && dependency.resolution == EntityDependencyResolution::External
+    }) && is_known_external_reference(entity.identifier.as_ref(), kind, identifier)
+}
+
+fn is_known_external_reference(
+    entity_identifier: &str,
+    kind: EntityDependencyKind,
+    identifier: &str,
+) -> bool {
+    let prefix = match kind {
+        EntityDependencyKind::Animation => "animation.",
+        EntityDependencyKind::AnimationController => "controller.animation.",
+        _ => return false,
+    };
+    let Some(identifier) = identifier.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some((family, _)) = identifier.split_once('.') else {
+        return false;
+    };
+    let entity_family = entity_identifier
+        .strip_prefix("minecraft:")
+        .unwrap_or(entity_identifier);
+    let entity_family = entity_family.strip_suffix("_husk").unwrap_or(entity_family);
+    matches!(
+        family,
+        "armor" | "bow" | "common" | "crossbow" | "humanoid" | "player"
+    ) || family == entity_family
 }
 
 fn first_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>)> {

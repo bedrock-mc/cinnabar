@@ -14,6 +14,24 @@ impl WorldStream {
             None,
         )
     }
+
+    /// Seeds actor game-mode authority from the StartGame bootstrap before
+    /// AddPlayer or runtime game-mode packets arrive.
+    pub fn set_bootstrap_game_modes(
+        &mut self,
+        player: protocol::PlayerGameMode,
+        world_default: protocol::PlayerGameMode,
+        player_uses_world_default: bool,
+    ) {
+        self.actors.set_default_game_mode(world_default.into());
+        let update = if player_uses_world_default {
+            protocol::GameModeUpdate::WorldDefault
+        } else {
+            protocol::GameModeUpdate::Explicit(player)
+        };
+        self.actors
+            .apply_player_game_mode_update(self.local_player_unique_id, update);
+    }
     pub fn new_with_assets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
@@ -102,6 +120,11 @@ impl WorldStream {
             |assets| {
                 ActorStore::new_with_entity_assets(actor_session_id, bootstrap.dimension, assets)
             },
+        );
+        actors.install_local_player(
+            bootstrap.local_player_runtime_id,
+            bootstrap.local_player_unique_id,
+            bootstrap.player_position,
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         Self {

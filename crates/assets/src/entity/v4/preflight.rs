@@ -5,6 +5,7 @@ use crate::item::{MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS};
 use super::super::{
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES,
     MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_LOCATORS,
 };
 use super::{
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
@@ -44,6 +45,12 @@ struct EntityCatalogCountProbe {
 }
 
 struct SequenceCount(usize);
+
+impl Default for SequenceCount {
+    fn default() -> Self {
+        Self(0)
+    }
+}
 
 impl<'de> Deserialize<'de> for SequenceCount {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -156,6 +163,8 @@ struct BoneProbe {
     inflate: de::IgnoredAny,
     never_render: de::IgnoredAny,
     reset: de::IgnoredAny,
+    #[serde(default)]
+    locators: SequenceCount,
     cubes: SequenceCount,
 }
 
@@ -181,6 +190,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
             {
                 let mut bones = 0usize;
                 let mut cubes = 0usize;
+                let mut locators = 0usize;
                 while let Some(bone) = sequence.next_element::<BoneProbe>()? {
                     let BoneProbe {
                         name: _,
@@ -191,6 +201,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                         inflate: _,
                         never_render: _,
                         reset: _,
+                        locators: bone_locators,
                         cubes: bone_cubes,
                     } = bone;
                     bones = bones
@@ -199,7 +210,13 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                     cubes = cubes
                         .checked_add(bone_cubes.0)
                         .ok_or_else(|| de::Error::custom("entity cube count overflow"))?;
-                    if bones > MAX_ENTITY_GEOMETRY_BONES || cubes > MAX_ENTITY_GEOMETRY_CUBES {
+                    locators = locators
+                        .checked_add(bone_locators.0)
+                        .ok_or_else(|| de::Error::custom("entity locator count overflow"))?;
+                    if bones > MAX_ENTITY_GEOMETRY_BONES
+                        || cubes > MAX_ENTITY_GEOMETRY_CUBES
+                        || locators > MAX_ENTITY_GEOMETRY_LOCATORS
+                    {
                         return Err(de::Error::custom(
                             "entity geometry subarray count preflight exceeds bound",
                         ));

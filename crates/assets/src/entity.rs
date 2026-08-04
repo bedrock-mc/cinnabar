@@ -27,7 +27,7 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 4;
+pub const ENTITY_BLOB_VERSION: u32 = 5;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -39,6 +39,7 @@ pub const MAX_ENTITY_CATALOG_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_GEOMETRIES: usize = 4_096;
 pub const MAX_ENTITY_GEOMETRY_BONES: usize = 512;
 pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 8_192;
+pub const MAX_ENTITY_GEOMETRY_LOCATORS: usize = 8_192;
 pub const MAX_ENTITY_GEOMETRY_NAME_BYTES: usize = 256;
 pub const MAX_ENTITY_TEXTURE_DIMENSION: u16 = 16_384;
 pub const MAX_ENTITY_GEOMETRY_SCALAR: f32 = 1_048_576.0;
@@ -173,7 +174,18 @@ pub struct EntityGeometryBone {
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
     pub reset: Option<bool>,
+    /// Named attachment offsets retained from the geometry source. Runtime
+    /// animation queries use these for attachable layers such as armor.
+    #[serde(default)]
+    pub locators: Box<[EntityGeometryLocator]>,
     pub cubes: Box<[EntityGeometryCube]>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityGeometryLocator {
+    pub name: Box<str>,
+    pub offset: [EntityGeometryScalar; 3],
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -278,10 +290,10 @@ pub struct RuntimeEntityAssets {
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEENT4 blob"));
+            return Err(invalid("truncated MCBEENT5 blob"));
         }
         if bytes[..8] != ENTITY_BLOB_MAGIC || u32_at(bytes, 8)? != ENTITY_BLOB_VERSION {
-            return Err(invalid("unsupported MCBEENT4 header"));
+            return Err(invalid("unsupported MCBEENT5 header"));
         }
         let source_count = u32_at(bytes, 12)? as usize;
         let symbol_count = u32_at(bytes, 16)? as usize;
@@ -300,26 +312,26 @@ impl RuntimeEntityAssets {
             || rig_binding_count > MAX_ENTITY_RIG_BINDINGS
             || item_visual_count > crate::item::MAX_ITEM_VISUALS
         {
-            return Err(invalid("MCBEENT4 header counts exceed bounds"));
+            return Err(invalid("MCBEENT5 header counts exceed bounds"));
         }
         let source_manifest_sha256 = array_at::<32>(bytes, 24)?;
         let payload_bytes = usize::try_from(u64::from_le_bytes(array_at(bytes, 56)?))
-            .map_err(|_| invalid("MCBEENT4 payload size exceeds platform"))?;
+            .map_err(|_| invalid("MCBEENT5 payload size exceeds platform"))?;
         if payload_bytes > MAX_ENTITY_CATALOG_BYTES
             || bytes.len()
                 != HEADER_BYTES
                     .checked_add(payload_bytes)
                     .and_then(|length| length.checked_add(HASH_BYTES))
-                    .ok_or_else(|| invalid("MCBEENT4 length overflow"))?
+                    .ok_or_else(|| invalid("MCBEENT5 length overflow"))?
         {
-            return Err(invalid("noncanonical MCBEENT4 section layout"));
+            return Err(invalid("noncanonical MCBEENT5 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
         if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT4 envelope hash mismatch"));
+            return Err(invalid("MCBEENT5 envelope hash mismatch"));
         }
         let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
-            .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
+            .map_err(|_| invalid("invalid MCBEENT5 catalog count preflight"))?;
         if payload_counts
             != [
                 source_count,
@@ -331,15 +343,15 @@ impl RuntimeEntityAssets {
                 item_visual_count,
             ]
         {
-            return Err(invalid("MCBEENT4 catalog counts do not match header"));
+            return Err(invalid("MCBEENT5 catalog counts do not match header"));
         }
         let payload: EntityCatalogPayload =
             serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid MCBEENT4 catalog payload"))?;
+                .map_err(|_| invalid("invalid MCBEENT5 catalog payload"))?;
         let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize MCBEENT4 catalog payload"))?;
+            .map_err(|_| invalid("failed to canonicalize MCBEENT5 catalog payload"))?;
         if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical MCBEENT4 catalog encoding"));
+            return Err(invalid("noncanonical MCBEENT5 catalog encoding"));
         }
         let compiled = CompiledEntityAssets {
             source_manifest_sha256,
@@ -709,6 +721,7 @@ fn validate_geometry_bones(
     allow_inherited_parent: bool,
 ) -> Result<(), AssetError> {
     let mut total_cubes = 0usize;
+    let mut total_locators = 0usize;
     for bone in bones {
         validate_geometry_name(&bone.name)?;
         if let Some(parent) = &bone.parent {
@@ -730,6 +743,16 @@ fn validate_geometry_bones(
         }
         if let Some(inflate) = bone.inflate {
             validate_geometry_scalar(inflate)?;
+        }
+        total_locators = total_locators
+            .checked_add(bone.locators.len())
+            .ok_or_else(|| invalid("entity geometry locator count overflow"))?;
+        if total_locators > MAX_ENTITY_GEOMETRY_LOCATORS {
+            return Err(invalid("entity geometry locator count exceeds bound"));
+        }
+        for locator in &bone.locators {
+            validate_geometry_name(&locator.name)?;
+            validate_scalars(&locator.offset)?;
         }
         total_cubes = total_cubes
             .checked_add(bone.cubes.len())
@@ -902,7 +925,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, AssetError> {
 fn array_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
     bytes
         .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated MCBEENT4 field"))?
+        .ok_or_else(|| invalid("truncated MCBEENT5 field"))?
         .try_into()
-        .map_err(|_| invalid("invalid MCBEENT4 field"))
+        .map_err(|_| invalid("invalid MCBEENT5 field"))
 }

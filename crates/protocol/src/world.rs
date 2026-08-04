@@ -16,6 +16,7 @@ use crate::{
         normalize_add_entity, normalize_add_player, normalize_mob_effect, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
+        normalize_update_player_game_type,
     },
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
@@ -609,6 +610,9 @@ pub fn into_world_event(
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_game_mode(packet.gamemode),
             }))
+        }
+        McpePacketData::PacketUpdatePlayerGameType(packet) => {
+            WorldEvent::Actor(normalize_update_player_game_type(packet)?)
         }
         McpePacketData::PacketInventoryContent(packet) => {
             WorldEvent::Inventory(normalize_content(*packet)?)

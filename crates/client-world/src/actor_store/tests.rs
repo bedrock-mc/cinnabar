@@ -4,7 +4,7 @@ use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
     ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinGeometry, PlayerSkinUnavailable, StandardSkin,
 };
 
 use super::{ActorApplyResult, ActorStore};
@@ -17,6 +17,7 @@ fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [1.0, 2.0, 3.0],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -412,6 +413,103 @@ fn remote_player_converges_to_received_position_in_three_ticks() {
 }
 
 #[test]
+fn remote_entity_converges_to_received_pose_in_three_ticks() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(42, -7));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(9.0), None, Some(3.0)],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: Some(30.0),
+            yaw: Some(90.0),
+            head_yaw: Some(105.0),
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+        }),
+    );
+
+    assert_eq!(store.get(42).unwrap().position, [1.0, 2.0, 3.0]);
+    assert_eq!(store.get(42).unwrap().interpolation_ticks_remaining, 3);
+
+    store.advance_interpolation_ticks(1);
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.position, [3.6666667, 2.0, 3.0]);
+    assert_eq!(actor.yaw, 30.0);
+    assert_eq!(actor.head_yaw, 35.0);
+
+    store.advance_interpolation_ticks(2);
+    let actor = store.get(42).unwrap();
+    assert_eq!(actor.position, [9.0, 2.0, 3.0]);
+    assert_eq!(actor.yaw, 90.0);
+    assert_eq!(actor.head_yaw, 105.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 0);
+}
+
+#[test]
+fn rotation_mode_does_not_create_a_new_position_sample() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.apply(1, 2, player_move(42, 9.0, false));
+    store.advance_interpolation_ticks(1);
+
+    store.apply(
+        1,
+        3,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [Some(100.0), None, None],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: Some(15.0),
+            yaw: Some(180.0),
+            head_yaw: Some(170.0),
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: Some(protocol::MovePlayerMode::Rotation),
+            source_tick: Some(11),
+        }),
+    );
+
+    let actor = store.get(42).expect("stored player");
+    assert_eq!(actor.received_pose.position, [9.0, 64.0, 0.0]);
+    assert_eq!(actor.received_pose.yaw, 180.0);
+    assert_eq!(actor.received_pose.head_yaw, 170.0);
+}
+
+#[test]
+fn actor_link_updates_remote_riding_state_and_clears_on_remove() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(42, -7));
+    store.apply(1, 2, spawn(43, -8));
+
+    store.apply_actor_link(protocol::ActorLinkEvent {
+        dimension: 0,
+        ridden_unique_id: -8,
+        rider_unique_id: -7,
+        link_type: protocol::ActorLinkType::Rider,
+        immediate: false,
+        rider_initiated: false,
+    });
+    assert_eq!(store.get(42).unwrap().mount_unique_id, Some(-8));
+
+    store.apply_actor_link(protocol::ActorLinkEvent {
+        dimension: 0,
+        ridden_unique_id: -8,
+        rider_unique_id: -7,
+        link_type: protocol::ActorLinkType::Remove,
+        immediate: true,
+        rider_initiated: false,
+    });
+    assert_eq!(store.get(42).unwrap().mount_unique_id, None);
+}
+
+#[test]
 fn new_target_restarts_three_ticks_from_current_smoothed_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
@@ -535,8 +633,10 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
 
     let actor = store.get(42).expect("stored actor");
     assert_eq!(actor.movement_revision, 2);
-    assert_eq!(actor.position, [9.0, 2.0, 8.0]);
-    assert_eq!(actor.pitch, 10.0);
+    assert_eq!(actor.position, [1.0, 2.0, 3.0]);
+    assert_eq!(actor.received_pose.position, [9.0, 2.0, 8.0]);
+    assert_eq!(actor.pitch, 0.0);
+    assert_eq!(actor.received_pose.pitch, 10.0);
     assert_eq!(actor.on_ground, Some(true));
     assert_eq!(
         actor.metadata[&4],
@@ -848,6 +948,7 @@ fn render_players_join_roster_skins_and_sort_by_runtime_id() {
         width: 64,
         height: 64,
         rgba8: vec![9; 64 * 64 * 4].into(),
+        geometry: PlayerSkinGeometry::Wide,
     });
     let mut store = ActorStore::new(1, 0);
     for (sequence, runtime_id, unique_id, uuid) in [(1, 20, 2, [2; 16]), (2, 10, 1, [1; 16])] {
@@ -904,6 +1005,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
             width: 64,
             height: 64,
             rgba8: vec![value; skin_bytes].into(),
+            geometry: PlayerSkinGeometry::Wide,
         })
     };
     let add = |uuid, unique_id, skin| {
@@ -937,6 +1039,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
         width: 128,
         height: 128,
         rgba8: vec![9; 128 * 128 * 4].into(),
+        geometry: PlayerSkinGeometry::Wide,
     });
     store.apply(1, 3, add([1; 16], 10, oversized_replacement));
     assert_eq!(store.retained_player_skin_bytes, skin_bytes);
