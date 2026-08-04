@@ -80,6 +80,8 @@ impl ActorStore {
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             pending_game_modes: HashMap::new(),
+            pending_actor_links: HashMap::new(),
+            position_revisions: HashMap::new(),
             velocity_revisions: HashMap::new(),
             players: HashMap::new(),
             animation,
@@ -175,6 +177,15 @@ impl ActorStore {
         self.apply_pending_game_mode(&mut snapshot);
         self.actors.insert(runtime_id, snapshot);
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        if let Some(link) = self.pending_actor_links.remove(&unique_id)
+            && matches!(
+                link.link_type,
+                protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger
+            )
+            && let Some(actor) = self.actors.get_mut(&runtime_id)
+        {
+            actor.mount_unique_id = Some(link.ridden_unique_id);
+        }
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
@@ -189,6 +200,8 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.pending_game_modes.clear();
+        self.pending_actor_links.clear();
+        self.position_revisions.clear();
         self.velocity_revisions.clear();
         self.players.clear();
         self.retained_player_skin_bytes = 0;
@@ -211,6 +224,8 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.pending_game_modes.clear();
+        self.pending_actor_links.clear();
+        self.position_revisions.clear();
         self.velocity_revisions.clear();
         self.animation.clear();
         self.items.clear_actor_state();
@@ -238,7 +253,12 @@ impl ActorStore {
                     return ActorApplyResult::MissingActor;
                 };
                 let mut received = actor.received_pose;
-                let has_position_update = movement.position.iter().any(Option::is_some);
+                // MovePlayer's rotation mode carries a position-shaped field
+                // on the wire, but its authority is orientation-only. Treat
+                // it like a delta rotation so it cannot reset a moving
+                // actor's positional velocity or gait phase.
+                let has_position_update = movement.position.iter().any(Option::is_some)
+                    && movement.player_mode != Some(MovePlayerMode::Rotation);
                 let network_position_offset =
                     if movement.position_origin == ActorPositionOrigin::NetworkOffset {
                         actor.network_position_offset()
@@ -247,18 +267,20 @@ impl ActorStore {
                     };
                 let immediate = movement.teleported
                     || movement.position_origin == ActorPositionOrigin::FeetImmediate;
-                for (axis, (target, source)) in received
-                    .position
-                    .iter_mut()
-                    .zip(movement.position)
-                    .enumerate()
-                {
-                    if let Some(source) = source {
-                        *target = if axis == 1 {
-                            source - network_position_offset
-                        } else {
-                            source
-                        };
+                if has_position_update {
+                    for (axis, (target, source)) in received
+                        .position
+                        .iter_mut()
+                        .zip(movement.position)
+                        .enumerate()
+                    {
+                        if let Some(source) = source {
+                            *target = if axis == 1 {
+                                source - network_position_offset
+                            } else {
+                                source
+                            };
+                        }
                     }
                 }
                 if let Some(value) = movement.pitch {
@@ -282,9 +304,7 @@ impl ActorStore {
                     .map_or(0.05, |ticks| ticks as f32 * 0.05);
                 let derived_velocity = if movement.teleported {
                     [0.0; 3]
-                } else if !has_position_update
-                    || movement.player_mode == Some(MovePlayerMode::Rotation)
-                {
+                } else if !has_position_update {
                     actor.velocity
                 } else {
                     std::array::from_fn(|axis| {
@@ -297,17 +317,22 @@ impl ActorStore {
                 } else {
                     [0.0; 3]
                 };
+                if has_position_update {
+                    self.position_revisions
+                        .insert(movement.runtime_id, sequence);
+                }
                 actor.received_pose = received;
                 if immediate {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
-                } else if matches!(actor.kind, ActorKind::Player { .. }) {
-                    actor.interpolation_ticks_remaining = PLAYER_POSITION_INTERPOLATION_TICKS;
                 } else {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
+                    actor.interpolation_ticks_remaining =
+                        if matches!(actor.kind, ActorKind::Player { .. }) {
+                            PLAYER_POSITION_INTERPOLATION_TICKS
+                        } else {
+                            ACTOR_POSITION_INTERPOLATION_TICKS
+                        };
                 }
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
@@ -506,15 +531,54 @@ impl ActorStore {
             }
         }
     }
+
+    /// Applies an ordered SetActorLink update to remote and local actor
+    /// snapshots. Links may arrive before the rider spawn, so a bounded
+    /// rider-keyed pending table preserves the relation until that snapshot
+    /// exists without inventing a render transform.
+    pub(crate) fn apply_actor_link(&mut self, event: protocol::ActorLinkEvent) {
+        if event.dimension != self.dimension {
+            return;
+        }
+        match event.link_type {
+            protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger => {
+                if let Some(runtime_id) =
+                    self.unique_to_runtime.get(&event.rider_unique_id).copied()
+                {
+                    if let Some(actor) = self.actors.get_mut(&runtime_id) {
+                        actor.mount_unique_id = Some(event.ridden_unique_id);
+                    }
+                    self.pending_actor_links.remove(&event.rider_unique_id);
+                } else if self.pending_actor_links.len() < MAX_PENDING_ACTOR_LINKS
+                    || self
+                        .pending_actor_links
+                        .contains_key(&event.rider_unique_id)
+                {
+                    self.pending_actor_links
+                        .insert(event.rider_unique_id, event);
+                }
+            }
+            protocol::ActorLinkType::Remove => {
+                self.pending_actor_links.remove(&event.rider_unique_id);
+                if let Some(runtime_id) =
+                    self.unique_to_runtime.get(&event.rider_unique_id).copied()
+                    && let Some(actor) = self.actors.get_mut(&runtime_id)
+                    && actor.mount_unique_id == Some(event.ridden_unique_id)
+                {
+                    actor.mount_unique_id = None;
+                }
+            }
+            protocol::ActorLinkType::Unknown(_) => {}
+        }
+    }
+
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         for _ in 0..ticks {
             for actor in self.actors.values_mut() {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
-                if matches!(actor.kind, ActorKind::Player { .. })
-                    && actor.interpolation_ticks_remaining > 0
-                {
+                if actor.interpolation_ticks_remaining > 0 {
                     let divisor = f32::from(actor.interpolation_ticks_remaining);
                     let amount = (1.0 / divisor).clamp(0.0, 1.0);
                     next.position = std::array::from_fn(|axis| {
@@ -527,24 +591,32 @@ impl ActorStore {
                         lerp_angle(current.head_yaw, actor.received_pose.head_yaw, amount);
                     actor.interpolation_ticks_remaining -= 1;
                 }
-                let velocity = std::array::from_fn(|axis| {
-                    (next.position[axis] - current.position[axis]) / 0.05
-                });
-                if matches!(actor.kind, ActorKind::Player { .. }) {
+                let position_revision = self.position_revisions.get(&actor.runtime_id).copied();
+                let applied_position_revision =
+                    self.velocity_revisions.get(&actor.runtime_id).copied();
+                if position_revision.is_none() && applied_position_revision.is_none() {
+                    // Preserve the spawn-time velocity until the first
+                    // positional authority sample replaces it. This is
+                    // required for actors that begin with a launch or drift
+                    // velocity and have not emitted a movement update yet.
+                } else if position_revision != applied_position_revision {
+                    let velocity = std::array::from_fn(|axis| {
+                        (next.position[axis] - current.position[axis]) / 0.05
+                    });
                     actor.velocity = if velocity.iter().all(|value| value.is_finite()) {
                         velocity
                     } else {
                         [0.0; 3]
                     };
-                } else if self
-                    .velocity_revisions
-                    .get(&actor.runtime_id)
-                    .is_some_and(|revision| *revision == actor.movement_revision)
-                {
+                    if actor.interpolation_ticks_remaining == 0
+                        && let Some(position_revision) = position_revision
+                    {
+                        self.velocity_revisions
+                            .insert(actor.runtime_id, position_revision);
+                    }
+                } else {
                     actor.velocity = [0.0; 3];
                 }
-                self.velocity_revisions
-                    .insert(actor.runtime_id, actor.movement_revision);
                 actor.body_yaw = next.yaw;
                 actor.set_current_pose(next);
             }
@@ -599,7 +671,9 @@ impl ActorStore {
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
             let lifetime = self.lifetime_for(&previous);
             self.unique_to_runtime.remove(&previous.unique_id);
+            self.clear_mount_references(previous.unique_id);
             self.velocity_revisions.remove(&previous.runtime_id);
+            self.position_revisions.remove(&previous.runtime_id);
             self.animation.remove_runtime(previous.runtime_id);
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
@@ -608,10 +682,12 @@ impl ActorStore {
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
             if let Some(previous) = self.actors.remove(&previous_runtime) {
                 let lifetime = self.lifetime_for(&previous);
+                self.clear_mount_references(previous.unique_id);
                 self.items.remove(lifetime);
                 self.actions.remove(lifetime);
             }
             self.velocity_revisions.remove(&previous_runtime);
+            self.position_revisions.remove(&previous_runtime);
             self.animation.remove_runtime(previous_runtime);
             replaced = true;
         }
@@ -643,6 +719,8 @@ impl ActorStore {
     }
     fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
         self.pending_game_modes.remove(&unique_id);
+        self.pending_actor_links
+            .retain(|rider, link| *rider != unique_id && link.ridden_unique_id != unique_id);
         let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
             return ActorApplyResult::MissingActor;
         };
@@ -652,8 +730,20 @@ impl ActorStore {
             self.actions.remove(lifetime);
         }
         self.velocity_revisions.remove(&runtime_id);
+        self.position_revisions.remove(&runtime_id);
         self.animation.remove_runtime(runtime_id);
+        self.clear_mount_references(unique_id);
         ActorApplyResult::Removed
+    }
+
+    fn clear_mount_references(&mut self, unique_id: i64) {
+        self.pending_actor_links
+            .retain(|rider, link| *rider != unique_id && link.ridden_unique_id != unique_id);
+        for actor in self.actors.values_mut() {
+            if actor.mount_unique_id == Some(unique_id) {
+                actor.mount_unique_id = None;
+            }
+        }
     }
 
     fn player_skin_geometry(&self, unique_id: i64) -> Option<PlayerSkinGeometry> {

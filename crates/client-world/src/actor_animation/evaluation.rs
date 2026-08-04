@@ -174,6 +174,8 @@ pub(super) fn query(
         action: Default::default(),
         items: Default::default(),
         distance_moved: 0.0,
+        hand_bob: 0.0,
+        riding_y_offset: 0.0,
         default_bone_pivots: [0.0; 8],
         root_locator_offset: [0.0; 3],
     });
@@ -204,7 +206,7 @@ pub(super) fn query(
         "is_alive" => 1.0,
         "is_baby" => bool_value(metadata_flag_one(actor, 11)),
         "is_swimming" => bool_value(metadata_flag_one(actor, 57)),
-        "is_riding" => bool_value(metadata_flag_one(actor, 2)),
+        "is_riding" => bool_value(actor.mount_unique_id.is_some() || metadata_flag_one(actor, 2)),
         "is_crawling" => bool_value(metadata_flag_two(actor, 49)),
         "is_emoting" => bool_value(metadata_flag_two(actor, 27)),
         "is_gliding" => bool_value(metadata_flag_one(actor, 32)),
@@ -308,6 +310,8 @@ pub(super) fn variable(
         action: Default::default(),
         items: Default::default(),
         distance_moved: 0.0,
+        hand_bob: 0.0,
+        riding_y_offset: 0.0,
         default_bone_pivots: [0.0; 8],
         root_locator_offset: [0.0; 3],
     });
@@ -398,14 +402,12 @@ pub(super) fn variable(
             .to_radians()
             .sin(),
         "player_arm_height" | "player_offhand_arm_height" => 1.0,
-        "hand_bob" => bool_value(ground_speed > 0.01),
+        "hand_bob" => input.hand_bob,
         "short_arm_offset_left" | "short_arm_offset_right" => 0.0,
         "first_person_item_rotation_factor" => 1.0,
-        "bob_animation" => bool_value(ground_speed > 0.01),
+        "bob_animation" => bool_value(input.hand_bob > 0.0),
         "is_riding" => query(actor, history, tick, life_tick, "is_riding"),
-        "riding_y_offset" => (query(actor, history, tick, life_tick, "is_riding") > 0.0)
-            .then_some(-3.0)
-            .unwrap_or(0.0),
+        "riding_y_offset" => input.riding_y_offset,
         "life_time" => life_tick as f32 * 0.05,
         _ => 0.0,
     }

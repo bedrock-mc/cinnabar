@@ -672,6 +672,7 @@ impl WorldStream {
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
+                self.actors.apply_actor_link(event);
                 if event.rider_unique_id == self.local_player_unique_id {
                     let next = match event.link_type {
                         protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger => {
@@ -697,7 +698,8 @@ impl WorldStream {
                         });
                     }
                 }
-                // Links between remote actors are not modeled yet; commit and drop.
+                // Remote links are retained by the actor store; only the
+                // local pair additionally emits a UI-facing mount event.
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");

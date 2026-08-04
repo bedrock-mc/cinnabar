@@ -799,8 +799,6 @@ fn compile_rigs(
                         EntityDependencyKind::AnimationController,
                         target,
                     ) {
-                        // A missing engine/cross-pack controller is omitted while
-                        // the locally compiled clips remain usable.
                     } else if controller_symbols
                         .get(target.as_ref())
                         .is_some_and(Option::is_none)
@@ -816,8 +814,6 @@ fn compile_rigs(
                         static_fallback = true;
                     }
                 } else if has_external_dependency(entity, EntityDependencyKind::Animation, target) {
-                    // A missing engine/cross-pack animation is omitted while
-                    // the locally compiled clips remain usable.
                 } else if animation_symbols
                     .get(target.as_ref())
                     .is_some_and(Option::is_none)
@@ -841,8 +837,6 @@ fn compile_rigs(
                     EntityDependencyKind::AnimationController,
                     target,
                 ) {
-                    // A missing engine/cross-pack controller is omitted while
-                    // the locally compiled clips remain usable.
                 } else if controller_symbols
                     .get(target.as_ref())
                     .is_some_and(Option::is_none)

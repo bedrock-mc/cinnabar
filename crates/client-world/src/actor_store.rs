@@ -17,6 +17,7 @@ use crate::{
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
+const MAX_PENDING_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_GEOMETRY_BYTES: usize =
     MAX_PLAYER_LIST_SKIN_GEOMETRY_BYTES;
@@ -52,7 +53,14 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+/// Number of simulation ticks used to converge a non-immediate actor pose.
+///
+/// Bedrock movement packets are authoritative snapshots, not render-frame
+/// transforms. Keeping a short, fixed convergence window gives players and
+/// remote entities the same deterministic interpolation contract while still
+/// allowing force-move and teleport corrections to snap immediately.
+pub(crate) const ACTOR_POSITION_INTERPOLATION_TICKS: u8 = 3;
+pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = ACTOR_POSITION_INTERPOLATION_TICKS;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -88,6 +96,9 @@ pub struct ActorSnapshot {
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
     pub source_tick: Option<i64>,
+    /// Unique id of the actor this snapshot is riding, when the ordered
+    /// actor-link stream says the relation is active.
+    pub mount_unique_id: Option<i64>,
     pub metadata: HashMap<i32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<i32, i32>,
@@ -130,6 +141,7 @@ impl ActorSnapshot {
             teleported: false,
             player_mode: None,
             source_tick: None,
+            mount_unique_id: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
@@ -310,6 +322,8 @@ pub(crate) struct ActorStore {
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     pending_game_modes: HashMap<i64, ActorGameModeUpdateEvent>,
+    pending_actor_links: HashMap<i64, protocol::ActorLinkEvent>,
+    position_revisions: HashMap<u64, u64>,
     velocity_revisions: HashMap<u64, u64>,
     players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,

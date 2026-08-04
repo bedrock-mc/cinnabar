@@ -32,6 +32,7 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
         teleported: false,
         player_mode: None,
         source_tick: None,
+        mount_unique_id: None,
         metadata,
         attributes: HashMap::new(),
         int_properties: HashMap::new(),
@@ -128,6 +129,8 @@ fn movement_and_appearance_queries_use_retained_authority() {
             ..ActorItemInput::default()
         },
         distance_moved: 1.0,
+        hand_bob: 0.04,
+        riding_y_offset: 0.0,
         default_bone_pivots: [0.0; 8],
         root_locator_offset: [0.0; 3],
     }]);
@@ -143,6 +146,7 @@ fn movement_and_appearance_queries_use_retained_authority() {
         1.0
     );
     assert!(query(&actor, &history, 0, 0, "query.cape_flap_amount") > 0.0);
+    assert_eq!(variable(&actor, &history, 0, 0, "variable.hand_bob"), 0.04);
     assert_eq!(
         variable(&actor, &history, 0, 0, "variable.helmet_layer_visible"),
         1.0
@@ -165,6 +169,8 @@ fn root_locator_query_uses_the_retained_geometry_offset() {
         action: ActorActionInput::default(),
         items: ActorItemInput::default(),
         distance_moved: 0.0,
+        hand_bob: 0.0,
+        riding_y_offset: 0.0,
         default_bone_pivots: [0.0; 8],
         root_locator_offset: [1.0, 8.0, 3.0],
     }]);
