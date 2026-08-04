@@ -5,6 +5,7 @@ fn respawn_commits_as_a_local_position_authority_change() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -170,6 +171,7 @@ fn urgent_mesh_change_preempts_queued_bulk_publication() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -1058,6 +1060,7 @@ fn urgent_mesh_completion_retry_stays_at_the_front() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,

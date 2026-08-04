@@ -845,12 +845,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn paths_alias(left: &Path, right: &Path) -> bool {
-    left.to_string_lossy()
-        .to_lowercase()
-        .eq(&right.to_string_lossy().to_lowercase())
-}
-
 fn read_bounded(path: &Path) -> Result<Vec<u8>, AssetError> {
     read_bounded_with_limit(path, MAX_REGISTRY_FILE_BYTES, "registry")
 }
