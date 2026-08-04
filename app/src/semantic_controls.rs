@@ -13,7 +13,8 @@ pub(crate) use physical::{
 };
 
 use crate::{
-    runtime::world::ClientWorld, settings_runtime::RuntimeSettings, ui_runtime::UiRuntime,
+    menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings,
+    ui_runtime::UiRuntime,
 };
 
 #[derive(Resource, Debug, Default, Clone)]
@@ -299,6 +300,7 @@ impl SemanticTouchTargets {
 pub(crate) fn synchronize_semantic_input_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
+    menu: Option<Res<MenuRuntime>>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
     mut touch_targets: ResMut<SemanticTouchTargets>,
@@ -311,7 +313,7 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, client_world::WorldStream::current_dimension);
-    let context = if ui.ui_focused() {
+    let context = if menu.as_ref().is_some_and(|menu| menu.is_visible()) || ui.ui_focused() {
         InputContext::UiFocused
     } else {
         InputContext::Gameplay

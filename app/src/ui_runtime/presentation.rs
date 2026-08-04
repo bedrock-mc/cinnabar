@@ -12,16 +12,12 @@ use render::{
     ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput, normalize_actor_skin,
 };
-use render::{
-    MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray,
-};
+use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
-#[cfg(test)]
-use ui::UiPoint;
 use ui::{
     DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
-    UiNode, UiNodeId, UiRect, UiScale, UiTree, UiVisual,
+    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -36,8 +32,11 @@ use crate::{
 };
 
 mod chat;
+mod dynamic_textures;
 mod hud_layout;
 mod item_viewmodel;
+mod menu;
+mod menu_artwork;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -45,6 +44,7 @@ mod retained_hud;
 mod startup;
 mod texture_atlas;
 
+use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
@@ -55,8 +55,9 @@ use retained_hud::{
     ScoreboardOwnerNameAuthority,
 };
 use startup::{StartupPresentationState, StartupReadinessInput};
+pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
-    HudSprite, HudTexturePages, IconRef, font_texture_array, font_texture_array_with_hud_and_icons,
+    HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
 
@@ -168,6 +169,7 @@ impl std::error::Error for UiPresentationError {}
 #[derive(Resource)]
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
+    base_textures: Arc<UiRenderTextureArray>,
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
@@ -197,6 +199,7 @@ pub struct UiPresentationRuntime {
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
+    player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     player_preview_icon: Option<IconRef>,
     left_hand_icon: Option<IconRef>,
     right_hand_icon: Option<IconRef>,
@@ -204,6 +207,10 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_source: Option<IconRef>,
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
+    menu_artwork_paths: Vec<String>,
+    menu_artwork: menu_artwork::MenuArtworkAtlas,
+    menu_view: Option<MenuView>,
+    menu_hit_targets: Vec<(MenuAction, UiRect)>,
     loading_message: Option<&'static str>,
     startup: StartupPresentationState,
 }
@@ -247,9 +254,11 @@ impl UiPresentationRuntime {
                 (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
             };
         let base_texture_identity = textures.identity;
+        let textures = Arc::new(textures);
         Ok(Self {
             font,
-            textures: Arc::new(textures),
+            base_textures: Arc::clone(&textures),
+            textures,
             solid_texture_page,
             hud_textures,
             icon_catalog: icons,
@@ -270,6 +279,7 @@ impl UiPresentationRuntime {
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
+            player_preview_pixels: None,
             player_preview_icon: None,
             left_hand_icon: None,
             right_hand_icon: None,
@@ -277,6 +287,10 @@ impl UiPresentationRuntime {
             offhand_viewmodel_source: None,
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
+            menu_artwork_paths: Vec::new(),
+            menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
+            menu_view: None,
+            menu_hit_targets: Vec::new(),
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
@@ -315,116 +329,14 @@ impl UiPresentationRuntime {
         {
             return;
         }
-        let Some(page) = self.player_preview_page.or_else(|| {
-            (self.textures.layers < MAX_UI_TEXTURE_LAYERS).then_some(self.textures.layers as u16)
-        }) else {
-            self.player_preview_icon = None;
-            self.left_hand_icon = None;
-            self.right_hand_icon = None;
-            return;
-        };
-        let layer_bytes = usize::try_from(self.textures.width)
-            .ok()
-            .and_then(|width| width.checked_mul(self.textures.height as usize))
-            .and_then(|pixels| pixels.checked_mul(4));
-        let Some(layer_bytes) = layer_bytes else {
-            self.player_preview_icon = None;
-            self.left_hand_icon = None;
-            self.right_hand_icon = None;
-            return;
-        };
-        if self.textures.width < player_preview::PREVIEW_WIDTH
-            || self.textures.height < player_preview::PREVIEW_HEIGHT
-            || self.textures.width < player_preview::HAND_WIDTH.saturating_mul(2)
-            || self.textures.height
-                < player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT)
-        {
-            self.player_preview_icon = None;
-            self.left_hand_icon = None;
-            self.right_hand_icon = None;
-            return;
-        }
-        let preview = player_preview::render(skin, pose);
-        let left_hand = player_preview::render_hand(skin, pose, true);
-        let right_hand = player_preview::render_hand(skin, pose, false);
-        let mut rgba8 = self.textures.rgba8.to_vec();
-        if self.player_preview_page.is_none() {
-            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
-            self.player_preview_page = Some(page);
-        }
-        let layer_start = usize::from(page) * layer_bytes;
-        for row in 0..player_preview::PREVIEW_HEIGHT as usize {
-            let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
-            let target_start = layer_start + row * self.textures.width as usize * 4;
-            let target_end = target_start + player_preview::PREVIEW_WIDTH as usize * 4;
-            rgba8[target_start..target_end].copy_from_slice(
-                &preview[source_start..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
-            );
-        }
-        let copy_raster = |rgba8: &mut [u8], raster: &[u8], origin: [u32; 2]| {
-            let raster_width = player_preview::HAND_WIDTH as usize;
-            let raster_height = player_preview::HAND_HEIGHT as usize;
-            let texture_width = self.textures.width as usize;
-            for row in 0..raster_height {
-                let source_start = row * raster_width * 4;
-                let target_start = layer_start
-                    + ((origin[1] as usize + row) * texture_width + origin[0] as usize) * 4;
-                rgba8[target_start..target_start + raster_width * 4]
-                    .copy_from_slice(&raster[source_start..source_start + raster_width * 4]);
-            }
-        };
-        copy_raster(&mut rgba8, &left_hand, [0, player_preview::PREVIEW_HEIGHT]);
-        copy_raster(
-            &mut rgba8,
-            &right_hand,
-            [player_preview::HAND_WIDTH, player_preview::PREVIEW_HEIGHT],
-        );
-        let layers = self
-            .player_preview_page
-            .map_or(self.textures.layers, |page| {
-                self.textures.layers.max(u32::from(page) + 1)
-            });
-        let mut identity = Sha256::new();
-        identity.update(self.base_texture_identity);
-        identity.update(b"cinnabar-dynamic-hud-v3");
-        identity.update(&rgba8);
-        let identity: [u8; 32] = identity.finalize().into();
-        self.textures = Arc::new(UiRenderTextureArray {
-            identity,
-            width: self.textures.width,
-            height: self.textures.height,
-            layers,
-            rgba8: rgba8.into(),
+        self.player_preview_pixels = Some(player_preview::PlayerPreviewRasters {
+            preview: player_preview::render(skin, pose),
+            left_hand: player_preview::render_hand(skin, pose, true),
+            right_hand: player_preview::render_hand(skin, pose, false),
         });
         self.player_preview_source_hash = Some(source_hash);
         self.player_preview_pose = Some(pose);
-        self.player_preview_icon = Some(IconRef {
-            page,
-            uv: [
-                0,
-                0,
-                player_preview::PREVIEW_WIDTH as u16,
-                player_preview::PREVIEW_HEIGHT as u16,
-            ],
-        });
-        self.left_hand_icon = Some(IconRef {
-            page,
-            uv: [
-                0,
-                player_preview::PREVIEW_HEIGHT as u16,
-                player_preview::HAND_WIDTH as u16,
-                player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
-            ],
-        });
-        self.right_hand_icon = Some(IconRef {
-            page,
-            uv: [
-                player_preview::HAND_WIDTH as u16,
-                player_preview::PREVIEW_HEIGHT as u16,
-                player_preview::HAND_WIDTH.saturating_mul(2) as u16,
-                player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
-            ],
-        });
+        self.rebuild_dynamic_textures();
     }
 
     pub(crate) const fn player_preview_icon(&self) -> Option<IconRef> {
@@ -433,6 +345,33 @@ impl UiPresentationRuntime {
 
     pub(crate) const fn player_hand_icons(&self) -> (Option<IconRef>, Option<IconRef>) {
         (self.left_hand_icon, self.right_hand_icon)
+    }
+
+    pub(super) fn rebuild_dynamic_textures(&mut self) {
+        dynamic_textures::rebuild(self);
+    }
+
+    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
+        if self.menu_artwork_paths == paths {
+            return;
+        }
+        self.menu_artwork_paths = paths;
+        self.rebuild_dynamic_textures();
+    }
+
+    pub(crate) fn menu_artwork_icon(&self, path: &str) -> Option<IconRef> {
+        self.menu_artwork.refs.get(path).copied()
+    }
+
+    pub(crate) fn set_menu_view(&mut self, view: Option<MenuView>) {
+        self.menu_view = view;
+    }
+
+    pub(crate) fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
+        self.menu_hit_targets
+            .iter()
+            .rev()
+            .find_map(|(action, bounds)| bounds.contains(position).then_some(*action))
     }
 
     fn with_optional_hud(
@@ -509,8 +448,10 @@ impl UiPresentationRuntime {
             .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
+        let menu_visible = self.menu_view.is_some();
 
-        if let Some(hud_textures) = self.hud_textures.as_ref()
+        if !menu_visible
+            && let Some(hud_textures) = self.hud_textures.as_ref()
             && let Some(geometry) = hud_geometry
         {
             let mut frame = self.hud_frame.clone();
@@ -531,7 +472,7 @@ impl UiPresentationRuntime {
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
         for node in hud_nodes.iter() {
-            if inventory_open {
+            if inventory_open || menu_visible {
                 break;
             }
             if matches!(
@@ -576,6 +517,7 @@ impl UiPresentationRuntime {
         }
 
         if !inventory_open
+            && !menu_visible
             && let Some(opacity) = self.scoreboard_opacity
             && let Some(scoreboard) = self
                 .scoreboard
@@ -597,7 +539,7 @@ impl UiPresentationRuntime {
 
         // The tab player-list overlay presents every known player with the
         // list-objective score while the player-list action is held.
-        if !inventory_open && self.hud_frame.tab_list_open {
+        if !inventory_open && !menu_visible && self.hud_frame.tab_list_open {
             let players = runtime.player_list_overlay_rows();
             retained_hud::append_player_list_nodes(
                 &mut nodes,
@@ -612,7 +554,7 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        if !inventory_open {
+        if !inventory_open && !menu_visible {
             retained_hud::append_below_name_nodes(
                 &mut nodes,
                 &mut next_id,
@@ -626,7 +568,7 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        let chat_focused = runtime.chat_focused();
+        let chat_focused = !menu_visible && !inventory_open && runtime.chat_focused();
         let visible_suggestions = if chat_focused {
             visible_suggestion_range(
                 runtime.chat_suggestions().len(),
@@ -694,7 +636,7 @@ impl UiPresentationRuntime {
             suggestion_cursor = (y - 2.0).max(chat_region_top);
         }
         let chat = runtime.chat().messages();
-        let first = if inventory_open {
+        let first = if inventory_open || menu_visible {
             chat.len()
         } else {
             chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS)
@@ -894,9 +836,26 @@ impl UiPresentationRuntime {
             }
         }
 
+        let menu_hit_targets = if let Some(view) = self.menu_view.as_ref() {
+            menu::append_menu_nodes(
+                view,
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                content_width,
+                content_height,
+                safe_area,
+            )?
+        } else {
+            Vec::new()
+        };
+
         // Hit rects are compared against window-logical pointer positions, so
         // translate the content-relative rows by the safe-area origin.
-        if let Some(message) = self.loading_message {
+        if !menu_visible && let Some(message) = self.loading_message {
             // Keep the pre-world frame intentional: the sky clear color is a
             // renderer fallback, not a user-facing loading screen. The opaque
             // cover hides partial terrain and HUD state while the world cohort
@@ -971,6 +930,7 @@ impl UiPresentationRuntime {
         .map_err(UiPresentationError::Adapter)?;
         self.chat_hit_logical_size = Some([logical_width, logical_height]);
         self.chat_suggestion_hits = chat_suggestion_hits;
+        self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }
 }

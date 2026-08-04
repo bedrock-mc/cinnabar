@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -191,9 +192,35 @@ func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamA
 	cacheTelemetry := new(cacheBoundaryTelemetry)
 	defer cacheTelemetry.report(logger)
 	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)
+	var target *resolvedUpstreamTarget
+	defer func() {
+		if target != nil {
+			_ = target.close()
+		}
+	}()
 	return dialAndServeWithCacheTelemetry(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		return connectUpstream(ctx, upstreamAddress, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
+		var err error
+		target, err = resolveUpstreamTarget(ctx, upstreamAddress, tokenSource, logger)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if target != nil {
+				_ = target.close()
+			}
+		}()
+		if target.xbl != nil {
+			dialer.XBLClient = target.xbl
+		}
+		if target.playFab != nil {
+			dialer.PlayFabClient = target.playFab
+		}
+		if target.clientData.nonce != "" {
+			dialer.ClientData.Nonce = target.clientData.nonce
+		}
+		resolved := target
+		return connectUpstream(ctx, resolved.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
+			return dialer.DialContextNetwork(ctx, resolved.network, address)
 		})
 	}, cacheTelemetry)
 }
@@ -286,18 +313,30 @@ func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSour
 	return newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, nil)
 }
 
+// declineResourcePack refuses every upstream texture and behaviour pack.
+//
+// The dial blocks until every accepted pack has been downloaded, and large
+// packs push that well past a minute on some servers. Nothing consumes them:
+// the client renders from pinned vanilla assets and the local listener
+// advertises no packs of its own, so an accepted pack is downloaded and
+// discarded. Declining is a supported path — the connection proceeds straight
+// to the pack stack and StartGame, and the stack check treats a declined pack
+// as satisfied.
+func declineResourcePack(uuid.UUID, string, int, int) bool { return false }
+
 func newUpstreamDialerWithCacheTelemetry(
 	downstream dialerDownstream,
 	tokenSource oauth2.TokenSource,
 	cacheTelemetry *cacheBoundaryTelemetry,
 ) minecraft.Dialer {
 	dialer := minecraft.Dialer{
-		ClientData:         downstream.ClientData(),
-		EnableBatchReading: true,
-		EnableClientCache:  downstream.ClientCacheEnabled(),
-		ErrorLog:           slog.Default().With("component", "upstream-dialer"),
-		Protocol:           downstream.Proto(),
-		TokenSource:        tokenSource,
+		ClientData:           downstream.ClientData(),
+		DownloadResourcePack: declineResourcePack,
+		EnableBatchReading:   true,
+		EnableClientCache:    downstream.ClientCacheEnabled(),
+		ErrorLog:             slog.Default().With("component", "upstream-dialer"),
+		Protocol:             downstream.Proto(),
+		TokenSource:          tokenSource,
 	}
 	if cacheTelemetry != nil {
 		dialer.PacketFunc = cacheTelemetry.observeUpstreamPacket

@@ -234,25 +234,17 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
+    /// A live Bevy app still owns a network resource while it is sitting at
+    /// the launcher. Empty channels keep every production system total and
+    /// let the menu start without a Go bridge; a later menu connection can
+    /// replace this resource with a real session.
+    pub(crate) fn disconnected() -> Self {
+        empty_network_channels().0
+    }
+
     #[cfg(test)]
     pub(crate) fn stub() -> (Self, watch::Receiver<u64>) {
-        let (_control_event_tx, control_events) = mpsc::channel(1);
-        let (_world_event_tx, world_events) = mpsc::channel(1);
-        let (commands, _command_rx) = mpsc::channel(1);
-        let (physics_reanchor, physics_reanchor_rx) = watch::channel(0);
-        let (shutdown, _shutdown_rx) = watch::channel(false);
-        (
-            Self {
-                control_events,
-                world_events,
-                commands,
-                physics_reanchor,
-                shutdown,
-                thread: None,
-                readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
-            },
-            physics_reanchor_rx,
-        )
+        empty_network_channels()
     }
     #[cfg(test)]
     pub(crate) fn shutdown_requested(&self) -> bool {
@@ -409,6 +401,26 @@ impl NetworkHandle {
                 let _ = thread.join();
             });
     }
+}
+
+fn empty_network_channels() -> (NetworkHandle, watch::Receiver<u64>) {
+    let (_control_event_tx, control_events) = mpsc::channel(1);
+    let (_world_event_tx, world_events) = mpsc::channel(1);
+    let (commands, _command_rx) = mpsc::channel(1);
+    let (physics_reanchor, physics_reanchor_rx) = watch::channel(0);
+    let (shutdown, _shutdown_rx) = watch::channel(false);
+    (
+        NetworkHandle {
+            control_events,
+            world_events,
+            commands,
+            physics_reanchor,
+            shutdown,
+            thread: None,
+            readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+        },
+        physics_reanchor_rx,
+    )
 }
 
 impl Drop for NetworkHandle {

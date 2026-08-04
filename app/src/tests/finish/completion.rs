@@ -341,6 +341,83 @@ fn missing_bridge_endpoint_returns_an_actionable_error() {
 }
 
 #[test]
+fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let socket_dir = std::env::temp_dir().join(format!(
+        "rust-mcbe-stale-endpoint-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&socket_dir).unwrap();
+    std::fs::write(bridge_endpoint_path(&socket_dir), "stale publication").unwrap();
+    assert!(bridge_endpoint_exists(&socket_dir));
+
+    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+        .expect("a publication left by an earlier core must be removable");
+
+    assert!(
+        !bridge_endpoint_exists(&socket_dir),
+        "a stale publication would satisfy the core wait before the new core binds"
+    );
+    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+        .expect("clearing an absent publication must succeed");
+
+    let _ = std::fs::remove_dir_all(socket_dir);
+}
+
+#[test]
+fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
+    menu.mark_connecting();
+    assert!(menu.is_connecting());
+
+    assert!(
+        menu.absorb_session_failure("bridge connection failed: Connection refused (os error 61)"),
+        "the launcher must take ownership of a failed join"
+    );
+
+    assert!(!menu.is_connecting());
+    assert!(menu.is_visible(), "a failed join must land back on the menu");
+    let message = menu
+        .view()
+        .message
+        .expect("the launcher must explain the failure");
+    assert!(message.contains("Connection refused"), "got {message:?}");
+}
+
+#[test]
+fn a_direct_address_session_failure_still_exits_the_process() {
+    let mut menu = crate::menu::MenuRuntime::new(false, 2, "Tester".to_owned());
+    menu.mark_connecting();
+
+    assert!(
+        !menu.absorb_session_failure("network session failed: bridge closed"),
+        "--address has no launcher to fall back to and must still exit"
+    );
+    assert!(fatal_runtime_exit("network session failed: bridge closed").is_some());
+}
+
+#[test]
+fn a_long_session_failure_is_condensed_for_the_menu() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
+
+    assert!(menu.absorb_session_failure(&"boundless detail ".repeat(40)));
+
+    let message = menu
+        .view()
+        .message
+        .expect("the launcher must explain the failure");
+    assert!(
+        message.chars().count() < 200,
+        "message must stay inside the menu message area, got {} chars",
+        message.chars().count()
+    );
+    assert!(message.ends_with('…'), "got {message:?}");
+}
+
+#[test]
 fn existing_platform_endpoint_passes_preflight() {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

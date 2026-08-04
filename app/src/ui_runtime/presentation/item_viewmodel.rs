@@ -12,8 +12,8 @@ use super::IconRef;
 pub(crate) const SIDE: u32 = 96;
 const DEPTH: f32 = 0.075;
 const MODEL_SCALE: f32 = 70.0;
-const MAIN_ORIGIN: [u32; 2] = [128, 0];
-const OFFHAND_ORIGIN: [u32; 2] = [128, SIDE];
+pub(super) const MAIN_ORIGIN: [u32; 2] = [128, 0];
+pub(super) const OFFHAND_ORIGIN: [u32; 2] = [128, SIDE];
 
 #[derive(Clone, Copy)]
 struct Vertex {
@@ -25,71 +25,9 @@ impl super::UiPresentationRuntime {
         if self.held_viewmodel_source == main && self.offhand_viewmodel_source == offhand {
             return;
         }
-        let Some(page) = self.player_preview_page else {
-            self.held_viewmodel_icon = None;
-            self.offhand_viewmodel_icon = None;
-            return;
-        };
-        if self.textures.width < MAIN_ORIGIN[0] + SIDE
-            || self.textures.height < OFFHAND_ORIGIN[1] + SIDE
-        {
-            self.held_viewmodel_icon = None;
-            self.offhand_viewmodel_icon = None;
-            return;
-        }
-        let main_raster = main.and_then(|icon| render(&self.textures, icon, false));
-        let offhand_raster = offhand.and_then(|icon| render(&self.textures, icon, true));
-        let mut rgba8 = self.textures.rgba8.to_vec();
-        clear_region(
-            &mut rgba8,
-            self.textures.width,
-            self.textures.height,
-            page,
-            MAIN_ORIGIN,
-        );
-        clear_region(
-            &mut rgba8,
-            self.textures.width,
-            self.textures.height,
-            page,
-            OFFHAND_ORIGIN,
-        );
-        if let Some(raster) = main_raster.as_deref() {
-            copy_region(
-                &mut rgba8,
-                self.textures.width,
-                self.textures.height,
-                page,
-                MAIN_ORIGIN,
-                raster,
-            );
-        }
-        if let Some(raster) = offhand_raster.as_deref() {
-            copy_region(
-                &mut rgba8,
-                self.textures.width,
-                self.textures.height,
-                page,
-                OFFHAND_ORIGIN,
-                raster,
-            );
-        }
-        let mut identity = sha2::Sha256::new();
-        use sha2::Digest as _;
-        identity.update(self.base_texture_identity);
-        identity.update(b"cinnabar-dynamic-hud-v3");
-        identity.update(&rgba8);
-        self.textures = std::sync::Arc::new(UiRenderTextureArray {
-            identity: identity.finalize().into(),
-            width: self.textures.width,
-            height: self.textures.height,
-            layers: self.textures.layers,
-            rgba8: rgba8.into(),
-        });
         self.held_viewmodel_source = main;
         self.offhand_viewmodel_source = offhand;
-        self.held_viewmodel_icon = main.map(|_| icon_at(page, MAIN_ORIGIN));
-        self.offhand_viewmodel_icon = offhand.map(|_| icon_at(page, OFFHAND_ORIGIN));
+        self.rebuild_dynamic_textures();
     }
 
     pub(super) const fn item_viewmodel_icons(&self) -> (Option<IconRef>, Option<IconRef>) {
@@ -97,7 +35,7 @@ impl super::UiPresentationRuntime {
     }
 }
 
-const fn icon_at(page: u16, origin: [u32; 2]) -> IconRef {
+pub(super) const fn icon_at(page: u16, origin: [u32; 2]) -> IconRef {
     IconRef {
         page,
         uv: [
@@ -106,33 +44,6 @@ const fn icon_at(page: u16, origin: [u32; 2]) -> IconRef {
             (origin[0] + SIDE) as u16,
             (origin[1] + SIDE) as u16,
         ],
-    }
-}
-
-fn clear_region(rgba8: &mut [u8], width: u32, height: u32, page: u16, origin: [u32; 2]) {
-    let layer_start = usize::from(page) * width as usize * height as usize * 4;
-    for row in 0..SIDE as usize {
-        let start =
-            layer_start + ((origin[1] as usize + row) * width as usize + origin[0] as usize) * 4;
-        rgba8[start..start + SIDE as usize * 4].fill(0);
-    }
-}
-
-fn copy_region(
-    rgba8: &mut [u8],
-    width: u32,
-    height: u32,
-    page: u16,
-    origin: [u32; 2],
-    raster: &[u8],
-) {
-    let layer_start = usize::from(page) * width as usize * height as usize * 4;
-    for row in 0..SIDE as usize {
-        let source = row * SIDE as usize * 4;
-        let target =
-            layer_start + ((origin[1] as usize + row) * width as usize + origin[0] as usize) * 4;
-        rgba8[target..target + SIDE as usize * 4]
-            .copy_from_slice(&raster[source..source + SIDE as usize * 4]);
     }
 }
 

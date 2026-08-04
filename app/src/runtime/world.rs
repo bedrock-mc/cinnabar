@@ -1,3 +1,9 @@
+mod acceptance_helpers;
+
+pub(crate) use acceptance_helpers::{
+    model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
+};
+
 use std::{
     sync::{
         Arc,
@@ -43,7 +49,7 @@ use crate::{
         reconcile_candidate_physics_correction,
     },
     runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor},
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
@@ -52,10 +58,6 @@ use crate::{
     },
     ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
-
-mod model_gallery;
-
-pub(crate) use model_gallery::model_gallery_camera_committed_marker;
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -963,20 +965,4 @@ pub(crate) fn apply_committed_control(
     };
     view.set_eye_translation(Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
-}
-
-pub(crate) fn refresh_mutation_anchor_from_committed_control(
-    acceptance: &mut AcceptanceRun,
-    control: &CommittedControlEvent,
-) -> bool {
-    let resolved = match control {
-        CommittedControlEvent::MovePlayer { resolved, .. }
-        | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
-        | CommittedControlEvent::ChangeDimension { resolved, .. }
-        | CommittedControlEvent::Respawn { resolved, .. } => resolved,
-        CommittedControlEvent::SetTime { .. }
-        | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. } => return false,
-    };
-    acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))
 }

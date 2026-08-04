@@ -12,13 +12,18 @@ import (
 	"syscall"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"golang.org/x/oauth2"
 )
 
 func main() {
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	ctx, stopStdin := contextWithStdinEOF(signalCtx, os.Stdin)
+	ctx := signalCtx
+	stopStdin := func() {}
+	if !catalogMode(os.Args[1:]) {
+		ctx, stopStdin = contextWithStdinEOF(signalCtx, os.Stdin)
+	}
 	exitCode := execute(ctx, os.Args[1:], os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
 	stopStdin()
 	stopSignals()
@@ -27,10 +32,20 @@ func main() {
 	}
 }
 
+func catalogMode(args []string) bool {
+	for _, arg := range args {
+		if arg == "-catalog-file" || len(arg) > len("-catalog-file=") && arg[:len("-catalog-file=")] == "-catalog-file=" {
+			return true
+		}
+	}
+	return false
+}
+
 type options struct {
 	socketDir string
 	upstream  string
 	authCache string
+	catalogFile string
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -40,6 +55,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -78,6 +94,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, source so
 		}
 	}
 	logger.Info("authentication ready", "mode", authentication)
+	if opts.catalogFile != "" {
+		if tokenSource == nil {
+			return errors.New("catalog mode requires -auth-cache")
+		}
+		if err := catalog.Write(ctx, opts.catalogFile, tokenSource); err != nil {
+			return fmt.Errorf("write launcher catalog: %w", err)
+		}
+		logger.Info("launcher catalog written", "path", opts.catalogFile)
+		return nil
+	}
 	return serve(ctx, proxy.Config{
 		SocketDir:   opts.socketDir,
 		Upstream:    opts.upstream,

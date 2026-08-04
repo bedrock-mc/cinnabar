@@ -8,6 +8,7 @@ use protocol::{
     ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
     ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, UiEvent,
 };
+use render::{UiRenderScene, UiRenderStats};
 use sha2::{Digest, Sha256};
 use ui::BoundedStat;
 

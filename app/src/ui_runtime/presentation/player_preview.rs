@@ -27,6 +27,15 @@ pub(crate) struct PlayerPreviewPose {
     pub(crate) sneaking: bool,
 }
 
+/// Raster bundle retained so the presentation can rebuild its bounded dynamic
+/// texture pages when menu artwork or held-item carriers change.
+#[derive(Clone, Debug)]
+pub(crate) struct PlayerPreviewRasters {
+    pub(crate) preview: Vec<u8>,
+    pub(crate) left_hand: Vec<u8>,
+    pub(crate) right_hand: Vec<u8>,
+}
+
 impl PlayerPreviewPose {
     pub(crate) fn new(
         body_yaw_degrees: f32,

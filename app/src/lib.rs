@@ -4,6 +4,7 @@ pub mod camera;
 mod environment;
 mod hotbar;
 pub mod local_player;
+mod menu;
 pub mod metrics;
 pub mod movement;
 mod present_mode;
