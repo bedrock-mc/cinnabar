@@ -6,8 +6,14 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        let worker_budget =
-            effective_light_job_cap().saturating_sub(self.in_flight_light_batches.len());
+        let light_job_cap = if self.pending_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+            || self.pending_mesh.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+        {
+            initial_light_job_cap()
+        } else {
+            effective_light_job_cap()
+        };
+        let worker_budget = light_job_cap.saturating_sub(self.in_flight_light_batches.len());
         let solve_budget = budget.min(worker_budget);
         if self.fatal_light_failure || solve_budget == 0 {
             return 0;

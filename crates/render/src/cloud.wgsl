@@ -31,6 +31,12 @@ const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.2;
 const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);
 const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
+// Native clients do not present the finite cloud mesh as an opaque wall when
+// the eye crosses its four-block volume. Fade the complete layer out near the
+// band instead of cutting a visible radial hole through it. The layer is fully
+// restored four blocks above or below the slab.
+const CLOUD_CAMERA_FADE_START: f32 = 0.5;
+const CLOUD_CAMERA_FADE_END: f32 = 4.0;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -182,6 +188,15 @@ fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         atmosphere.fog_end_time.x,
     );
     let fogged_colour = mix(cloud_colour, atmosphere.fog_color_start.rgb, fog);
-    let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);
+    let camera_distance_from_cloud_band = max(
+        max(CLOUD_UNDERSIDE_Y - view.world_position.y, view.world_position.y - CLOUD_TOP_Y),
+        0.0,
+    );
+    let camera_band_visibility = smoothstep(
+        CLOUD_CAMERA_FADE_START,
+        CLOUD_CAMERA_FADE_END,
+        camera_distance_from_cloud_band,
+    );
+    let cloud_alpha = clamp((1.0 - fog) * camera_band_visibility, 0.0, 1.0);
     return vec4(fogged_colour, cloud_alpha);
 }

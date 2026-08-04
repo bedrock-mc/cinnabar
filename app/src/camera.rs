@@ -591,11 +591,22 @@ pub(crate) fn update_cursor_capture(
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
+    ui: Option<Res<crate::ui_runtime::UiRuntime>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.
     if !window.focused {
+        release_cursor(&mut cursor);
+        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
+        auto_fly.capture_pending = false;
+        return;
+    }
+
+    if ui
+        .as_deref()
+        .is_some_and(crate::ui_runtime::UiRuntime::ui_focused)
+    {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;

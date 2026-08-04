@@ -50,6 +50,16 @@ pub enum UiVisual {
         uv: [u16; 4],
         color: [u8; 4],
     },
+    /// A nearest-neighbour sprite rotated around the centre of its node.
+    ///
+    /// This is used by first-person viewmodel surfaces whose 2-D fallback
+    /// still needs the small inward tilt of the native hand/item path.
+    RotatedSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+        angle_radians: f32,
+    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,
@@ -626,6 +636,7 @@ impl UiTree {
                 UiVisual::None => 0,
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
+                | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
                 UiVisual::Text { layout, shadow, .. } => {
                     let passes = match shadow {

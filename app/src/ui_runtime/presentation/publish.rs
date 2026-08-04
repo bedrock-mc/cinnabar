@@ -1,32 +1,22 @@
-use std::sync::Arc;
+//! Per-frame HUD observation and publication.
 
-use bevy::{
-    camera::Camera,
-    math::Vec3,
-    prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, With},
-    time::Real,
-    window::{PrimaryWindow, Window},
-};
-use render::{
-    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, UiRenderScene, UiRenderStats,
-    VisibilityDiagnostics, VisibilityDiagnosticsInput, normalize_actor_skin,
-};
-use ui::{DpiScale, SafeArea};
+use super::*;
 
-use crate::{
-    camera::CameraSettingsAuthority,
-    runtime::{
-        shutdown::record_fatal_error,
-        visibility::CaveVisibilityCache,
-        world::{ClientWorld, WorldStreamFramePoll},
-    },
-    ui_runtime::{UiRuntime, item_facts},
-};
+pub(crate) fn observe_mount_jump_input(
+    input: Res<crate::semantic_controls::SemanticInputSnapshot>,
+    mut runtime: ResMut<UiRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
+    time: Res<Time<Real>>,
+) {
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
+    presentation.hud_frame_mut().tab_list_open =
+        input.phase(semantic_input::Action::PlayerList).held;
+}
 
-use super::{
-    StartupReadinessInput, UiPresentationError, UiPresentationRuntime,
-    retained_hud::{self, BelowNameAnchor},
-};
+pub(crate) fn platform_safe_area_insets() -> SafeArea {
+    SafeArea::ZERO
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
@@ -34,22 +24,20 @@ pub(crate) fn publish_ui_runtime(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut scene: ResMut<UiRenderScene>,
     stats: Res<UiRenderStats>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut client_world: ResMut<ClientWorld>,
-    frame_poll: Res<WorldStreamFramePoll>,
     visibility: Res<CaveVisibilityCache>,
     mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
     render_queue: Res<ChunkRenderQueue>,
     upload_acknowledgements: Res<ChunkUploadAcknowledgements>,
-    menu_runtime: Res<crate::menu::MenuRuntime>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    time: Res<bevy::time::Time<Real>>,
+    frame_poll: Res<WorldStreamFramePoll>,
+    time: Res<Time<Real>>,
+    menu_runtime: Res<crate::menu::MenuRuntime>,
 ) {
-    let Ok(window) = windows.single() else {
-        return;
-    };
+    let Ok(window) = windows.single() else { return };
     let physical_size = [window.physical_width(), window.physical_height()];
     if physical_size.contains(&0) {
         return;
@@ -64,6 +52,7 @@ pub(crate) fn publish_ui_runtime(
         return;
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    runtime.hud.expire(now_millis);
     if menu_runtime.is_visible() {
         presentation.set_loading_message(None);
         diagnostics_input.set_startup_probe_enabled(false);
@@ -73,22 +62,22 @@ pub(crate) fn publish_ui_runtime(
                 .stream
                 .as_ref()
                 .map_or((false, false), |stream| {
-                    let stream_stats = stream.stats();
-                    let work_drained = stream_stats.queued_decode_jobs == 0
-                        && stream_stats.in_flight_decode_jobs == 0
-                        && stream_stats.pending_light_jobs == 0
-                        && stream_stats.in_flight_light_jobs == 0
-                        && stream_stats.pending_mesh_jobs == 0
-                        && stream_stats.in_flight_mesh_jobs == 0
-                        && stream_stats.pending_retry_requests == 0
-                        && stream_stats.awaiting_sub_chunk_responses == 0
-                        && stream_stats.admitted_world_events == 0
-                        && stream_stats.admitted_heavy_events == 0
+                    let stats = stream.stats();
+                    let drained = stats.queued_decode_jobs == 0
+                        && stats.in_flight_decode_jobs == 0
+                        && stats.pending_light_jobs == 0
+                        && stats.in_flight_light_jobs == 0
+                        && stats.pending_mesh_jobs == 0
+                        && stats.in_flight_mesh_jobs == 0
+                        && stats.pending_retry_requests == 0
+                        && stats.awaiting_sub_chunk_responses == 0
+                        && stats.admitted_world_events == 0
+                        && stats.admitted_heavy_events == 0
                         && stream.pending_request_work_count() == 0
                         && stream.outstanding_sub_chunk_count() == 0
                         && stream.pending_mesh_change_count() == 0
                         && stream.unacknowledged_mesh_count() == 0;
-                    (true, work_drained)
+                    (true, drained)
                 });
         let render_work_drained =
             render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
@@ -113,11 +102,10 @@ pub(crate) fn publish_ui_runtime(
             Some("Loading terrain...")
         });
     }
-    runtime.hud.expire(now_millis);
     runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
     runtime.observe_selected_item_identity(now_millis);
-    let player_preview_skin = client_world.stream.as_ref().and_then(|stream| {
+    let skin = client_world.stream.as_ref().and_then(|stream| {
         let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
         let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
             return None;
@@ -128,7 +116,23 @@ pub(crate) fn publish_ui_runtime(
             rgba8: Arc::clone(&skin.rgba8),
         })
     });
-    presentation.set_player_preview_skin(player_preview_skin.as_deref());
+    let pose = client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .map_or_else(player_preview::PlayerPreviewPose::default, |actor| {
+            let sneaking = matches!(
+                actor.metadata.get(&0),
+                Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
+            );
+            player_preview::PlayerPreviewPose::new(
+                actor.body_yaw,
+                actor.head_yaw,
+                actor.pitch,
+                sneaking,
+            )
+        });
+    presentation.set_player_preview_skin(skin.as_deref(), pose);
     refresh_hud_frame(
         &mut runtime,
         &mut presentation,
@@ -136,26 +140,22 @@ pub(crate) fn publish_ui_runtime(
         &camera_settings,
         now_millis,
     );
-    let below_name_anchors = client_world
+    let anchors = client_world
         .stream
         .as_ref()
         .zip(cameras.single().ok())
-        .map(|(stream, (camera, camera_transform))| {
+        .map(|(stream, (camera, transform))| {
             project_below_name_anchors(
                 runtime.scoreboards(),
                 stream,
                 camera,
-                camera_transform,
+                transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
             )
         })
         .unwrap_or_default();
-    presentation.set_below_name_anchors(below_name_anchors);
-    if presentation.scoreboard_opacity.is_some() {
-        presentation
-            .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
-    }
+    presentation.set_below_name_anchors(anchors);
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         let artwork_paths = view
@@ -178,6 +178,10 @@ pub(crate) fn publish_ui_runtime(
         view
     });
     presentation.set_menu_view(menu_view);
+    if presentation.scoreboard_opacity.is_some() {
+        presentation
+            .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    }
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {
@@ -193,10 +197,7 @@ pub(crate) fn publish_ui_runtime(
     }
 }
 
-/// Refreshes the per-frame HUD inputs that need the world stream: derived
-/// armor points, per-slot durability, the selected-item name, and the mount's
-/// authoritative health. Without a stream every derived value fails closed.
-fn refresh_hud_frame(
+pub(crate) fn refresh_hud_frame(
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     stream: Option<&client_world::WorldStream>,
@@ -206,7 +207,6 @@ fn refresh_hud_frame(
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
-
     let derived_armor = runtime.gameplay_hud().armor().map(|slots| {
         let identifiers = [
             &slots.helmet,
@@ -219,24 +219,30 @@ fn refresh_hud_frame(
                 .then(|| resolve_identifier(stack))
                 .flatten()
         });
-        item_facts::total_armor_points(identifiers.iter().map(|identifier| identifier.as_deref()))
+        item_facts::total_armor_points(identifiers.iter().map(|id| id.as_deref()))
     });
     runtime.set_derived_armor(derived_armor);
-
     let mount_health = runtime
         .gameplay_hud()
         .mount_unique_id()
         .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
-
     let mut hotbar_durability = [None; 9];
     let mut hotbar_icons = [None; 9];
+    let mut inventory_icons = super::hud_layout::InventoryIcons::default();
+    for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
+        if let Some(stack) = runtime.gameplay_hud().inventory_stack(slot) {
+            *icon = resolve_identifier(stack)
+                .as_deref()
+                .and_then(|id| presentation.item_icon(id, stack.metadata));
+        }
+    }
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
         if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
             let identifier = resolve_identifier(stack);
             *durability = item_facts::durability_fraction(stack, identifier.as_deref());
             hotbar_icons[slot] = identifier
                 .as_deref()
-                .and_then(|identifier| presentation.item_icon(identifier, stack.metadata));
+                .and_then(|id| presentation.item_icon(id, stack.metadata));
         }
     }
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
@@ -247,18 +253,31 @@ fn refresh_hud_frame(
         let identifier = resolve_identifier(stack);
         identifier
             .as_deref()
-            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
+            .and_then(|id| presentation.item_icon(id, stack.metadata))
+    });
+    let armor_icons = runtime.gameplay_hud().armor().map_or([None; 4], |armor| {
+        [
+            &armor.helmet,
+            &armor.chestplate,
+            &armor.leggings,
+            &armor.boots,
+        ]
+        .map(|stack| {
+            resolve_identifier(stack)
+                .as_deref()
+                .and_then(|id| presentation.item_icon(id, stack.metadata))
+        })
     });
     let held_item_icon = runtime.selected_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
-            .and_then(|identifier| presentation.item_icon(identifier, stack.metadata))
+            .and_then(|id| presentation.item_icon(id, stack.metadata))
     });
+    presentation.set_item_viewmodels(held_item_icon, offhand_icon);
+    let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
     let selected_item_name = runtime.selected_stack().and_then(|stack| {
-        resolve_identifier(stack)
-            .map(|identifier| Arc::from(runtime.localized_item_name(&identifier)))
+        resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
     });
-
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
         stream
             .filter(|stream| {
@@ -266,23 +285,30 @@ fn refresh_hud_frame(
             })
             .map(|_| runtime.mount_jump_charge(now_millis))
     });
-
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let player_preview_icon = presentation.player_preview_icon();
+    let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
     let frame = presentation.hud_frame_mut();
     frame.first_person = first_person;
     frame.mount_health = mount_health;
     frame.hotbar_durability = hotbar_durability;
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
+    frame.inventory_icons = inventory_icons;
+    frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
-    frame.held_item_icon = held_item_icon;
+    frame.offhand_viewmodel_icon = offhand_viewmodel_icon;
+    frame.held_item_icon = held_viewmodel_icon;
     frame.player_preview = player_preview_icon;
+    frame.left_hand = left_hand_icon;
+    frame.right_hand = right_hand_icon;
+    frame.viewmodel_pitch_degrees = stream
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .map_or(0.0, |actor| actor.pitch);
     frame.selected_item_name = selected_item_name;
     frame.mount_jump = mount_jump;
     frame.attack_indicator_charge = Some(1.0);
-
     let diagnostics = runtime.gameplay_hud().diagnostics();
     if diagnostics != presentation.last_hud_diagnostics {
         bevy::log::debug!(

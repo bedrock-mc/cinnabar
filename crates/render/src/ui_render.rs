@@ -22,10 +22,11 @@ use bevy::{
             BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor,
             BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            FilterMode, FragmentState, Origin3d, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
             VertexStepMode,
         },
@@ -109,6 +110,7 @@ pub(crate) struct UiGpu {
     texture: Option<Texture>,
     texture_view: Option<TextureView>,
     texture_identity: Option<[u8; 32]>,
+    texture_extent: [u32; 3],
     texture_bytes: usize,
     sampler: Sampler,
     bind_group: Option<BindGroup>,
@@ -153,6 +155,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         texture: None,
         texture_view: None,
         texture_identity: None,
+        texture_extent: [0; 3],
         texture_bytes: 0,
         sampler,
         bind_group: None,
@@ -221,35 +224,71 @@ pub(crate) fn prepare_ui_resources(
     gpu.viewport_size = input.viewport_size;
 
     if gpu.texture_identity != Some(input.textures.identity) {
-        let texture = render_device.create_texture_with_data(
-            &render_queue,
-            &TextureDescriptor {
-                label: Some("shared bounded UI texture array"),
-                size: Extent3d {
+        let texture_extent = [
+            input.textures.width,
+            input.textures.height,
+            input.textures.layers,
+        ];
+        if gpu.texture_extent == texture_extent
+            && let Some(texture) = gpu.texture.as_ref()
+        {
+            // Dynamic HUD content (the player preview and first-person item
+            // carriers) changes independently of the atlas shape. Reuse the
+            // resident allocation so animated pixels cannot create one full
+            // deferred GPU texture per frame.
+            render_queue.write_texture(
+                TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: Origin3d::default(),
+                    aspect: Default::default(),
+                },
+                &input.textures.rgba8,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(input.textures.width.saturating_mul(4)),
+                    rows_per_image: Some(input.textures.height),
+                },
+                Extent3d {
                     width: input.textures.width,
                     height: input.textures.height,
                     depth_or_array_layers: input.textures.layers,
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            TextureDataOrder::LayerMajor,
-            &input.textures.rgba8,
-        );
-        let view = texture.create_view(&TextureViewDescriptor {
-            label: Some("shared bounded UI texture array view"),
-            dimension: Some(TextureViewDimension::D2Array),
-            ..default()
-        });
-        gpu.texture = Some(texture);
-        gpu.texture_view = Some(view);
-        gpu.texture_identity = Some(input.textures.identity);
-        gpu.texture_bytes = input.textures.rgba8.len();
-        gpu.bind_group = None;
+            );
+            gpu.texture_identity = Some(input.textures.identity);
+            gpu.texture_bytes = input.textures.rgba8.len();
+        } else {
+            let texture = render_device.create_texture_with_data(
+                &render_queue,
+                &TextureDescriptor {
+                    label: Some("shared bounded UI texture array"),
+                    size: Extent3d {
+                        width: input.textures.width,
+                        height: input.textures.height,
+                        depth_or_array_layers: input.textures.layers,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba8UnormSrgb,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+                TextureDataOrder::LayerMajor,
+                &input.textures.rgba8,
+            );
+            let view = texture.create_view(&TextureViewDescriptor {
+                label: Some("shared bounded UI texture array view"),
+                dimension: Some(TextureViewDimension::D2Array),
+                ..default()
+            });
+            gpu.texture = Some(texture);
+            gpu.texture_view = Some(view);
+            gpu.texture_identity = Some(input.textures.identity);
+            gpu.texture_extent = texture_extent;
+            gpu.texture_bytes = input.textures.rgba8.len();
+            gpu.bind_group = None;
+        }
     }
 
     gpu.batches = Arc::clone(&input.batches);

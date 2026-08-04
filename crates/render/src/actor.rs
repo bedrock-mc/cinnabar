@@ -493,6 +493,19 @@ fn generated_default_skin() -> Vec<u8> {
     fill_rect(&mut rgba8, 0, 16, 16, 16, [47, 54, 67, 255]);
     fill_rect(&mut rgba8, 16, 48, 16, 16, [47, 54, 67, 255]);
     fill_rect(&mut rgba8, 8, 8, 8, 8, [112, 72, 48, 255]);
+    // The generated fallback has no authored second-layer clothing. Keep its
+    // standard 64x64 overlay regions transparent so the shared outer-layer
+    // geometry does not turn the diagnostic skin into an accidental jacket.
+    for (x, y, width, height) in [
+        (32, 0, 8, 8),
+        (16, 32, 8, 12),
+        (40, 32, 4, 12),
+        (48, 48, 4, 12),
+        (0, 32, 4, 12),
+        (0, 48, 4, 12),
+    ] {
+        fill_rect(&mut rgba8, x, y, width, height, [0, 0, 0, 0]);
+    }
     rgba8
 }
 
@@ -559,6 +572,60 @@ pub fn standard_biped_vertices() -> Vec<ActorVertex> {
             min: [0.0, 0.0, -2.0 * P],
             max: [4.0 * P, 12.0 * P, 2.0 * P],
             uv_origin: [16.0, 48.0],
+            dimensions: [4.0, 12.0, 4.0],
+        },
+    ];
+    let mut vertices = Vec::with_capacity(STANDARD_BIPED_VERTEX_COUNT);
+    for (part, cuboid) in cuboids.into_iter().enumerate() {
+        append_cuboid(&mut vertices, cuboid, part as u32);
+    }
+    vertices
+}
+
+/// Returns the optional second skin layer (hat, jacket, sleeves, and pants)
+/// around the shared base biped. Bedrock and LCE both keep this layer in the
+/// same player-model path as the base cuboids; exposing it here lets the HUD
+/// preview and first-person carrier use the authoritative skin appearance
+/// without duplicating the UV contract in the UI crate.
+#[must_use]
+pub fn standard_biped_overlay_vertices() -> Vec<ActorVertex> {
+    const P: f32 = 1.0 / 16.0;
+    const OUTER: f32 = 0.5 * P;
+    let cuboids = [
+        Cuboid {
+            min: [-4.0 * P - OUTER, 24.0 * P - OUTER, -4.0 * P - OUTER],
+            max: [4.0 * P + OUTER, 32.0 * P + OUTER, 4.0 * P + OUTER],
+            uv_origin: [32.0, 0.0],
+            dimensions: [8.0, 8.0, 8.0],
+        },
+        Cuboid {
+            min: [-4.0 * P - OUTER, 12.0 * P - OUTER, -2.0 * P - OUTER],
+            max: [4.0 * P + OUTER, 24.0 * P + OUTER, 2.0 * P + OUTER],
+            uv_origin: [16.0, 32.0],
+            dimensions: [8.0, 12.0, 4.0],
+        },
+        Cuboid {
+            min: [-8.0 * P - OUTER, 12.0 * P - OUTER, -2.0 * P - OUTER],
+            max: [-4.0 * P + OUTER, 24.0 * P + OUTER, 2.0 * P + OUTER],
+            uv_origin: [40.0, 32.0],
+            dimensions: [4.0, 12.0, 4.0],
+        },
+        Cuboid {
+            min: [4.0 * P - OUTER, 12.0 * P - OUTER, -2.0 * P - OUTER],
+            max: [8.0 * P + OUTER, 24.0 * P + OUTER, 2.0 * P + OUTER],
+            uv_origin: [48.0, 48.0],
+            dimensions: [4.0, 12.0, 4.0],
+        },
+        Cuboid {
+            min: [-4.0 * P - OUTER, -OUTER, -2.0 * P - OUTER],
+            max: [OUTER, 12.0 * P + OUTER, 2.0 * P + OUTER],
+            uv_origin: [0.0, 32.0],
+            dimensions: [4.0, 12.0, 4.0],
+        },
+        Cuboid {
+            min: [-OUTER, -OUTER, -2.0 * P - OUTER],
+            max: [4.0 * P + OUTER, 12.0 * P + OUTER, 2.0 * P + OUTER],
+            uv_origin: [0.0, 48.0],
             dimensions: [4.0, 12.0, 4.0],
         },
     ];

@@ -19,6 +19,7 @@ use ui::{
 use super::{HudSprite, HudTexturePages, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::gameplay_hud::HudEffect;
 
+mod inventory;
 mod pinned;
 mod player;
 
@@ -29,6 +30,15 @@ use pinned::{
     hotbar_slot_role, hsv_to_rgb,
 };
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
+
+#[derive(Clone, Debug)]
+pub(crate) struct InventoryIcons(pub(crate) [Option<IconRef>; 36]);
+
+impl Default for InventoryIcons {
+    fn default() -> Self {
+        Self([None; 36])
+    }
+}
 
 /// Frame inputs the layout cannot read from `UiRuntime` alone: camera state
 /// plus item facts resolved against the world stream's authoritative item
@@ -46,14 +56,27 @@ pub(crate) struct HudFrame {
     /// Item icon atlas references resolved against the authoritative item
     /// registry immediately before presentation.
     pub hotbar_icons: [Option<IconRef>; 9],
+    pub inventory_icons: InventoryIcons,
+    pub armor_icons: [Option<IconRef>; 4],
     pub offhand_icon: Option<IconRef>,
+    /// Geometry-rendered offhand carrier; the original icon remains reserved
+    /// for the compact hotbar slot.
+    pub offhand_viewmodel_icon: Option<IconRef>,
     /// The selected main-hand item rendered in the first-person view. The
-    /// world renderer does not yet own an item model, so this is a faithful
-    /// nearest-neighbour atlas presentation of the authoritative stack.
+    /// world renderer does not yet own an item model, so this is the
+    /// nearest-neighbour item carrier used by the compatibility viewmodel.
     pub held_item_icon: Option<IconRef>,
     /// Cached software-rendered 3-D local avatar shown in the gameplay HUD's
     /// upper-left corner.
     pub player_preview: Option<IconRef>,
+    /// Skin-backed first-person arm carriers. These are separate from the
+    /// item atlas so an empty hand still has the same silhouette as the
+    /// player's authoritative skin.
+    pub left_hand: Option<IconRef>,
+    pub right_hand: Option<IconRef>,
+    /// Local actor pitch used by the compatibility viewmodel to keep the
+    /// hand/item carrier aligned with the camera-facing native path.
+    pub viewmodel_pitch_degrees: f32,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
@@ -178,6 +201,10 @@ impl<'a> HudLayout<'a> {
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
+        if runtime.inventory_open() {
+            self.inventory_screen(runtime, frame)?;
+            return Ok(());
+        }
         // Visibility gates on the authoritative game mode directly, never on
         // inferred slot retention: a live switch to spectator with a retained
         // local slot must still drop the hotbar and crosshair.
@@ -894,28 +921,6 @@ impl<'a> HudLayout<'a> {
         });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
-    /// Crosshair-attached melee charge, drawn only below full charge exactly
-    /// like the reference. Geometry and colors are pinned as a bounded
-    /// approximation (16x2 GUI px, 9 px below center) pending the native
-    /// comparison gallery; the production authority never reports sub-full.
-    fn attack_indicator(&mut self, frame: &HudFrame) -> Result<(), UiPresentationError> {
-        let Some(charge) = frame.attack_indicator_charge else {
-            return Ok(());
-        };
-        if charge >= 1.0 {
-            return Ok(());
-        }
-        let g = self.geometry;
-        let left = (g.gui_width - 16.0) / 2.0;
-        let top = g.gui_height / 2.0 + 9.0;
-        self.solid_gui([left, top], [16.0, 2.0], [0, 0, 0, 170])?;
-        let filled = (charge.clamp(0.0, 1.0) * 16.0).floor();
-        if filled >= 1.0 {
-            self.solid_gui([left, top], [filled, 2.0], [255, 255, 255, 255])?;
-        }
         Ok(())
     }
 

@@ -2,10 +2,20 @@ use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
-    prelude::{Res, ResMut, Resource, Time},
+    camera::Camera,
+    math::Vec3,
+    prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Resource, Time, With},
     time::Real,
+    window::{PrimaryWindow, Window},
 };
-use render::{MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderTextureArray};
+use render::{
+    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput, normalize_actor_skin,
+};
+use render::{
+    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderInput, UiRenderScene, UiRenderStats,
+    UiRenderTextureArray,
+};
 use sha2::{Digest, Sha256};
 
 use ui::{
@@ -14,13 +24,23 @@ use ui::{
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
-use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
+use crate::{
+    camera::CameraSettingsAuthority,
+    runtime::{
+        shutdown::record_fatal_error,
+        visibility::CaveVisibilityCache,
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
+    ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list},
+};
 
 mod chat;
 mod hud_layout;
+mod item_viewmodel;
 mod menu;
 mod menu_artwork;
 mod player_preview;
+mod primitives;
 mod publish;
 mod retained_hud;
 mod startup;
@@ -30,6 +50,8 @@ use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
+use primitives::{bounded_visible_text, hud_position, rect};
+pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
 use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
     ScoreboardOwnerNameAuthority,
@@ -40,8 +62,6 @@ use texture_atlas::{
     HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
-
-pub(crate) use publish::publish_ui_runtime;
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -54,11 +74,15 @@ const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 // default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
 const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
 const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
+// Java's default chat text begins four GUI pixels from the safe content edge.
+// Keep the text anchor independent of the bottom HUD width so chat remains a
+// true left-edge surface on ultrawide and resized windows.
+const CHAT_LEFT_INSET: f32 = 4.0;
+const CHAT_PANEL_PAD: f32 = 4.0;
 // Java chat fade: rows show for 200 ticks then fade over the final 20
 // (10 s + 1 s), pinned here in milliseconds.
 const CHAT_VISIBLE_MILLIS: u64 = 10_000;
 const CHAT_FADE_MILLIS: u64 = 1_000;
-
 // The compiled Monocraft atlas is rasterized at 18 px/em (see
 // `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
 // a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
@@ -171,10 +195,20 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
+    /// Identity of the static font/HUD/item carrier before the optional
+    /// cached player-preview layer is appended.
+    base_texture_identity: [u8; 32],
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
-    player_preview_pixels: Option<Vec<u8>>,
+    player_preview_pose: Option<player_preview::PlayerPreviewPose>,
+    player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     player_preview_icon: Option<IconRef>,
+    left_hand_icon: Option<IconRef>,
+    right_hand_icon: Option<IconRef>,
+    held_viewmodel_source: Option<IconRef>,
+    offhand_viewmodel_source: Option<IconRef>,
+    held_viewmodel_icon: Option<IconRef>,
+    offhand_viewmodel_icon: Option<IconRef>,
     menu_artwork_paths: Vec<String>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_view: Option<MenuView>,
@@ -221,6 +255,7 @@ impl UiPresentationRuntime {
                 }
                 (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
             };
+        let base_texture_identity = textures.identity;
         let textures = Arc::new(textures);
         Ok(Self {
             font,
@@ -242,10 +277,18 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
+            base_texture_identity,
             player_preview_page: None,
             player_preview_source_hash: None,
+            player_preview_pose: None,
             player_preview_pixels: None,
             player_preview_icon: None,
+            left_hand_icon: None,
+            right_hand_icon: None,
+            held_viewmodel_source: None,
+            offhand_viewmodel_source: None,
+            held_viewmodel_icon: None,
+            offhand_viewmodel_icon: None,
             menu_artwork_paths: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_view: None,
@@ -253,6 +296,10 @@ impl UiPresentationRuntime {
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
+    }
+
+    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
+        self.loading_message = message;
     }
 
     /// Resolves an authoritative item identity to the packed icon atlas.
@@ -267,24 +314,210 @@ impl UiPresentationRuntime {
     }
 
     /// Updates the cached corner avatar. The raster is regenerated and the UI
-    /// texture array is replaced only when the authoritative skin changes;
-    /// normal camera/HUD frames reuse the same GPU texture allocation.
-    pub(crate) fn set_player_preview_skin(&mut self, skin: Option<&[u8]>) {
+    /// texture array is replaced only when the authoritative skin or pose
+    /// changes; normal camera/HUD frames reuse the same GPU texture.
+    pub(crate) fn set_player_preview_skin(
+        &mut self,
+        skin: Option<&[u8]>,
+        pose: player_preview::PlayerPreviewPose,
+    ) {
         let default_skin = render::default_actor_skin_rgba8();
         let skin = skin
             .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
-        if self.player_preview_source_hash == Some(source_hash) {
+        if self.player_preview_source_hash == Some(source_hash)
+            && self.player_preview_pose == Some(pose)
+        {
             return;
         }
-        self.player_preview_pixels = Some(player_preview::render(skin));
+        self.player_preview_pixels = Some(player_preview::PlayerPreviewRasters {
+            preview: player_preview::render(skin, pose),
+            left_hand: player_preview::render_hand(skin, pose, true),
+            right_hand: player_preview::render_hand(skin, pose, false),
+        });
         self.player_preview_source_hash = Some(source_hash);
+        self.player_preview_pose = Some(pose);
         self.rebuild_dynamic_textures();
     }
 
     pub(crate) const fn player_preview_icon(&self) -> Option<IconRef> {
         self.player_preview_icon
+    }
+
+    pub(crate) const fn player_hand_icons(&self) -> (Option<IconRef>, Option<IconRef>) {
+        (self.left_hand_icon, self.right_hand_icon)
+    }
+
+    /// Rebuilds the bounded dynamic pages from immutable base assets. Keeping
+    /// this operation compositional prevents refreshed launcher artwork from
+    /// accumulating stale texture layers and preserves the HUD preview/item
+    /// carriers across catalog updates.
+    pub(super) fn rebuild_dynamic_textures(&mut self) {
+        let width = self.base_textures.width;
+        let height = self.base_textures.height;
+        let Some(layer_bytes) = usize::try_from(width)
+            .ok()
+            .and_then(|width| width.checked_mul(height as usize))
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return;
+        };
+
+        let mut rgba8 = self.base_textures.rgba8.to_vec();
+        let mut layers = self.base_textures.layers;
+        let mut identity = Sha256::new();
+        identity.update(self.base_texture_identity);
+        identity.update(b"cinnabar-dynamic-hud-v4");
+
+        self.player_preview_page = None;
+        self.player_preview_icon = None;
+        self.left_hand_icon = None;
+        self.right_hand_icon = None;
+        self.held_viewmodel_icon = None;
+        self.offhand_viewmodel_icon = None;
+        self.menu_artwork = menu_artwork::MenuArtworkAtlas::default();
+
+        let preview_fits = self.player_preview_pixels.is_some()
+            && width >= player_preview::PREVIEW_WIDTH
+            && height >= player_preview::PREVIEW_HEIGHT
+            && width >= player_preview::HAND_WIDTH.saturating_mul(2)
+            && height >= player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT)
+            && layers < MAX_UI_TEXTURE_LAYERS
+            && rgba8.len().saturating_add(layer_bytes) <= MAX_UI_TEXTURE_BYTES;
+        let viewmodel_fits = width >= item_viewmodel::MAIN_ORIGIN[0] + item_viewmodel::SIDE
+            && height >= item_viewmodel::OFFHAND_ORIGIN[1] + item_viewmodel::SIDE;
+        if preview_fits {
+            let page = layers as u16;
+            let layer_start = rgba8.len();
+            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
+            layers = layers.saturating_add(1);
+            let texture_width = width as usize;
+            let copy_raster = |target: &mut [u8],
+                               raster: &[u8],
+                               origin: [u32; 2],
+                               raster_width: u32,
+                               raster_height: u32| {
+                let raster_width = raster_width as usize;
+                let raster_height = raster_height as usize;
+                for row in 0..raster_height {
+                    let source_start = row * raster_width * 4;
+                    let target_start = layer_start
+                        + ((origin[1] as usize + row) * texture_width + origin[0] as usize) * 4;
+                    target[target_start..target_start + raster_width * 4]
+                        .copy_from_slice(&raster[source_start..source_start + raster_width * 4]);
+                }
+            };
+            if let Some(rasters) = self.player_preview_pixels.as_ref() {
+                for row in 0..player_preview::PREVIEW_HEIGHT as usize {
+                    let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
+                    let target_start = layer_start + row * texture_width * 4;
+                    let target_end = target_start + player_preview::PREVIEW_WIDTH as usize * 4;
+                    rgba8[target_start..target_end].copy_from_slice(
+                        &rasters.preview[source_start
+                            ..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
+                    );
+                }
+                copy_raster(
+                    &mut rgba8,
+                    &rasters.left_hand,
+                    [0, player_preview::PREVIEW_HEIGHT],
+                    player_preview::HAND_WIDTH,
+                    player_preview::HAND_HEIGHT,
+                );
+                copy_raster(
+                    &mut rgba8,
+                    &rasters.right_hand,
+                    [player_preview::HAND_WIDTH, player_preview::PREVIEW_HEIGHT],
+                    player_preview::HAND_WIDTH,
+                    player_preview::HAND_HEIGHT,
+                );
+            }
+            if viewmodel_fits {
+                if let Some(main) = self
+                    .held_viewmodel_source
+                    .and_then(|icon| item_viewmodel::render(&self.base_textures, icon, false))
+                {
+                    copy_raster(
+                        &mut rgba8,
+                        &main,
+                        item_viewmodel::MAIN_ORIGIN,
+                        item_viewmodel::SIDE,
+                        item_viewmodel::SIDE,
+                    );
+                    self.held_viewmodel_icon =
+                        Some(item_viewmodel::icon_at(page, item_viewmodel::MAIN_ORIGIN));
+                }
+                if let Some(offhand) = self
+                    .offhand_viewmodel_source
+                    .and_then(|icon| item_viewmodel::render(&self.base_textures, icon, true))
+                {
+                    copy_raster(
+                        &mut rgba8,
+                        &offhand,
+                        item_viewmodel::OFFHAND_ORIGIN,
+                        item_viewmodel::SIDE,
+                        item_viewmodel::SIDE,
+                    );
+                    self.offhand_viewmodel_icon = Some(item_viewmodel::icon_at(
+                        page,
+                        item_viewmodel::OFFHAND_ORIGIN,
+                    ));
+                }
+            }
+            self.player_preview_page = Some(page);
+            self.player_preview_icon = Some(IconRef {
+                page,
+                uv: [
+                    0,
+                    0,
+                    player_preview::PREVIEW_WIDTH as u16,
+                    player_preview::PREVIEW_HEIGHT as u16,
+                ],
+            });
+            self.left_hand_icon = Some(IconRef {
+                page,
+                uv: [
+                    0,
+                    player_preview::PREVIEW_HEIGHT as u16,
+                    player_preview::HAND_WIDTH as u16,
+                    player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
+                ],
+            });
+            self.right_hand_icon = Some(IconRef {
+                page,
+                uv: [
+                    player_preview::HAND_WIDTH as u16,
+                    player_preview::PREVIEW_HEIGHT as u16,
+                    player_preview::HAND_WIDTH.saturating_mul(2) as u16,
+                    player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
+                ],
+            });
+        }
+
+        let remaining_layers = MAX_UI_TEXTURE_LAYERS.saturating_sub(layers);
+        let remaining_bytes = MAX_UI_TEXTURE_BYTES.saturating_sub(rgba8.len());
+        self.menu_artwork = menu_artwork::load(
+            &self.menu_artwork_paths,
+            width,
+            height,
+            u16::try_from(layers).unwrap_or(u16::MAX),
+            remaining_layers,
+            remaining_bytes,
+        );
+        if self.menu_artwork.layers > 0 {
+            layers = layers.saturating_add(self.menu_artwork.layers);
+            rgba8.extend_from_slice(&self.menu_artwork.rgba8);
+            identity.update(self.menu_artwork.signature);
+        }
+        identity.update(&rgba8);
+        self.textures = Arc::new(UiRenderTextureArray {
+            identity: identity.finalize().into(),
+            width,
+            height,
+            layers,
+            rgba8: rgba8.into(),
+        });
     }
 
     pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
@@ -299,88 +532,8 @@ impl UiPresentationRuntime {
         self.menu_artwork.refs.get(path).copied()
     }
 
-    fn rebuild_dynamic_textures(&mut self) {
-        let width = self.base_textures.width;
-        let height = self.base_textures.height;
-        let Some(layer_bytes) = usize::try_from(width)
-            .ok()
-            .and_then(|width| width.checked_mul(height as usize))
-            .and_then(|pixels| pixels.checked_mul(4))
-        else {
-            return;
-        };
-        let mut rgba8 = self.base_textures.rgba8.to_vec();
-        let mut layers = self.base_textures.layers;
-        let mut identity = Sha256::new();
-        identity.update(self.base_textures.identity);
-        self.player_preview_page = None;
-        self.player_preview_icon = None;
-
-        if let (Some(preview), Some(source_hash)) = (
-            self.player_preview_pixels.as_deref(),
-            self.player_preview_source_hash,
-        ) && width >= player_preview::PREVIEW_WIDTH
-            && height >= player_preview::PREVIEW_HEIGHT
-            && layers < MAX_UI_TEXTURE_LAYERS
-            && rgba8.len().saturating_add(layer_bytes) <= MAX_UI_TEXTURE_BYTES
-        {
-            let page = layers as u16;
-            let layer_start = rgba8.len();
-            rgba8.extend(std::iter::repeat_n(0, layer_bytes));
-            for row in 0..player_preview::PREVIEW_HEIGHT as usize {
-                let source_start = row * player_preview::PREVIEW_WIDTH as usize * 4;
-                let target_start = layer_start + row * width as usize * 4;
-                rgba8[target_start..target_start + player_preview::PREVIEW_WIDTH as usize * 4]
-                    .copy_from_slice(
-                        &preview[source_start
-                            ..source_start + player_preview::PREVIEW_WIDTH as usize * 4],
-                    );
-            }
-            layers += 1;
-            self.player_preview_page = Some(page);
-            self.player_preview_icon = Some(IconRef {
-                page,
-                uv: [
-                    0,
-                    0,
-                    player_preview::PREVIEW_WIDTH as u16,
-                    player_preview::PREVIEW_HEIGHT as u16,
-                ],
-            });
-            identity.update(b"cinnabar-player-preview-v1");
-            identity.update(source_hash);
-        }
-
-        let remaining_layers = MAX_UI_TEXTURE_LAYERS.saturating_sub(layers);
-        let remaining_bytes = MAX_UI_TEXTURE_BYTES.saturating_sub(rgba8.len());
-        self.menu_artwork = menu_artwork::load(
-            &self.menu_artwork_paths,
-            width,
-            height,
-            layers as u16,
-            remaining_layers,
-            remaining_bytes,
-        );
-        if self.menu_artwork.layers > 0 {
-            layers += self.menu_artwork.layers;
-            rgba8.extend_from_slice(&self.menu_artwork.rgba8);
-            identity.update(self.menu_artwork.signature);
-        }
-        self.textures = Arc::new(UiRenderTextureArray {
-            identity: identity.finalize().into(),
-            width,
-            height,
-            layers,
-            rgba8: rgba8.into(),
-        });
-    }
-
     pub(crate) fn set_menu_view(&mut self, view: Option<MenuView>) {
         self.menu_view = view;
-    }
-
-    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
-        self.loading_message = message;
     }
 
     pub(crate) fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
@@ -458,14 +611,15 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let wrap_width = ((content_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
         let chat_content_width = wrap_width as f32 / 64.0;
-        let chat_left = 12.0_f32.min(content_width);
+        let chat_left = CHAT_LEFT_INSET.min(content_width);
         let chat_right = (chat_left + chat_content_width)
             .min(content_width)
             .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
+        let menu_visible = self.menu_view.is_some();
 
-        if self.menu_view.is_none()
+        if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
             && let Some(geometry) = hud_geometry
         {
@@ -483,9 +637,13 @@ impl UiPresentationRuntime {
             layout.append(runtime, &frame)?;
         }
 
+        let inventory_open = runtime.inventory_open();
         let hud_nodes = runtime.hud().view_nodes(now_millis);
         let mut toast_rows = 0usize;
-        for node in hud_nodes.iter().filter(|_| self.menu_view.is_none()) {
+        for node in hud_nodes.iter() {
+            if inventory_open || menu_visible {
+                break;
+            }
             if matches!(
                 node.role,
                 HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
@@ -527,7 +685,8 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
         }
 
-        if self.menu_view.is_none()
+        if !inventory_open
+            && !menu_visible
             && let Some(opacity) = self.scoreboard_opacity
             && let Some(scoreboard) = self
                 .scoreboard
@@ -549,7 +708,7 @@ impl UiPresentationRuntime {
 
         // The tab player-list overlay presents every known player with the
         // list-objective score while the player-list action is held.
-        if self.menu_view.is_none() && self.hud_frame.tab_list_open {
+        if !inventory_open && !menu_visible && self.hud_frame.tab_list_open {
             let players = runtime.player_list_overlay_rows();
             retained_hud::append_player_list_nodes(
                 &mut nodes,
@@ -564,7 +723,7 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        if self.menu_view.is_none() {
+        if !inventory_open && !menu_visible {
             retained_hud::append_below_name_nodes(
                 &mut nodes,
                 &mut next_id,
@@ -578,7 +737,7 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        let chat_focused = self.menu_view.is_none() && runtime.chat_focused();
+        let chat_focused = !menu_visible && !inventory_open && runtime.chat_focused();
         let visible_suggestions = if chat_focused {
             visible_suggestion_range(
                 runtime.chat_suggestions().len(),
@@ -591,8 +750,7 @@ impl UiPresentationRuntime {
         let mut suggestion_layouts = Vec::new();
         if chat_focused {
             let editor = runtime.chat_editor();
-            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(3));
-            visible.push_str("> ");
+            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(1));
             visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
             visible.push('|');
             visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
@@ -610,19 +768,21 @@ impl UiPresentationRuntime {
                 .take(visible_suggestions.len())
             {
                 let selected = runtime.chat_selected_suggestion() == Some(index);
-                let mut visible = String::with_capacity(suggestion.len().saturating_add(2));
-                visible.push_str(if selected { "> " } else { "  " });
-                visible.push_str(suggestion);
                 let layout = self
                     .layouts
-                    .layout(metrics.request(bounded_visible_text(&visible), wrap_width, &self.font))
+                    .layout(metrics.request(
+                        bounded_visible_text(suggestion),
+                        wrap_width,
+                        &self.font,
+                    ))
                     .map_err(UiPresentationError::Text)?;
-                suggestion_layouts.push((index, layout, [220, 220, 220, 255]));
+                suggestion_layouts.push((index, layout, [220, 220, 220, 255], selected));
             }
         }
+
         let suggestion_reserved_height = suggestion_layouts
             .iter()
-            .map(|(_, layout, _)| layout.size_64()[1] as f32 / 64.0 + 4.0)
+            .map(|(_, layout, _, _)| layout.size_64()[1] as f32 / 64.0 + 2.0)
             .sum::<f32>();
         let chat_region_top = (content_height - 220.0 - suggestion_reserved_height).max(0.0);
         let bottom_hud_top = hud_geometry.map_or_else(
@@ -635,17 +795,21 @@ impl UiPresentationRuntime {
         });
         let mut suggestion_cursor = (editor_y - 4.0).max(chat_region_top);
         let mut positioned_suggestions = Vec::new();
-        for (index, layout, color) in suggestion_layouts {
+        for (index, layout, color, selected) in suggestion_layouts {
             let layout_height = layout.size_64()[1] as f32 / 64.0;
             if layout_height > suggestion_cursor - chat_region_top {
                 break;
             }
             let y = suggestion_cursor - layout_height;
-            positioned_suggestions.push((index, layout, y, suggestion_cursor, color));
-            suggestion_cursor = (y - 4.0).max(chat_region_top);
+            positioned_suggestions.push((index, layout, y, suggestion_cursor, color, selected));
+            suggestion_cursor = (y - 2.0).max(chat_region_top);
         }
         let chat = runtime.chat().messages();
-        let first = chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS);
+        let first = if inventory_open || menu_visible {
+            chat.len()
+        } else {
+            chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS)
+        };
         let chat_bottom = if chat_focused {
             suggestion_cursor
         } else {
@@ -653,12 +817,7 @@ impl UiPresentationRuntime {
         };
         let mut chat_cursor = chat_bottom;
         let mut visible_chat = Vec::new();
-        for node in chat
-            .iter()
-            .skip(first)
-            .rev()
-            .filter(|_| self.menu_view.is_none())
-        {
+        for node in chat.iter().skip(first).rev() {
             // Java chat fade: an unfocused row shows for ten seconds, then
             // fades over one second (200 + 20 ticks in the reference). Rows
             // stamped ahead of the local clock stay fresh rather than hiding.
@@ -727,17 +886,11 @@ impl UiPresentationRuntime {
             chat_cursor = y.max(chat_region_top);
         }
         if chat_focused {
-            let panel_left = 8.0_f32.min(logical_width);
-            let panel_right = (panel_left + chat_content_width + 8.0)
+            let panel_left = (chat_left - CHAT_PANEL_PAD).max(0.0).min(logical_width);
+            let panel_right = (chat_right + CHAT_PANEL_PAD)
                 .min(logical_width)
                 .max(panel_left);
-            let content_top = visible_chat
-                .iter()
-                .map(|(_, top, _, _)| *top)
-                .chain(positioned_suggestions.iter().map(|(_, _, top, _, _)| *top))
-                .chain(std::iter::once(editor_y))
-                .fold(editor_y, f32::min);
-            let panel_top = (content_top - 4.0).max(chat_region_top);
+            let panel_top = (editor_y - 2.0).max(chat_region_top);
             let panel_bottom = (editor_bottom + 2.0).min(bottom_hud_top);
             nodes.push(
                 UiNode::new(
@@ -819,7 +972,23 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            for (_, layout, y, bottom, color) in &positioned_suggestions {
+            for (_, layout, y, bottom, color, selected) in &positioned_suggestions {
+                nodes.push(
+                    UiNode::new(
+                        UiNodeId::new(next_id),
+                        None,
+                        rect(chat_left - 2.0, *y, chat_right, *bottom)?,
+                    )
+                    .with_visual(UiVisual::Solid {
+                        texture_page: self.solid_texture_page,
+                        color: if *selected {
+                            [96, 96, 96, 224]
+                        } else {
+                            [0, 0, 0, 192]
+                        },
+                    }),
+                );
+                next_id = next_id.saturating_add(1);
                 nodes.push(
                     UiNode::new(
                         UiNodeId::new(next_id),
@@ -853,12 +1022,20 @@ impl UiPresentationRuntime {
             Vec::new()
         };
 
-        if let Some(message) = self.loading_message {
+        // Hit rects are compared against window-logical pointer positions, so
+        // translate the content-relative rows by the safe-area origin.
+        if !menu_visible && let Some(message) = self.loading_message {
+            // Keep the pre-world frame intentional: the sky clear color is a
+            // renderer fallback, not a user-facing loading screen. The opaque
+            // cover hides partial terrain and HUD state while the world cohort
+            // is still settling.
+            // Append it after the normal HUD/chat nodes so no partial terrain
+            // or UI leaks through while the world cohort is still settling.
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
                     None,
-                    rect(0.0, 0.0, content_width, content_height)?,
+                    rect(0.0, 0.0, logical_width, logical_height)?,
                 )
                 .with_visual(UiVisual::Solid {
                     texture_page: self.solid_texture_page,
@@ -868,19 +1045,19 @@ impl UiPresentationRuntime {
             next_id = next_id.saturating_add(1);
             let layout = self
                 .layouts
-                .layout(metrics.request(message, content_width.max(1.0) as u32 * 64, &self.font))
+                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
                 .map_err(UiPresentationError::Text)?;
-            let message_width = layout.size_64()[0] as f32 / 64.0;
-            let message_height = layout.size_64()[1] as f32 / 64.0;
+            let width = layout.size_64()[0] as f32 / 64.0;
+            let height = layout.size_64()[1] as f32 / 64.0;
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
                     None,
                     rect(
-                        ((content_width - message_width) * 0.5).max(0.0),
-                        ((content_height - message_height) * 0.5).max(0.0),
-                        ((content_width + message_width) * 0.5).max(message_width),
-                        ((content_height + message_height) * 0.5).max(message_height),
+                        ((logical_width - width) * 0.5).max(0.0),
+                        (logical_height * 0.5 - height * 0.5).max(0.0),
+                        (logical_width + width) * 0.5,
+                        (logical_height * 0.5 + height * 0.5).max(height),
                     )?,
                 )
                 .with_visual(UiVisual::Text {
@@ -891,11 +1068,9 @@ impl UiPresentationRuntime {
             );
         }
 
-        // Hit rects are compared against window-logical pointer positions, so
-        // translate the content-relative rows by the safe-area origin.
         let chat_suggestion_hits = positioned_suggestions
             .iter()
-            .map(|(index, _, top, bottom, _)| {
+            .map(|(index, _, top, bottom, _, _)| {
                 rect(
                     chat_left + safe_area.left(),
                     *top + safe_area.top(),
@@ -927,63 +1102,6 @@ impl UiPresentationRuntime {
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }
-}
-
-/// Observes the held HUD inputs — jump for the mount jump-charge ramp and
-/// the player-list action for the tab overlay — before the frame publishes.
-pub(crate) fn observe_mount_jump_input(
-    input: Res<crate::semantic_controls::SemanticInputSnapshot>,
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
-    time: Res<Time<Real>>,
-) {
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
-    presentation.hud_frame_mut().tab_list_open =
-        input.phase(semantic_input::Action::PlayerList).held;
-}
-
-/// The platform's safe-area insets for the primary surface, in logical px.
-/// Win32 and macOS desktop surfaces carry no display cutouts, so their real
-/// reported inset is zero on every edge; platforms that report cutouts bind
-/// their values here and every consumer — HUD geometry, retained layout,
-/// render clipping — picks them up through `set_safe_area`.
-pub(crate) fn platform_safe_area_insets() -> SafeArea {
-    SafeArea::ZERO
-}
-
-fn bounded_visible_text(value: &str) -> &str {
-    if value.len() <= MAX_PRESENTED_TEXT_BYTES {
-        return value;
-    }
-    let mut end = MAX_PRESENTED_TEXT_BYTES;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    &value[..end]
-}
-
-fn hud_position(role: HudViewRole, ordinal: usize, width: f32, height: f32) -> [f32; 2] {
-    match role {
-        HudViewRole::Health => [12.0, (height - 42.0).max(0.0)],
-        HudViewRole::Hunger => [(width - 180.0).max(0.0), (height - 42.0).max(0.0)],
-        HudViewRole::Armor => [12.0, (height - 62.0).max(0.0)],
-        HudViewRole::Air => [(width - 180.0).max(0.0), (height - 62.0).max(0.0)],
-        HudViewRole::Title => [(width * 0.3).max(0.0), (height * 0.3).max(0.0)],
-        HudViewRole::Subtitle => [(width * 0.3).max(0.0), (height * 0.3 + 24.0).max(0.0)],
-        HudViewRole::ActionBar => [(width * 0.35).max(0.0), (height - 90.0).max(0.0)],
-        HudViewRole::ToastTitle | HudViewRole::ToastMessage => {
-            [(width - 320.0).max(0.0), 12.0 + ordinal as f32 * 18.0]
-        }
-    }
-}
-
-fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, UiPresentationError> {
-    UiRect::new(
-        UiPoint::new(left, top).map_err(UiPresentationError::Geometry)?,
-        UiPoint::new(right, bottom).map_err(UiPresentationError::Geometry)?,
-    )
-    .map_err(UiPresentationError::Geometry)
 }
 
 #[cfg(test)]

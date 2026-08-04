@@ -108,6 +108,7 @@ const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
+const INITIAL_LIGHT_BACKLOG_THRESHOLD: usize = 256;
 fn light_job_cap_for_threads(worker_threads: usize) -> usize {
     MAX_IN_FLIGHT_LIGHT_JOBS.min(
         worker_threads
@@ -123,6 +124,18 @@ fn effective_light_job_cap() -> usize {
     // dependency invalidation can make one completion stale while adjacent
     // work still needs to make progress.
     light_job_cap_for_threads(rayon::current_num_threads())
+}
+fn initial_light_job_cap() -> usize {
+    // Initial joins cannot mesh most resident sub-chunks until their light
+    // columns complete. Use half of the shared pool for those column solves;
+    // on SMT CPUs this fills the physical cores while retaining the sibling
+    // workers for newly-ready meshes and render-side jobs. Return to the
+    // conservative quarter-pool cap once the initial dependency wall drains.
+    MAX_IN_FLIGHT_LIGHT_JOBS.min(
+        rayon::current_num_threads()
+            .saturating_div(2)
+            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
+    )
 }
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;

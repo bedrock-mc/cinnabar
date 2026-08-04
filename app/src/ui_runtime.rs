@@ -1,5 +1,6 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod event_apply;
 mod gameplay_authority;
 pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
@@ -29,17 +30,17 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatPacketError, CommandOutputEvent, EquipmentEvent, HudEvent, InventoryAuthority,
-    InventoryEvent, Packet, PlayerGameMode, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
-    chat_input_packet,
+    ChatPacketError, EquipmentEvent, InventoryAuthority, InventoryEvent, Packet, PlayerGameMode,
+    UiEvent, chat_input_packet,
 };
 use semantic_input::InputContext;
+#[cfg(test)]
+use ui::BoundedStat;
 use ui::{
-    BossBarStore, BoundedStat, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
+    BossBarStore, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
     ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
-    ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError,
-    ChatSendQueue, ChatSendRequest, ChatStore, HudStore, MAX_CHAT_INPUT_BYTES,
-    RetainedUiSequenceError, ScoreboardStore, TitleDurations, Toast, UiAction,
+    ChatHistory, ChatPasteError, ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest,
+    ChatStore, HudStore, MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
 };
 
 use self::gameplay_hud::GameplayHudState;
@@ -143,6 +144,7 @@ pub struct UiRuntime {
     /// estimated session clock between packets.
     last_tick_observed_millis: Option<u64>,
     chat_focused: bool,
+    inventory_open: bool,
     hud: HudStore,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
@@ -197,6 +199,7 @@ impl UiRuntime {
             last_server_tick: None,
             last_tick_observed_millis: None,
             chat_focused: false,
+            inventory_open: false,
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
             hud: HudStore::default(),
@@ -360,6 +363,14 @@ impl UiRuntime {
 
     pub const fn chat_focused(&self) -> bool {
         self.chat_focused
+    }
+
+    pub const fn inventory_open(&self) -> bool {
+        self.inventory_open
+    }
+
+    pub const fn ui_focused(&self) -> bool {
+        self.chat_focused || self.inventory_open
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
@@ -598,6 +609,7 @@ impl UiRuntime {
         self.last_server_tick = None;
         self.last_tick_observed_millis = None;
         self.chat_focused = false;
+        self.inventory_open = false;
         self.score_owner_names.clear();
         self.known_player_names.clear();
         self.hud.clear();
@@ -634,6 +646,7 @@ impl UiRuntime {
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {
+        self.inventory_open = false;
         self.chat_focused = true;
         UiAuthorityTransition {
             consumes_text: true,
@@ -647,6 +660,27 @@ impl UiRuntime {
         self.chat_history.clear_navigation();
         self.chat_autocomplete.clear();
         self.pending_chat_autocomplete_request = None;
+        UiAuthorityTransition {
+            consumes_text: false,
+            requested_context: InputContext::Gameplay,
+        }
+    }
+
+    pub fn toggle_inventory(&mut self) -> UiAuthorityTransition {
+        self.chat_focused = false;
+        self.inventory_open = !self.inventory_open;
+        UiAuthorityTransition {
+            consumes_text: false,
+            requested_context: if self.inventory_open {
+                InputContext::UiFocused
+            } else {
+                InputContext::Gameplay
+            },
+        }
+    }
+
+    pub fn close_inventory(&mut self) -> UiAuthorityTransition {
+        self.inventory_open = false;
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
@@ -829,145 +863,6 @@ impl UiRuntime {
             && actual < previous
         {
             return Err(UiRuntimeError::NonMonotonicServerTick { previous, actual });
-        }
-        Ok(())
-    }
-
-    fn apply_text(
-        &mut self,
-        event: TextEvent,
-        fifo_sequence: u64,
-        event_millis: u64,
-    ) -> Result<UiApplyOutcome, UiRuntimeError> {
-        if matches!(
-            event.kind,
-            TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip
-        ) {
-            self.hud
-                .set_actionbar(event.message, fifo_sequence, event_millis);
-            return Ok(UiApplyOutcome::Applied);
-        }
-        let kind = match event.kind {
-            TextKind::Chat => ChatMessageKind::Chat,
-            TextKind::Whisper | TextKind::JsonWhisper => ChatMessageKind::Whisper,
-            TextKind::Announcement | TextKind::JsonAnnouncement => ChatMessageKind::Announcement,
-            TextKind::Translation => ChatMessageKind::Translation,
-            TextKind::Raw | TextKind::System | TextKind::Json => ChatMessageKind::System,
-            TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip => unreachable!(),
-        };
-        match self.chat.push(ChatMessage {
-            fifo_sequence,
-            received_millis: event_millis,
-            kind,
-            source: event.source,
-            message: event.message,
-            parameters: event.parameters,
-        }) {
-            ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
-            // An oversized server row is odd data, not a wire fault: skip the
-            // whole row, count it, keep the session alive.
-            ChatApplyResult::RejectedTooLarge => {
-                self.gameplay_hud.note_oversized_chat_row();
-                Ok(UiApplyOutcome::IgnoredByReceiveStore)
-            }
-            result => Err(UiRuntimeError::ChatRejected(result)),
-        }
-    }
-
-    fn apply_command_output(
-        &mut self,
-        event: CommandOutputEvent,
-        fifo_sequence: u64,
-        event_millis: u64,
-    ) -> Result<UiApplyOutcome, UiRuntimeError> {
-        let messages = event
-            .messages
-            .iter()
-            .map(|message| ChatMessage {
-                fifo_sequence,
-                received_millis: event_millis,
-                kind: ChatMessageKind::Translation,
-                source: None,
-                message: Arc::clone(&message.message_id),
-                parameters: Arc::clone(&message.parameters),
-            })
-            .collect();
-        match self.chat.push_batch(messages) {
-            ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
-            ChatApplyResult::RejectedTooLarge => {
-                self.gameplay_hud.note_oversized_chat_row();
-                Ok(UiApplyOutcome::IgnoredByReceiveStore)
-            }
-            result => Err(UiRuntimeError::ChatRejected(result)),
-        }
-    }
-
-    fn apply_title(
-        &mut self,
-        event: TitleEvent,
-        fifo_sequence: u64,
-        event_millis: u64,
-    ) -> Result<(), UiRuntimeError> {
-        match event.action {
-            TitleAction::Clear => self.hud.clear_titles(),
-            TitleAction::Reset => self.hud.reset_titles(),
-            TitleAction::SetTitle | TitleAction::SetTitleJson => {
-                self.hud.set_title(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::SetSubtitle | TitleAction::SetSubtitleJson => {
-                self.hud
-                    .set_subtitle(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::ActionBar | TitleAction::ActionBarJson => {
-                self.hud
-                    .set_actionbar(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::SetDurations => {
-                // Negative tick counts are semantically odd but well-formed:
-                // keep the previous durations and count the skip.
-                match TitleDurations::from_wire(
-                    event.fade_in_ticks,
-                    event.stay_ticks,
-                    event.fade_out_ticks,
-                ) {
-                    Some(durations) => self.hud.set_durations(durations),
-                    None => self.gameplay_hud.note_odd_hud_packet(),
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn apply_hud(
-        &mut self,
-        event: HudEvent,
-        fifo_sequence: u64,
-        event_millis: u64,
-    ) -> Result<(), UiRuntimeError> {
-        match event {
-            HudEvent::Toast { title, message } => {
-                self.hud.push_toast(Toast {
-                    title,
-                    message,
-                    fifo_sequence,
-                    received_millis: event_millis,
-                });
-            }
-            HudEvent::Health { health } => {
-                // A negative or overflowing SetHealth is semantically odd but
-                // well-formed wire: skip it, count it, keep the session alive.
-                match u16::try_from(health) {
-                    Ok(health) => {
-                        let maximum = health.max(20);
-                        self.hud.set_health(BoundedStat::new(health, maximum));
-                    }
-                    Err(_) => self.gameplay_hud.note_odd_hud_packet(),
-                }
-            }
-            HudEvent::PlayerStatus(status) => {
-                self.hud
-                    .set_player_status(hud_adapter::player_status(status));
-            }
         }
         Ok(())
     }

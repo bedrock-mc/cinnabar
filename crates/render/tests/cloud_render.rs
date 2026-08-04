@@ -124,8 +124,8 @@ fn one_sorted_item_draws_exact_quad_vertices_and_nine_instances() {
 }
 
 #[test]
-fn cloud_fragment_uses_face_lighting_weather_and_bounded_distance_fog() {
-    let shader = include_str!("../src/cloud.wgsl");
+fn cloud_fragment_uses_face_lighting_weather_bounded_fog_and_camera_band_fade() {
+    let shader = include_str!("../src/cloud.wgsl").replace("\r\n", "\n");
     assert!(shader.contains("const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);"));
     assert!(shader.contains("const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);"));
     assert!(shader.contains("const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;"));
@@ -147,7 +147,14 @@ fn cloud_fragment_uses_face_lighting_weather_and_bounded_distance_fog() {
     assert!(shader.contains("if (bounded_end <= bounded_start)"));
     assert!(shader.contains("select(0.0, 1.0, bounded_distance >= bounded_end)"));
     assert!(shader.contains("mix(cloud_colour, atmosphere.fog_color_start.rgb, fog)"));
-    assert!(shader.contains("let cloud_alpha = clamp(1.0 - fog, 0.0, 1.0);"));
+    assert!(shader.contains("let camera_distance_from_cloud_band = max("));
+    assert!(
+        shader
+            .contains("let camera_band_visibility = smoothstep(\n        CLOUD_CAMERA_FADE_START,")
+    );
+    assert!(
+        shader.contains("let cloud_alpha = clamp((1.0 - fog) * camera_band_visibility, 0.0, 1.0);")
+    );
     assert!(shader.contains("return vec4(fogged_colour, cloud_alpha);"));
     assert!(!shader.contains("const SIDE_LIGHT"));
     assert!(!shader.contains("const UNDERSIDE_LIGHT"));

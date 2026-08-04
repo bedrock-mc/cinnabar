@@ -285,16 +285,36 @@ pub(crate) fn drive_chat_keyboard_input(
         if runtime.chat_focused() {
             runtime.close_chat();
         }
+        if runtime.inventory_open() {
+            runtime.close_inventory();
+        }
         return;
     }
 
-    let mut consumed_gameplay = runtime.chat_focused();
+    let mut consumed_gameplay = runtime.ui_focused();
     for input in keyboard_messages.read() {
         if input.state != ButtonState::Pressed {
             continue;
         }
+        if runtime.inventory_open() {
+            consumed_gameplay = true;
+            match input.key_code {
+                KeyCode::KeyE => {
+                    runtime.toggle_inventory();
+                }
+                KeyCode::Escape => {
+                    runtime.close_inventory();
+                }
+                _ => {}
+            }
+            continue;
+        }
         if !runtime.chat_focused() {
             match input.key_code {
+                KeyCode::KeyE => {
+                    runtime.toggle_inventory();
+                    consumed_gameplay = true;
+                }
                 KeyCode::KeyT => {
                     runtime.open_chat();
                     consumed_gameplay = true;
@@ -394,7 +414,7 @@ pub(crate) fn drive_chat_keyboard_input(
         );
         // A send/cancel closes chat before suppression, but that same physical
         // key must still be consumed for the current frame.
-        if !runtime.chat_focused() {
+        if !runtime.ui_focused() {
             restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
@@ -425,7 +445,7 @@ pub(crate) fn suppress_gameplay_input_for_chat(
     mouse_buttons: &mut ButtonInput<MouseButton>,
     mouse_motion: &mut AccumulatedMouseMotion,
 ) {
-    if !runtime.chat_focused() {
+    if !runtime.ui_focused() {
         return;
     }
     cursor.grab_mode = CursorGrabMode::None;
