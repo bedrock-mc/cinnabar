@@ -125,7 +125,7 @@ fn one_sorted_item_draws_exact_quad_vertices_and_nine_instances() {
 
 #[test]
 fn cloud_fragment_uses_face_lighting_weather_bounded_fog_and_camera_band_fade() {
-    let shader = include_str!("../src/cloud.wgsl");
+    let shader = include_str!("../src/cloud.wgsl").replace("\r\n", "\n");
     assert!(shader.contains("const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);"));
     assert!(shader.contains("const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);"));
     assert!(shader.contains("const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;"));
