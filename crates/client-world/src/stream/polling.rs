@@ -2,7 +2,6 @@ use super::*;
 
 impl WorldStream {
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
-    const INITIAL_MESH_BACKLOG_THRESHOLD: usize = 256;
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
@@ -46,8 +45,8 @@ impl WorldStream {
         // preparation/present path stutter even though only the nearest
         // handful can be visible. Once the initial backlog drains, restore
         // the normal publication budget.
-        let mesh_budget = if self.pending_light.len() > Self::INITIAL_MESH_BACKLOG_THRESHOLD
-            || self.in_flight_light.len() > Self::INITIAL_MESH_BACKLOG_THRESHOLD
+        let mesh_budget = if self.pending_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+            || self.in_flight_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
         {
             max_mesh_jobs.min(Self::INITIAL_MESH_DISPATCH_BUDGET_PER_POLL)
         } else {
