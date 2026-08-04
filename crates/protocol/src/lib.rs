@@ -3,6 +3,7 @@
 mod actor;
 mod blob_cache;
 mod codec;
+mod combat;
 mod inventory;
 mod item;
 mod login;
@@ -34,6 +35,9 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use combat::{
+    CombatPacketError, EntityInteractionAction, missed_swing_packet, use_item_on_entity_packet,
+};
 pub use inventory::{
     ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
     InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
