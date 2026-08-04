@@ -616,6 +616,7 @@ fn abandoned_cached_column_recovery_enters_bounded_request_scheduler() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -646,6 +647,7 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
