@@ -406,10 +406,14 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
             .iter()
             .any(|vertex| vertex.position[0] <= 8.0)
     );
+    let panel_right = panel_vertices
+        .iter()
+        .map(|vertex| vertex.position[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let expected_panel_right = CHAT_LEFT_INSET + 800.0 * 0.45 + CHAT_PANEL_PAD;
     assert!(
-        panel_vertices
-            .iter()
-            .any(|vertex| vertex.position[0] >= 370.0)
+        (panel_right - expected_panel_right).abs() <= 0.01,
+        "focused chat panel right edge was {panel_right}, expected {expected_panel_right}"
     );
     assert!(
         panel_vertices
@@ -768,28 +772,23 @@ fn autocomplete_rows_reserve_actual_text_height_above_editor_and_history() {
     let panel_vertices = 4;
     let history_vertices = history.chars().count() * 4 * TEXT_PASSES;
     let editor_vertices = "/g|".chars().count() * 4 * TEXT_PASSES;
-    let suggestion_vertices = "/give-0".chars().count() * 4 * TEXT_PASSES;
     let history_bounds =
         vertical_bounds(&active.vertices[panel_vertices..panel_vertices + history_vertices]);
     let editor_start = panel_vertices + history_vertices;
     let editor_bounds =
         vertical_bounds(&active.vertices[editor_start..editor_start + editor_vertices]);
-    let first_suggestion_start = editor_start + editor_vertices;
-    let first_suggestion_bounds = vertical_bounds(
-        &active.vertices[first_suggestion_start..first_suggestion_start + suggestion_vertices],
-    );
-    let second_suggestion_bounds = vertical_bounds(
-        &active.vertices[first_suggestion_start + suggestion_vertices
-            ..first_suggestion_start + suggestion_vertices * 2],
-    );
+    let suggestion_bounds = presentation
+        .chat_suggestion_hits
+        .iter()
+        .map(|(_, bounds)| (bounds.min().y(), bounds.max().y()))
+        .collect::<Vec<_>>();
 
-    assert!(first_suggestion_bounds.1 <= editor_bounds.0);
-    assert!(second_suggestion_bounds.1 <= first_suggestion_bounds.0);
-    let topmost_start =
-        first_suggestion_start + suggestion_vertices * (MAX_PRESENTED_CHAT_SUGGESTIONS - 1);
-    let topmost_bounds =
-        vertical_bounds(&active.vertices[topmost_start..topmost_start + suggestion_vertices]);
-    assert!(history_bounds.1 <= topmost_bounds.0);
+    assert_eq!(suggestion_bounds.len(), MAX_PRESENTED_CHAT_SUGGESTIONS);
+    assert!(suggestion_bounds[0].1 <= editor_bounds.0);
+    for adjacent in suggestion_bounds.windows(2) {
+        assert!(adjacent[1].1 <= adjacent[0].0);
+    }
+    assert!(history_bounds.1 <= suggestion_bounds.last().unwrap().0);
 }
 
 #[test]
