@@ -6,7 +6,7 @@ use jolyne::error::JolyneError;
 use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
-use jolyne::stream::{BedrockStream, Client, Handshake, Play};
+use jolyne::stream::{BedrockStream, Client, Handshake, Play, ResourcePackBundle};
 use valentine::bedrock::{
     codec::BedrockCodec,
     version::v1_26_30::{McpePacketData, McpePacketName, WindowId},
@@ -175,6 +175,11 @@ impl<T: Transport> PlaySession<T> {
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_delivery: None,
         }
+    }
+
+    /// Takes the verified server resource-pack stack collected during login.
+    pub fn take_resource_packs(&mut self) -> ResourcePackBundle {
+        self.stream.take_resource_packs()
     }
 
     /// Skips a well-formed but semantically unusable world packet instead of

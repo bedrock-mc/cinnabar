@@ -295,11 +295,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
+    eprintln!("{}", loaded_assets.language.startup_summary());
+    eprintln!("{}", loaded_assets.textures.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
+    let texture_catalog = loaded_assets.textures.into_runtime();
     let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
     let font_runtime = loaded_assets.fonts.into_runtime();
+    let language_runtime = loaded_assets.language.into_runtime();
+    let mut ui_runtime = UiRuntime::new(0);
+    ui_runtime.install_base_translations(language_runtime.translations());
     let ui_presentation = UiPresentationRuntime::with_hud(font_runtime, hud_assets.into_runtime())
         .context("prepare bounded font and HUD texture array for UI rendering")?;
     eprintln!(
@@ -400,11 +406,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(present_mode_runtime)
         .insert_resource(network)
-        .insert_resource(ClientWorld::new_with_entity_assets(
-            Arc::clone(&runtime_assets),
-            entity_runtime,
-        ))
-        .insert_resource(UiRuntime::new(0))
+        .insert_resource(
+            ClientWorld::new_with_entity_assets(Arc::clone(&runtime_assets), entity_runtime)
+                .with_texture_catalog(texture_catalog),
+        )
+        .insert_resource(ui_runtime)
         .insert_resource(ui_presentation)
         .insert_resource(WorldClock::default())
         .insert_resource(WeatherState::default())

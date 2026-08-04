@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::str;
 
 use sha2::{Digest, Sha256};
@@ -98,6 +99,74 @@ impl CompiledFontCatalog {
             .binary_search_by_key(&codepoint, |glyph| glyph.codepoint)
             .ok()
             .map(|index| &self.glyphs[index])
+    }
+
+    /// Merges a server overlay over this catalog. Entries from the overlay
+    /// replace base glyph records with the same codepoint; all other base
+    /// glyphs remain available as fallback. The returned catalog is rebuilt
+    /// through the same bounded carrier validator as the startup catalog.
+    pub fn merge_overlay(&self, overlay: &CompiledFontCatalog) -> Result<Self, FontCatalogError> {
+        let mut pages = self.pages.to_vec();
+        pages.extend(overlay.pages.iter().cloned());
+        pages.sort_by(|left, right| {
+            left.source_path
+                .cmp(&right.source_path)
+                .then_with(|| left.source_sha256.cmp(&right.source_sha256))
+        });
+        let mut deduplicated: Vec<FontTexturePage> = Vec::with_capacity(pages.len());
+        for page in pages {
+            if let Some(previous) = deduplicated.last()
+                && previous.source_path == page.source_path
+                && previous.source_sha256 == page.source_sha256
+            {
+                if previous.pixels_sha256 != page.pixels_sha256 || previous.rgba8 != page.rgba8 {
+                    return Err(invalid_catalog(
+                        "font pages with the same source identity disagree",
+                    ));
+                }
+                continue;
+            }
+            deduplicated.push(page);
+        }
+
+        let mut glyphs = BTreeMap::new();
+        for glyph in self.glyphs.iter().copied() {
+            glyphs.insert(glyph.codepoint, (self, glyph));
+        }
+        for glyph in overlay.glyphs.iter().copied() {
+            glyphs.insert(glyph.codepoint, (overlay, glyph));
+        }
+
+        let mut merged_glyphs = Vec::with_capacity(glyphs.len());
+        for (codepoint, (catalog, glyph)) in glyphs {
+            let source_page = catalog
+                .pages
+                .get(usize::from(glyph.page))
+                .ok_or_else(|| invalid_catalog("font glyph references an absent source page"))?;
+            let page = deduplicated
+                .binary_search_by(|candidate| {
+                    candidate
+                        .source_path
+                        .cmp(&source_page.source_path)
+                        .then_with(|| candidate.source_sha256.cmp(&source_page.source_sha256))
+                })
+                .map_err(|_| invalid_catalog("font glyph source page was not retained"))?;
+            merged_glyphs.push(GlyphMetrics {
+                codepoint,
+                page: u16::try_from(page)
+                    .map_err(|_| invalid_catalog("merged font page index overflow"))?,
+                uv: glyph.uv,
+                bearing: glyph.bearing,
+                advance_64: glyph.advance_64,
+            });
+        }
+
+        let bytes = encode_font_catalog(
+            self.identity.source_manifest_sha256,
+            &merged_glyphs,
+            &deduplicated,
+        )?;
+        Self::decode(&bytes, self.identity.source_manifest_sha256)
     }
 }
 

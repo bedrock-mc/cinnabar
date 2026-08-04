@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use assets::{RuntimeAssets, RuntimeEntityAssets};
+use assets::{RuntimeAssets, RuntimeEntityAssets, RuntimeTextureCatalog};
 use bevy::{
     app::AppExit,
     ecs::system::SystemParam,
@@ -71,7 +71,9 @@ pub(crate) struct WorldStreamFramePoll {
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
+    pub(crate) base_runtime_assets: Arc<RuntimeAssets>,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
+    pub(crate) texture_catalog: Option<Arc<RuntimeTextureCatalog>>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
@@ -202,7 +204,9 @@ impl ClientWorld {
     pub(crate) fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
+            base_runtime_assets: Arc::clone(&runtime_assets),
             runtime_assets,
+            texture_catalog: None,
             entity_assets: None,
             pending_surface_spawn: None,
             fatal_error: None,
@@ -221,6 +225,14 @@ impl ClientWorld {
             entity_assets: Some(entity_assets),
             ..Self::new(runtime_assets)
         }
+    }
+
+    pub(crate) fn with_texture_catalog(
+        mut self,
+        texture_catalog: Option<Arc<RuntimeTextureCatalog>>,
+    ) -> Self {
+        self.texture_catalog = texture_catalog;
+        self
     }
 }
 

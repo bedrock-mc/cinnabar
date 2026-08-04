@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog};
+use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, ServerResourcePackCatalog};
 use bevy::{
     prelude::{Query, Res, ResMut, Resource, Time, With},
     time::Real,
@@ -28,11 +28,16 @@ use crate::{
 };
 
 mod chat;
+mod font_textures;
+mod item_textures;
+mod resource_packs;
 mod retained_hud;
 mod startup;
 mod survival_hud;
 
 use chat::visible_suggestion_range;
+use font_textures::font_texture_array;
+use item_textures::{ITEM_ATLAS_SIDE, ItemTexturePages, pack_item_icons};
 use retained_hud::{
     PresentedScoreboardCache, ScoreboardOpacityAuthority, ScoreboardOwnerNameAuthority,
 };
@@ -130,6 +135,7 @@ impl TextMetrics {
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
+    ResourcePack(assets::ServerResourcePackError),
     Geometry(ui::GeometryError),
     Text(ui::TextError),
     Tree(ui::UiError),
@@ -147,10 +153,13 @@ impl std::error::Error for UiPresentationError {}
 
 #[derive(Resource)]
 pub struct UiPresentationRuntime {
+    base_font: Arc<RuntimeFontCatalog>,
     font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     solid_texture_page: u16,
+    hud_catalog: Option<Arc<RuntimeHudCatalog>>,
     hud_textures: Option<HudTexturePages>,
+    item_textures: Option<ItemTexturePages>,
     layouts: TextLayoutCache,
     revision: u64,
     scoreboard: PresentedScoreboardCache,
@@ -178,17 +187,21 @@ impl UiPresentationRuntime {
         font: Arc<RuntimeFontCatalog>,
         hud: Option<Arc<RuntimeHudCatalog>>,
     ) -> Result<Self, UiPresentationError> {
-        let (textures, solid_texture_page, hud_textures) = if let Some(hud) = hud.as_deref() {
-            font_texture_array_with_optional_hud(&font, Some(hud))?
+        let hud_catalog = hud.clone();
+        let (textures, solid_texture_page, hud_textures, item_textures) = if let Some(hud) = hud {
+            font_texture_array_with_optional_hud(&font, Some(&hud), None)?
         } else {
             let (textures, solid_texture_page) = font_texture_array(&font)?;
-            (textures, solid_texture_page, None)
+            (textures, solid_texture_page, None, None)
         };
         Ok(Self {
+            base_font: Arc::clone(&font),
             font,
             textures: Arc::new(textures),
             solid_texture_page,
+            hud_catalog,
             hud_textures,
+            item_textures,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             scoreboard: PresentedScoreboardCache::default(),
@@ -199,6 +212,17 @@ impl UiPresentationRuntime {
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
+    }
+
+    pub(crate) fn install_resource_packs(
+        &mut self,
+        bundle: &protocol::ResourcePackBundle,
+    ) -> Result<ServerResourcePackCatalog, UiPresentationError> {
+        resource_packs::install_resource_packs(self, bundle)
+    }
+
+    pub(crate) fn reset_resource_packs(&mut self) -> Result<(), UiPresentationError> {
+        resource_packs::reset_resource_packs(self)
     }
 
     pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
@@ -239,6 +263,7 @@ impl UiPresentationRuntime {
                 logical_height,
                 hud_textures,
                 geometry,
+                self.item_textures.as_ref(),
             )?;
         }
 
@@ -696,7 +721,16 @@ impl HudTexturePages {
 fn font_texture_array_with_optional_hud(
     font: &RuntimeFontCatalog,
     hud: Option<&RuntimeHudCatalog>,
-) -> Result<(UiRenderTextureArray, u16, Option<HudTexturePages>), UiPresentationError> {
+    resource_pack: Option<&ServerResourcePackCatalog>,
+) -> Result<
+    (
+        UiRenderTextureArray,
+        u16,
+        Option<HudTexturePages>,
+        Option<ItemTexturePages>,
+    ),
+    UiPresentationError,
+> {
     let mut width = font
         .pages()
         .iter()
@@ -713,6 +747,11 @@ fn font_texture_array_with_optional_hud(
         width = width.max(VANILLA_HUD_ATLAS_SIDE);
         height = height.max(VANILLA_HUD_ATLAS_SIDE);
     }
+    let item_atlas = resource_pack.and_then(pack_item_icons);
+    if item_atlas.is_some() {
+        width = width.max(ITEM_ATLAS_SIDE);
+        height = height.max(ITEM_ATLAS_SIDE);
+    }
     let font_layers =
         u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     if font_layers >= MAX_UI_TEXTURE_LAYERS {
@@ -721,9 +760,11 @@ fn font_texture_array_with_optional_hud(
     let solid_texture_page =
         u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     let hud_layers = u32::from(hud.is_some());
+    let item_layers = u32::from(item_atlas.is_some());
     let layers = font_layers
         .checked_add(1)
         .and_then(|layers| layers.checked_add(hud_layers))
+        .and_then(|layers| layers.checked_add(item_layers))
         .filter(|layers| *layers <= MAX_UI_TEXTURE_LAYERS)
         .ok_or(UiPresentationError::InvalidFontTexture)?;
     let layer_bytes = usize::try_from(width)
@@ -839,12 +880,45 @@ fn font_texture_array_with_optional_hud(
     } else {
         None
     };
+    let item_textures = item_atlas
+        .map(|(pixels, sprites)| {
+            let page = solid_texture_page
+                .checked_add(u16::from(hud.is_some()))
+                .and_then(|page| page.checked_add(1))
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let layer_start = usize::from(page) * layer_bytes;
+            let layer_end = layer_start
+                .checked_add(pixels.len())
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            if layer_end > rgba8.len() {
+                return Err(UiPresentationError::InvalidFontTexture);
+            }
+            rgba8[layer_start..layer_end].copy_from_slice(&pixels);
+            Ok(ItemTexturePages { page, sprites })
+        })
+        .transpose()?;
     let texture_identity = if let Some(hud) = hud {
         let mut identity = Sha256::new();
         identity.update(font.identity().carrier_sha256);
         identity.update(hud.source_manifest_sha256());
         for texture in hud.textures() {
             identity.update(texture.pixels_sha256);
+        }
+        if let Some(resource_pack) = resource_pack {
+            for icon in resource_pack.item_icons() {
+                identity.update(icon.identifier().as_bytes());
+                identity.update(icon.metadata().to_le_bytes());
+                identity.update(icon.rgba8());
+            }
+        }
+        identity.finalize().into()
+    } else if let Some(resource_pack) = resource_pack {
+        let mut identity = Sha256::new();
+        identity.update(font.identity().carrier_sha256);
+        for icon in resource_pack.item_icons() {
+            identity.update(icon.identifier().as_bytes());
+            identity.update(icon.metadata().to_le_bytes());
+            identity.update(icon.rgba8());
         }
         identity.finalize().into()
     } else {
@@ -860,66 +934,7 @@ fn font_texture_array_with_optional_hud(
         },
         solid_texture_page,
         hud_textures,
-    ))
-}
-
-fn font_texture_array(
-    font: &RuntimeFontCatalog,
-) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
-    let width = font
-        .pages()
-        .iter()
-        .map(|page| page.width)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let height = font
-        .pages()
-        .iter()
-        .map(|page| page.height)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let font_layers =
-        u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    if font_layers >= MAX_UI_TEXTURE_LAYERS {
-        return Err(UiPresentationError::InvalidFontTexture);
-    }
-    let solid_texture_page =
-        u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    let layers = font_layers
-        .checked_add(1)
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let layer_bytes = usize::try_from(width)
-        .ok()
-        .and_then(|width| width.checked_mul(height as usize))
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let total_bytes = layer_bytes
-        .checked_mul(layers as usize)
-        .filter(|bytes| *bytes <= MAX_UI_TEXTURE_BYTES)
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let mut rgba8 = vec![0; total_bytes];
-    for (layer, page) in font.pages().iter().enumerate() {
-        let page_width = page.width as usize;
-        let page_height = page.height as usize;
-        for row in 0..page_height {
-            let source_start = row * page_width * 4;
-            let source_end = source_start + page_width * 4;
-            let target_start = layer * layer_bytes + row * width as usize * 4;
-            rgba8[target_start..target_start + page_width * 4]
-                .copy_from_slice(&page.rgba8[source_start..source_end]);
-        }
-    }
-    let solid_start = usize::from(solid_texture_page) * layer_bytes;
-    rgba8[solid_start..solid_start + layer_bytes].fill(255);
-    Ok((
-        UiRenderTextureArray {
-            identity: font.identity().carrier_sha256,
-            width,
-            height,
-            layers,
-            rgba8: rgba8.into(),
-        },
-        solid_texture_page,
+        item_textures,
     ))
 }
 

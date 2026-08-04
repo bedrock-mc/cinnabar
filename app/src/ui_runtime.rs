@@ -4,9 +4,12 @@ pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
 pub mod inventory_router;
+mod items;
 pub mod presentation;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod titles;
+mod translations;
 
 pub use interaction::FastTransferAction;
 pub use interaction::{ChatFlushError, flush_chat_sends};
@@ -19,14 +22,14 @@ pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
 };
 
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::BTreeMap, collections::VecDeque, sync::Arc};
 
 use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatPacketError, CommandOutputEvent, EquipmentEvent, HudEvent, InventoryAuthority,
-    InventoryEvent, Packet, PlayerGameMode, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
-    chat_input_packet,
+    InventoryEvent, NetworkItemStack, Packet, PlayerGameMode, TextEvent, TextKind, TitleEvent,
+    UiEvent, chat_input_packet,
 };
 use semantic_input::InputContext;
 use ui::{
@@ -34,7 +37,7 @@ use ui::{
     ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
     ChatHistory, ChatMessage, ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError,
     ChatSendQueue, ChatSendRequest, ChatStore, HudStore, MAX_CHAT_INPUT_BYTES,
-    RetainedUiSequenceError, ScoreboardStore, TitleDurations, Toast, UiAction,
+    RetainedUiSequenceError, ScoreboardStore, Toast, UiAction,
 };
 
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
@@ -182,6 +185,10 @@ pub struct UiRuntime {
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
+    item_registry: BTreeMap<i32, Arc<str>>,
+    hotbar: [NetworkItemStack; 9],
+    base_translations: Arc<BTreeMap<Box<str>, Box<str>>>,
+    translations: Arc<BTreeMap<Box<str>, Box<str>>>,
 }
 
 impl UiRuntime {
@@ -221,6 +228,10 @@ impl UiRuntime {
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
+            item_registry: BTreeMap::new(),
+            hotbar: std::array::from_fn(|_| NetworkItemStack::empty()),
+            base_translations: Arc::new(BTreeMap::new()),
+            translations: Arc::new(BTreeMap::new()),
         }
     }
 
@@ -262,17 +273,6 @@ impl UiRuntime {
         }
     }
 
-    pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
-        self.local_selected_equipment
-            .as_ref()
-            .map(|equipment| equipment.event.selected_slot)
-            .or_else(|| {
-                self.player_game_mode
-                    .filter(|game_mode| game_mode.shows_hotbar())
-                    .map(|_| 0)
-            })
-    }
-
     pub(crate) fn enqueue_inventory_event(
         &mut self,
         session_generation: u64,
@@ -298,6 +298,7 @@ impl UiRuntime {
                 maximum: MAX_PENDING_INVENTORY_EVENTS,
             });
         }
+        self.apply_inventory_visual_state(&event);
         self.pending_inventory.push_back(SequencedInventoryEvent {
             session_generation,
             fifo_sequence,
@@ -335,6 +336,12 @@ impl UiRuntime {
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) {
+        if event.window_id == 0
+            && let Ok(slot) = usize::try_from(event.inventory_slot)
+            && let Some(hotbar_slot) = self.hotbar.get_mut(slot)
+        {
+            *hotbar_slot = event.stack.clone();
+        }
         self.local_selected_equipment = Some(SequencedLocalEquipment {
             session_id: self.session_id,
             fifo_sequence,
@@ -619,6 +626,27 @@ impl UiRuntime {
         self.pending_inventory.clear();
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
+        self.item_registry.clear();
+        self.hotbar = std::array::from_fn(|_| NetworkItemStack::empty());
+        self.translations = Arc::clone(&self.base_translations);
+    }
+
+    pub(crate) fn install_base_translations(
+        &mut self,
+        translations: &BTreeMap<Box<str>, Box<str>>,
+    ) {
+        self.base_translations = Arc::new(translations.clone());
+        self.translations = Arc::clone(&self.base_translations);
+    }
+
+    pub(crate) fn install_translations(&mut self, translations: &BTreeMap<Box<str>, Box<str>>) {
+        let mut merged = (*self.base_translations).clone();
+        merged.extend(
+            translations
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        self.translations = Arc::new(merged);
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {
@@ -656,8 +684,14 @@ impl UiRuntime {
             UiEvent::CommandOutput(event) => {
                 self.apply_command_output(event, envelope.fifo_sequence, event_millis)?
             }
-            UiEvent::RawText(event) if event.document.has_unresolved_components() => {
-                UiApplyOutcome::IgnoredUnresolvedRawText
+            UiEvent::RawText(mut event) if event.document.has_unresolved_components() => {
+                match translations::resolve_raw_text(&self.translations, &event.document) {
+                    Some(message) => {
+                        event.text.message = message;
+                        self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
+                    }
+                    None => UiApplyOutcome::IgnoredUnresolvedRawText,
+                }
             }
             UiEvent::RawText(event) => {
                 self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
@@ -668,10 +702,27 @@ impl UiRuntime {
                     .as_ref()
                     .is_some_and(|document| document.has_unresolved_components()) =>
             {
-                UiApplyOutcome::IgnoredUnresolvedRawText
+                match event.document.as_ref().and_then(|document| {
+                    translations::resolve_raw_text(&self.translations, document)
+                }) {
+                    Some(message) => {
+                        titles::apply_title(
+                            self,
+                            TitleEvent {
+                                text: message,
+                                document: None,
+                                ..event
+                            },
+                            envelope.fifo_sequence,
+                            event_millis,
+                        )?;
+                        UiApplyOutcome::Applied
+                    }
+                    None => UiApplyOutcome::IgnoredUnresolvedRawText,
+                }
             }
             UiEvent::Title(event) => {
-                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
+                titles::apply_title(self, event, envelope.fifo_sequence, event_millis)?;
                 UiApplyOutcome::Applied
             }
             UiEvent::Hud(event) => {
@@ -851,12 +902,19 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<UiApplyOutcome, UiRuntimeError> {
+        let should_translate =
+            event.needs_translation || matches!(event.kind, TextKind::Translation);
+        let message = translations::resolve_translation(
+            &self.translations,
+            event.message,
+            event.parameters.as_ref(),
+            should_translate,
+        );
         if matches!(
             event.kind,
             TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip
         ) {
-            self.hud
-                .set_actionbar(event.message, fifo_sequence, event_millis);
+            self.hud.set_actionbar(message, fifo_sequence, event_millis);
             return Ok(UiApplyOutcome::Applied);
         }
         let kind = match event.kind {
@@ -872,8 +930,8 @@ impl UiRuntime {
             received_millis: event_millis,
             kind,
             source: event.source,
-            message: event.message,
-            parameters: event.parameters,
+            message,
+            parameters: Arc::from([]),
         }) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             result => Err(UiRuntimeError::ChatRejected(result)),
@@ -894,47 +952,19 @@ impl UiRuntime {
                 received_millis: event_millis,
                 kind: ChatMessageKind::Translation,
                 source: None,
-                message: Arc::clone(&message.message_id),
-                parameters: Arc::clone(&message.parameters),
+                message: translations::resolve_translation(
+                    &self.translations,
+                    Arc::clone(&message.message_id),
+                    message.parameters.as_ref(),
+                    true,
+                ),
+                parameters: Arc::from([]),
             })
             .collect();
         match self.chat.push_batch(messages) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             result => Err(UiRuntimeError::ChatRejected(result)),
         }
-    }
-
-    fn apply_title(
-        &mut self,
-        event: TitleEvent,
-        fifo_sequence: u64,
-        event_millis: u64,
-    ) -> Result<(), UiRuntimeError> {
-        match event.action {
-            TitleAction::Clear => self.hud.clear_titles(),
-            TitleAction::Reset => self.hud.reset_titles(),
-            TitleAction::SetTitle | TitleAction::SetTitleJson => {
-                self.hud.set_title(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::SetSubtitle | TitleAction::SetSubtitleJson => {
-                self.hud
-                    .set_subtitle(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::ActionBar | TitleAction::ActionBarJson => {
-                self.hud
-                    .set_actionbar(event.text, fifo_sequence, event_millis);
-            }
-            TitleAction::SetDurations => {
-                let durations = TitleDurations::from_wire(
-                    event.fade_in_ticks,
-                    event.stay_ticks,
-                    event.fade_out_ticks,
-                )
-                .ok_or(UiRuntimeError::InvalidTitleDurations)?;
-                self.hud.set_durations(durations);
-            }
-        }
-        Ok(())
     }
 
     fn apply_hud(
@@ -966,6 +996,5 @@ impl UiRuntime {
         Ok(())
     }
 }
-
 #[cfg(test)]
 mod tests;

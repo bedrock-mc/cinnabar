@@ -2,6 +2,7 @@ pub mod args;
 pub mod asset_startup;
 pub mod camera;
 mod environment;
+mod language_assets;
 pub mod local_player;
 pub mod metrics;
 pub mod movement;

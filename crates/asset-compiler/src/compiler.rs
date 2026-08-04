@@ -15,7 +15,7 @@ use assets::{
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
     Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
-    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
+    TextureArray, TexturePage, TextureRef, TextureSourceRoute, VisualKind, VisualSupport,
 };
 
 use crate::{
@@ -171,6 +171,120 @@ pub fn inspect_animation_inventory(
         },
     )?;
     Ok(plan.inventory)
+}
+
+/// Compiles the immutable terrain-key to texture-reference map used to apply
+/// server texture overrides to the existing runtime atlas.
+pub fn compile_texture_catalog(
+    root: &Path,
+    source_manifest_sha256: [u8; 32],
+) -> Result<Box<[u8]>, AssetError> {
+    let pack = read_pack(root)?;
+    let mut source_paths = pack
+        .terrain
+        .source_paths()
+        .chain(
+            pack.flipbooks
+                .iter()
+                .map(|flipbook| flipbook.texture_path.as_ref()),
+        )
+        .map(Box::<str>::from)
+        .collect::<BTreeSet<_>>();
+    let mut decoded_images = Vec::with_capacity(source_paths.len());
+    for source_path in std::mem::take(&mut source_paths) {
+        let path = static_texture_path(root, &source_path, &source_path)?;
+        if !path.try_exists().map_err(|source| AssetError::TextureIo {
+            key: source_path.clone(),
+            path: path.clone(),
+            source,
+        })? {
+            continue;
+        }
+        let decoded = decode_texture(&path, &source_path)?;
+        decoded_images.push(DecodedImage {
+            source_path,
+            width: decoded.width,
+            height: decoded.height,
+            rgba8: decoded.rgba8,
+        });
+    }
+    let plan = compile_animation_plan(
+        &pack,
+        &decoded_images,
+        AnimationLimits {
+            max_layers_per_page: MAX_TEXTURE_LAYERS as u32,
+            max_pages: 2,
+        },
+    )?;
+    let mut references_by_path = BTreeMap::<Box<str>, BTreeSet<TextureRef>>::new();
+    for (path, reference) in plan.static_refs.iter().chain(plan.strip_first_refs.iter()) {
+        references_by_path
+            .entry(path.clone())
+            .or_default()
+            .insert(*reference);
+    }
+    for animation in &plan.animations {
+        let start = animation.frame_start as usize;
+        let end = start.checked_add(animation.frame_count as usize).ok_or(
+            AssetError::BlobSizeOverflow {
+                section: "texture catalog animation route",
+            },
+        )?;
+        let frames = plan
+            .frames
+            .get(start..end)
+            .ok_or(AssetError::InvalidCompiledAssets {
+                detail: "texture catalog animation route exceeds the frame table".into(),
+            })?;
+        let references = references_by_path
+            .entry(animation.source_path.clone())
+            .or_default();
+        references.extend(frames.iter().copied());
+    }
+    let mut routes = Vec::new();
+    for (key, variant, path) in pack.terrain.source_routes() {
+        let Some(references) = references_by_path.get(path) else {
+            continue;
+        };
+        let animation_frames = pack
+            .flipbooks
+            .iter()
+            .filter(|flipbook| {
+                flipbook.atlas_tile.as_ref() == key
+                    && flipbook.atlas_tile_variant == variant
+                    && flipbook.texture_path.as_ref() == path
+            })
+            .filter(|flipbook| flipbook.atlas_index == 0)
+            .find_map(|flipbook| {
+                let animation = plan.animations.iter().find(|animation| {
+                    animation.atlas_tile.as_ref() == key
+                        && animation.atlas_tile_variant == variant
+                        && animation.atlas_index == 0
+                        && animation.source_path.as_ref() == path
+                })?;
+                let start = animation.frame_start as usize;
+                let end = start.checked_add(animation.frame_count as usize)?;
+                plan.frames
+                    .get(start..end)
+                    .map(|frames| frames.to_vec().into_boxed_slice())
+            })
+            .unwrap_or_default();
+        routes.push(TextureSourceRoute::new(
+            key,
+            variant,
+            path,
+            references.iter().copied().collect::<Vec<_>>(),
+        )
+        .with_animation_frames(animation_frames));
+    }
+    routes.sort_by(|left, right| {
+        (left.key(), left.variant(), left.path()).cmp(&(right.key(), right.variant(), right.path()))
+    });
+    assets::encode_texture_catalog(source_manifest_sha256, &routes).map_err(|error| {
+        AssetError::InvalidCompiledAssets {
+            detail: format!("encode texture catalog: {error}").into_boxed_str(),
+        }
+    })
 }
 
 fn compile_pack_inner(

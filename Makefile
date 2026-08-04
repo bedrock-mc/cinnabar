@@ -35,6 +35,10 @@ FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont
 FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json
 LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
+LANGUAGE_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbclang
+LANGUAGE_ASSET_REPORT ?= .local/assets/compiled/language-assets.json
+TEXTURE_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbetex
+TEXTURE_ASSET_REPORT ?= .local/assets/compiled/texture-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
 HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
 HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
@@ -54,6 +58,8 @@ ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atm
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
+LANGUAGE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- language-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANGUAGE_ASSET_BLOB)" --report "$(LANGUAGE_ASSET_REPORT)"
+TEXTURE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- texture-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(TEXTURE_ASSET_BLOB)" --report "$(TEXTURE_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
@@ -65,7 +71,7 @@ VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
 RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
-.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local language-assets texture-assets hud-assets hud-assets-local physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -76,6 +82,8 @@ help:
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make font-assets     - Fetch and compile the pinned open-licensed Monocraft UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
+	@echo make language-assets - Compile the pinned vanilla en_US translation catalog
+	@echo make texture-assets - Compile the pinned terrain texture route catalog
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
@@ -92,7 +100,7 @@ help:
 
 vanilla-assets: $(PACK_SENTINEL)
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(LANGUAGE_ASSET_BLOB) $(LANGUAGE_ASSET_REPORT) $(TEXTURE_ASSET_BLOB) $(TEXTURE_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
@@ -102,6 +110,10 @@ font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
 
 font-assets-local:
 	$(LOCAL_FONT_ASSET_COMPILE)
+
+language-assets: $(LANGUAGE_ASSET_BLOB) $(LANGUAGE_ASSET_REPORT)
+
+texture-assets: $(TEXTURE_ASSET_BLOB) $(TEXTURE_ASSET_REPORT)
 
 hud-assets: $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT)
 
@@ -147,6 +159,18 @@ $(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FON
 
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
 	$(RUN_IF_ASSET_REPORT_STALE) || $(FONT_ASSET_COMPILE)
+
+$(LANGUAGE_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+	$(LANGUAGE_ASSET_COMPILE)
+
+$(LANGUAGE_ASSET_REPORT): $(LANGUAGE_ASSET_BLOB)
+	$(RUN_IF_ASSET_REPORT_STALE) || $(LANGUAGE_ASSET_COMPILE)
+
+$(TEXTURE_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+	$(TEXTURE_ASSET_COMPILE)
+
+$(TEXTURE_ASSET_REPORT): $(TEXTURE_ASSET_BLOB)
+	$(RUN_IF_ASSET_REPORT_STALE) || $(TEXTURE_ASSET_COMPILE)
 
 $(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)
 	$(HUD_ASSET_COMPILE)

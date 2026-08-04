@@ -1,5 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
@@ -23,14 +24,16 @@ use crate::raw::{MAX_RAW_BATCH_PACKETS, RawPacket};
 #[cfg(feature = "raknet")]
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
-    BedrockStream, Client, Handshake, Login, Play, ResourcePacks, SecurePending, StartGame,
+    BedrockStream, Client, Handshake, Login, Play, ResourcePackBundle, ResourcePacks,
+    SecurePending, ServerResourcePack, StartGame,
     transport::{BedrockTransport, Transport},
 };
 use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
     ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, LoginPacket,
     PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
+    ResourcePackChunkDataPacket, ResourcePackChunkRequestPacket, ResourcePackClientResponsePacket,
+    ResourcePackClientResponsePacketResponseStatus, ResourcePackDataInfoPacket,
     ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, StartGamePacket,
 };
 use crate::valentine::{
@@ -38,7 +41,13 @@ use crate::valentine::{
 };
 
 const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const RESOURCE_PACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RESOURCE_PACKS: usize = 32;
+const MAX_RESOURCE_PACK_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_RESOURCE_PACK_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_RESOURCE_PACK_CHUNK_BYTES: u32 = 1024 * 1024;
+const MAX_RESOURCE_PACK_CHUNKS: u32 = 4096;
 const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
     ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),
     ("b41c2785-c512-4a49-af56-3a87afd47c57", "1.21.30"),
@@ -777,7 +786,7 @@ mod tests {
         transport.set_max_decompressed_batch_size(Some(16 * 1024 * 1024));
         BedrockStream {
             transport,
-            state: StartGame,
+            state: StartGame::default(),
             _role: PhantomData,
         }
     }
@@ -1144,116 +1153,367 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             }
         };
 
-        // Extract pack info for logging
-        if let McpePacketData::PacketResourcePacksInfo(ref info) = info_pkt.data {
-            tracing::debug!(
-                "ResourcePacksInfo: must_accept={}, texture_packs={}",
-                info.must_accept,
-                info.texture_packs.len()
-            );
-            for pack in &info.texture_packs {
-                tracing::debug!("  Pack: {} v{}", pack.uuid, pack.version);
-            }
-
-            if !info.texture_packs.is_empty() {
-                return Err(ProtocolError::UnexpectedHandshake(
-                    "Resource pack downloads are not implemented".into(),
-                )
-                .into());
-            }
-        } else {
+        let McpePacketData::PacketResourcePacksInfo(info) = info_pkt.data else {
             return Err(
                 ProtocolError::UnexpectedHandshake("Expected ResourcePacksInfo".into()).into(),
             );
-        }
-
-        // For now, claim we have all packs (don't download any)
-        // This is equivalent to gophertunnel's "AllPacksDownloaded" response
-        tracing::debug!("Sending HaveAllPacks response...");
-        let resp = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
-            resourcepackids: vec![],
         };
-        self.transport.send_batch(&[McpePacket::from(resp)]).await?;
-
-        // Wait for ResourcePackStack
-        tracing::debug!("Waiting for ResourcePackStack...");
-        let stack_raw = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.transport.recv_packet_raw(),
-        )
-        .await
-        .map_err(|_| {
-            ProtocolError::UnexpectedHandshake("Timeout waiting for ResourcePackStack".into())
-        })??;
-        let stack_pkt = match stack_raw.id {
-            McpePacketName::PacketResourcePackStack => stack_raw.decode(&self.transport.session)?,
-            McpePacketName::PacketDisconnect => {
-                let packet = stack_raw.decode(&self.transport.session)?;
-                let McpePacketData::PacketDisconnect(disconnect) = packet.data else {
-                    unreachable!("packet ID and decoded variant must agree")
-                };
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Server disconnected during resource packs: {:?}",
-                    disconnect.reason
-                ))
-                .into());
-            }
-            other => {
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Expected ResourcePackStack, got {other:?}"
-                ))
-                .into());
-            }
-        };
-
-        if let McpePacketData::PacketResourcePackStack(ref stack) = stack_pkt.data {
-            tracing::debug!(
-                "ResourcePackStack: must_accept={}, game_version={}, resource_packs={}",
-                stack.must_accept,
-                stack.game_version,
-                stack.resource_packs.len()
-            );
-            for pack in &stack.resource_packs {
-                tracing::debug!("  Stack pack: {} v{}", pack.uuid, pack.version);
-            }
-            if let Some(pack) = stack
-                .resource_packs
-                .iter()
-                .find(|pack| !is_exempted_resource_pack(&pack.uuid, &pack.version))
-            {
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Resource pack downloads are not implemented for {}_{}",
-                    pack.uuid, pack.version
-                ))
-                .into());
-            }
-        } else {
+        if info.texture_packs.len() > MAX_RESOURCE_PACKS {
             return Err(ProtocolError::UnexpectedHandshake(format!(
-                "Expected ResourcePackStack, got {:?}",
-                stack_pkt.data.packet_id()
+                "server advertised {} resource packs, limit is {MAX_RESOURCE_PACKS}",
+                info.texture_packs.len()
             ))
             .into());
         }
 
-        // Send Completed to finish resource pack negotiation
-        tracing::debug!("Sending Completed response...");
-        let complete = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponseStatus::Completed,
-            resourcepackids: vec![],
-        };
-        self.transport
-            .send_batch(&[McpePacket::from(complete)])
+        tracing::debug!(
+            must_accept = info.must_accept,
+            texture_packs = info.texture_packs.len(),
+            "received resource pack manifest"
+        );
+        let mut advertised = HashMap::with_capacity(info.texture_packs.len());
+        let mut requested = Vec::with_capacity(info.texture_packs.len());
+        for pack in &info.texture_packs {
+            let uuid = pack.uuid.to_string();
+            let key = resource_pack_key(&uuid, &pack.version);
+            if advertised
+                .insert(
+                    key.clone(),
+                    AdvertisedResourcePack {
+                        uuid: uuid.clone(),
+                        version: pack.version.clone(),
+                        size: pack.size,
+                        content_key: pack.content_key.clone(),
+                    },
+                )
+                .is_some()
+            {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "duplicate resource pack {key}"
+                ))
+                .into());
+            }
+            if !is_exempted_resource_pack(&uuid, &pack.version) {
+                requested.push(key);
+            }
+        }
+
+        let mut downloaded = HashMap::with_capacity(requested.len());
+        if requested.is_empty() {
+            self.send_resource_pack_response(
+                ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
+                Vec::new(),
+            )
+            .await?;
+        } else {
+            self.send_resource_pack_response(
+                ResourcePackClientResponsePacketResponseStatus::SendPacks,
+                requested.clone(),
+            )
             .await?;
 
-        tracing::debug!("Resource packs negotiated successfully");
+            let mut total_bytes = 0u64;
+            for key in requested {
+                let metadata = advertised.get(&key).ok_or_else(|| {
+                    ProtocolError::UnexpectedHandshake(format!(
+                        "resource pack request has no advertised metadata: {key}"
+                    ))
+                })?;
+                let data_info_pkt = self
+                    .receive_pack_packet(
+                        McpePacketName::PacketResourcePackDataInfo,
+                        "ResourcePackDataInfo",
+                    )
+                    .await?;
+                let McpePacketData::PacketResourcePackDataInfo(data_info) = data_info_pkt.data
+                else {
+                    unreachable!("packet ID and decoded variant must agree")
+                };
+                let data_info = *data_info;
+                validate_resource_pack_data_info(&key, metadata, &data_info, total_bytes)?;
+                total_bytes = total_bytes.saturating_add(data_info.size);
+
+                let mut bytes = Vec::with_capacity(data_info.size as usize);
+                for chunk_index in 0..data_info.chunk_count {
+                    self.transport
+                        .send_batch(&[McpePacket::from(ResourcePackChunkRequestPacket {
+                            pack_id: data_info.pack_id.clone(),
+                            chunk_index,
+                        })])
+                        .await?;
+                    let chunk_pkt = self
+                        .receive_pack_packet(
+                            McpePacketName::PacketResourcePackChunkData,
+                            "ResourcePackChunkData",
+                        )
+                        .await?;
+                    let McpePacketData::PacketResourcePackChunkData(chunk) = chunk_pkt.data else {
+                        unreachable!("packet ID and decoded variant must agree")
+                    };
+                    append_resource_pack_chunk(&key, &data_info, *chunk, chunk_index, &mut bytes)?;
+                }
+                if bytes.len() as u64 != data_info.size {
+                    return Err(ProtocolError::UnexpectedHandshake(format!(
+                        "resource pack {key} ended at {} bytes, expected {}",
+                        bytes.len(),
+                        data_info.size
+                    ))
+                    .into());
+                }
+                let digest = Sha256::digest(&bytes);
+                if digest.as_slice() != data_info.hash.as_slice() {
+                    return Err(ProtocolError::UnexpectedHandshake(format!(
+                        "resource pack {key} failed SHA-256 verification"
+                    ))
+                    .into());
+                }
+                downloaded.insert(
+                    key,
+                    ServerResourcePack {
+                        uuid: metadata.uuid.clone().into_boxed_str(),
+                        version: metadata.version.clone().into_boxed_str(),
+                        name: "".into(),
+                        content_key: metadata.content_key.clone().into_boxed_str(),
+                        bytes: bytes.into_boxed_slice(),
+                    },
+                );
+            }
+            self.send_resource_pack_response(
+                ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
+                Vec::new(),
+            )
+            .await?;
+        }
+
+        let stack_pkt = self
+            .receive_pack_packet(McpePacketName::PacketResourcePackStack, "ResourcePackStack")
+            .await?;
+        let McpePacketData::PacketResourcePackStack(stack) = stack_pkt.data else {
+            unreachable!("packet ID and decoded variant must agree")
+        };
+        if stack.resource_packs.len() > MAX_RESOURCE_PACKS {
+            return Err(ProtocolError::UnexpectedHandshake(format!(
+                "server selected {} resource packs, limit is {MAX_RESOURCE_PACKS}",
+                stack.resource_packs.len()
+            ))
+            .into());
+        }
+
+        let must_accept = info.must_accept || stack.must_accept;
+        let mut selected = Vec::with_capacity(stack.resource_packs.len());
+        let mut selected_keys = HashSet::with_capacity(stack.resource_packs.len());
+        for pack in stack.resource_packs {
+            let key = resource_pack_key(&pack.uuid, &pack.version);
+            if !selected_keys.insert(key.clone()) {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "resource pack stack contains duplicate {key}"
+                ))
+                .into());
+            }
+            if is_exempted_resource_pack(&pack.uuid, &pack.version) {
+                continue;
+            }
+            if let Some(mut downloaded_pack) = downloaded.remove(&key) {
+                downloaded_pack.name = pack.name.into_boxed_str();
+                selected.push(downloaded_pack);
+            } else if must_accept {
+                return Err(ProtocolError::UnexpectedHandshake(format!(
+                    "required resource pack {key} was not downloaded"
+                ))
+                .into());
+            } else {
+                tracing::warn!(pack = %key, "skipping unavailable optional resource pack");
+            }
+        }
+
+        self.send_resource_pack_response(
+            ResourcePackClientResponsePacketResponseStatus::Completed,
+            Vec::new(),
+        )
+        .await?;
+
+        tracing::debug!(
+            packs = selected.len(),
+            "resource packs negotiated successfully"
+        );
 
         Ok(BedrockStream {
             transport: self.transport,
-            state: StartGame,
+            state: StartGame {
+                resource_packs: ResourcePackBundle::from_packs(must_accept, selected),
+            },
             _role: PhantomData,
         })
     }
+
+    async fn receive_pack_packet(
+        &mut self,
+        expected: McpePacketName,
+        label: &str,
+    ) -> Result<McpePacket, JolyneError> {
+        let raw = tokio::time::timeout(RESOURCE_PACK_TIMEOUT, self.transport.recv_packet_raw())
+            .await
+            .map_err(|_| {
+                ProtocolError::UnexpectedHandshake(format!("Timeout waiting for {label}"))
+            })??;
+        match raw.id {
+            packet_id if packet_id == expected => raw.decode(&self.transport.session),
+            McpePacketName::PacketDisconnect => {
+                let packet = raw.decode(&self.transport.session)?;
+                let McpePacketData::PacketDisconnect(disconnect) = packet.data else {
+                    unreachable!("packet ID and decoded variant must agree")
+                };
+                Err(ProtocolError::UnexpectedHandshake(format!(
+                    "Server disconnected during resource packs: {:?}",
+                    disconnect.reason
+                ))
+                .into())
+            }
+            other => Err(ProtocolError::UnexpectedHandshake(format!(
+                "Expected {label}, got {other:?}"
+            ))
+            .into()),
+        }
+    }
+
+    async fn send_resource_pack_response(
+        &mut self,
+        response_status: ResourcePackClientResponsePacketResponseStatus,
+        resourcepackids: Vec<String>,
+    ) -> Result<(), JolyneError> {
+        self.transport
+            .send_batch(&[McpePacket::from(ResourcePackClientResponsePacket {
+                response_status,
+                resourcepackids,
+            })])
+            .await
+    }
+}
+
+struct AdvertisedResourcePack {
+    uuid: String,
+    version: String,
+    size: u64,
+    content_key: String,
+}
+
+fn resource_pack_key(uuid: &str, version: &str) -> String {
+    format!("{uuid}_{version}")
+}
+
+fn validate_resource_pack_data_info(
+    key: &str,
+    advertised: &AdvertisedResourcePack,
+    data_info: &ResourcePackDataInfoPacket,
+    current_total: u64,
+) -> Result<(), JolyneError> {
+    if data_info.pack_id != key {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack data info identified {} while requesting {key}",
+            data_info.pack_id
+        ))
+        .into());
+    }
+    if advertised.size != 0 && advertised.size != data_info.size {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} advertised as {} bytes but data info says {}",
+            advertised.size, data_info.size
+        ))
+        .into());
+    }
+    if data_info.size == 0 || data_info.size > MAX_RESOURCE_PACK_BYTES {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} has unsupported size {}",
+            data_info.size
+        ))
+        .into());
+    }
+    if current_total.saturating_add(data_info.size) > MAX_RESOURCE_PACK_TOTAL_BYTES {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack set exceeds {} byte limit",
+            MAX_RESOURCE_PACK_TOTAL_BYTES
+        ))
+        .into());
+    }
+    if data_info.max_chunk_size == 0
+        || data_info.max_chunk_size > MAX_RESOURCE_PACK_CHUNK_BYTES
+        || data_info.chunk_count == 0
+        || data_info.chunk_count > MAX_RESOURCE_PACK_CHUNKS
+    {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} has invalid chunk metadata ({}, {}, {})",
+            data_info.max_chunk_size, data_info.chunk_count, data_info.size
+        ))
+        .into());
+    }
+    let expected_chunks = data_info
+        .size
+        .saturating_add(u64::from(data_info.max_chunk_size) - 1)
+        / u64::from(data_info.max_chunk_size);
+    if expected_chunks != u64::from(data_info.chunk_count) {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} has {} chunks for {} bytes at {} bytes/chunk; expected {}",
+            data_info.chunk_count, data_info.size, data_info.max_chunk_size, expected_chunks
+        ))
+        .into());
+    }
+    if data_info.hash.len() != 32 {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} has a {} byte hash",
+            data_info.hash.len()
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn append_resource_pack_chunk(
+    key: &str,
+    data_info: &ResourcePackDataInfoPacket,
+    chunk: ResourcePackChunkDataPacket,
+    expected_index: u32,
+    bytes: &mut Vec<u8>,
+) -> Result<(), JolyneError> {
+    if chunk.pack_id != data_info.pack_id || chunk.chunk_index != expected_index {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} returned unexpected chunk {} for {}",
+            chunk.chunk_index, expected_index
+        ))
+        .into());
+    }
+    if chunk.payload.len() > data_info.max_chunk_size as usize {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} chunk {} exceeds advertised chunk size",
+            expected_index
+        ))
+        .into());
+    }
+    let expected_progress = bytes.len() as u64;
+    if chunk.progress != expected_progress {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} chunk {} reports offset {}, expected {}",
+            expected_index, chunk.progress, expected_progress
+        ))
+        .into());
+    }
+    let expected_payload = usize::try_from(
+        data_info
+            .size
+            .saturating_sub(expected_progress)
+            .min(u64::from(data_info.max_chunk_size)),
+    )
+    .unwrap_or(usize::MAX);
+    if chunk.payload.len() != expected_payload {
+        return Err(ProtocolError::UnexpectedHandshake(format!(
+            "resource pack {key} chunk {} has {} bytes, expected {}",
+            expected_index,
+            chunk.payload.len(),
+            expected_payload
+        ))
+        .into());
+    }
+    bytes.extend_from_slice(&chunk.payload);
+    Ok(())
 }
 
 // --- State: StartGame ---
@@ -1435,7 +1695,9 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
         Ok((
             BedrockStream {
                 transport: self.transport,
-                state: Play,
+                state: Play {
+                    resource_packs: self.state.resource_packs,
+                },
                 _role: PhantomData,
             },
             game_data,
@@ -1446,6 +1708,11 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 // --- State: Play ---
 
 impl<T: Transport> BedrockStream<Play, Client, T> {
+    /// Takes the verified server resource-pack stack collected during login.
+    pub fn take_resource_packs(&mut self) -> ResourcePackBundle {
+        std::mem::take(&mut self.state.resource_packs)
+    }
+
     /// Receive the next packet with only its header decoded.
     #[instrument(skip_all, level = "trace")]
     pub async fn recv_packet_raw(&mut self) -> Result<RawPacket, JolyneError> {

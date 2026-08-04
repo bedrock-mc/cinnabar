@@ -1,7 +1,7 @@
 use assets::HudTextureRole;
 use ui::{BoundedStat, UiNode, UiNodeId, UiVisual};
 
-use super::{HudTexturePages, UiPresentationError, UiRuntime, rect};
+use super::{HudTexturePages, ItemTexturePages, UiPresentationError, UiRuntime, rect};
 
 const VANILLA_SURVIVAL_POINTS: u16 = 20;
 const PINNED_CLASSIC_GUI_LOGICAL_SCALE: f32 = 2.0;
@@ -78,6 +78,7 @@ pub(super) fn append(
     height: f32,
     textures: &HudTexturePages,
     geometry: ResponsiveSurvivalHudGeometry,
+    item_textures: Option<&ItemTexturePages>,
 ) -> Result<(), UiPresentationError> {
     let scale = geometry.logical_texture_scale;
     let outer_left = geometry.hotbar_outer_left;
@@ -189,6 +190,32 @@ pub(super) fn append(
                 [255; 4],
                 scale,
             )?;
+            if let Some(item_textures) = item_textures
+                && let Some(stack) = runtime.hotbar().get(index)
+                && !stack.is_empty()
+                && let Some(identifier) = runtime.item_identifier(stack.network_id)
+                && let Some(sprite) = item_textures.sprite(identifier, stack.metadata)
+            {
+                let source_width = f32::from(sprite.size[0]);
+                let source_height = f32::from(sprite.size[1]);
+                let icon_scale = (18.0 / source_width.max(source_height)).min(1.0) * scale;
+                let icon_width = source_width * icon_scale;
+                let icon_height = source_height * icon_scale;
+                append_uv_sprite(
+                    nodes,
+                    next_id,
+                    item_textures.page,
+                    sprite.uv,
+                    [
+                        inner_left
+                            + index as f32 * 20.0 * scale
+                            + (20.0 * scale - icon_width) * 0.5,
+                        hotbar_y + (22.0 * scale - icon_height) * 0.5,
+                    ],
+                    [icon_width, icon_height],
+                    [255; 4],
+                )?;
+            }
         }
         append_sprite(
             nodes,
@@ -266,6 +293,26 @@ fn append_sprite(
         f32::from(sprite.size[0]) * scale,
         f32::from(sprite.size[1]) * scale,
     ];
+    append_uv_sprite(
+        nodes,
+        next_id,
+        textures.page,
+        sprite.uv,
+        position,
+        size,
+        color,
+    )
+}
+
+fn append_uv_sprite(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    texture_page: u16,
+    uv: [u16; 4],
+    position: [f32; 2],
+    size: [f32; 2],
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
     nodes.push(
         UiNode::new(
             UiNodeId::new(*next_id),
@@ -278,8 +325,8 @@ fn append_sprite(
             )?,
         )
         .with_visual(UiVisual::Sprite {
-            texture_page: textures.page,
-            uv: sprite.uv,
+            texture_page,
+            uv,
             color,
         }),
     );

@@ -16,8 +16,8 @@ use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
-    RuntimeStageProfiler,
+    ChunkTextureAssets, ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    RuntimeStage, RuntimeStageProfiler,
 };
 #[cfg(test)]
 use render::{ActorRenderSource, ActorSkinPixels};
@@ -52,6 +52,7 @@ use crate::{
     ui_runtime::{
         UiRuntime, UiRuntimeError,
         inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
+        presentation::UiPresentationRuntime,
     },
 };
 
@@ -247,6 +248,8 @@ pub(crate) fn receive_network_events(
     model_witness_source: Res<ModelWitnessFileSource>,
     publication: Res<PublicationController>,
     local_player: NetworkLocalPlayerState,
+    mut presentation: ResMut<UiPresentationRuntime>,
+    mut chunk_textures: ResMut<ChunkTextureAssets>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
@@ -282,6 +285,7 @@ pub(crate) fn receive_network_events(
                 environment,
                 inventory,
                 player_game_mode,
+                resource_packs,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -316,6 +320,14 @@ pub(crate) fn receive_network_events(
                     time.elapsed_secs_f64(),
                 );
                 ui_runtime.begin_session(session_generation);
+                resource_packs::apply_server_resource_packs(
+                    &mut client_world,
+                    &mut ui_runtime,
+                    &mut presentation,
+                    &mut chunk_textures,
+                    &resource_packs,
+                    session_generation,
+                );
                 let protocol::InventoryEvent::Authority(authority) = inventory else {
                     record_fatal_error(
                         &mut client_world.fatal_error,
@@ -631,6 +643,11 @@ pub(crate) fn receive_network_events(
             }
             continue;
         } else {
+            if let WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(registry)) =
+                &sequenced.event
+            {
+                ui_runtime.apply_item_registry(registry);
+            }
             sequenced
         };
         let observed_at = Instant::now();
@@ -917,4 +934,5 @@ pub(crate) fn publish_actor_render_frame(
     });
 }
 
+mod resource_packs;
 pub(crate) mod session;

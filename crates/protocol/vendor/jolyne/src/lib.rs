@@ -37,7 +37,7 @@ pub use stream::{ClientLogin, ClientPlay};
 #[cfg(all(feature = "server", any(feature = "raknet", feature = "nethernet")))]
 pub use stream::{Server, ServerLogin, ServerPlay};
 
-pub use stream::{BedrockStream, Login, Play};
+pub use stream::{BedrockStream, Login, Play, ResourcePackBundle, ServerResourcePack};
 #[cfg(feature = "raknet")]
 pub use tokio_raknet::protocol::reliability::Reliability;
 

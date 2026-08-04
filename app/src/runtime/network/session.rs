@@ -46,6 +46,7 @@ pub enum NetworkControlEvent {
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
         player_game_mode: PlayerGameMode,
+        resource_packs: protocol::ResourcePackBundle,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -451,7 +452,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
                         let _ = send_control_event_or_cancel(
@@ -470,6 +471,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
+                let resource_packs = session.take_resource_packs();
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -479,6 +481,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         environment,
                         inventory,
                         player_game_mode,
+                        resource_packs,
                     },
                 )
                 .await

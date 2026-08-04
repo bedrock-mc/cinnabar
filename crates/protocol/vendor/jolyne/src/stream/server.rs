@@ -394,7 +394,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Server, T> {
 
                                 return Ok(BedrockStream {
                                     transport: self.transport,
-                                    state: StartGame,
+                                    state: StartGame::default(),
                                     _role: PhantomData,
                                 });
                             }
@@ -409,7 +409,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Server, T> {
 
                                 return Ok(BedrockStream {
                                     transport: self.transport,
-                                    state: StartGame,
+                                    state: StartGame::default(),
                                     _role: PhantomData,
                                 });
                             }
@@ -556,7 +556,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
         tracing::debug!("Client initialized, entering Play state");
         Ok(BedrockStream {
             transport: self.transport,
-            state: Play,
+            state: Play::default(),
             _role: PhantomData,
         })
     }

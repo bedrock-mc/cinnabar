@@ -12,6 +12,49 @@ use transport::{BedrockTransport, Transport};
 
 pub mod transport;
 
+/// A server-supplied resource pack retained after the login handshake.
+///
+/// The bytes are the verified compressed archive advertised by the server.
+/// Keeping the archive opaque here lets the application apply its own bounded
+/// parser and precedence rules without making the protocol crate a renderer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePack {
+    pub uuid: Box<str>,
+    pub version: Box<str>,
+    pub name: Box<str>,
+    pub content_key: Box<str>,
+    pub bytes: Box<[u8]>,
+}
+
+/// The ordered resource-pack stack selected by the server.
+///
+/// Packs are ordered from lowest to highest precedence, matching the order in
+/// `ResourcePackStack`. Built-in packs that the client already owns are not
+/// represented because they have no downloaded bytes at this seam.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ResourcePackBundle {
+    pub(crate) must_accept: bool,
+    packs: Vec<ServerResourcePack>,
+}
+
+impl ResourcePackBundle {
+    pub(crate) fn from_packs(must_accept: bool, packs: Vec<ServerResourcePack>) -> Self {
+        Self { must_accept, packs }
+    }
+
+    pub fn must_accept(&self) -> bool {
+        self.must_accept
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.packs.is_empty()
+    }
+
+    pub fn packs(&self) -> &[ServerResourcePack] {
+        &self.packs
+    }
+}
+
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
@@ -123,13 +166,19 @@ pub struct ResourcePacks {
 impl State for ResourcePacks {}
 
 /// State: Connection is initialized, waiting for StartGame packet/processing.
-pub struct StartGame;
+#[derive(Default)]
+pub struct StartGame {
+    pub(crate) resource_packs: ResourcePackBundle,
+}
 impl State for StartGame {}
 
 // --- Main Game State ---
 
 /// Final State: Fully authenticated, in-game. Ready to exchange game packets.
-pub struct Play;
+#[derive(Default)]
+pub struct Play {
+    pub(crate) resource_packs: ResourcePackBundle,
+}
 impl State for Play {}
 
 // --- Roles ---

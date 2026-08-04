@@ -190,6 +190,21 @@ impl TerrainTextureMap {
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
         self.entries.values().flat_map(TerrainPaths::paths)
     }
+
+    pub(crate) fn source_routes(&self) -> impl Iterator<Item = (&str, u32, &str)> {
+        self.entries.iter().flat_map(|(key, paths)| match paths {
+            TerrainPaths::Static { path, .. } => {
+                Box::new(std::iter::once((key.as_ref(), 0u32, path.as_ref())))
+                    as Box<dyn Iterator<Item = (&str, u32, &str)>>
+            }
+            TerrainPaths::Variants { paths, .. } => Box::new(
+                paths
+                    .iter()
+                    .enumerate()
+                    .map(|(variant, path)| (key.as_ref(), variant as u32, path.as_ref())),
+            ),
+        })
+    }
 }
 #[derive(Debug)]
 pub(super) enum TerrainPaths {

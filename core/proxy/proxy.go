@@ -9,14 +9,17 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
 
@@ -54,18 +57,22 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if cfg.Upstream == "" {
 		return errors.New("proxy: upstream address is required")
 	}
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	handoffs := newUpstreamHandoffBroker()
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
 		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
+		FetchResourcePacks: func(identity login.IdentityData, client login.ClientData, current []*resource.Pack) []*resource.Pack {
+			return handoffs.prepare(serveCtx, cfg.Upstream, cfg.TokenSource, logger, identity, client, current)
+		},
 	}).ListenNetwork(streamnet.New(cfg.SocketDir), "")
 	if err != nil {
 		return fmt.Errorf("proxy: listen: %w", err)
 	}
 	reportListenerReady(logger, cfg.SocketDir)
-
-	serveCtx, cancel := context.WithCancel(ctx)
 
 	accepted := make(chan acceptResult)
 	acceptDone := make(chan error, 1)
@@ -79,7 +86,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	var stopErr error
 	stop := func() error {
 		stopOnce.Do(func() {
-			stopErr = stopServer(cancel, listener, &sessions, acceptDone)
+			stopErr = errors.Join(handoffs.closeAll(), stopServer(cancel, listener, &sessions, acceptDone))
 		})
 		return stopErr
 	}
@@ -105,7 +112,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			go func() {
 				defer sessions.Done()
 				err := callWithoutPanic(func() error {
-					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource, logger)
+					return handleConnectionWithHandoff(serveCtx, downstream, cfg.Upstream, cfg.TokenSource, logger, handoffs)
 				})
 				if err != nil && !isOrdinaryClose(err) {
 					select {
@@ -187,7 +194,222 @@ func reportListenerReady(logger *slog.Logger, socketDir string) {
 	logger.Info("listener ready; waiting for local Rust client", attributes...)
 }
 
-func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) error {
+const (
+	resourcePackHandoffTTL   = 2 * time.Minute
+	resourcePackHandoffLimit = 8
+	resourcePackDialTimeout  = 2 * time.Minute
+)
+
+type handoffKey struct {
+	identity       string
+	xuid           string
+	clientRandomID int64
+	selfSignedID   string
+	serverAddress  string
+	displayName    string
+}
+
+type upstreamHandoff struct {
+	key           handoffKey
+	upstream      upstreamSession
+	cache         *cacheBoundaryTelemetry
+	resourcePacks []*resource.Pack
+	err           error
+	expires       time.Time
+}
+
+type upstreamHandoffBroker struct {
+	mu      sync.Mutex
+	closed  bool
+	pending []*upstreamHandoff
+}
+
+func newUpstreamHandoffBroker() *upstreamHandoffBroker {
+	return &upstreamHandoffBroker{}
+}
+
+func (broker *upstreamHandoffBroker) prepare(
+	ctx context.Context,
+	upstreamAddress string,
+	tokenSource oauth2.TokenSource,
+	logger *slog.Logger,
+	identity login.IdentityData,
+	client login.ClientData,
+	current []*resource.Pack,
+) []*resource.Pack {
+	key := makeHandoffKey(identity, client)
+	cacheTelemetry := new(cacheBoundaryTelemetry)
+	var upstream upstreamSession
+	var dialErr error
+	dialCtx, cancel := context.WithTimeout(ctx, resourcePackDialTimeout)
+	dialer := newUpstreamDialerWithCacheTelemetry(
+		handoffDialerDownstream{identity: identity, client: client},
+		tokenSource,
+		cacheTelemetry,
+	)
+	upstream, dialErr = connectUpstream(
+		dialCtx,
+		upstreamAddress,
+		authenticationMode(tokenSource),
+		logger,
+		func(ctx context.Context, address string) (upstreamSession, error) {
+			return dialer.DialContextNetwork(ctx, minecraft.RakNet{}, address)
+		},
+	)
+	cancel()
+
+	resourcePacks := slices.Clone(current)
+	if dialErr == nil {
+		packHolder, ok := upstream.(interface{ ResourcePacks() []*resource.Pack })
+		if !ok {
+			dialErr = errors.New("proxy: upstream session does not expose resource packs")
+		} else {
+			resourcePacks = append(resourcePacks, packHolder.ResourcePacks()...)
+		}
+	}
+	if dialErr != nil && upstream != nil {
+		dialErr = errors.Join(dialErr, shutdownSession(upstream))
+		upstream = nil
+	}
+
+	handoff := &upstreamHandoff{
+		key:           key,
+		upstream:      upstream,
+		cache:         cacheTelemetry,
+		resourcePacks: resourcePacks,
+		err:           dialErr,
+		expires:       time.Now().Add(resourcePackHandoffTTL),
+	}
+	var stale []*upstreamHandoff
+	broker.mu.Lock()
+	stale = broker.purgeExpiredLocked(time.Now())
+	if broker.closed {
+		broker.mu.Unlock()
+		closeHandoffs(stale)
+		if handoff.upstream != nil {
+			_ = shutdownSession(handoff.upstream)
+		}
+		return current
+	}
+	for len(broker.pending) >= resourcePackHandoffLimit {
+		stale = append(stale, broker.pending[0])
+		broker.pending = broker.pending[1:]
+	}
+	broker.pending = append(broker.pending, handoff)
+	broker.mu.Unlock()
+	closeHandoffs(stale)
+	return resourcePacks
+}
+
+func (broker *upstreamHandoffBroker) take(downstream dialerDownstream) (*upstreamHandoff, bool) {
+	key := makeHandoffKey(downstream.IdentityData(), downstream.ClientData())
+	var stale []*upstreamHandoff
+	broker.mu.Lock()
+	stale = broker.purgeExpiredLocked(time.Now())
+	for index, handoff := range broker.pending {
+		if handoff.key != key {
+			continue
+		}
+		broker.pending = append(broker.pending[:index], broker.pending[index+1:]...)
+		broker.mu.Unlock()
+		closeHandoffs(stale)
+		return handoff, true
+	}
+	broker.mu.Unlock()
+	closeHandoffs(stale)
+	return nil, false
+}
+
+func (broker *upstreamHandoffBroker) purgeExpiredLocked(now time.Time) []*upstreamHandoff {
+	var expired []*upstreamHandoff
+	kept := broker.pending[:0]
+	for _, handoff := range broker.pending {
+		if !handoff.expires.After(now) {
+			expired = append(expired, handoff)
+			continue
+		}
+		kept = append(kept, handoff)
+	}
+	broker.pending = kept
+	return expired
+}
+
+func (broker *upstreamHandoffBroker) closeAll() error {
+	broker.mu.Lock()
+	broker.closed = true
+	pending := broker.pending
+	broker.pending = nil
+	broker.mu.Unlock()
+	return closeHandoffs(pending)
+}
+
+func closeHandoffs(handoffs []*upstreamHandoff) error {
+	var joined error
+	for _, handoff := range handoffs {
+		if handoff.upstream != nil {
+			joined = errors.Join(joined, shutdownSession(handoff.upstream))
+		}
+	}
+	return joined
+}
+
+func makeHandoffKey(identity login.IdentityData, client login.ClientData) handoffKey {
+	if identity.Identity != "" || identity.XUID != "" {
+		return handoffKey{identity: identity.Identity, xuid: identity.XUID}
+	}
+	return handoffKey{
+		clientRandomID: client.ClientRandomID,
+		selfSignedID:   client.SelfSignedID,
+		serverAddress:  client.ServerAddress,
+		displayName:    identity.DisplayName,
+	}
+}
+
+type handoffDialerDownstream struct {
+	identity login.IdentityData
+	client   login.ClientData
+}
+
+func (downstream handoffDialerDownstream) IdentityData() login.IdentityData {
+	return downstream.identity
+}
+func (downstream handoffDialerDownstream) ClientData() login.ClientData { return downstream.client }
+func (handoffDialerDownstream) Proto() minecraft.Protocol               { return minecraft.DefaultProtocol }
+func (handoffDialerDownstream) ClientCacheEnabled() bool                { return false }
+
+func handleConnection(
+	ctx context.Context,
+	downstream *minecraft.Conn,
+	upstreamAddress string,
+	tokenSource oauth2.TokenSource,
+	logger *slog.Logger,
+) error {
+	return handleConnectionWithHandoff(ctx, downstream, upstreamAddress, tokenSource, logger, nil)
+}
+
+func handleConnectionWithHandoff(
+	ctx context.Context,
+	downstream *minecraft.Conn,
+	upstreamAddress string,
+	tokenSource oauth2.TokenSource,
+	logger *slog.Logger,
+	broker *upstreamHandoffBroker,
+) error {
+	if broker != nil {
+		if handoff, ok := broker.take(downstream); ok {
+			if handoff.cache != nil {
+				defer handoff.cache.report(logger)
+			}
+			if handoff.err != nil {
+				return finishDialFailure(downstream, handoff.err)
+			}
+			if handoff.upstream == nil {
+				return finishDialFailure(downstream, errors.New("proxy: resource-pack handoff has no upstream session"))
+			}
+			return serveConnectionsWithCacheTelemetry(ctx, downstream, handoff.upstream, handoff.cache)
+		}
+		return finishDialFailure(downstream, errors.New("proxy: resource-pack handoff missing"))
+	}
 	cacheTelemetry := new(cacheBoundaryTelemetry)
 	defer cacheTelemetry.report(logger)
 	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)

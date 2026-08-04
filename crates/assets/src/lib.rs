@@ -10,12 +10,15 @@ mod error;
 mod font;
 mod hud;
 mod item;
+mod language;
 mod light_registry;
 mod model;
 mod physics_registry;
 mod registry;
+mod resource_pack;
 mod runtime;
 mod texture;
+mod texture_catalog;
 
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
@@ -82,6 +85,12 @@ pub use item::{
     ItemVisualDefinition, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute,
     MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
 };
+pub use language::{
+    CompiledLanguageCatalog, LANGUAGE_CARRIER_MAGIC, LANGUAGE_CARRIER_SCHEMA, LanguageCatalogError,
+    LanguageCatalogIdentity, MAX_LANGUAGE_ENTRIES, MAX_LANGUAGE_KEY_BYTES,
+    MAX_LANGUAGE_TOTAL_BYTES, MAX_LANGUAGE_VALUE_BYTES, RuntimeLanguageCatalog,
+    encode_language_catalog, parse_language_bytes,
+};
 pub use light_registry::{LightProperties, read_light_registry};
 pub use model::{
     ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
@@ -100,5 +109,16 @@ pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
 };
+pub use resource_pack::{
+    ServerResourcePackAsset, ServerResourcePackCatalog, ServerResourcePackError,
+    ServerResourcePackInput, ServerResourcePackItemIcon, compile_server_resource_packs,
+};
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
 pub use texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
+pub use texture_catalog::{
+    MAX_TEXTURE_ROUTE_ANIMATION_FRAMES, MAX_TEXTURE_ROUTE_KEY_BYTES, MAX_TEXTURE_ROUTE_PATH_BYTES,
+    MAX_TEXTURE_ROUTE_REFERENCES, MAX_TEXTURE_SOURCE_ROUTES, RuntimeTextureCatalog,
+    TEXTURE_CARRIER_MAGIC,
+    TEXTURE_CARRIER_SCHEMA, TextureCatalogError, TextureCatalogIdentity, TextureSourceRoute,
+    encode_texture_catalog,
+};
