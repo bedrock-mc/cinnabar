@@ -10,7 +10,7 @@ use valentine::{
         MetadataDictionaryItemValueDefault, MobEffectPacket, MobEffectPacketEventId,
         MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributes, PlayerListPacket,
         PlayerRecordsRecordsItem, PlayerRecordsType, RemoveEntityPacket, SetEntityDataPacket,
-        SetEntityLinkPacket, UpdateAttributesPacket,
+        SetEntityLinkPacket, SetEntityMotionPacket, UpdateAttributesPacket,
     },
     protocol::wire,
 };
@@ -119,6 +119,18 @@ pub struct ActorMoveEvent {
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<i64>,
+}
+
+/// One server-authoritative velocity update for an actor.
+///
+/// Motion is kept separate from position movement because a knockback impulse
+/// must not be mistaken for a client-predicted interpolation sample.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorMotionEvent {
+    pub dimension: i32,
+    pub runtime_id: u64,
+    pub velocity: [f32; 3],
+    pub tick: u64,
 }
 
 /// Coordinate space carried by an actor movement position.
@@ -244,6 +256,7 @@ pub enum ActorEvent {
     Spawn(ActorSpawnEvent),
     Remove(ActorRemoveEvent),
     Move(ActorMoveEvent),
+    Motion(ActorMotionEvent),
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
@@ -282,6 +295,8 @@ pub enum ActorPacketError {
     InvalidAbsoluteMoveLength { actual: usize, expected: usize },
     #[error("actor update has negative tick {0}")]
     NegativeTick(i64),
+    #[error("actor motion has an invalid runtime ID {0}")]
+    InvalidMotionRuntimeId(i64),
     #[error("PlayerList record count {declared} does not match {actual} records")]
     InvalidPlayerListCount { declared: i32, actual: usize },
     #[error("PlayerList action does not match its records")]
@@ -499,6 +514,36 @@ pub(crate) fn normalize_move_entity_delta(
         teleported: packet.flags.contains(DeltaMoveFlags::TELEPORT),
         player_mode: None,
         source_tick: None,
+    }))
+}
+
+/// Normalizes the server's explicit actor velocity update without folding it
+/// into a position interpolation sample. This is the authoritative path used
+/// for impulses such as PvP knockback.
+pub(crate) fn normalize_set_entity_motion(
+    packet: SetEntityMotionPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    let runtime_id = u64::try_from(packet.runtime_entity_id)
+        .ok()
+        .filter(|runtime_id| *runtime_id != 0)
+        .ok_or(ActorPacketError::InvalidMotionRuntimeId(
+            packet.runtime_entity_id,
+        ))?;
+    let tick =
+        u64::try_from(packet.tick).map_err(|_| ActorPacketError::NegativeTick(packet.tick))?;
+    for (field, value) in [
+        ("motion.x", packet.velocity.x),
+        ("motion.y", packet.velocity.y),
+        ("motion.z", packet.velocity.z),
+    ] {
+        validate_finite(field, value)?;
+    }
+    Ok(ActorEvent::Motion(ActorMotionEvent {
+        dimension,
+        runtime_id,
+        velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
+        tick,
     }))
 }
 

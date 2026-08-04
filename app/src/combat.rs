@@ -1,5 +1,10 @@
 //! Server-authoritative player combat input and target selection.
 
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Res, ResMut, Resource},
@@ -33,12 +38,19 @@ const QUERY_EPSILON: f64 = 1.0e-5;
 const CROUCHING_PLAYER_HEIGHT: f64 = 1.5;
 const SLEEPING_PLAYER_HEIGHT: f64 = 0.2;
 const MAX_COMBAT_OUTBOX_AGE_FRAMES: u64 = 2;
+const MAX_TRACKED_COOLDOWNS: usize = 64;
 
 #[derive(Debug)]
 struct PendingCombatPacket {
     session_generation: u64,
     frame_sequence: u64,
     packet: Packet,
+}
+
+#[derive(Debug)]
+struct TrackedCooldown {
+    category: Arc<str>,
+    expires_at: Instant,
 }
 
 /// Bounded transport state for one-shot combat actions.
@@ -53,6 +65,7 @@ pub(crate) struct CombatRuntime {
     dropped_stale: u64,
     dropped_backpressure: u64,
     unsupported_use_presses: u64,
+    cooldowns: Vec<TrackedCooldown>,
 }
 
 enum SendOutcome {
@@ -138,16 +151,26 @@ pub(crate) fn send_combat_inputs(mut frame: CombatFrame) {
         return;
     }
 
+    let held_item = frame
+        .runtime
+        .selected_stack()
+        .cloned()
+        .unwrap_or_else(NetworkItemStack::empty);
+    if let Some(category) = stream
+        .canonical_item_stack(&held_item)
+        .and_then(|item| item.identifier)
+        && frame
+            .combat
+            .item_cooldown_active(category.as_ref(), Instant::now())
+    {
+        return;
+    }
+
     let target = select_player_target(ray, stream, &frame.collisions);
     if let Some((actor, hit_distance)) = target {
         let Some(slot) = frame.runtime.selected_hotbar_slot() else {
             return;
         };
-        let held_item = frame
-            .runtime
-            .selected_stack()
-            .cloned()
-            .unwrap_or_else(NetworkItemStack::empty);
         let click_position = click_position(ray, actor, hit_distance);
         let action = if attack_pressed {
             EntityInteractionAction::Attack
@@ -214,6 +237,47 @@ impl CombatRuntime {
         }
         self.session_generation = session_generation;
         self.pending = None;
+        self.cooldowns.clear();
+    }
+
+    pub(crate) fn start_item_cooldown(
+        &mut self,
+        event: &protocol::ItemCooldownEvent,
+        now: Instant,
+    ) {
+        let Some(duration) = u64::from(event.duration_ticks).checked_mul(50) else {
+            return;
+        };
+        if event.duration_ticks == 0 {
+            self.cooldowns
+                .retain(|cooldown| cooldown.category != event.category);
+            return;
+        }
+        let Some(expires_at) = now.checked_add(Duration::from_millis(duration)) else {
+            return;
+        };
+        if let Some(cooldown) = self
+            .cooldowns
+            .iter_mut()
+            .find(|cooldown| cooldown.category == event.category)
+        {
+            cooldown.expires_at = expires_at;
+            return;
+        }
+        if self.cooldowns.len() >= MAX_TRACKED_COOLDOWNS {
+            self.cooldowns.remove(0);
+        }
+        self.cooldowns.push(TrackedCooldown {
+            category: Arc::clone(&event.category),
+            expires_at,
+        });
+    }
+
+    fn item_cooldown_active(&mut self, category: &str, now: Instant) -> bool {
+        self.cooldowns.retain(|cooldown| cooldown.expires_at > now);
+        self.cooldowns
+            .iter()
+            .any(|cooldown| cooldown.category.as_ref() == category)
     }
 
     fn invalidate_pending(&mut self) {

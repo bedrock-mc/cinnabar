@@ -15,10 +15,10 @@ inventory, movement, knockback, cooldowns, and visible action results.
 | Entity attack transaction | The packet uses transaction type `ItemUseOnEntity`, action `Attack`, the selected slot, verified held `ItemV4`, player position, and click position relative to the target base. | Wire builder implemented; packet fixture and live-server witness remain open. |
 | Entity use transaction | The same transaction path supports action `Interact` when a remote player is targeted. | Implemented for entity use; block/item use is a separate interaction tranche. |
 | Missed swing | An attack miss emits the server-visible `MissedSwing` player action when the local runtime identity is known. | Wire builder implemented; live animation witness remains open. |
-| Damage and knockback | No client damage, health, inventory, or velocity result is synthesized. | Blocked until inbound authoritative hurt/motion reconciliation is integrated. |
-| Hurt/death/attack action timing | Existing server-driven action ingress remains the only source of visible action results. This tranche does not invent local animation state. | Blocked on the actor/event presentation dependency and live witness. |
-| Cooldown | The client does not invent a damage cooldown; the server owns acceptance. One physical attack press produces at most one outbound attack attempt. | Safe bounded behavior; exact native cooldown/cadence parity remains open. |
-| Session replacement | Pending packets carry the session generation and are discarded across replacement. | Implemented locally. |
+| Damage and knockback | No client damage, health, inventory, or velocity result is synthesized. `SetEntityMotion` is retained as a distinct authoritative motion event; remote actor velocity is updated and active local physics applies the server velocity while discarding stale prediction history. | Motion reconciliation is implemented locally; packet ordering, impulse timing, and live health/damage witnesses remain open. |
+| Hurt/death/attack action timing | Server `EntityEvent` notifications are normalized into the existing action timeline for swing, attack, hurt, death, use, and stop-attack triggers. No local result is invented. | Ingress and bounded retention are implemented; actor presentation and live trigger timing remain open. |
+| Cooldown | Server-declared item cooldowns are retained by category and suppress matching local attempts. The client does not invent a damage cooldown; the server owns acceptance. | Server-declared item cooldown handling is implemented; exact native attack cadence/held-input behavior remains open. |
+| Session replacement | Pending packets and retained cooldowns carry session scope and are cleared across replacement. | Implemented locally. |
 | Backpressure | At most one frozen combat packet is retained, retried only briefly, and then discarded rather than replayed against a stale target. | Implemented locally; transport stress witness remains open. |
 | PvP edge cases | Deterministic tie-breaking, block occlusion, unavailable collision data, stale actors, unknown held-item data, spectator mode, and invalid runtime IDs fail closed. | Implemented locally; live edge-case witness remains open. |
 
@@ -31,11 +31,14 @@ This tranche must not be treated as full combat parity. Closure still requires:
 2. A live authoritative-server witness for normal, crouching, sleeping, moving,
    occluded, out-of-reach, removed-target, and rapid-click cases.
 3. Exact game-mode reach and attack cadence confirmation, including held-input behavior.
-4. Authoritative local damage and knockback reconciliation, including motion
-   corrections that cannot be confused with ordinary movement interpolation.
+4. Live authoritative validation of local health/damage and motion
+   reconciliation, including impulse timing that cannot be confused with
+   ordinary movement interpolation.
 5. Server-driven hurt, death, swing, and attack action presentation through the
    actor authority/interpolation path.
-6. Independent review after the actor dependency lands, followed by focused and
+6. Exact game-mode reach, attack cadence, and held-input confirmation; block/item
+   use remains a separate transaction target lane.
+7. Independent review after the actor dependency lands, followed by focused and
    workspace verification.
 
 Validation performed for this tranche:

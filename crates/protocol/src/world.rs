@@ -11,19 +11,23 @@ use valentine::bedrock::version::v1_26_30::{
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ActorPacketError, ArmorEquipmentEvent,
-    EquipmentEvent, InventoryEvent, InventoryPacketError, ItemActorEvent, ItemPacketError, Packet,
+    CombatPacketError, EquipmentEvent, InventoryEvent, InventoryPacketError, ItemActorEvent,
+    ItemPacketError, Packet,
     actor::{
         normalize_add_entity, normalize_add_player, normalize_mob_effect, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
-        normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
+        normalize_set_entity_data, normalize_set_entity_link, normalize_set_entity_motion,
+        normalize_update_attributes,
     },
+    combat::normalize_item_cooldown,
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
         normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
         normalize_slot,
     },
     item::{
-        normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
+        normalize_animate, normalize_animate_entity, normalize_entity_event, normalize_equipment,
+        normalize_item_registry,
     },
     ui::{
         BlockCrackEvent, GameModeEvent, UiEvent, UiPacketError, normalize_block_crack,
@@ -466,6 +470,7 @@ pub enum WorldEvent {
     ArmorEquipment(Box<ArmorEquipmentEvent>),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
+    ItemCooldown(crate::ItemCooldownEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -478,6 +483,9 @@ pub enum WorldPacketError {
 
     #[error(transparent)]
     Item(#[from] ItemPacketError),
+
+    #[error(transparent)]
+    Combat(#[from] CombatPacketError),
 
     #[error(transparent)]
     Inventory(#[from] InventoryPacketError),
@@ -576,6 +584,9 @@ pub fn into_world_event(
         McpePacketData::PacketMoveEntityDelta(packet) => {
             WorldEvent::Actor(normalize_move_entity_delta(*packet, current_dimension)?)
         }
+        McpePacketData::PacketSetEntityMotion(packet) => {
+            WorldEvent::Actor(normalize_set_entity_motion(packet, current_dimension)?)
+        }
         McpePacketData::PacketSetEntityData(packet) => {
             WorldEvent::Actor(normalize_set_entity_data(*packet, current_dimension)?)
         }
@@ -634,6 +645,12 @@ pub fn into_world_event(
         McpePacketData::PacketAnimate(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
         McpePacketData::PacketAnimateEntity(packet) => {
             WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
+        }
+        McpePacketData::PacketEntityEvent(packet) => {
+            WorldEvent::ItemActor(normalize_entity_event(*packet)?)
+        }
+        McpePacketData::PacketClientStartItemCooldown(packet) => {
+            WorldEvent::ItemCooldown(normalize_item_cooldown(packet)?)
         }
         McpePacketData::PacketBiomeDefinitionList(packet) => {
             if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {

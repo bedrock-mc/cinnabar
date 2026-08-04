@@ -1,10 +1,12 @@
 //! Server-authoritative entity interaction packets.
 
+use std::sync::Arc;
+
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_30::{
-    Action as PlayerAction, BlockCoordinates, InventoryTransactionPacket, ItemV4,
-    ItemV4NetIdVariant, ItemV4NetIdVariantType, Transaction, TransactionLegacy,
-    TransactionTransactionData, TransactionTransactionDataItemUseOnEntity,
+    Action as PlayerAction, BlockCoordinates, ClientStartItemCooldownPacket,
+    InventoryTransactionPacket, ItemV4, ItemV4NetIdVariant, ItemV4NetIdVariantType, Transaction,
+    TransactionLegacy, TransactionTransactionData, TransactionTransactionDataItemUseOnEntity,
     TransactionTransactionDataItemUseOnEntityActionType, TransactionTransactionType,
 };
 
@@ -17,7 +19,15 @@ pub enum EntityInteractionAction {
     Attack,
 }
 
-#[derive(Debug, Error)]
+/// One server-declared item cooldown. The client may use this only to suppress
+/// a matching local attempt; the server remains authoritative for acceptance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemCooldownEvent {
+    pub category: Arc<str>,
+    pub duration_ticks: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CombatPacketError {
     #[error("entity runtime ID {0} is outside the positive signed wire range")]
     InvalidRuntimeId(u64),
@@ -33,6 +43,34 @@ pub enum CombatPacketError {
 
     #[error("held item network ID {0} is outside the signed i16 wire range")]
     InvalidItemNetworkId(i32),
+
+    #[error("item cooldown category has {bytes} UTF-8 bytes, exceeding {max}")]
+    CooldownCategoryTooLong { bytes: usize, max: usize },
+
+    #[error("item cooldown duration {0} is negative")]
+    NegativeCooldown(i32),
+}
+
+pub const MAX_COOLDOWN_CATEGORY_BYTES: usize = 256;
+
+/// Normalizes the server's item cooldown notification into the bounded combat
+/// state path. An unknown category is retained and simply cannot match a
+/// selected item until the item registry resolves it.
+pub(crate) fn normalize_item_cooldown(
+    packet: ClientStartItemCooldownPacket,
+) -> Result<ItemCooldownEvent, CombatPacketError> {
+    if packet.category.len() > MAX_COOLDOWN_CATEGORY_BYTES {
+        return Err(CombatPacketError::CooldownCategoryTooLong {
+            bytes: packet.category.len(),
+            max: MAX_COOLDOWN_CATEGORY_BYTES,
+        });
+    }
+    let duration_ticks = u32::try_from(packet.duration)
+        .map_err(|_| CombatPacketError::NegativeCooldown(packet.duration))?;
+    Ok(ItemCooldownEvent {
+        category: Arc::from(packet.category),
+        duration_ticks,
+    })
 }
 
 /// Builds the server-authoritative Bedrock entity interaction transaction.

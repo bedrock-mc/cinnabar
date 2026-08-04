@@ -183,6 +183,7 @@ pub(crate) fn apply_environment_control(
         }
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
+        | CommittedControlEvent::ActorMotion { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::Respawn { .. } => false,
     }
