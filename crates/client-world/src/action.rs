@@ -247,15 +247,20 @@ impl RemoteActionStore {
 fn initial_phase(event: &ActorActionEvent) -> ItemActionPhase {
     match event.kind {
         ActorActionKind::SwingArm
+        | ActorActionKind::Attack
         | ActorActionKind::CriticalHit
         | ActorActionKind::MagicCriticalHit => ItemActionPhase::Windup { elapsed_ticks: 0 },
-        ActorActionKind::RowRight | ActorActionKind::RowLeft => ItemActionPhase::UseHeld {
-            elapsed_ticks: 0,
-            duration_ticks: duration_ticks(event.data),
-        },
-        ActorActionKind::Wake | ActorActionKind::Custom { .. } => {
-            ItemActionPhase::Active { elapsed_ticks: 0 }
+        ActorActionKind::RowRight | ActorActionKind::RowLeft | ActorActionKind::UseItem => {
+            ItemActionPhase::UseHeld {
+                elapsed_ticks: 0,
+                duration_ticks: duration_ticks(event.data),
+            }
         }
+        ActorActionKind::Hurt
+        | ActorActionKind::Death
+        | ActorActionKind::Wake
+        | ActorActionKind::Custom { .. } => ItemActionPhase::Active { elapsed_ticks: 0 },
+        ActorActionKind::StopAttack => ItemActionPhase::Cancelled,
         ActorActionKind::Ignored { .. } => ItemActionPhase::Idle,
     }
 }

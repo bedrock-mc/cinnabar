@@ -219,6 +219,24 @@ impl ActorStore {
                 }
                 ActorApplyResult::Updated
             }
+            ActorEvent::Motion(motion) => {
+                let Some(actor) = self.actors.get_mut(&motion.runtime_id) else {
+                    return ActorApplyResult::MissingActor;
+                };
+                if !motion.velocity.into_iter().all(f32::is_finite) {
+                    return ActorApplyResult::CapacityRejected;
+                }
+                let Ok(tick) = i64::try_from(motion.tick) else {
+                    return ActorApplyResult::StaleSequence;
+                };
+                if actor.source_tick.is_some_and(|previous| tick < previous) {
+                    return ActorApplyResult::StaleSequence;
+                }
+                actor.velocity = motion.velocity;
+                actor.source_tick = Some(tick);
+                actor.movement_revision = sequence;
+                ActorApplyResult::Updated
+            }
             ActorEvent::Metadata(update) => {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;

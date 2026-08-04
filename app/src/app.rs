@@ -145,6 +145,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<WorldStreamFramePoll>()
+        .init_resource::<crate::combat::CombatRuntime>()
         .init_resource::<Phase3EvidenceEmitter>()
         .add_systems(
             Update,
@@ -225,7 +226,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (emit_phase3_evidence, send_player_auth_inputs)
+            (
+                emit_phase3_evidence,
+                send_player_auth_inputs,
+                crate::combat::send_combat_inputs,
+            )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
         );

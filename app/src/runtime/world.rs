@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicU8, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
@@ -409,6 +409,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 }
                 LocalPlayerFrameReset::Correction
             }
+            CommittedControlEvent::ActorMotion { motion, .. } => {
+                if motion.runtime_id == stream.local_player_runtime_id()
+                    && movement.physics_is_authorized()
+                    && !local_physics.apply_server_motion(motion.velocity)
+                {
+                    warn!(
+                        runtime_id = motion.runtime_id,
+                        "server actor motion could not be applied to active local physics"
+                    );
+                }
+                LocalPlayerFrameReset::Correction
+            }
             CommittedControlEvent::MovePlayer {
                 movement: correction,
                 resolved,
@@ -546,6 +558,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
 pub(crate) fn drive_world_stream(
     network: Res<NetworkHandle>,
     state: AppWorldState,
+    mut combat: ResMut<crate::combat::CombatRuntime>,
     mut acceptance: ResMut<AcceptanceRun>,
     mut metrics: ResMut<AppMetrics>,
     mut render_queue: ResMut<ChunkRenderQueue>,
@@ -657,6 +670,10 @@ pub(crate) fn drive_world_stream(
                 ridden_unique_id,
             } => {
                 ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
+            }
+            CommittedUiEvent::ItemCooldown { event, .. } => {
+                combat.start_item_cooldown(&event, Instant::now());
+                Ok(())
             }
         };
         if let Err(error) = result {
@@ -944,6 +961,7 @@ pub(crate) fn apply_committed_control(
             );
             resolved
         }
+        CommittedControlEvent::ActorMotion { .. } => return,
         CommittedControlEvent::ChangeDimension { resolved, .. } => {
             camera_settings.reset_perspective();
             resolved

@@ -292,6 +292,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Spawn(event) => Some(event.dimension),
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
+        ActorEvent::Motion(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
         ActorEvent::PlayerList(_) => None,

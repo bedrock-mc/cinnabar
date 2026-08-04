@@ -6,10 +6,10 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
     version::v1_26_30::{
-        AnimateEntityPacket, AnimatePacket, AnimatePacketActionId, Item, ItemContentExtra,
-        ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
-        ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemRegistryPacket,
-        ItemstatesItemVersion, MobEquipmentPacket, WindowId,
+        AnimateEntityPacket, AnimatePacket, AnimatePacketActionId, EntityEventPacket,
+        EntityEventPacketEventId, Item, ItemContentExtra, ItemExtraDataWithBlockingTick,
+        ItemExtraDataWithoutBlockingTick, ItemExtraDataWithoutBlockingTickNbt, ItemNew,
+        ItemNewExtra, ItemRegistryPacket, ItemstatesItemVersion, MobEquipmentPacket, WindowId,
     },
 };
 
@@ -302,6 +302,11 @@ pub struct ArmorEquipmentEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorActionKind {
     SwingArm,
+    Attack,
+    Hurt,
+    Death,
+    UseItem,
+    StopAttack,
     Wake,
     CriticalHit,
     MagicCriticalHit,
@@ -653,6 +658,36 @@ fn normalize_equipment_parts(
         window_id,
         handedness,
     })
+}
+
+/// Converts server-driven entity action notifications into the shared action
+/// stream. Unknown event IDs remain ignored instead of being guessed into a
+/// combat or presentation result.
+pub(crate) fn normalize_entity_event(
+    packet: EntityEventPacket,
+) -> Result<ItemActorEvent, ItemPacketError> {
+    let runtime_id = runtime_id(packet.runtime_entity_id)?;
+    let kind = match packet.event_id {
+        EntityEventPacketEventId::ArmSwing | EntityEventPacketEventId::AgentArmSwing => {
+            ActorActionKind::SwingArm
+        }
+        EntityEventPacketEventId::HurtAnimation
+        | EntityEventPacketEventId::HurtWithoutReceivingDamage => ActorActionKind::Hurt,
+        EntityEventPacketEventId::DeathAnimation => ActorActionKind::Death,
+        EntityEventPacketEventId::StopAttack => ActorActionKind::StopAttack,
+        EntityEventPacketEventId::UseItem
+        | EntityEventPacketEventId::EatingItem
+        | EntityEventPacketEventId::ChargedItem => ActorActionKind::UseItem,
+        EntityEventPacketEventId::KineticDamageDealt => ActorActionKind::Attack,
+        EntityEventPacketEventId::Unknown(action_id) => ActorActionKind::Ignored { action_id },
+        _ => ActorActionKind::Ignored { action_id: 0 },
+    };
+    Ok(ItemActorEvent::Action(ActorActionEvent {
+        actor_runtime_ids: Arc::from([runtime_id]),
+        kind,
+        data: packet.data as f32,
+        swing_source: None,
+    }))
 }
 
 pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent, ItemPacketError> {

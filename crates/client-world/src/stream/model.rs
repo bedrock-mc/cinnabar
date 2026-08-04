@@ -342,6 +342,13 @@ pub enum CommittedControlEvent {
         correction: PlayerMovementCorrectionEvent,
         resolved: ResolvedServerPosition,
     },
+    /// A server-authoritative actor velocity update. The app applies this to
+    /// local prediction as an impulse and retains it on remote actor state;
+    /// it is never inferred from a client click.
+    ActorMotion {
+        sequence: u64,
+        motion: protocol::ActorMotionEvent,
+    },
     ChangeDimension {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
@@ -403,6 +410,11 @@ pub enum CommittedUiEvent {
     LocalMount {
         sequence: u64,
         ridden_unique_id: Option<i64>,
+    },
+    /// A server-declared item cooldown consumed by the combat input gate.
+    ItemCooldown {
+        sequence: u64,
+        event: protocol::ItemCooldownEvent,
     },
 }
 

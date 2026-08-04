@@ -1,6 +1,7 @@
 pub mod args;
 pub mod asset_startup;
 pub mod camera;
+mod combat;
 mod environment;
 mod hotbar;
 pub mod local_player;

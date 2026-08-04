@@ -393,6 +393,33 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = self.is_active();
     }
 
+    /// Applies a server-authoritative actor velocity update to local
+    /// prediction. This is intentionally not a client-side hit result: the
+    /// server supplied the velocity, and the next fixed tick starts from that
+    /// velocity with the previous prediction history discarded.
+    pub fn apply_server_motion(&mut self, velocity: [f32; 3]) -> bool {
+        if !velocity.into_iter().all(f32::is_finite) {
+            return false;
+        }
+        let Some(state) = self.state.as_mut() else {
+            return false;
+        };
+        state.velocity = Vec3::new(
+            f64::from(velocity[0]),
+            f64::from(velocity[1]),
+            f64::from(velocity[2]),
+        );
+        state.movement = Vec3::ZERO;
+        state.collisions = sim::AxisCollisions::default();
+        self.previous_position = state.position;
+        self.accumulated_seconds = 0.0;
+        self.discard_next_elapsed = false;
+        self.sample_history.clear();
+        self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
+            .expect("local physics history capacity is non-zero");
+        true
+    }
+
     pub fn advance(
         &mut self,
         elapsed: Duration,

@@ -12,6 +12,7 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
         | CommittedControlEvent::ChangeDimension { resolved, .. }
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
+        CommittedControlEvent::ActorMotion { .. } => return false,
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::Weather { .. } => return false,

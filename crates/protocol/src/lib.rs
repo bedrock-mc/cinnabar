@@ -3,6 +3,7 @@
 mod actor;
 mod blob_cache;
 mod codec;
+mod combat;
 mod inventory;
 mod item;
 mod login;
@@ -16,8 +17,8 @@ mod world;
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
     ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMotionEvent, ActorMoveEvent,
+    ActorPacketError, ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
     MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
     MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS,
@@ -34,6 +35,10 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use combat::{
+    CombatPacketError, EntityInteractionAction, ItemCooldownEvent, MAX_COOLDOWN_CATEGORY_BYTES,
+    missed_swing_packet, use_item_on_entity_packet,
+};
 pub use inventory::{
     ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
     InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,

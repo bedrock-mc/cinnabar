@@ -623,6 +623,15 @@ impl WorldStream {
             }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
+                if let ActorEvent::Motion(motion) = &event
+                    && motion.runtime_id == self.local_player_runtime_id
+                    && motion.dimension == self.current_dimension
+                {
+                    self.push_committed_control(CommittedControlEvent::ActorMotion {
+                        sequence,
+                        motion: *motion,
+                    });
+                }
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -694,6 +703,10 @@ impl WorldStream {
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
                 self.push_committed_ui(CommittedUiEvent::Ui { sequence, event });
+            }
+            WorldEvent::ItemCooldown(event) => {
+                let sequence = sequence.expect("sequenced item cooldowns commit through submit");
+                self.push_committed_ui(CommittedUiEvent::ItemCooldown { sequence, event });
             }
             WorldEvent::BlockCrack(event) => {
                 let sequence = sequence.expect("sequenced block cracks commit through submit");
