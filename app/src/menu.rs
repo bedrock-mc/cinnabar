@@ -8,7 +8,7 @@
 
 mod input;
 
-pub(crate) use input::{drive_menu_connection, drive_menu_input};
+pub(crate) use input::{drive_menu_connection, drive_menu_input, recover_menu_session_failure};
 
 use std::{
     fs,
@@ -21,7 +21,10 @@ use anyhow::{Context, Result, bail};
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
-use crate::{runtime::endpoint::bridge_endpoint_exists, ui_runtime::presentation::IconRef};
+use crate::{
+    runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
+    ui_runtime::presentation::IconRef,
+};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -211,6 +214,7 @@ pub(crate) struct MenuRuntime {
     message: Option<String>,
     gui_scale: u8,
     display_name: String,
+    launcher: bool,
     servers: Vec<SavedServer>,
     config_path: PathBuf,
     pending_connect: Option<String>,
@@ -233,6 +237,10 @@ impl MenuRuntime {
         let config_path = PathBuf::from(DEFAULT_SERVER_FILE);
         let servers = load_servers(&config_path);
         Self {
+            // The launcher owns the session lifecycle only when the client
+            // started on the menu. `--address` keeps the historical behaviour
+            // of exiting the process when its one session fails.
+            launcher: visible,
             visible,
             screen: MenuScreen::Home,
             focused: 0,
@@ -342,6 +350,25 @@ impl MenuRuntime {
         self.visible = true;
         self.screen = MenuScreen::Play;
         self.message = Some("Connecting…".to_owned());
+    }
+
+    /// Returns the session back to the launcher after a fatal session error.
+    ///
+    /// Returns `false` when the client was started with `--address`, which has
+    /// no launcher to fall back to and must still exit the process.
+    pub(crate) fn absorb_session_failure(&mut self, error: &str) -> bool {
+        if !self.launcher {
+            return false;
+        }
+        self.connecting = false;
+        self.visible = true;
+        self.screen = MenuScreen::Play;
+        self.dialog = None;
+        self.field = None;
+        self.message = Some(session_failure_message(error));
+        // Let the account catalog repopulate now that the session is gone.
+        self.catalog_started = false;
+        true
     }
 
     pub(crate) fn take_disconnect_request(&mut self) -> bool {
@@ -815,6 +842,7 @@ pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result
             "bedrock-core executable was not found beside the client or in target/debug/target/release"
         )
     })?;
+    clear_stale_bridge_endpoint(socket_dir)?;
     let mut command = Command::new(&executable);
     command
         .arg("-socket-dir")
@@ -832,6 +860,22 @@ pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result
         .spawn()
         .with_context(|| format!("spawn {} for {address}", executable.display()))?;
     Ok(child)
+}
+
+/// Drops any endpoint publication left behind by an earlier core.
+///
+/// [`wait_for_core`] can only observe that the endpoint exists, so a stale
+/// publication would satisfy it immediately and the client would dial a socket
+/// nothing is listening on. Clearing it first means the wait observes the newly
+/// spawned core's own bind.
+pub(crate) fn clear_stale_bridge_endpoint(socket_dir: &Path) -> Result<()> {
+    let endpoint = bridge_endpoint_path(socket_dir);
+    match fs::remove_file(&endpoint) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("remove stale bridge endpoint {}", endpoint.display())),
+    }
 }
 
 pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
@@ -876,6 +920,20 @@ fn auth_cache_path() -> Option<PathBuf> {
         .ok()
         .map(|directory| directory.join(".local/auth/microsoft-token.json"))
         .filter(|path| path.is_file())
+}
+
+/// Condenses a runtime error into something that fits the menu message area.
+fn session_failure_message(error: &str) -> String {
+    const MAX_DETAIL_CHARS: usize = 120;
+    let detail = error.trim();
+    if detail.is_empty() {
+        return "Disconnected from the server.".to_owned();
+    }
+    let mut condensed: String = detail.chars().take(MAX_DETAIL_CHARS).collect();
+    if detail.chars().count() > MAX_DETAIL_CHARS {
+        condensed.push('…');
+    }
+    format!("Disconnected: {condensed}")
 }
 
 fn load_servers(path: &Path) -> Vec<SavedServer> {

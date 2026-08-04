@@ -132,7 +132,13 @@ pub(crate) fn drive_menu_connection(
     }
     if let Some(address) = menu.take_pending_connect() {
         let generation = menu.next_session_generation();
-        let socket_dir = PathBuf::from(format!(".local/cinnabar/connect-{generation}"));
+        // Namespaced by process id like the `--address` path: a bare
+        // generation counter restarts at the same value every launch, so a
+        // previous run's directory would be reused for this session.
+        let socket_dir = PathBuf::from(format!(
+            ".local/cinnabar/connect-{}-{generation}",
+            std::process::id()
+        ));
         if let Err(error) = fs::create_dir_all(&socket_dir)
             .and_then(|_| {
                 spawn_core_for_address(&socket_dir, &address).map_err(std::io::Error::other)
@@ -182,4 +188,30 @@ pub(crate) fn drive_menu_connection(
         guard.stop();
         exits.write(AppExit::Success);
     }
+}
+
+/// Returns a failed launcher session to the menu instead of ending the process.
+///
+/// Runs late in the frame: the failure is recorded while network events are
+/// drained, which is after the menu's own systems, so recovery has to happen
+/// between that and the systems that exit on a fatal error.
+pub(crate) fn recover_menu_session_failure(
+    mut menu: ResMut<MenuRuntime>,
+    mut guard: ResMut<CoreProcessGuard>,
+    mut network: ResMut<NetworkHandle>,
+    mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
+    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
+) {
+    let Some(error) = client_world.fatal_error.clone() else {
+        return;
+    };
+    if !menu.absorb_session_failure(&error) {
+        return;
+    }
+    network.shutdown();
+    guard.stop();
+    runtime.begin_session(menu.next_session_generation());
+    client_world.stream = None;
+    client_world.pending_surface_spawn = None;
+    client_world.fatal_error = None;
 }

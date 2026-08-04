@@ -54,7 +54,7 @@ use crate::{
     },
     menu::{
         CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
-        spawn_core_for_address, wait_for_core,
+        recover_menu_session_failure, spawn_core_for_address, wait_for_core,
     },
     metrics::MetricsCollector,
     movement::{
@@ -237,6 +237,17 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         finish_acceptance_run
             .after(ClientFrameSet::NetworkSend)
             .after(record_metrics_and_title),
+    )
+    // The launcher gets first refusal on a fatal session error, so a failed
+    // join returns to the menu instead of ending the process. This has to sit
+    // after the failure is recorded (network drain) and before both systems
+    // that act on it.
+    .add_systems(
+        Update,
+        recover_menu_session_failure
+            .after(receive_network_events)
+            .before(exit_on_fatal_runtime_error)
+            .before(finish_acceptance_run),
     );
 }
 
