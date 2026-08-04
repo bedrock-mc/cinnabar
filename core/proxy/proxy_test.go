@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -49,6 +50,24 @@ func TestNewUpstreamDialerPreservesClientCacheCapability(t *testing.T) {
 				t.Fatalf("EnableClientCache = %t, want downstream capability %t", dialer.EnableClientCache, enabled)
 			}
 		})
+	}
+}
+
+func TestNewUpstreamDialerDeclinesEveryResourcePack(t *testing.T) {
+	// A nil DownloadResourcePack makes the dial block until every upstream pack
+	// has been downloaded, which cost 20s+ on servers with large packs and hung
+	// the join outright on others. Nothing consumes the packs, so the dialer has
+	// to decline them.
+	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
+	if dialer.DownloadResourcePack == nil {
+		t.Fatal("DownloadResourcePack is nil, so every upstream pack would be downloaded and discarded")
+	}
+	for _, total := range []int{1, 8} {
+		for index := range total {
+			if dialer.DownloadResourcePack(uuid.New(), "1.0.0", index, total) {
+				t.Fatalf("pack %d/%d accepted, want every pack declined", index, total)
+			}
+		}
 	}
 }
 
