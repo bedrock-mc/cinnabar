@@ -4,7 +4,7 @@ use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
     ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinGeometry, PlayerSkinUnavailable, StandardSkin,
 };
 
 use super::{ActorApplyResult, ActorStore};
@@ -17,6 +17,7 @@ fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
         kind: ActorKind::Entity {
             identifier: "minecraft:bee".into(),
         },
+        game_mode: None,
         position: [1.0, 2.0, 3.0],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -848,6 +849,7 @@ fn render_players_join_roster_skins_and_sort_by_runtime_id() {
         width: 64,
         height: 64,
         rgba8: vec![9; 64 * 64 * 4].into(),
+        geometry: PlayerSkinGeometry::Wide,
     });
     let mut store = ActorStore::new(1, 0);
     for (sequence, runtime_id, unique_id, uuid) in [(1, 20, 2, [2; 16]), (2, 10, 1, [1; 16])] {
@@ -904,6 +906,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
             width: 64,
             height: 64,
             rgba8: vec![value; skin_bytes].into(),
+            geometry: PlayerSkinGeometry::Wide,
         })
     };
     let add = |uuid, unique_id, skin| {
@@ -937,6 +940,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
         width: 128,
         height: 128,
         rgba8: vec![9; 128 * 128 * 4].into(),
+        geometry: PlayerSkinGeometry::Wide,
     });
     store.apply(1, 3, add([1; 16], 10, oversized_replacement));
     assert_eq!(store.retained_player_skin_bytes, skin_bytes);

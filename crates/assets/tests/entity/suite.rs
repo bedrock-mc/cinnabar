@@ -2,7 +2,8 @@ use assets::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityDependency,
     EntityDependencyKind, EntityDependencyResolution, EntityGeometry, EntityGeometryBone,
     EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance,
-    EntityGeometryScalar, EntityGeometryUv, RuntimeEntityAssets, encode_entity_blob,
+    EntityGeometryLocator, EntityGeometryScalar, EntityGeometryUv, RuntimeEntityAssets,
+    encode_entity_blob,
 };
 use sha2::{Digest, Sha256};
 
@@ -121,6 +122,11 @@ fn geometry_fixture() -> CompiledEntityAssets {
             inflate: None,
             never_render: None,
             reset: None,
+            locators: vec![EntityGeometryLocator {
+                name: "armor_offset.default_neck".into(),
+                offset: [scalar(0.0), scalar(8.0), scalar(0.0)],
+            }]
+            .into_boxed_slice(),
             cubes: vec![EntityGeometryCube {
                 origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
                 size: [scalar(0.0), scalar(5.0), scalar(8.0)],
@@ -236,6 +242,7 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         inflate: None,
         never_render: None,
         reset: None,
+        locators: Box::new([]),
         cubes: Box::new([]),
     }]
     .into_boxed_slice();
@@ -499,6 +506,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 inflate: None,
                 never_render: None,
                 reset: None,
+                locators: Box::new([]),
                 cubes: Box::new([]),
             }]
             .into_boxed_slice(),
@@ -508,6 +516,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             symbol: 2,
             length_seconds: entity::EntityGeometryScalar::new(1.0).unwrap(),
             loop_mode: EntityAnimationLoop::Loop,
+            time_expression: None,
             first_channel: 0,
             channel_count: 1,
             source: 1,
@@ -528,6 +537,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 entity::EntityGeometryScalar::new(0.0).unwrap(),
             ],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         }]
         .into_boxed_slice(),
         molang_symbols: vec![
@@ -646,11 +656,11 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
 #[test]
 fn carrier_v4_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
-    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
+    let encoded = entity::encode_entity_blob(&compiled).expect("encode version-5 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 4);
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 5);
 
-    let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
+    let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-5 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
     assert_eq!(runtime.controllers(), compiled.controllers.as_ref());
     assert_eq!(runtime.rig_bindings(), compiled.rig_bindings.as_ref());
@@ -660,9 +670,9 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 }
 
 #[test]
-fn carrier_v4_rejects_versions_three_and_five_and_hashes_extended_payload() {
+fn carrier_v4_rejects_versions_three_and_four_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    for version in [3_u32, 5] {
+    for version in [3_u32, 4] {
         let mut wrong = encoded.to_vec();
         wrong[8..12].copy_from_slice(&version.to_le_bytes());
         assert!(RuntimeEntityAssetsV4::decode(&wrong).is_err());

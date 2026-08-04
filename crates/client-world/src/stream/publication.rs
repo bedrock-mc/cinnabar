@@ -140,6 +140,12 @@ impl WorldStream {
     pub fn actor_equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
         self.actors.equipment(runtime_id)
     }
+    pub fn actor_offhand_equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
+        self.actors.offhand_equipment(runtime_id)
+    }
+    pub fn actor_armor(&self, runtime_id: u64) -> Option<&crate::ActorArmorSnapshot> {
+        self.actors.armor(runtime_id)
+    }
     pub fn actor_action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
         self.actors.action(runtime_id)
     }

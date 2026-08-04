@@ -2,9 +2,9 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, EntityAssetKind, EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
-    MAX_ENTITY_TEXTURE_DIMENSION,
+    EntityGeometryFaceUvs, EntityGeometryLocator, EntityGeometryScalar, EntityGeometryUv,
+    MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_LOCATORS, MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_TEXTURE_DIMENSION,
 };
 use serde_json::Value;
 
@@ -255,6 +255,7 @@ fn parse_geometry_bones_with_inheritance(
         let inflate = optional_scalar(bone, "inflate", path)?;
         let never_render = optional_bool(bone, "neverRender", path)?;
         let reset = optional_bool(bone, "reset", path)?;
+        let locators = parse_geometry_locators(bone.get("locators"), path)?;
         let cubes = bone
             .get("cubes")
             .map(|cubes| {
@@ -282,11 +283,46 @@ fn parse_geometry_bones_with_inheritance(
             inflate,
             never_render,
             reset,
+            locators,
             cubes,
         });
     }
     validate_bone_hierarchy(&parsed, path, allow_inherited_parent)?;
     Ok(parsed.into_boxed_slice())
+}
+
+fn parse_geometry_locators(
+    value: Option<&Value>,
+    path: &Path,
+) -> Result<Box<[EntityGeometryLocator]>, AssetError> {
+    let Some(value) = value else {
+        return Ok(Box::new([]));
+    };
+    let object = value.as_object().ok_or_else(|| {
+        invalid(format!(
+            "entity geometry locators must be an object in {}",
+            path.display()
+        ))
+    })?;
+    if object.len() > MAX_ENTITY_GEOMETRY_LOCATORS {
+        return Err(invalid("entity geometry locator count exceeds bound"));
+    }
+    object
+        .iter()
+        .map(|(name, value)| {
+            if name.is_empty()
+                || name.len() > MAX_ENTITY_GEOMETRY_NAME_BYTES
+                || name.chars().any(char::is_control)
+            {
+                return Err(invalid("invalid entity geometry locator name"));
+            }
+            Ok(EntityGeometryLocator {
+                name: name.clone().into_boxed_str(),
+                offset: parse_vec(value, "locator", path)?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Vec::into_boxed_slice)
 }
 
 fn validate_bone_hierarchy(

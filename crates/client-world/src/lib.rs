@@ -21,7 +21,7 @@ pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
 };
 pub use item::{
-    ActorEquipmentSnapshot, CanonicalItemRegistryRecord, CanonicalItemStack,
+    ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord, CanonicalItemStack,
     MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};

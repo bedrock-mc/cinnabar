@@ -7,11 +7,18 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::super::{SourcePayloads, invalid, json::parse_unique_json};
+use super::super::{SourcePayloads, invalid, json::parse_unique_json, molang::MolangCompiler};
 
 pub(super) enum ClipCompileError {
     UnknownBone,
+    UnsupportedExpression,
     Invalid(AssetError),
+}
+
+impl From<AssetError> for ClipCompileError {
+    fn from(error: AssetError) -> Self {
+        Self::Invalid(error)
+    }
 }
 
 pub(super) fn compile_clip_for_geometry(
@@ -22,6 +29,7 @@ pub(super) fn compile_clip_for_geometry(
     clips: &mut Vec<EntityAnimationClip>,
     channels: &mut Vec<EntityAnimationChannel>,
     keyframes: &mut Vec<EntityAnimationKeyframe>,
+    molang: &mut MolangCompiler,
 ) -> Result<u32, ClipCompileError> {
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
     for (index, bone) in effective_bones.iter().enumerate() {
@@ -51,8 +59,7 @@ pub(super) fn compile_clip_for_geometry(
                     continue;
                 };
                 let first_keyframe = local_keyframes.len() as u32;
-                parse_channel(value, &mut local_keyframes, &mut maximum_time)
-                    .map_err(ClipCompileError::Invalid)?;
+                parse_channel(value, &mut local_keyframes, &mut maximum_time, molang)?;
                 local_channels.push(EntityAnimationChannel {
                     bone: bone_index,
                     property,
@@ -81,6 +88,11 @@ pub(super) fn compile_clip_for_geometry(
             )));
         }
     };
+    let time_expression = definition
+        .get("anim_time_update")
+        .and_then(Value::as_str)
+        .map(|expression| compile_animation_expression(expression, molang))
+        .transpose()?;
     let first_channel = channels.len() as u32;
     let first_keyframe = keyframes.len() as u32;
     for channel in &mut local_channels {
@@ -93,6 +105,7 @@ pub(super) fn compile_clip_for_geometry(
         symbol,
         length_seconds: scalar(declared_length).map_err(ClipCompileError::Invalid)?,
         loop_mode,
+        time_expression,
         first_channel,
         channel_count: channels.len() as u32 - first_channel,
         source,
@@ -100,16 +113,25 @@ pub(super) fn compile_clip_for_geometry(
     Ok(clip)
 }
 
+#[derive(Clone, Copy)]
+struct ParsedVector {
+    value: [EntityGeometryScalar; 3],
+    expressions: [Option<u32>; 3],
+}
+
 fn parse_channel(
     value: &Value,
     output: &mut Vec<EntityAnimationKeyframe>,
     maximum_time: &mut f32,
-) -> Result<(), AssetError> {
-    if value.is_array() || value.is_number() {
+    molang: &mut MolangCompiler,
+) -> Result<(), ClipCompileError> {
+    if value.is_array() || value.is_number() || value.is_string() {
+        let vector = parse_vector(value, molang)?;
         output.push(EntityAnimationKeyframe {
             time_seconds: scalar(0.0)?,
-            value: parse_vector(value)?,
+            value: vector.value,
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: vector.expressions,
         });
         return Ok(());
     }
@@ -121,7 +143,7 @@ fn parse_channel(
             .parse::<f32>()
             .map_err(|_| invalid("malformed animation keyframe time"))?;
         if !time.is_finite() || time < 0.0 {
-            return Err(invalid("invalid animation keyframe time"));
+            return Err(invalid("invalid animation keyframe time").into());
         }
         *maximum_time = maximum_time.max(time);
         if let Some(object) = value.as_object() {
@@ -129,40 +151,41 @@ fn parse_channel(
                 None | Some("linear") => EntityAnimationInterpolation::Linear,
                 Some("step") => EntityAnimationInterpolation::Step,
                 Some("catmullrom") => EntityAnimationInterpolation::CatmullRom,
-                _ => return Err(invalid("unsupported animation interpolation")),
+                _ => {
+                    return Err(ClipCompileError::Invalid(invalid(
+                        "unsupported animation interpolation",
+                    )));
+                }
             };
             let mut emitted = false;
             for field in ["pre", "post"] {
                 if let Some(vector) = object.get(field) {
+                    let vector = parse_vector(vector, molang)?;
                     output.push(EntityAnimationKeyframe {
                         time_seconds: scalar(time)?,
-                        value: parse_vector(vector)?,
+                        value: vector.value,
                         interpolation,
+                        expressions: vector.expressions,
                     });
                     emitted = true;
                 }
             }
             if !emitted {
-                return Err(invalid("keyframe object lacks pre/post values"));
+                return Err(ClipCompileError::Invalid(invalid(
+                    "keyframe object lacks pre/post values",
+                )));
             }
         } else {
+            let vector = parse_vector(value, molang)?;
             output.push(EntityAnimationKeyframe {
                 time_seconds: scalar(time)?,
-                value: parse_vector(value)?,
+                value: vector.value,
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: vector.expressions,
             });
         }
     }
     Ok(())
-}
-
-pub(super) fn has_string_leaf(value: &Value) -> bool {
-    match value {
-        Value::String(value) => !matches!(value.as_str(), "linear" | "step" | "catmullrom"),
-        Value::Array(values) => values.iter().any(has_string_leaf),
-        Value::Object(values) => values.values().any(has_string_leaf),
-        _ => false,
-    }
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {
@@ -203,20 +226,211 @@ pub(super) fn required_object<'a>(
         .ok_or_else(|| invalid("required JSON object is invalid"))
 }
 
-fn parse_vector(value: &Value) -> Result<[EntityGeometryScalar; 3], AssetError> {
+fn parse_vector(
+    value: &Value,
+    molang: &mut MolangCompiler,
+) -> Result<ParsedVector, ClipCompileError> {
     if let Some(number) = value.as_f64() {
-        let scalar = scalar(number as f32)?;
-        return Ok([scalar; 3]);
+        let scalar = scalar(number as f32).map_err(ClipCompileError::Invalid)?;
+        return Ok(ParsedVector {
+            value: [scalar; 3],
+            expressions: [None; 3],
+        });
+    }
+    if let Some(expression) = value.as_str() {
+        let expression = compile_animation_expression(expression, molang)?;
+        let zero = scalar(0.0).map_err(ClipCompileError::Invalid)?;
+        return Ok(ParsedVector {
+            value: [zero; 3],
+            expressions: [Some(expression); 3],
+        });
     }
     let values = value
         .as_array()
         .filter(|values| values.len() == 3)
-        .ok_or_else(|| invalid("animation vector must have exactly three finite numbers"))?;
-    Ok([
-        scalar(parse_number(&values[0])?)?,
-        scalar(parse_number(&values[1])?)?,
-        scalar(parse_number(&values[2])?)?,
-    ])
+        .ok_or_else(|| {
+            ClipCompileError::Invalid(invalid(
+                "animation vector must have exactly three finite numbers or expressions",
+            ))
+        })?;
+    let mut parsed = ParsedVector {
+        value: [scalar(0.0).map_err(ClipCompileError::Invalid)?; 3],
+        expressions: [None; 3],
+    };
+    for (axis, value) in values.iter().enumerate() {
+        match value {
+            Value::String(expression) => {
+                parsed.expressions[axis] = Some(compile_animation_expression(expression, molang)?);
+            }
+            _ => {
+                let number = value
+                    .as_f64()
+                    .ok_or(ClipCompileError::UnsupportedExpression)?;
+                parsed.value[axis] = scalar(number as f32).map_err(ClipCompileError::Invalid)?;
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+fn compile_animation_expression(
+    expression: &str,
+    molang: &mut MolangCompiler,
+) -> Result<u32, ClipCompileError> {
+    let mut expression = expression
+        .replace("q.", "query.")
+        .replace("v.", "variable.")
+        .replace("Math.Pi", "math.pi")
+        .replace(
+            "variable.riding_y_offset ?? 0.0",
+            "variable.riding_y_offset",
+        )
+        .replace(
+            "context.player_offhand_arm_height",
+            "variable.player_offhand_arm_height",
+        );
+    for (from, to) in [
+        (
+            "query.item_remaining_use_duration('main_hand', 1.0)",
+            "query.item_remaining_use_duration_main_hand",
+        ),
+        (
+            "query.item_remaining_use_duration('off_hand', 1.0)",
+            "query.item_remaining_use_duration_off_hand",
+        ),
+        (
+            "query.get_root_locator_offset('armor_offset.default_neck', 1)",
+            "query.root_locator_offset_armor_default_neck",
+        ),
+        ("query.position_delta(0)", "query.position_delta_x"),
+        ("query.position_delta(1)", "query.position_delta_y"),
+        ("query.position_delta(2)", "query.position_delta_z"),
+        (
+            "query.is_riding_any_entity_of_type('minecraft:minecart', 'minecraft:boat', 'minecraft:chest_boat', 'minecraft:strider')",
+            "query.is_riding",
+        ),
+        (
+            "query.get_default_bone_pivot('rightarm',1)",
+            "query.default_bone_pivot_rightarm_y",
+        ),
+        (
+            "query.get_default_bone_pivot('rightarm',2)",
+            "query.default_bone_pivot_rightarm_z",
+        ),
+        (
+            "query.get_default_bone_pivot('leftarm',1)",
+            "query.default_bone_pivot_leftarm_y",
+        ),
+        (
+            "query.get_default_bone_pivot('leftarm',2)",
+            "query.default_bone_pivot_leftarm_z",
+        ),
+        (
+            "query.get_default_bone_pivot('rightitem',1)",
+            "query.default_bone_pivot_rightitem_y",
+        ),
+        (
+            "query.get_default_bone_pivot('rightitem',2)",
+            "query.default_bone_pivot_rightitem_z",
+        ),
+        (
+            "query.get_default_bone_pivot('leftitem',1)",
+            "query.default_bone_pivot_leftitem_y",
+        ),
+        (
+            "query.get_default_bone_pivot('leftitem',2)",
+            "query.default_bone_pivot_leftitem_z",
+        ),
+        (
+            "query.is_item_name_any('slot.weapon.mainhand', 'minecraft:bow')",
+            "query.main_hand_is_bow",
+        ),
+        (
+            "query.is_item_name_any('slot.weapon.mainhand', 'minecraft:heavy_core')",
+            "query.main_hand_is_heavy_core",
+        ),
+        (
+            "query.get_equipped_item_name('off_hand') == 'shield'",
+            "query.off_hand_is_shield",
+        ),
+        (
+            "query.get_equipped_item_name('off_hand') != 'shield'",
+            "!query.off_hand_is_shield",
+        ),
+        (
+            "query.get_equipped_item_name('off_hand') == 'filled_map'",
+            "query.off_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name('off_hand') != 'filled_map'",
+            "!query.off_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name('main_hand') == 'shield'",
+            "query.main_hand_is_shield",
+        ),
+        (
+            "query.get_equipped_item_name('main_hand') == 'filled_map'",
+            "query.main_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name('main_hand') == 'crossbow'",
+            "query.main_hand_is_crossbow",
+        ),
+        (
+            "query.get_equipped_item_name('main_hand') == 'bow'",
+            "query.main_hand_is_bow",
+        ),
+        (
+            "query.get_equipped_item_name('main_hand') == 'brush'",
+            "query.main_hand_is_brush",
+        ),
+        (
+            "query.get_equipped_item_name(0, 1) == 'filled_map'",
+            "query.main_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name(0, 1) != 'filled_map'",
+            "!query.main_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name == 'crossbow'",
+            "query.main_hand_is_crossbow",
+        ),
+        (
+            "query.get_equipped_item_name != 'crossbow'",
+            "!query.main_hand_is_crossbow",
+        ),
+        (
+            "query.get_equipped_item_name == 'filled_map'",
+            "query.main_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name != 'filled_map'",
+            "!query.main_hand_is_filled_map",
+        ),
+        (
+            "query.get_equipped_item_name == 'shield'",
+            "query.main_hand_is_shield",
+        ),
+        (
+            "query.get_equipped_item_name != 'shield'",
+            "!query.main_hand_is_shield",
+        ),
+        (
+            "query.get_equipped_item_name == 'bow'",
+            "query.main_hand_is_bow",
+        ),
+        (
+            "query.get_equipped_item_name == 'brush'",
+            "query.main_hand_is_brush",
+        ),
+    ] {
+        expression = expression.replace(from, to);
+    }
+    molang
+        .compile(&expression)
+        .map_err(|_| ClipCompileError::UnsupportedExpression)
 }
 
 fn parse_number(value: &Value) -> Result<f32, AssetError> {

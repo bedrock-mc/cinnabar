@@ -1,6 +1,6 @@
 use super::*;
 use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use crate::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
     pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
@@ -11,6 +11,11 @@ impl ActorStore {
         self.players
             .get(uuid)
             .filter(|profile| profile.unique_id == actor.unique_id)
+            .or_else(|| {
+                self.players
+                    .values()
+                    .find(|profile| profile.unique_id == actor.unique_id)
+            })
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -50,6 +55,7 @@ impl ActorStore {
             .actors
             .values()
             .filter(|actor| Some(actor.runtime_id) != excluded_runtime_id)
+            .filter(|actor| actor.is_render_eligible())
             .filter_map(|actor| {
                 let ActorKind::Player { .. } = &actor.kind else {
                     return None;
@@ -112,6 +118,13 @@ impl ActorStore {
     }
     pub(crate) fn equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
         self.items.get(self.lifetime(runtime_id)?)
+    }
+    pub(crate) fn offhand_equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
+        self.items
+            .get_hand(self.lifetime(runtime_id)?, protocol::ActorHandedness::Left)
+    }
+    pub(crate) fn armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
+        self.items.armor(self.lifetime(runtime_id)?)
     }
     pub(crate) fn action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
         self.actions.get(self.lifetime(runtime_id)?)

@@ -73,6 +73,10 @@ pub struct EntityAnimationClip {
     pub symbol: u32,
     pub length_seconds: EntityGeometryScalar,
     pub loop_mode: EntityAnimationLoop,
+    /// Optional fixed-tick expression that supplies the clip's animation
+    /// time, used by distance-driven locomotion clips.
+    #[serde(default)]
+    pub time_expression: Option<u32>,
     pub first_channel: u32,
     pub channel_count: u32,
     pub source: u32,
@@ -93,6 +97,11 @@ pub struct EntityAnimationKeyframe {
     pub time_seconds: EntityGeometryScalar,
     pub value: [EntityGeometryScalar; 3],
     pub interpolation: EntityAnimationInterpolation,
+    /// Optional fixed-tick Molang expressions for dynamic channel components.
+    /// Numeric values remain the deterministic fallback when a component is
+    /// intentionally static.
+    #[serde(default)]
+    pub expressions: [Option<u32>; 3],
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -138,11 +147,13 @@ pub enum MolangOp {
     Push(EntityGeometryScalar),
     LoadQuery(u32),
     LoadVariable(u32),
+    LoadThis,
     Add,
     Subtract,
     Multiply,
     Divide,
     Modulo,
+    Pow,
     Negate,
     Not,
     Abs,
@@ -452,6 +463,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
             || !index_has_kind(&compiled.symbols, clip.symbol, EntityAssetKind::Animation)
             || clip.source as usize >= compiled.sources.len()
             || compiled.symbols[clip.symbol as usize].source_index != clip.source
+            || clip
+                .time_expression
+                .is_some_and(|expression| expression as usize >= compiled.molang_expressions.len())
             || !range_in_bounds(
                 clip.first_channel,
                 clip.channel_count,
@@ -473,6 +487,16 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
     for keyframe in &compiled.animation_keyframes {
         validate_geometry_scalar(keyframe.time_seconds)?;
         validate_scalars(&keyframe.value)?;
+        if keyframe
+            .expressions
+            .iter()
+            .flatten()
+            .any(|expression| *expression as usize >= compiled.molang_expressions.len())
+        {
+            return Err(invalid(
+                "entity animation keyframe expression is out of range",
+            ));
+        }
         if keyframe.time_seconds.get() < 0.0 {
             return Err(invalid("entity animation keyframe time is negative"));
         }
@@ -554,6 +578,7 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
                     return Err(invalid("Molang variable symbol kind is invalid"));
                 }
             }
+            MolangOp::LoadThis => {}
             MolangOp::SelectCollection(collection) => {
                 if collection as usize >= compiled.molang_collections.len() {
                     return Err(invalid("Molang collection index is out of range"));
@@ -564,6 +589,7 @@ fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetE
             | MolangOp::Multiply
             | MolangOp::Divide
             | MolangOp::Modulo
+            | MolangOp::Pow
             | MolangOp::Negate
             | MolangOp::Not
             | MolangOp::Abs
@@ -626,14 +652,66 @@ fn validate_molang_symbol(symbol: &MolangSymbol) -> Result<(), AssetError> {
                 | "query.life_time"
                 | "query.modified_move_speed"
                 | "query.ground_speed"
+                | "query.ground_speed_squared"
+                | "query.vertical_speed"
+                | "query.delta_time"
                 | "query.is_on_ground"
                 | "query.is_moving"
+                | "query.is_jumping"
+                | "query.is_falling"
+                | "query.is_alive"
+                | "query.is_baby"
+                | "query.is_swimming"
+                | "query.is_riding"
+                | "query.is_crawling"
+                | "query.is_emoting"
+                | "query.is_gliding"
+                | "query.has_target"
+                | "query.is_spectator"
+                | "query.is_charging"
+                | "query.blocking"
                 | "query.is_sprinting"
                 | "query.is_sneaking"
                 | "query.is_sleeping"
+                | "query.has_head_gear"
+                | "query.item_is_charged"
+                | "query.item_remaining_use_duration"
+                | "query.main_hand_item_use_duration"
+                | "query.main_hand_item_max_duration"
+                | "query.cape_flap_amount"
+                | "query.modified_distance_moved"
+                | "query.walk_distance"
+                | "query.position_delta_x"
+                | "query.position_delta_y"
+                | "query.position_delta_z"
+                | "query.sleep_rotation"
+                | "query.main_hand_is_shield"
+                | "query.main_hand_is_filled_map"
+                | "query.main_hand_is_crossbow"
+                | "query.main_hand_is_bow"
+                | "query.main_hand_is_brush"
+                | "query.main_hand_is_heavy_core"
+                | "query.off_hand_is_shield"
+                | "query.off_hand_is_filled_map"
+                | "query.off_hand_is_crossbow"
+                | "query.off_hand_is_bow"
+                | "query.off_hand_is_brush"
+                | "query.off_hand_is_heavy_core"
+                | "query.item_remaining_use_duration_main_hand"
+                | "query.item_remaining_use_duration_off_hand"
+                | "query.root_locator_offset_armor_default_neck"
+                | "query.default_bone_pivot_rightarm_y"
+                | "query.default_bone_pivot_rightarm_z"
+                | "query.default_bone_pivot_leftarm_y"
+                | "query.default_bone_pivot_leftarm_z"
+                | "query.default_bone_pivot_rightitem_y"
+                | "query.default_bone_pivot_rightitem_z"
+                | "query.default_bone_pivot_leftitem_y"
+                | "query.default_bone_pivot_leftitem_z"
                 | "query.body_y_rotation"
                 | "query.head_y_rotation"
                 | "query.target_x_rotation"
+                | "query.target_y_rotation"
         ),
         MolangSymbolKind::Variable => valid_molang_slot(&symbol.identifier, "variable."),
         MolangSymbolKind::Temporary => valid_molang_slot(&symbol.identifier, "temp."),
@@ -669,12 +747,16 @@ fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), Asset
     let mut observed_max = 0usize;
     for op in ops {
         match op {
-            MolangOp::Push(_) | MolangOp::LoadQuery(_) | MolangOp::LoadVariable(_) => depth += 1,
+            MolangOp::Push(_)
+            | MolangOp::LoadQuery(_)
+            | MolangOp::LoadVariable(_)
+            | MolangOp::LoadThis => depth += 1,
             MolangOp::Add
             | MolangOp::Subtract
             | MolangOp::Multiply
             | MolangOp::Divide
             | MolangOp::Modulo
+            | MolangOp::Pow
             | MolangOp::And
             | MolangOp::Or
             | MolangOp::Equal

@@ -7,6 +7,10 @@ use crate::{ActorLifetimeId, EntityRigId};
 
 pub const MAX_ACTIONS_PER_ACTOR: usize = 32;
 pub const MAX_ACTION_EVENTS_PER_TICK: usize = 4_096;
+pub(crate) const STANDARD_ATTACK_ACTIVE_TICKS: u16 = 3;
+pub(crate) const STANDARD_ATTACK_RECOVER_TICKS: u16 = 2;
+pub(crate) const STANDARD_ATTACK_TOTAL_TICKS: u16 =
+    1 + STANDARD_ATTACK_ACTIVE_TICKS + STANDARD_ATTACK_RECOVER_TICKS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActorSourceTick {
@@ -151,24 +155,16 @@ impl RemoteActionStore {
             .values_mut()
             .filter_map(|history| history.last_mut())
         {
-            current.phase = match current.phase {
-                ItemActionPhase::Idle | ItemActionPhase::Cancelled => current.phase,
-                ItemActionPhase::Windup { .. } => ItemActionPhase::Active { elapsed_ticks: 0 },
-                ItemActionPhase::Active { .. } => ItemActionPhase::Recover { elapsed_ticks: 0 },
-                ItemActionPhase::Recover { .. } => ItemActionPhase::Idle,
-                ItemActionPhase::UseHeld {
-                    elapsed_ticks,
-                    duration_ticks,
-                } if elapsed_ticks.saturating_add(1) >= duration_ticks => {
-                    ItemActionPhase::Recover { elapsed_ticks: 0 }
-                }
-                ItemActionPhase::UseHeld {
-                    elapsed_ticks,
-                    duration_ticks,
-                } => ItemActionPhase::UseHeld {
-                    elapsed_ticks: elapsed_ticks.saturating_add(1),
-                    duration_ticks,
-                },
+            let standard_attack = matches!(
+                current.kind,
+                ActorActionKind::SwingArm
+                    | ActorActionKind::CriticalHit
+                    | ActorActionKind::MagicCriticalHit
+            );
+            current.phase = if standard_attack {
+                advance_standard_attack_phase(current.phase)
+            } else {
+                advance_non_attack_phase(current.phase)
             };
         }
     }
@@ -241,6 +237,52 @@ impl RemoteActionStore {
         } else {
             RemoteActionFallback::StaticPose
         }
+    }
+}
+
+fn advance_standard_attack_phase(phase: ItemActionPhase) -> ItemActionPhase {
+    match phase {
+        ItemActionPhase::Idle | ItemActionPhase::Cancelled => phase,
+        ItemActionPhase::Windup { .. } => ItemActionPhase::Active { elapsed_ticks: 0 },
+        ItemActionPhase::Active { elapsed_ticks }
+            if elapsed_ticks.saturating_add(1) < STANDARD_ATTACK_ACTIVE_TICKS =>
+        {
+            ItemActionPhase::Active {
+                elapsed_ticks: elapsed_ticks.saturating_add(1),
+            }
+        }
+        ItemActionPhase::Active { .. } => ItemActionPhase::Recover { elapsed_ticks: 0 },
+        ItemActionPhase::Recover { elapsed_ticks }
+            if elapsed_ticks.saturating_add(1) < STANDARD_ATTACK_RECOVER_TICKS =>
+        {
+            ItemActionPhase::Recover {
+                elapsed_ticks: elapsed_ticks.saturating_add(1),
+            }
+        }
+        ItemActionPhase::Recover { .. } => ItemActionPhase::Idle,
+        ItemActionPhase::UseHeld { .. } => ItemActionPhase::Idle,
+    }
+}
+
+fn advance_non_attack_phase(phase: ItemActionPhase) -> ItemActionPhase {
+    match phase {
+        ItemActionPhase::Idle | ItemActionPhase::Cancelled => phase,
+        ItemActionPhase::Windup { .. } => ItemActionPhase::Active { elapsed_ticks: 0 },
+        ItemActionPhase::Active { .. } => ItemActionPhase::Recover { elapsed_ticks: 0 },
+        ItemActionPhase::Recover { .. } => ItemActionPhase::Idle,
+        ItemActionPhase::UseHeld {
+            elapsed_ticks,
+            duration_ticks,
+        } if elapsed_ticks.saturating_add(1) >= duration_ticks => {
+            ItemActionPhase::Recover { elapsed_ticks: 0 }
+        }
+        ItemActionPhase::UseHeld {
+            elapsed_ticks,
+            duration_ticks,
+        } => ItemActionPhase::UseHeld {
+            elapsed_ticks: elapsed_ticks.saturating_add(1),
+            duration_ticks,
+        },
     }
 }
 

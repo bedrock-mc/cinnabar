@@ -16,6 +16,9 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
         kind: ActorKind::Entity {
             identifier: "minecraft:test".into(),
         },
+        game_mode: None,
+        resolved_game_mode: None,
+        game_mode_tick: None,
         position: [0.0; 3],
         velocity: [0.0; 3],
         pitch: 0.0,
@@ -40,14 +43,18 @@ fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnaps
 fn child_before_parent_composes_without_reindexing_channels() {
     let bones = [
         RuntimeBone {
+            name: "child".into(),
             parent: Some(1),
             pivot: [0.0, 2.0, 0.0],
             rotation: [0.0; 3],
+            locators: Box::new([]),
         },
         RuntimeBone {
+            name: "root".into(),
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0; 3],
+            locators: Box::new([]),
         },
     ];
     let pose = compose_pose(&bones, &[]).unwrap();
@@ -59,14 +66,18 @@ fn child_before_parent_composes_without_reindexing_channels() {
 fn rotated_parent_uses_child_model_space_pivot_delta() {
     let bones = [
         RuntimeBone {
+            name: "root".into(),
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 90.0],
+            locators: Box::new([]),
         },
         RuntimeBone {
+            name: "child".into(),
             parent: Some(0),
             pivot: [3.0, 0.0, 0.0],
             rotation: [0.0; 3],
+            locators: Box::new([]),
         },
     ];
     let pose = compose_pose(&bones, &[]).unwrap();
@@ -77,9 +88,11 @@ fn rotated_parent_uses_child_model_space_pivot_delta() {
 #[test]
 fn nonuniform_scale_is_rejected_instead_of_silently_truncated() {
     let bones = [RuntimeBone {
+        name: "root".into(),
         parent: None,
         pivot: [0.0; 3],
         rotation: [0.0; 3],
+        locators: Box::new([]),
     }];
     let local = [LocalDelta {
         scale: [1.0, 2.0, 3.0],
@@ -94,6 +107,77 @@ fn sleeping_player_metadata_does_not_spoof_sneaking() {
     let history = VecDeque::new();
     assert_eq!(query(&actor, &history, 0, 0, "query.is_sleeping"), 1.0);
     assert_eq!(query(&actor, &history, 0, 0, "query.is_sneaking"), 0.0);
+}
+
+#[test]
+fn movement_and_appearance_queries_use_retained_authority() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.resolved_game_mode = Some(ActorGameMode::Spectator);
+    let history = VecDeque::from([ActorTickInput {
+        velocity: [2.0, -1.0, 0.0],
+        on_ground: false,
+        body_yaw: 0.0,
+        head_yaw: 0.0,
+        pitch: 22.55,
+        action: ActorActionInput {
+            item_use_normalized: 0.5,
+            ..ActorActionInput::default()
+        },
+        items: ActorItemInput {
+            armor_layers: [true, true, false, false, false],
+            ..ActorItemInput::default()
+        },
+        distance_moved: 1.0,
+        default_bone_pivots: [0.0; 8],
+        root_locator_offset: [0.0; 3],
+    }]);
+
+    assert_eq!(query(&actor, &history, 0, 0, "query.is_spectator"), 1.0);
+    assert_eq!(query(&actor, &history, 0, 0, "query.has_head_gear"), 1.0);
+    assert!((query(&actor, &history, 0, 0, "query.position_delta_x") - 0.1).abs() < 1.0e-6);
+    assert!(
+        (query(&actor, &history, 0, 0, "query.main_hand_item_use_duration") - 0.5).abs() < 1.0e-6
+    );
+    assert_eq!(
+        query(&actor, &history, 0, 0, "query.main_hand_item_max_duration"),
+        1.0
+    );
+    assert!(query(&actor, &history, 0, 0, "query.cape_flap_amount") > 0.0);
+    assert_eq!(
+        variable(&actor, &history, 0, 0, "variable.helmet_layer_visible"),
+        1.0
+    );
+    assert_eq!(
+        variable(&actor, &history, 0, 0, "variable.chest_layer_visible"),
+        1.0
+    );
+}
+
+#[test]
+fn root_locator_query_uses_the_retained_geometry_offset() {
+    let actor = actor_with_metadata(HashMap::new());
+    let history = VecDeque::from([ActorTickInput {
+        velocity: [0.0; 3],
+        on_ground: true,
+        body_yaw: 0.0,
+        head_yaw: 0.0,
+        pitch: 0.0,
+        action: ActorActionInput::default(),
+        items: ActorItemInput::default(),
+        distance_moved: 0.0,
+        default_bone_pivots: [0.0; 8],
+        root_locator_offset: [1.0, 8.0, 3.0],
+    }]);
+    assert_eq!(
+        query(
+            &actor,
+            &history,
+            0,
+            0,
+            "query.root_locator_offset_armor_default_neck"
+        ),
+        8.0
+    );
 }
 
 #[test]

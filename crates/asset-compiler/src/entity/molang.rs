@@ -127,6 +127,8 @@ enum Function {
     Cos,
     Min,
     Max,
+    Mod,
+    Pow,
     Clamp,
     Lerp,
 }
@@ -139,6 +141,7 @@ enum Expr {
     Binary(Binary, Box<Expr>, Box<Expr>),
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     Function(Function, Vec<Expr>),
+    This,
 }
 
 impl Expr {
@@ -163,6 +166,7 @@ impl Expr {
                 }
             }
             Self::Constant(_) => {}
+            Self::This => {}
         }
     }
 
@@ -173,6 +177,7 @@ impl Expr {
     ) -> Result<(), AssetError> {
         match self {
             Self::Constant(value) => output.push(MolangOp::Push(scalar(*value)?)),
+            Self::This => output.push(MolangOp::LoadThis),
             Self::Symbol(kind, identifier) => {
                 let index = symbols
                     .get(&(*kind, identifier.clone()))
@@ -242,7 +247,7 @@ impl Function {
             | Self::Sqrt
             | Self::Sin
             | Self::Cos => 1,
-            Self::Min | Self::Max => 2,
+            Self::Min | Self::Max | Self::Mod | Self::Pow => 2,
             Self::Clamp | Self::Lerp => 3,
         }
     }
@@ -258,6 +263,8 @@ impl Function {
             Self::Cos => MolangOp::Cos,
             Self::Min => MolangOp::Min,
             Self::Max => MolangOp::Max,
+            Self::Mod => MolangOp::Modulo,
+            Self::Pow => MolangOp::Pow,
             Self::Clamp => MolangOp::Clamp,
             Self::Lerp => MolangOp::Lerp,
         }
@@ -465,6 +472,10 @@ impl<'a> Parser<'a> {
             Token::Identifier(identifier) if identifier.as_ref() == "false" => {
                 Ok(Expr::Constant(0.0))
             }
+            Token::Identifier(identifier) if identifier.as_ref() == "math.pi" => {
+                Ok(Expr::Constant(std::f32::consts::PI))
+            }
+            Token::Identifier(identifier) if identifier.as_ref() == "this" => Ok(Expr::This),
             Token::Identifier(identifier) if self.current == Token::LeftParen => {
                 let function = parse_function(&identifier)?;
                 self.bump()?;
@@ -492,14 +503,66 @@ impl<'a> Parser<'a> {
                             | "query.life_time"
                             | "query.modified_move_speed"
                             | "query.ground_speed"
+                            | "query.ground_speed_squared"
+                            | "query.vertical_speed"
+                            | "query.delta_time"
                             | "query.is_on_ground"
                             | "query.is_moving"
+                            | "query.is_jumping"
+                            | "query.is_falling"
+                            | "query.is_alive"
+                            | "query.is_baby"
+                            | "query.is_swimming"
+                            | "query.is_riding"
+                            | "query.is_crawling"
+                            | "query.is_emoting"
+                            | "query.is_gliding"
+                            | "query.has_target"
+                            | "query.is_spectator"
+                            | "query.is_charging"
+                            | "query.blocking"
                             | "query.is_sprinting"
                             | "query.is_sneaking"
                             | "query.is_sleeping"
+                            | "query.has_head_gear"
+                            | "query.item_is_charged"
+                            | "query.item_remaining_use_duration"
+                            | "query.main_hand_item_use_duration"
+                            | "query.main_hand_item_max_duration"
+                            | "query.cape_flap_amount"
+                            | "query.modified_distance_moved"
+                            | "query.walk_distance"
+                            | "query.position_delta_x"
+                            | "query.position_delta_y"
+                            | "query.position_delta_z"
+                            | "query.sleep_rotation"
+                            | "query.main_hand_is_shield"
+                            | "query.main_hand_is_filled_map"
+                            | "query.main_hand_is_crossbow"
+                            | "query.main_hand_is_bow"
+                            | "query.main_hand_is_brush"
+                            | "query.main_hand_is_heavy_core"
+                            | "query.off_hand_is_shield"
+                            | "query.off_hand_is_filled_map"
+                            | "query.off_hand_is_crossbow"
+                            | "query.off_hand_is_bow"
+                            | "query.off_hand_is_brush"
+                            | "query.off_hand_is_heavy_core"
+                            | "query.item_remaining_use_duration_main_hand"
+                            | "query.item_remaining_use_duration_off_hand"
+                            | "query.root_locator_offset_armor_default_neck"
+                            | "query.default_bone_pivot_rightarm_y"
+                            | "query.default_bone_pivot_rightarm_z"
+                            | "query.default_bone_pivot_leftarm_y"
+                            | "query.default_bone_pivot_leftarm_z"
+                            | "query.default_bone_pivot_rightitem_y"
+                            | "query.default_bone_pivot_rightitem_z"
+                            | "query.default_bone_pivot_leftitem_y"
+                            | "query.default_bone_pivot_leftitem_z"
                             | "query.body_y_rotation"
                             | "query.head_y_rotation"
                             | "query.target_x_rotation"
+                            | "query.target_y_rotation"
                     ) {
                         return Err(invalid("unlisted Molang query"));
                     }
@@ -561,6 +624,8 @@ fn parse_function(identifier: &str) -> Result<Function, AssetError> {
         "math.cos" => Ok(Function::Cos),
         "math.min" => Ok(Function::Min),
         "math.max" => Ok(Function::Max),
+        "math.mod" => Ok(Function::Mod),
+        "math.pow" => Ok(Function::Pow),
         "math.clamp" => Ok(Function::Clamp),
         "math.lerp" => Ok(Function::Lerp),
         _ => Err(invalid("unsupported Molang function")),
@@ -668,6 +733,14 @@ fn fold_function(function: Function, arguments: Vec<Expr>) -> Result<Expr, Asset
         Function::Cos => values[0].to_radians().cos(),
         Function::Min => values[0].min(values[1]),
         Function::Max => values[0].max(values[1]),
+        Function::Mod => {
+            if values[1] == 0.0 {
+                0.0
+            } else {
+                values[0] % values[1]
+            }
+        }
+        Function::Pow => values[0].powf(values[1]),
         Function::Clamp => values[0].clamp(values[1].min(values[2]), values[1].max(values[2])),
         Function::Lerp => values[0] + (values[1] - values[0]) * values[2],
     };
@@ -680,7 +753,10 @@ fn calculate_stack(ops: &[MolangOp]) -> Result<u8, AssetError> {
     let mut maximum = 0usize;
     for op in ops {
         let (required, delta) = match op {
-            MolangOp::Push(_) | MolangOp::LoadQuery(_) | MolangOp::LoadVariable(_) => (0, 1),
+            MolangOp::Push(_)
+            | MolangOp::LoadQuery(_)
+            | MolangOp::LoadVariable(_)
+            | MolangOp::LoadThis => (0, 1),
             MolangOp::Negate
             | MolangOp::Not
             | MolangOp::Abs

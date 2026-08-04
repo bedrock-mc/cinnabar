@@ -497,6 +497,11 @@ impl WorldStream {
                 let _ =
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
+                self.actors.install_local_player(
+                    self.local_player_runtime_id,
+                    self.local_player_unique_id,
+                    change.position,
+                );
                 self.current_dimension = change.dimension;
                 // A dimension change always dismounts; the mount actor does not follow.
                 if self.local_mount_unique_id.take().is_some() {
@@ -659,8 +664,11 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced armor events commit through submit");
                 if event.actor_runtime_id == self.local_player_runtime_id {
                     self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
+                } else {
+                    let _ =
+                        self.actors
+                            .apply_armor_equipment(self.actor_session_id, sequence, *event);
                 }
-                // Remote actors' armor is not rendered yet; commit and drop.
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
@@ -693,6 +701,18 @@ impl WorldStream {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                match &event {
+                    protocol::UiEvent::GameMode(update) => {
+                        self.actors.apply_player_game_mode_update(
+                            self.local_player_unique_id,
+                            update.update,
+                        );
+                    }
+                    protocol::UiEvent::DefaultGameMode(update) => {
+                        self.actors.apply_default_game_mode_update(update.update);
+                    }
+                    _ => {}
+                }
                 self.push_committed_ui(CommittedUiEvent::Ui { sequence, event });
             }
             WorldEvent::BlockCrack(event) => {
