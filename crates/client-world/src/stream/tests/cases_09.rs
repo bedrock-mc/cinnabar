@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn undrained_ui_commits_apply_bounded_backpressure_without_panicking() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -33,6 +34,7 @@ fn undrained_ui_commits_apply_bounded_backpressure_without_panicking() {
 #[test]
 fn chunk_grid_retention_follows_player_and_ignores_publisher() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -81,6 +83,7 @@ fn chunk_grid_retention_follows_player_and_ignores_publisher() {
 #[test]
 fn shrinking_confirmed_radius_evicts_columns_that_leave_the_grid() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],

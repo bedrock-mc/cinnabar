@@ -1,7 +1,5 @@
-//! Startup loading for the pinned official Mojang sample HUD carrier.
-//!
-//! The survival HUD is required player-facing art, so this module fails closed on a missing,
-//! unreadable, oversized, or malformed carrier and always names the exact rebuild command.
+//! Required pinned HUD carrier loading, split from the asset-startup root to
+//! honor the production module line budget.
 
 use std::{
     fs::File,
@@ -12,13 +10,10 @@ use std::{
 
 use assets::RuntimeHudCatalog;
 
-use super::{AssetStartupError, DEFAULT_ASSET_PATH, format_sha256};
-
-pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
-pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
-pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
-
-const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
+use super::{
+    AssetStartupError, DEFAULT_ASSET_PATH, HUD_ASSETS_COMPILE_COMMAND, HUD_ASSETS_FILENAME,
+    HUD_ASSETS_REPORT_FILENAME, MAX_HUD_ASSET_BLOB_BYTES, format_sha256,
+};
 
 pub struct LoadedHudAssets {
     runtime: Arc<RuntimeHudCatalog>,
@@ -77,16 +72,7 @@ pub fn hud_assets_rebuild_command(path: &Path) -> String {
     )
 }
 
-#[cfg(windows)]
-fn shell_quote_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    format!("'{}'", path.replace('\'', "''"))
-}
-
-#[cfg(not(windows))]
-fn shell_quote_path(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
-}
+use super::shell_quote_path;
 
 #[must_use]
 pub fn hud_asset_path(world_asset_path: &Path) -> PathBuf {
@@ -107,9 +93,9 @@ pub fn load_hud_assets(
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {
             return Err(AssetStartupError::HudAssetsRead {
+                rebuild_command: hud_assets_rebuild_command(&path),
                 path,
                 source,
-                rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
             });
         }
     };
@@ -118,14 +104,14 @@ pub fn load_hud_assets(
         .map_err(|source| AssetStartupError::HudAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+            rebuild_command: hud_assets_rebuild_command(&path),
         })?
         .len();
     if length > MAX_HUD_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::HudAssetsTooLarge {
+            rebuild_command: hud_assets_rebuild_command(&path),
             path,
             max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
         });
     }
     let mut bytes = Vec::with_capacity(length as usize);
@@ -134,20 +120,20 @@ pub fn load_hud_assets(
         .map_err(|source| AssetStartupError::HudAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+            rebuild_command: hud_assets_rebuild_command(&path),
         })?;
     if bytes.len() as u64 > MAX_HUD_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::HudAssetsTooLarge {
+            rebuild_command: hud_assets_rebuild_command(&path),
             path,
             max_bytes: MAX_HUD_ASSET_BLOB_BYTES,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
         });
     }
     let runtime =
         RuntimeHudCatalog::decode(&bytes).map_err(|source| AssetStartupError::HudAssetsDecode {
             path: path.clone(),
             source,
-            rebuild_command: HUD_ASSETS_COMPILE_COMMAND,
+            rebuild_command: hud_assets_rebuild_command(&path),
         })?;
     Ok(Some(LoadedHudAssets {
         runtime: Arc::new(runtime),

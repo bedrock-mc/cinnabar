@@ -122,6 +122,7 @@ fn consumed_local_equipment_commits_its_global_fifo_slot() {
     };
 
     let mut stream = client_world::WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
@@ -203,6 +204,7 @@ fn inventory_ingress_is_retained_while_global_fifo_advances() {
     )
     .unwrap();
     let mut stream = client_world::WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
         player_position: [0.0; 3],

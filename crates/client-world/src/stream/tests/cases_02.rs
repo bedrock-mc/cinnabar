@@ -96,6 +96,7 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
 #[test]
 fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -185,6 +186,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
 #[test]
 fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
     let bootstrap = WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -277,6 +279,7 @@ fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
 #[test]
 fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -351,6 +354,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
 #[test]
 fn clock_and_weather_wait_behind_an_earlier_decode_before_committing() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -395,6 +399,7 @@ fn clock_and_weather_wait_behind_an_earlier_decode_before_committing() {
 #[test]
 fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -436,6 +441,7 @@ fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count()
 #[test]
 fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -474,6 +480,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
 #[test]
 fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -523,6 +530,7 @@ fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
 #[test]
 fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -595,6 +603,7 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
 #[test]
 fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -639,6 +648,7 @@ fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() 
 #[test]
 fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -717,6 +727,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
 #[test]
 fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -767,6 +778,7 @@ fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
 #[test]
 fn bootstrap_non_finite_horizontal_position_uses_the_shared_finite_scope_anchor() {
     let bootstrap = WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [f32::NAN, 80.0, f32::INFINITY],
@@ -794,6 +806,7 @@ fn bootstrap_non_finite_horizontal_position_uses_the_shared_finite_scope_anchor(
 #[test]
 fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_together() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [7.25, 70.0, -8.75],
@@ -832,6 +845,7 @@ fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_togeth
 #[test]
 fn newer_inline_chunk_is_validated_after_fifo_blocked_publisher_update_commits() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -863,6 +877,7 @@ fn newer_inline_chunk_is_validated_after_fifo_blocked_publisher_update_commits()
 #[test]
 fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

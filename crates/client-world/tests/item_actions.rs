@@ -19,6 +19,12 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 
+// Synthetic data-driven item IDs must stay outside the generated vanilla
+// registry. Modern Bedrock clients know vanilla IDs before the server sends
+// its custom item entries, so small fixture IDs are not necessarily unknown.
+const CUSTOM_ITEM_ID: i32 = 1_900_000_001;
+const PENDING_ITEM_ID: i32 = 1_900_000_002;
+
 fn item_assets() -> Arc<RuntimeEntityAssets> {
     let compiled = CompiledEntityAssets {
         source_manifest_sha256: [0x31; 32],
@@ -119,6 +125,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
 fn stream() -> WorldStream {
     WorldStream::new_with_asset_sets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0, 64.0, 0.0],
@@ -223,7 +230,7 @@ fn retained_item_action_bounds_are_exact() {
 #[test]
 fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
     let mut stream = stream();
-    let held = stack(5, 1, b"exact-extra");
+    let held = stack(CUSTOM_ITEM_ID, 1, b"exact-extra");
     stream.submit(1, spawn(42, -42, held.clone())).unwrap();
 
     let unresolved = stream.actor_equipment(42).unwrap().clone();
@@ -235,7 +242,7 @@ fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
     assert_eq!(unresolved.event.actor_lifetime, 1);
 
     stream
-        .submit(2, registry(5, "minecraft:red_apple"))
+        .submit(2, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
         .unwrap();
     let resolved = stream.actor_equipment(42).unwrap();
     assert_eq!(resolved.item.identity, unresolved.item.identity);
@@ -254,14 +261,20 @@ fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
 #[test]
 fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
     let mut stream = stream();
-    stream.submit(1, registry(5, "minecraft:apple")).unwrap();
+    stream
+        .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
+        .unwrap();
     stream
         .submit(2, spawn(42, -42, NetworkItemStack::empty()))
         .unwrap();
     stream
         .submit(
             3,
-            equipment(42, stack(5, 1, b"one"), Some(ActorHandedness::Left)),
+            equipment(
+                42,
+                stack(CUSTOM_ITEM_ID, 1, b"one"),
+                Some(ActorHandedness::Left),
+            ),
         )
         .unwrap();
     let left = stream.actor_equipment(42).unwrap();
@@ -275,7 +288,11 @@ fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
     stream
         .submit(
             4,
-            equipment(42, stack(5, 2, b"two"), Some(ActorHandedness::Right)),
+            equipment(
+                42,
+                stack(CUSTOM_ITEM_ID, 2, b"two"),
+                Some(ActorHandedness::Right),
+            ),
         )
         .unwrap();
     let right = stream.actor_equipment(42).unwrap();
@@ -288,15 +305,17 @@ fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
 #[test]
 fn latest_registry_re_resolves_live_equipment_without_changing_identity() {
     let mut stream = stream();
-    stream.submit(1, registry(5, "minecraft:apple")).unwrap();
     stream
-        .submit(2, spawn(42, -42, stack(5, 1, b"same")))
+        .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
+        .unwrap();
+    stream
+        .submit(2, spawn(42, -42, stack(CUSTOM_ITEM_ID, 1, b"same")))
         .unwrap();
     let original = stream.actor_equipment(42).unwrap().clone();
     assert_eq!(original.item.identifier.as_deref(), Some("minecraft:apple"));
 
     stream
-        .submit(3, registry(5, "minecraft:red_apple"))
+        .submit(3, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
         .unwrap();
     let replaced = stream.actor_equipment(42).unwrap();
     assert_eq!(replaced.item.identity, original.item.identity);
@@ -319,7 +338,11 @@ fn pending_resolution_queue_is_bounded_and_registry_still_resolves_overflow() {
         stream
             .submit(
                 offset as u64 + 1,
-                spawn(runtime_id, -(runtime_id as i64), stack(99, 1, b"same")),
+                spawn(
+                    runtime_id,
+                    -(runtime_id as i64),
+                    stack(PENDING_ITEM_ID, 1, b"same"),
+                ),
             )
             .unwrap();
     }
@@ -331,7 +354,7 @@ fn pending_resolution_queue_is_bounded_and_registry_still_resolves_overflow() {
     stream
         .submit(
             MAX_PENDING_ITEM_RESOLUTIONS as u64 + 2,
-            registry(99, "minecraft:apple"),
+            registry(PENDING_ITEM_ID, "minecraft:apple"),
         )
         .unwrap();
     assert_eq!(stream.pending_item_resolution_count(), 0);
@@ -393,7 +416,7 @@ fn bad_digest_and_unknown_actor_equipment_are_not_retained() {
         .submit(1, spawn(42, -42, NetworkItemStack::empty()))
         .unwrap();
     let before = stream.actor_equipment(42).unwrap().clone();
-    let mut corrupt = stack(5, 1, b"bytes");
+    let mut corrupt = stack(CUSTOM_ITEM_ID, 1, b"bytes");
     corrupt.nbt_digest = [0xff; 32];
     stream
         .submit(2, equipment(42, corrupt, Some(ActorHandedness::Right)))
@@ -401,7 +424,7 @@ fn bad_digest_and_unknown_actor_equipment_are_not_retained() {
     assert_eq!(stream.actor_equipment(42), Some(&before));
 
     stream
-        .submit(3, equipment(999, stack(5, 1, b"bytes"), None))
+        .submit(3, equipment(999, stack(CUSTOM_ITEM_ID, 1, b"bytes"), None))
         .unwrap();
     assert!(stream.actor_equipment(999).is_none());
 }
@@ -409,10 +432,14 @@ fn bad_digest_and_unknown_actor_equipment_are_not_retained() {
 #[test]
 fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
     let mut stream = stream();
-    stream.submit(1, spawn(42, -42, stack(5, 1, b"a"))).unwrap();
+    stream
+        .submit(1, spawn(42, -42, stack(CUSTOM_ITEM_ID, 1, b"a")))
+        .unwrap();
     let first = stream.actor_equipment(42).unwrap().actor;
 
-    stream.submit(2, spawn(42, -43, stack(5, 1, b"b"))).unwrap();
+    stream
+        .submit(2, spawn(42, -43, stack(CUSTOM_ITEM_ID, 1, b"b")))
+        .unwrap();
     let second = stream.actor_equipment(42).unwrap().actor;
     assert_ne!(first, second);
     assert_eq!(second.spawn_revision, 2);
@@ -428,7 +455,9 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
         .unwrap();
     assert!(stream.actor_equipment(42).is_none());
 
-    stream.submit(4, spawn(43, -44, stack(5, 1, b"c"))).unwrap();
+    stream
+        .submit(4, spawn(43, -44, stack(CUSTOM_ITEM_ID, 1, b"c")))
+        .unwrap();
     stream
         .submit(
             5,
@@ -444,9 +473,11 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
 #[test]
 fn session_item_registry_survives_dimension_actor_state_reset() {
     let mut stream = stream();
-    stream.submit(1, registry(5, "minecraft:apple")).unwrap();
     stream
-        .submit(2, spawn(42, -42, stack(5, 1, b"old")))
+        .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
+        .unwrap();
+    stream
+        .submit(2, spawn(42, -42, stack(CUSTOM_ITEM_ID, 1, b"old")))
         .unwrap();
     stream
         .submit(
@@ -458,7 +489,7 @@ fn session_item_registry_survives_dimension_actor_state_reset() {
         )
         .unwrap();
 
-    let mut next_dimension_spawn = spawn(43, -43, stack(5, 1, b"new"));
+    let mut next_dimension_spawn = spawn(43, -43, stack(CUSTOM_ITEM_ID, 1, b"new"));
     let WorldEvent::Actor(ActorEvent::Spawn(spawn)) = &mut next_dimension_spawn else {
         unreachable!()
     };
@@ -481,19 +512,23 @@ fn session_item_registry_survives_dimension_actor_state_reset() {
 fn unknown_item_stays_missing_and_duplicate_sequence_is_rejected() {
     let mut stream = stream();
     stream
-        .submit(1, spawn(42, -42, stack(99, 1, b"a")))
+        .submit(1, spawn(42, -42, stack(PENDING_ITEM_ID, 1, b"a")))
         .unwrap();
     let item = &stream.actor_equipment(42).unwrap().item;
     assert_eq!(item.identifier, None);
     assert_eq!(item.visual, ItemVisualRoute::Missing);
-    assert!(stream.submit(1, registry(99, "minecraft:apple")).is_err());
+    assert!(
+        stream
+            .submit(1, registry(PENDING_ITEM_ID, "minecraft:apple"))
+            .is_err()
+    );
 }
 
 #[test]
 fn local_actor_is_excluded_from_remote_equipment_and_action_state() {
     let mut stream = stream();
     stream
-        .submit(1, spawn(1, -1, stack(5, 1, b"local")))
+        .submit(1, spawn(1, -1, stack(CUSTOM_ITEM_ID, 1, b"local")))
         .unwrap();
     stream
         .submit(2, spawn(42, -42, NetworkItemStack::empty()))
@@ -503,7 +538,10 @@ fn local_actor_is_excluded_from_remote_equipment_and_action_state() {
     assert!(stream.actor_equipment(42).is_some());
 
     stream
-        .submit(3, equipment(1, stack(5, 2, b"replacement"), None))
+        .submit(
+            3,
+            equipment(1, stack(CUSTOM_ITEM_ID, 2, b"replacement"), None),
+        )
         .unwrap();
     stream
         .submit(4, action(&[1, 42], ActorActionKind::SwingArm))

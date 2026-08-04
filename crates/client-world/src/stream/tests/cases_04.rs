@@ -5,6 +5,7 @@ fn respawn_commits_as_a_local_position_authority_change() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -34,6 +35,7 @@ fn respawn_commits_as_a_local_position_authority_change() {
 #[test]
 fn older_movement_correction_tick_cannot_rewind_newer_correction() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -114,6 +116,7 @@ fn newer_update_waits_for_older_decode_and_wins() {
 #[test]
 fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -168,6 +171,7 @@ fn urgent_mesh_change_preempts_queued_bulk_publication() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -207,6 +211,7 @@ fn urgent_mesh_change_preempts_queued_bulk_publication() {
 #[test]
 fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -275,6 +280,7 @@ fn stale_mesh_revision_is_rejected() {
 #[test]
 fn mesh_completion_carries_current_palette_native_biome_record() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -338,6 +344,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
 #[test]
 fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -405,6 +412,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
 #[test]
 fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -474,6 +482,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
 #[test]
 fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -567,6 +576,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
 #[test]
 fn timed_session_resets_pre_ready_duration_high_water_marks_only() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -648,6 +658,7 @@ fn publication_stage_queue_wait_excludes_worker_duration_and_maxima_do_not_shrin
 #[test]
 fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -672,6 +683,7 @@ fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() 
 #[test]
 fn forced_remesh_returns_exact_resident_generation_manifest() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -742,6 +754,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
 #[test]
 fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -802,6 +815,7 @@ fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
 fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations() {
     let new_stream = || {
         let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -860,6 +874,7 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
 fn eviction_or_superseding_revision_cannot_complete_forced_manifest() {
     let new_stream = || {
         let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -916,6 +931,7 @@ fn negative_absolute_updates_use_euclidean_chunk_coordinates() {
 #[test]
 fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -968,6 +984,7 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
 #[test]
 fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -1043,6 +1060,7 @@ fn urgent_mesh_completion_retry_stays_at_the_front() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,

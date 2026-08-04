@@ -195,6 +195,7 @@ fn out_of_order_move_waits_for_fifo_source_commit_before_arming() {
     tracker.set_source_mutation_coordinate([0, 58, 0]);
     tracker.begin_world_ready([0.5, 70.0, 0.5], 1);
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],

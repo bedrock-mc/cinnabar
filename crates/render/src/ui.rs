@@ -45,6 +45,11 @@ impl UiScissor {
     }
 }
 
+/// Wire value for the classic alpha-over blend.
+pub const UI_BLEND_ALPHA: u32 = 0;
+/// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
+pub const UI_BLEND_INVERT: u32 = 1;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
 pub struct UiRenderBatch {
@@ -52,6 +57,10 @@ pub struct UiRenderBatch {
     pub scissor: UiScissor,
     pub first_index: u32,
     pub index_count: u32,
+    /// One of [`UI_BLEND_ALPHA`] or [`UI_BLEND_INVERT`]; any other value is
+    /// rejected at publication.
+    pub blend_mode: u32,
+    _padding: u32,
 }
 
 impl UiRenderBatch {
@@ -61,12 +70,15 @@ impl UiRenderBatch {
         scissor: UiScissor,
         first_index: u32,
         index_count: u32,
+        blend_mode: u32,
     ) -> Self {
         Self {
             texture_page,
             scissor,
             first_index,
             index_count,
+            blend_mode,
+            _padding: 0,
         }
     }
 }
@@ -147,6 +159,7 @@ pub enum UiRenderRejectReason {
     BatchOrderInvalid { batch: usize },
     InvalidScissor { batch: usize },
     TexturePageOutOfBounds { batch: usize },
+    UnsupportedBlendMode { batch: usize },
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
@@ -363,6 +376,9 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
         }
         if batch.texture_page >= input.textures.layers {
             return Err(UiRenderRejectReason::TexturePageOutOfBounds { batch: batch_index });
+        }
+        if batch.blend_mode > UI_BLEND_INVERT {
+            return Err(UiRenderRejectReason::UnsupportedBlendMode { batch: batch_index });
         }
         let scissor = batch.scissor;
         let within_viewport = scissor.width > 0

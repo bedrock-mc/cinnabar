@@ -844,6 +844,10 @@ fn validate_root_fields(
     }
     Ok(())
 }
+pub(crate) fn validate_vanilla_source_manifest(source: &[u8]) -> Result<[u8; 32], AssetError> {
+    validate_source_manifest(source)
+}
+
 fn validate_source_manifest(source: &[u8]) -> Result<[u8; 32], AssetError> {
     if source.len() > MAX_SOURCE_MANIFEST_BYTES {
         return Err(invalid("entity source manifest exceeds bound"));

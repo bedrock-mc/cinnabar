@@ -10,6 +10,20 @@ remembered behavior are not references. A provisional approximation may be
 committed only when labeled incomplete in `plan.md` and in user-facing status, and
 it never closes a vanilla acceptance gate.
 
+## Gameplay HUD: Java Edition parity exception
+
+By explicit owner decision, the gameplay HUD — chat, scoreboard, hearts and other
+status bars, crosshair, boss bars, hotbar, and the rest of the in-game HUD — targets
+Java Edition appearance and layout parity. This is a scoped exception; version-matched
+Bedrock parity still governs everything else. Bedrock textures remain acceptable, and
+the open font is an accepted permanent deviation for copyright reasons. Decompiled
+Java sources (for example, `mcsrc.dev`) may be consulted only to understand behavior.
+Never copy or paraphrase decompiled code, identifiers, class or method names, or
+literal constants into this repository. Express findings as observed behavior or
+layout facts; prefer running-game screenshots or public documentation as citable
+references. A value available only from decompiled source must be marked as needing
+independent measurement, not quoted.
+
 These are the things that are not obvious from the code. Read the linked docs when
 the work touches them.
 

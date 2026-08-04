@@ -7,8 +7,8 @@ use std::{
 };
 
 use assets::{
-    AssetError, FontCatalogError, FontTexturePage, GlyphMetrics, HudCatalogError, RuntimeAssets,
-    RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog, encode_font_catalog,
+    AssetError, FontCatalogError, HudCatalogError, RuntimeAssets, RuntimeAtmosphereAssets,
+    RuntimeEntityAssets, RuntimeFontCatalog,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -16,13 +16,8 @@ use thiserror::Error;
 
 use crate::metrics::AssetMetrics;
 
-mod hud;
-
-pub use hud::{
-    HUD_ASSETS_COMPILE_COMMAND, HUD_ASSETS_FILENAME, HUD_ASSETS_REPORT_FILENAME, LoadedHudAssets,
-    hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command, load_hud_assets,
-    require_hud_assets,
-};
+mod font_fallback;
+use font_fallback::diagnostic_font_assets;
 
 pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
@@ -35,6 +30,9 @@ pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
+pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
+pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
+pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -54,6 +52,7 @@ const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {
@@ -102,6 +101,30 @@ pub struct LoadedFontAssets {
     selected_path: PathBuf,
     diagnostic: bool,
 }
+
+mod hud_carrier;
+mod icon_carrier;
+mod lang_carrier;
+
+pub use hud_carrier::{
+    LoadedHudAssets, hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command,
+    load_hud_assets, require_hud_assets,
+};
+/// The embedded canonical `vanilla-source.json`, exposed so callers can bind
+/// carrier provenance to the same identity startup itself validates against.
+#[must_use]
+pub fn vanilla_source_manifest_json() -> &'static str {
+    VANILLA_SOURCE_JSON
+}
+
+pub use icon_carrier::{
+    ICON_ASSETS_COMPILE_COMMAND, LoadedIconAssets, icon_asset_path, icon_assets_rebuild_command,
+    require_icon_assets,
+};
+pub use lang_carrier::{
+    LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
+    require_lang_assets,
+};
 
 impl LoadedFontAssets {
     #[must_use]
@@ -353,7 +376,7 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: io::Error,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -362,7 +385,7 @@ pub enum AssetStartupError {
     HudAssetsTooLarge {
         path: PathBuf,
         max_bytes: u64,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error(
@@ -372,11 +395,117 @@ pub enum AssetStartupError {
         path: PathBuf,
         #[source]
         source: HudCatalogError,
-        rebuild_command: &'static str,
+        rebuild_command: String,
     },
 
     #[error("{notice}")]
     HudAssetsMissing {
+        path: PathBuf,
+        rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} exceeds the {max_bytes}-byte startup limit\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local localization carrier at {path}: {source}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: assets::LangCatalogError,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local localization carrier at {path} was compiled from texts/en_US.lang bytes {carrier} but the checkout pins {pinned}\nrebuild localization assets with: {rebuild_command}"
+    )]
+    LangAssetsSourceProvenance {
+        path: PathBuf,
+        carrier: String,
+        pinned: String,
+        rebuild_command: String,
+    },
+
+    #[error("{notice}")]
+    LangAssetsMissing {
+        path: PathBuf,
+        rebuild_command: String,
+        notice: String,
+    },
+
+    #[error(
+        "could not read required item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} exceeds the {max_bytes}-byte startup limit
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local item-icon carrier at {path}: {source}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<assets::AssetError>,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local item-icon carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}
+rebuild item-icon assets with: {rebuild_command}"
+    )]
+    IconAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error("{notice}")]
+    IconAssetsMissing {
         path: PathBuf,
         rebuild_command: String,
         notice: String,
@@ -687,47 +816,21 @@ fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetSt
     })
 }
 
-fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, AssetStartupError> {
-    const DIAGNOSTIC_MANIFEST: [u8; 32] = [0xd1; 32];
-    let rgba8 = vec![255, 255, 255, 255].into_boxed_slice();
-    let page = FontTexturePage {
-        source_path: "font/builtin-diagnostic.png".into(),
-        source_bytes: 4,
-        source_sha256: Sha256::digest(&rgba8).into(),
-        pixels_sha256: Sha256::digest(&rgba8).into(),
-        width: 1,
-        height: 1,
-        rgba8,
-    };
-    let glyph = GlyphMetrics {
-        codepoint: '\u{fffd}',
-        page: 0,
-        uv: [0, 0, 1, 1],
-        bearing: [0, 0],
-        advance_64: 64,
-    };
-    let bytes = encode_font_catalog(DIAGNOSTIC_MANIFEST, &[glyph], &[page]).map_err(|source| {
-        AssetStartupError::FontAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-        }
-    })?;
-    let runtime = RuntimeFontCatalog::decode(&bytes, DIAGNOSTIC_MANIFEST).map_err(|source| {
-        AssetStartupError::FontAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-        }
-    })?;
-    Ok(LoadedFontAssets {
-        runtime: Arc::new(runtime),
-        selected_path: path,
-        diagnostic: true,
-    })
+/// Quotes a path for copy-paste into the platform shell running `make`.
+#[cfg(windows)]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    format!("'{}'", path.replace('\'', "''"))
 }
 
-fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
+#[cfg(not(windows))]
+pub(crate) fn shell_quote_path(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+/// SHA-256 of the manifest with line endings canonicalized to LF, matching
+/// the compiler-side identity regardless of checkout autocrlf.
+pub fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
     let source = source.as_bytes();
     if !source.contains(&b'\r') {
         return Sha256::digest(source).into();

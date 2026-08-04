@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_ties() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -69,6 +70,7 @@ fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_t
 #[test]
 fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
@@ -102,6 +104,7 @@ fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance
 #[test]
 fn restoring_unsent_request_preserves_original_fifo_tie_identity() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],

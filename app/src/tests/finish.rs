@@ -826,6 +826,7 @@ fn full_view_mutation_closes_only_on_the_target_presented_generation() {
 #[test]
 fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
     let mut stream = client_world::WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -896,6 +897,7 @@ fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
 fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledgement() {
     let request_stream = || {
         let mut stream = client_world::WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -948,6 +950,7 @@ fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledge
 #[test]
 fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() {
     let mut stream = client_world::WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

@@ -130,6 +130,28 @@ pub enum UiEvent {
     Boss(BossEvent),
     Form(FormRequestEvent),
     ChatAutocomplete(ChatAutocompleteEvent),
+    GameMode(GameModeEvent),
+    /// SetDefaultGameType: the level's default mode changed; players whose
+    /// mode is bound to the default follow it.
+    DefaultGameMode(GameModeEvent),
+}
+
+/// One wire game-mode value, retained without guessing.
+///
+/// `WorldDefault` is the explicit level-default sentinel (`GameMode 5`); the
+/// receiver resolves it against its retained world default. `Unknown` keeps
+/// the raw value so the receiver can count the skip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameModeUpdate {
+    Explicit(crate::PlayerGameMode),
+    WorldDefault,
+    Unknown(i32),
+}
+
+/// A runtime SetPlayerGameType / SetDefaultGameType change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameModeEvent {
+    pub update: GameModeUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

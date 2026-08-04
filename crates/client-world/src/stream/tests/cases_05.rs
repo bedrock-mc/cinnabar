@@ -182,6 +182,7 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
 #[test]
 fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -242,6 +243,7 @@ fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
 #[test]
 fn publication_distinguishes_ready_from_transport_pending_requests() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -298,6 +300,7 @@ fn publication_distinguishes_ready_from_transport_pending_requests() {
 #[test]
 fn outbound_request_fifo_has_a_hard_admission_capacity() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -847,6 +850,7 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_completes_split_batch_as_a
     ));
 
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -939,6 +943,7 @@ fn decode_failures_retry_boundedly_and_invalid_dimension_is_terminal_normalizati
 #[test]
 fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -1008,6 +1013,7 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
 #[test]
 fn changed_sub_chunk_dirties_center_and_six_face_neighbours_once() {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

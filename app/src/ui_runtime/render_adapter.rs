@@ -91,6 +91,10 @@ pub fn adapt_ui_draw_list(
             scissor,
             first_index,
             index_count,
+            match batch.blend {
+                ui::UiBlendMode::Alpha => render::UI_BLEND_ALPHA,
+                ui::UiBlendMode::Invert => render::UI_BLEND_INVERT,
+            },
         ));
     }
     let input = UiRenderInput {
@@ -174,11 +178,13 @@ mod tests {
                 UiDrawBatch {
                     texture_page: 0,
                     clip: rect(200.0, 200.0, 220.0, 220.0),
+                    blend: ui::UiBlendMode::Alpha,
                     index_range: 0..6,
                 },
                 UiDrawBatch {
                     texture_page: 0,
                     clip: rect(0.0, 0.0, 100.0, 100.0),
+                    blend: ui::UiBlendMode::Invert,
                     index_range: 6..12,
                 },
             ],
@@ -205,6 +211,8 @@ mod tests {
         assert_eq!(input.batches.len(), 1);
         assert_eq!(input.batches[0].first_index, 0);
         assert_eq!(input.batches[0].index_count, 6);
+        // The surviving batch keeps its declared blend on the render side.
+        assert_eq!(input.batches[0].blend_mode, render::UI_BLEND_INVERT);
     }
 
     fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {

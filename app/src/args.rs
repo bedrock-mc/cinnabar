@@ -2,6 +2,14 @@ use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
 
+/// The compact classic/Java-style HUD scale used by the normal desktop client.
+///
+/// The Java auto rule selects scale 3 at 1280x720, which makes the fixed 182px
+/// hotbar 546 physical pixels wide while the compact Monocraft text remains at
+/// its scale-2 equivalent. Scale 2 keeps the gameplay HUD and chat visually
+/// coherent; `--gui-scale auto` remains available for reference captures.
+pub const DEFAULT_GUI_SCALE: u8 = 2;
+
 pub const HELP: &str = "\
 bedrock-client — Rust Minecraft Bedrock phase-zero renderer
 
@@ -19,6 +27,7 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
+  --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
                                Wait up to 2s for GPU-presented water at timed exit
@@ -77,6 +86,9 @@ pub struct ClientArgs {
     pub force_vsync: bool,
     pub no_vsync: bool,
     pub frame_cap: Option<u32>,
+    /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
+    /// selects the Java auto rule; the normal client default is scale 2.
+    pub gui_scale: Option<u8>,
     pub full_view_teleport_gate: bool,
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
@@ -99,6 +111,7 @@ impl Default for ClientArgs {
             force_vsync: false,
             no_vsync: false,
             frame_cap: None,
+            gui_scale: Some(DEFAULT_GUI_SCALE),
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
             transparent_witness_request: None,
@@ -137,6 +150,9 @@ pub enum ArgsError {
 
     #[error("--frame-cap must be an integer from 1 through 1000, got {0:?}")]
     InvalidFrameCap(String),
+
+    #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
+    InvalidGuiScale(String),
 
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
@@ -273,6 +289,24 @@ impl ClientArgs {
                             .filter(|fps| (1..=1_000).contains(fps))
                             .ok_or_else(|| ArgsError::InvalidFrameCap(value.clone()))?,
                     );
+                }
+                Some("--gui-scale") => {
+                    let value = next_value(&mut arguments, "--gui-scale")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--gui-scale",
+                        })?;
+                    parsed.gui_scale = if value.eq_ignore_ascii_case("auto") {
+                        None
+                    } else {
+                        Some(
+                            value
+                                .parse::<u8>()
+                                .ok()
+                                .filter(|scale| (1..=4).contains(scale))
+                                .ok_or_else(|| ArgsError::InvalidGuiScale(value.clone()))?,
+                        )
+                    };
                 }
                 _ => return Err(ArgsError::Unknown(argument)),
             }
@@ -469,6 +503,16 @@ mod tests {
             ClientArgs::parse_from(["client", "--frame-cap", "0"]),
             Err(ArgsError::InvalidFrameCap(_))
         ));
+        assert!(matches!(
+            ClientArgs::parse_from(["client", "--gui-scale", "5"]),
+            Err(ArgsError::InvalidGuiScale(_))
+        ));
+        let ParseOutcome::Run(parsed) =
+            ClientArgs::parse_from(["client", "--gui-scale", "3"]).unwrap()
+        else {
+            panic!("--gui-scale must parse into a run outcome");
+        };
+        assert_eq!(parsed.gui_scale, Some(3));
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),
             Err(ArgsError::Unknown(_))

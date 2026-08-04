@@ -98,6 +98,27 @@ impl WorldStream {
     pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_display_name(unique_id)
     }
+    /// Every username on the retained authoritative player list, sorted.
+    pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
+        self.actors.player_list_usernames()
+    }
+    /// The authoritative `(current, maximum)` health of the actor with this
+    /// unique id, if it is known and well-formed.
+    pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
+        self.actors.health_by_unique(unique_id)
+    }
+    /// Whether this actor carries a named attribute (capability gate).
+    pub fn actor_has_attribute_by_unique(&self, unique_id: i64, name: &str) -> bool {
+        self.actors.actor_has_attribute_by_unique(unique_id, name)
+    }
+    /// Resolves one wire item stack against the retained item registry and
+    /// compiled item visual routes.
+    pub fn canonical_item_stack(
+        &self,
+        stack: &protocol::NetworkItemStack,
+    ) -> Option<crate::item::CanonicalItemStack> {
+        self.actors.canonical_item_stack(stack)
+    }
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }

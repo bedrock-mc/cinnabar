@@ -215,6 +215,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         WorldBootstrap {
             dimension: 1,
             local_player_runtime_id: 0x1_0000_0001,
+            local_player_unique_id: 0,
             player_position: [1.25, 72.0, -8.5],
             world_spawn_position: [-104, 114, 61],
             air_network_id: HASHED_AIR_NETWORK_ID,

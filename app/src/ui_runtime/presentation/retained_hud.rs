@@ -18,10 +18,14 @@ pub(super) const SCOREBOARD_TITLE_BACKGROUND_HEIGHT: f32 = 9.0;
 pub(super) const SCOREBOARD_TITLE_WIDTH: f32 = 170.0;
 pub(super) const SCOREBOARD_NAME_WIDTH: f32 = 100.0;
 pub(super) const SCOREBOARD_LIST_OFFSET: f32 = 10.0;
+pub(super) const PLAYER_LIST_TOP_OFFSET: f32 = 10.0;
 pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
+const NAMEPLATE_LINE_HEIGHT: f32 = 9.0;
+const NAMEPLATE_VERTICAL_GAP: f32 = 1.0;
+const NAMEPLATE_HORIZONTAL_PADDING: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ScoreboardPresentationScope {
@@ -86,6 +90,18 @@ pub(super) struct PresentedBelowNameScores {
     pub(super) rows: Vec<PresentedBelowNameRow>,
 }
 
+/// A projected world-space actor nameplate, prepared on the main thread from
+/// authoritative actor and scoreboard state before the retained UI tree is
+/// built. Coordinates are in the safe content viewport's logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct BelowNameAnchor {
+    pub(super) x: f32,
+    pub(super) y: f32,
+    pub(super) name: Arc<str>,
+    pub(super) score: i32,
+    pub(super) objective: Arc<str>,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct PresentedScoreboardCache {
     revision: Option<u64>,
@@ -99,6 +115,16 @@ pub(super) struct ScoreboardOwnerNameAuthority {
     names: BTreeMap<i64, Arc<str>>,
 }
 
+// Java Edition scoreboard sidebar background opacities, adopted for the Hybrid HUD.
+//
+// Bedrock exposes `#objective_background_opacity` / `#scoreboard_objective_background_opacity` as
+// runtime engine bindings with no static value in the hash-pinned pack, so there is no Bedrock
+// authority to bind here. Java Edition draws the sidebar body with `getBackgroundColor(0.3)` and
+// the title with `getBackgroundColor(0.4)`; converting those normalized channels to byte alpha
+// gives 77 and 102. Recorded as a Hybrid HUD deviation in plan.md.
+const JAVA_SCOREBOARD_BODY_ALPHA: u8 = 77;
+const JAVA_SCOREBOARD_TITLE_ALPHA: u8 = 102;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ScoreboardOpacityAuthority {
     body: u8,
@@ -107,20 +133,28 @@ pub(crate) struct ScoreboardOpacityAuthority {
 
 impl ScoreboardOpacityAuthority {
     #[must_use]
-    pub(super) const fn from_native_alpha_bytes(body: u8, title: u8) -> Self {
+    const fn from_alpha_bytes(body: u8, title: u8) -> Self {
         Self { body, title }
+    }
+
+    #[must_use]
+    const fn java_edition_style() -> Self {
+        Self::from_alpha_bytes(JAVA_SCOREBOARD_BODY_ALPHA, JAVA_SCOREBOARD_TITLE_ALPHA)
     }
 }
 
 impl UiPresentationRuntime {
-    #[allow(
-        dead_code,
-        reason = "enabled only after native evidence binds both scoreboard alpha values"
-    )]
+    /// Enables the scoreboard sidebar using the Java Edition background opacities.
+    ///
+    /// The sidebar still renders only when the server publishes a sidebar objective; this just
+    /// binds the background alpha the fail-closed gate requires.
+    pub(crate) fn enable_scoreboard_background(&mut self) {
+        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::java_edition_style());
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_native_scoreboard_opacity(&mut self, body: u8, title: u8) {
-        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_native_alpha_bytes(
-            body, title,
-        ));
+        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_alpha_bytes(body, title));
     }
 
     pub(crate) fn set_scoreboard_owner_names(
@@ -278,6 +312,180 @@ struct PreparedScoreboardRow {
     score: Arc<ui::TextLayout>,
     label_width: f32,
     score_width: f32,
+}
+
+/// Tab player-list overlay: every known player-list username on its own
+/// row, centered under the top edge over a translucent backdrop, with the
+/// list-objective score right-aligned in yellow. Shown only while the
+/// player-list action is held.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_player_list_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_texture_page: u16,
+    viewport_width: f32,
+    viewport_height: f32,
+    players: &[(Arc<str>, Option<i32>)],
+) -> Result<(), UiPresentationError> {
+    if players.is_empty() {
+        return Ok(());
+    }
+    struct PreparedPlayerRow {
+        name: Arc<ui::TextLayout>,
+        name_width: f32,
+        score: Option<(Arc<ui::TextLayout>, f32)>,
+    }
+    let mut content_width = 0.0f32;
+    let mut rows = Vec::with_capacity(players.len().min(MAX_PRESENTED_PLAYER_LIST_ROWS));
+    for (name, score) in players.iter().take(MAX_PRESENTED_PLAYER_LIST_ROWS) {
+        let name_layout = layouts
+            .layout(metrics.request(
+                bounded_visible_text(name),
+                (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
+                font,
+            ))
+            .map_err(UiPresentationError::Text)?;
+        let name_width = name_layout.size_64()[0] as f32 / 64.0;
+        let score = score
+            .map(|score| {
+                layouts
+                    .layout(metrics.request(
+                        &score.to_string(),
+                        (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
+                        font,
+                    ))
+                    .map(|layout| {
+                        let width = layout.size_64()[0] as f32 / 64.0;
+                        (layout, width)
+                    })
+            })
+            .transpose()
+            .map_err(UiPresentationError::Text)?;
+        let score_width = score.as_ref().map_or(0.0, |(_, width)| *width);
+        content_width = content_width.max(name_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
+        rows.push(PreparedPlayerRow {
+            name: name_layout,
+            name_width,
+            score,
+        });
+    }
+    let width = content_width + SCOREBOARD_HORIZONTAL_PADDING;
+    let height = SCOREBOARD_TEXT_HEIGHT * rows.len() as f32 + 4.0;
+    if width <= 0.0 || viewport_width < width || viewport_height < height {
+        return Ok(());
+    }
+    let left = (viewport_width - width) * 0.5;
+    let top = PLAYER_LIST_TOP_OFFSET;
+    let right = left + width;
+    nodes.push(solid_node(
+        take_node_id(next_id),
+        [left, top, right, top + height],
+        solid_texture_page,
+        [0, 0, 0, 120],
+    )?);
+    for (index, row) in rows.into_iter().enumerate() {
+        let row_top = top + 2.0 + SCOREBOARD_TEXT_HEIGHT * index as f32;
+        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left + 2.0, row_top, right - 2.0, row_bottom],
+            [left + 2.0, row_top, left + 2.0 + row.name_width, row_bottom],
+            row.name,
+            [255; 4],
+            metrics.shadow(),
+        )?;
+        if let Some((score, score_width)) = row.score {
+            append_clipped_text_node(
+                nodes,
+                next_id,
+                [left + 2.0, row_top, right - 2.0, row_bottom],
+                [right - 2.0 - score_width, row_top, right - 2.0, row_bottom],
+                score,
+                [255, 255, 85, 255],
+                metrics.shadow(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Presents the Java-style two-line actor nameplate: the actor name above the
+/// head and the below-name objective value immediately beneath it. The world
+/// projection is performed by the app because only it owns the live camera and
+/// actor stream; this function remains a pure retained-tree append.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_below_name_nodes(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_texture_page: u16,
+    viewport_width: f32,
+    viewport_height: f32,
+    anchors: &[BelowNameAnchor],
+) -> Result<(), UiPresentationError> {
+    for anchor in anchors.iter().take(MAX_PRESENTED_BELOW_NAME_ROWS) {
+        let name = layouts
+            .layout(metrics.request(bounded_visible_text(&anchor.name), 160 * 64, font))
+            .map_err(UiPresentationError::Text)?;
+        let score_text = format!(
+            "{} {}",
+            anchor.score,
+            bounded_visible_text(&anchor.objective)
+        );
+        let score = layouts
+            .layout(metrics.request(&score_text, 160 * 64, font))
+            .map_err(UiPresentationError::Text)?;
+        let name_width = name.size_64()[0] as f32 / 64.0;
+        let score_width = score.size_64()[0] as f32 / 64.0;
+        let width =
+            (name_width.max(score_width) + NAMEPLATE_HORIZONTAL_PADDING * 2.0).min(viewport_width);
+        let height = NAMEPLATE_LINE_HEIGHT * 2.0 + NAMEPLATE_VERTICAL_GAP;
+        let left = (anchor.x - width * 0.5).clamp(0.0, (viewport_width - width).max(0.0));
+        let top = (anchor.y - height).clamp(0.0, (viewport_height - height).max(0.0));
+        let right = left + width;
+        nodes.push(solid_node(
+            take_node_id(next_id),
+            [left, top, right, top + height],
+            solid_texture_page,
+            [0, 0, 0, 96],
+        )?);
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left, top, right, top + NAMEPLATE_LINE_HEIGHT],
+            [
+                anchor.x - name_width * 0.5,
+                top,
+                anchor.x + name_width * 0.5,
+                top + NAMEPLATE_LINE_HEIGHT,
+            ],
+            name,
+            [255; 4],
+            metrics.shadow(),
+        )?;
+        let score_top = top + NAMEPLATE_LINE_HEIGHT + NAMEPLATE_VERTICAL_GAP;
+        append_clipped_text_node(
+            nodes,
+            next_id,
+            [left, score_top, right, score_top + NAMEPLATE_LINE_HEIGHT],
+            [
+                anchor.x - score_width * 0.5,
+                score_top,
+                anchor.x + score_width * 0.5,
+                score_top + NAMEPLATE_LINE_HEIGHT,
+            ],
+            score,
+            [255, 255, 85, 255],
+            metrics.shadow(),
+        )?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

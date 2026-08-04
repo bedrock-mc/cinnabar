@@ -266,6 +266,7 @@ fn entity_assets(fallback: EntityRigFallback) -> Arc<RuntimeEntityAssets> {
 
 fn bootstrap() -> WorldBootstrap {
     WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0, 64.0, 0.0],

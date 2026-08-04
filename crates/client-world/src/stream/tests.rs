@@ -326,6 +326,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
 fn block_entity_visual_stream() -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
+            local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
@@ -584,6 +585,7 @@ fn cave_test_slab(runtime_id: u8) -> SubChunk {
 
 fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -614,6 +616,7 @@ fn abandoned_cached_column_recovery_enters_bounded_request_scheduler() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -644,6 +647,7 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
+        local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
         air_network_id: 12_530,
@@ -716,6 +720,7 @@ fn stream_with_unsent_sub_chunks(
     count: u16,
 ) -> (WorldStream, Vec<SubChunkKey>, super::PendingSubChunkRequest) {
     let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
@@ -773,3 +778,4 @@ mod cases_06;
 mod cases_07;
 mod cases_08;
 mod cases_09;
+mod cases_10;

@@ -24,13 +24,13 @@ pub use actor::{
     ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
     ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError,
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels,
+    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorVertex,
     DEFAULT_SKIN_PROVENANCE, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
-    standard_biped_vertices,
+    standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -82,9 +82,9 @@ pub use runtime_profile::{
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
-    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UiRenderBatch, UiRenderInput, UiRenderReject,
-    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
-    UiRenderTextureArray, UiRenderVertex, UiScissor,
+    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UiRenderBatch,
+    UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats,
+    UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
 pub use ui_render::UiRenderPlugin;
 pub use visibility_diagnostics::{

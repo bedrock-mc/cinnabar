@@ -7,6 +7,7 @@ use super::WorldStream;
 
 fn stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
         player_position: [0.0; 3],

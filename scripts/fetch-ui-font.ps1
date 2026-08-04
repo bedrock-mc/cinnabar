@@ -11,16 +11,34 @@ function Assert-Basename([string]$Value, [string]$Label) {
     }
 }
 
+function Get-FileSha256Hex([string]$Path) {
+    # Hash through .NET instead of Get-FileHash: CI shells can hand this script a
+    # PowerShell whose Microsoft.PowerShell.Utility module fails to auto-load, and
+    # under Set-StrictMode that unresolved cmdlet aborts the whole fetch.
+    $stream = [System.IO.File]::OpenRead([System.IO.Path]::GetFullPath($Path))
+    try {
+        $algorithm = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $algorithm.ComputeHash($stream)
+        } finally {
+            $algorithm.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    return ([System.BitConverter]::ToString($digest) -replace "-", "").ToLowerInvariant()
+}
+
 function Get-VerifiedFile([string]$Url, [string]$Path, [long]$Size, [string]$Sha256) {
     $valid = (Test-Path -LiteralPath $Path -PathType Leaf) -and
         (Get-Item -LiteralPath $Path).Length -eq $Size -and
-        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $Sha256
+        (Get-FileSha256Hex $Path) -ceq $Sha256
     if ($valid) { return }
     $partial = "$Path.partial-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $partial -TimeoutSec 60
         $actualSize = (Get-Item -LiteralPath $partial).Length
-        $actualSha = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualSha = Get-FileSha256Hex $partial
         if ($actualSize -ne $Size -or $actualSha -cne $Sha256) {
             throw "font source size or SHA-256 mismatch for $Url"
         }

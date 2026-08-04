@@ -66,7 +66,7 @@ impl ItemStateStore {
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         Self {
             assets,
-            registry: BTreeMap::new(),
+            registry: built_in_registry(),
             equipment: BTreeMap::new(),
             pending: VecDeque::new(),
         }
@@ -162,10 +162,11 @@ impl ItemStateStore {
         if registry.entries.len() > MAX_ITEM_REGISTRY_RECORDS {
             return false;
         }
-        let mut next = BTreeMap::new();
+        let mut next = built_in_registry();
         let mut identifiers = HashMap::with_capacity(registry.entries.len());
+        let mut network_ids = HashMap::with_capacity(registry.entries.len());
         for entry in registry.entries.iter() {
-            if next.contains_key(&entry.network_id)
+            if network_ids.insert(entry.network_id, ()).is_some()
                 || identifiers
                     .insert(Arc::clone(&entry.identifier), ())
                     .is_some()
@@ -206,7 +207,7 @@ impl ItemStateStore {
         self.pending.len()
     }
 
-    fn canonicalize(&self, stack: &NetworkItemStack) -> Option<CanonicalItemStack> {
+    pub(crate) fn canonicalize(&self, stack: &NetworkItemStack) -> Option<CanonicalItemStack> {
         let digest: [u8; 32] = Sha256::digest(stack.extra_data.as_ref()).into();
         if digest != stack.nbt_digest {
             return None;
@@ -217,9 +218,14 @@ impl ItemStateStore {
             stack_network_id: stack.stack_network_id,
             count: stack.count,
             nbt_digest: stack.nbt_digest,
-        }
-        .validate()
-        .ok()?;
+        };
+        let identity = if identity.count == 0 {
+            ItemStackIdentity::empty()
+        } else if identity.network_id == 0 {
+            return None;
+        } else {
+            identity
+        };
         Some(self.resolve_identity(identity))
     }
 
@@ -296,6 +302,13 @@ impl ItemStateStore {
             self.remove(lifetime);
         }
     }
+}
+
+fn built_in_registry() -> BTreeMap<i32, CanonicalItemRegistryRecord> {
+    protocol::vanilla_item_registry()
+        .iter()
+        .map(|entry| (entry.network_id, registry_record(entry)))
+        .collect()
 }
 
 fn registry_record(entry: &ItemRegistryEntry) -> CanonicalItemRegistryRecord {
