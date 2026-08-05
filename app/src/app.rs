@@ -1,4 +1,9 @@
-use std::{ffi::OsStr, fs, path::Path, sync::Arc};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -352,6 +357,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         socket_dir,
         display_name: args.display_name.clone(),
         client_blob_cache: protocol::ClientBlobCache::default(),
+        resource_pack_cache_dir: PathBuf::from(".local/packcache"),
     })
     .context("spawn Bedrock network worker")?;
     let movement_ticker = network.movement_ticker();

@@ -8,6 +8,7 @@ pub mod gamedata;
 #[cfg(feature = "server")]
 pub mod listener;
 pub mod raw;
+mod resource_pack_cache;
 pub mod stream;
 pub mod valentine;
 pub mod world;

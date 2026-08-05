@@ -36,6 +36,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
     pub client_blob_cache: ClientBlobCache,
+    /// Verified server resource-pack archives shared by subsequent sessions.
+    pub resource_pack_cache_dir: PathBuf,
 }
 
 #[derive(Debug)]
@@ -441,10 +443,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             };
             runtime.block_on(async move {
                 let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect_with_blob_cache(
+                    LoginSequence::connect_with_caches(
                         &config.socket_dir,
                         &config.display_name,
                         config.client_blob_cache.clone(),
+                        &config.resource_pack_cache_dir,
                     ),
                     &mut shutdown_rx,
                 )

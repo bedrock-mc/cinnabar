@@ -48,6 +48,20 @@ impl LoginSequence {
         Self::connect_transport_with_blob_cache(transport, display_name, cache).await
     }
 
+    /// Connects with the verified blob cache and the on-disk resource-pack cache.
+    pub async fn connect_with_caches(
+        socket_dir: &Path,
+        display_name: &str,
+        cache: ClientBlobCache,
+        resource_pack_cache_dir: &Path,
+    ) -> Result<(PlaySession, GameData), ProtocolError> {
+        let transport = SocketTransport::connect(socket_dir)
+            .await
+            .map_err(ProtocolError::Bridge)?;
+        Self::connect_transport_with_caches(transport, display_name, cache, resource_pack_cache_dir)
+            .await
+    }
+
     /// Generic transport seam used by deterministic protocol state tests.
     #[doc(hidden)]
     pub async fn connect_transport<T: Transport>(
@@ -67,17 +81,47 @@ impl LoginSequence {
         Self::connect_transport_inner(transport, display_name, Some(cache)).await
     }
 
+    /// Deterministic enabled negotiation seam with both client-side caches.
+    #[doc(hidden)]
+    pub async fn connect_transport_with_caches<T: Transport>(
+        transport: T,
+        display_name: &str,
+        cache: ClientBlobCache,
+        resource_pack_cache_dir: &Path,
+    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+        Self::connect_transport_inner_with_resource_pack_cache(
+            transport,
+            display_name,
+            Some(cache),
+            Some(resource_pack_cache_dir.to_path_buf()),
+        )
+        .await
+    }
+
     async fn connect_transport_inner<T: Transport>(
         transport: T,
         display_name: &str,
         cache: Option<ClientBlobCache>,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
+        Self::connect_transport_inner_with_resource_pack_cache(transport, display_name, cache, None)
+            .await
+    }
+
+    async fn connect_transport_inner_with_resource_pack_cache<T: Transport>(
+        transport: T,
+        display_name: &str,
+        cache: Option<ClientBlobCache>,
+        resource_pack_cache_dir: Option<std::path::PathBuf>,
+    ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
-        let config = ClientHandshakeConfig::random(peer_addr, display_name)
+        let mut config = ClientHandshakeConfig::random(peer_addr, display_name)
             .with_client_cache_enabled(cache.is_some());
+        if let Some(dir) = resource_pack_cache_dir {
+            config = config.with_resource_pack_cache_dir(dir);
+        }
         let (stream, game_data) = stream.join(config).await?;
         Ok((PlaySession::new(stream, cache), game_data))
     }

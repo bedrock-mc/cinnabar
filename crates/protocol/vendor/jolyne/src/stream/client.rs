@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::path::Path;
 
 use aes_gcm::Aes256Gcm;
 use base64::Engine;
@@ -14,13 +15,14 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 #[cfg(feature = "raknet")]
 use tokio_raknet::RaknetStream;
-use tracing::instrument;
+use tracing::{instrument, warn};
 use uuid::Uuid;
 
 use crate::batch::BatchCompression;
 use crate::error::{JolyneError, ProtocolError};
 use crate::gamedata::GameData;
 use crate::raw::{MAX_RAW_BATCH_PACKETS, RawPacket};
+use crate::resource_pack_cache::ResourcePackCache;
 #[cfg(feature = "raknet")]
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
@@ -135,6 +137,8 @@ pub struct ClientHandshakeConfig {
     pub xbl_credentials: Option<XblCredentials>,
     /// Advertise the Bedrock client blob cache only when the caller installed a resolver.
     pub client_cache_enabled: bool,
+    /// Optional on-disk cache for verified server resource-pack archives.
+    pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl ClientHandshakeConfig {
@@ -148,6 +152,7 @@ impl ClientHandshakeConfig {
             uuid: Uuid::new_v4(),
             xbl_credentials: None,
             client_cache_enabled: false,
+            resource_pack_cache_dir: None,
         }
     }
 
@@ -166,6 +171,7 @@ impl ClientHandshakeConfig {
             uuid,
             xbl_credentials: Some(xbl_credentials),
             client_cache_enabled: false,
+            resource_pack_cache_dir: None,
         }
     }
 
@@ -173,6 +179,13 @@ impl ClientHandshakeConfig {
     #[must_use]
     pub fn with_client_cache_enabled(mut self, enabled: bool) -> Self {
         self.client_cache_enabled = enabled;
+        self
+    }
+
+    /// Installs the directory used to retain verified server resource packs.
+    #[must_use]
+    pub fn with_resource_pack_cache_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.resource_pack_cache_dir = Some(dir.into());
         self
     }
 }
@@ -325,7 +338,9 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
             .await?;
 
         // 4. Resource Packs
-        let start = packs.handle_packs().await?;
+        let start = packs
+            .handle_packs_with_cache(config.resource_pack_cache_dir.as_deref())
+            .await?;
 
         // 5. Start Game - returns (stream, game_data)
         start.await_start_game().await
@@ -1115,8 +1130,16 @@ mod tests {
 
 impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
     #[instrument(skip_all, level = "trace")]
-    pub async fn handle_packs(
+    pub async fn handle_packs(self) -> Result<BedrockStream<StartGame, Client, T>, JolyneError> {
+        self.handle_packs_with_cache(None).await
+    }
+
+    /// Completes resource-pack negotiation, reusing verified archives from an
+    /// optional directory and writing newly verified archives back to it.
+    #[instrument(skip_all, level = "trace")]
+    pub async fn handle_packs_with_cache(
         mut self,
+        cache_dir: Option<&Path>,
     ) -> Result<BedrockStream<StartGame, Client, T>, JolyneError> {
         // Check if we already received ResourcePacksInfo during handshake (LBSG sends it early)
         let info_pkt = if let Some(early) = self.state.early_packet.take() {
@@ -1198,8 +1221,40 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             }
         }
 
+        let cache = cache_dir.and_then(ResourcePackCache::open);
         let mut downloaded = HashMap::with_capacity(requested.len());
-        if requested.is_empty() {
+        let mut missing = Vec::with_capacity(requested.len());
+        for key in &requested {
+            let metadata = advertised.get(key).ok_or_else(|| {
+                ProtocolError::UnexpectedHandshake(format!(
+                    "resource pack request has no advertised metadata: {key}"
+                ))
+            })?;
+            let Some(cache) = cache.as_ref() else {
+                missing.push(key.clone());
+                continue;
+            };
+            let Some(cached) = cache.load(&metadata.uuid, &metadata.version, &metadata.content_key)
+            else {
+                missing.push(key.clone());
+                continue;
+            };
+            if let Err(error) = cache.cleanup_old_packs(&metadata.uuid, &metadata.version) {
+                warn!(pack = %key, %error, "failed to clean old resource-pack versions");
+            }
+            downloaded.insert(
+                key.clone(),
+                ServerResourcePack {
+                    uuid: metadata.uuid.clone().into_boxed_str(),
+                    version: metadata.version.clone().into_boxed_str(),
+                    name: "".into(),
+                    content_key: cached.content_key,
+                    bytes: cached.bytes,
+                },
+            );
+        }
+
+        if missing.is_empty() {
             self.send_resource_pack_response(
                 ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
                 Vec::new(),
@@ -1208,12 +1263,12 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         } else {
             self.send_resource_pack_response(
                 ResourcePackClientResponsePacketResponseStatus::SendPacks,
-                requested.clone(),
+                missing.clone(),
             )
             .await?;
 
             let mut total_bytes = 0u64;
-            for key in requested {
+            for key in missing {
                 let metadata = advertised.get(&key).ok_or_else(|| {
                     ProtocolError::UnexpectedHandshake(format!(
                         "resource pack request has no advertised metadata: {key}"
@@ -1266,6 +1321,19 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                         "resource pack {key} failed SHA-256 verification"
                     ))
                     .into());
+                }
+                if let Some(cache) = cache.as_ref() {
+                    if let Err(error) = cache.write(
+                        &metadata.uuid,
+                        &metadata.version,
+                        &bytes,
+                        &metadata.content_key,
+                    ) {
+                        warn!(pack = %key, %error, "failed to write resource-pack cache entry");
+                    }
+                    if let Err(error) = cache.cleanup_old_packs(&metadata.uuid, &metadata.version) {
+                        warn!(pack = %key, %error, "failed to clean old resource-pack versions");
+                    }
                 }
                 downloaded.insert(
                     key,

@@ -80,6 +80,7 @@ fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
         socket_dir: std::path::PathBuf::from("core.sock"),
         display_name: "cache-owner".to_owned(),
         client_blob_cache: protocol::ClientBlobCache::default(),
+        resource_pack_cache_dir: std::path::PathBuf::from("pack-cache"),
     };
     let reconnect = config.clone();
     let hash = config
