@@ -10,29 +10,29 @@
     "name": "StartGame",
     "file": "start_game.bin",
     "id": 11,
-    "byte_length": 270,
-    "sha256": "7fe3bfcbc387735bec148fba9b6838a3a1ac641832d5a510ea7c8f316d57b980"
+    "byte_length": 269,
+    "sha256": "c6a1c04d3bf94dcb1242dd62f4aeddd5d8521e530eb8864765339ce153563456"
   },
   {
     "name": "LevelChunk",
     "file": "level_chunk.bin",
     "id": 58,
-    "byte_length": 20,
-    "sha256": "552a9bfae75f262b240afaab1e807062c0a648f645e0227154b9d896fa9c6c87"
+    "byte_length": 17,
+    "sha256": "100ab874aaf069eb206135a7b1ab10b2d7c393d59c827e04fdb200b5573e7cc5"
   },
   {
     "name": "MovePlayer",
     "file": "move_player.bin",
     "id": 19,
-    "byte_length": 42,
-    "sha256": "d8ea552cba9f22fdf35af9c14431640abee23163c4a58e2ba28071eae9b42734"
+    "byte_length": 43,
+    "sha256": "279d01103f855aa6416a71a9f7a4cb7e57ae120600797f2cb2fbb49d8293f877"
   },
   {
     "name": "PlayerAuthInput",
     "file": "player_auth_input.bin",
     "id": 144,
-    "byte_length": 92,
-    "sha256": "32648c680d193905c05c389159349f81330198fc0e25c57a192bf40ffba4ed71"
+    "byte_length": 105,
+    "sha256": "f0f721cac5f16327adcc0ded8adeb6b955bf981967e031654b226f041b64df89"
   },
   {
     "name": "AddActor",
@@ -52,8 +52,8 @@
     "name": "TextObjectRawText",
     "file": "text_object_rawtext.bin",
     "id": 9,
-    "byte_length": 80,
-    "sha256": "783f73009252c7c89b330d63b64f01ef6ad9ae6ef34c496175de248f63675ec4"
+    "byte_length": 84,
+    "sha256": "9a2227b3a3b84960ea894a87f1ad9bf057c5a29b9bd1e033ed336f9248abe310"
   },
   {
     "name": "TextObjectWhisperRawText",
@@ -108,8 +108,8 @@
     "name": "CraftingDataMaterialReducer",
     "file": "material_reducer.bin",
     "id": 52,
-    "byte_length": 18,
-    "sha256": "b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39"
+    "byte_length": 25,
+    "sha256": "8cd3a434027ab0f0506762baed0928daa7707ccaa92e5964612f0ae1b81ee16c"
   },
   {
     "name": "BiomeDefinitionListChunkGeneration",
@@ -118,21 +118,21 @@
     "byte_length": 48,
     "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "9948b1729395d2e819fce28e079d4a7bfc67716c"
+    "wire_commit": "be6713da4dc051a4197f897d04835e89e9c54321"
   },
   {
     "name": "InventoryContent",
     "file": "inventory_content.bin",
     "id": 49,
-    "byte_length": 59,
-    "sha256": "7d6580d5b03af31e680c36bc2f2a507d0eac2e56d044d7299e096163a8e6b403"
+    "byte_length": 58,
+    "sha256": "ab9817dd7c9bd980f0ca4ad8671a4b754bdd1700668922ba0d49cddbc93a20ed"
   },
   {
     "name": "InventorySlot",
     "file": "inventory_slot.bin",
     "id": 50,
-    "byte_length": 49,
-    "sha256": "4c8e403d45e7863ccd59eea258d7baea2cf049734fc15cf2180554a67acb72e9"
+    "byte_length": 48,
+    "sha256": "76434a12d7c8f84c2ad35efbe869fd044fe34cf9785eb1cef63473d9d4caaf0f"
   },
   {
     "name": "PlayerHotBar",
@@ -145,7 +145,7 @@
     "name": "ItemStackResponse",
     "file": "item_stack_response.bin",
     "id": 148,
-    "byte_length": 42,
-    "sha256": "936ec148613ea0055d7352af4ef40a7a7df839afa17051725e55141e9185a4ec"
+    "byte_length": 46,
+    "sha256": "7104be672f27e9fadef58f2500138162b7e41b5c204b363d8df9d681964fde0d"
   }
 ]
