@@ -519,14 +519,6 @@ fn validate_item_user_data(extra: &[u8]) -> Result<(), ItemPacketError> {
     }
 }
 
-fn validate_item_extra_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
-    let mut bytes = nbt.0.clone();
-    Nbt::decode_little_endian(&mut bytes).map_err(|_| ItemPacketError::InvalidItemNbt)?;
-    if bytes.has_remaining() {
-        return Err(ItemPacketError::InvalidItemNbt);
-    }
-    Ok(())
-}
 
 fn validate_registry_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
     let mut bytes = nbt.0.clone();

@@ -31,18 +31,8 @@ fn two_hundred_fifty_six_large_inline_pending_packets_are_bounded_and_recovered(
         let missing_hash = client_blob_hash(missing_payload.as_bytes());
         let status = resolver
             .accept_cached_packet(
-                LevelChunkPacket {
-                    x,
-                    z: -13,
-                    dimension: 0,
-                    sub_chunk_count: -1,
-                    blobs: Some(LevelChunkPacketBlobs {
-                        hashes: vec![missing_hash],
-                    }),
-                    payload: vec![0x5a; INLINE_PAYLOAD_BYTES],
-                    ..Default::default()
-                }
-                .into(),
+                cached_level_chunk(x, -13, vec![missing_hash], &[0x5a; INLINE_PAYLOAD_BYTES])
+                    .into(),
             )
             .expect("pending-byte pressure must stay non-fatal");
         assert_eq!(status.missing(), [missing_hash]);
@@ -106,38 +96,19 @@ fn staged_pinned_bytes_are_bounded_before_every_miss_resolves_and_released_on_sk
     let cache = ClientBlobCache::with_limits(limits(1));
     let mut resolver = BlobCacheResolver::new(cache.clone());
     let status = resolver
-        .accept_cached_packet(
-            LevelChunkPacket {
-                x: 41,
-                z: -9,
-                dimension: 0,
-                sub_chunk_count: 3,
-                blobs: Some(LevelChunkPacketBlobs {
-                    hashes: hashes.to_vec(),
-                }),
-                ..Default::default()
-            }
-            .into(),
-        )
+        .accept_cached_packet(cached_level_chunk(41, -9, hashes.to_vec(), b"").into())
         .expect("transaction is initially admitted");
     assert_eq!(status.missing(), hashes);
 
     for (hash, payload) in [(hashes[0], first), (hashes[1], second)] {
         resolver
-            .accept_miss_response(ClientCacheMissResponsePacket {
-                blobs: vec![Blob { hash, payload }],
-            })
+            .accept_miss_response(miss_response(vec![(hash, payload)]))
             .expect("staged payload remains below the bound");
     }
     assert_eq!(resolver.stats().pending_transactions, 1);
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash: hashes[2],
-                payload: third,
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(hashes[2], third)]))
         .expect("staged-byte excess is a non-fatal semantic skip");
 
     assert_eq!(resolver.stats().pending_transactions, 0);
@@ -190,8 +161,8 @@ fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
     let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected reconstructed LevelChunk")
     };
-    assert_eq!(packet.x, 51);
-    assert_eq!(packet.payload, first);
+    assert_eq!(packet.chunk_position.x, 51);
+    assert_eq!(packet.serialized_chunk_data, first);
 }
 
 #[test]
@@ -220,8 +191,8 @@ fn zero_reference_status_is_suppressed_but_have_only_status_is_sent() {
         .expect("have-only cached status")
         .into_packets();
     assert_eq!(packets.len(), 1);
-    assert!(packets[0].missing.is_empty());
-    assert_eq!(packets[0].have, vec![hash]);
+    assert!(packets[0].missing_ids.is_empty());
+    assert_eq!(packets[0].found_ids, vec![hash]);
 }
 
 #[test]
@@ -312,12 +283,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
         .expect("second transaction");
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash: bh,
-                payload: b.to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(bh, b.to_vec())]))
         .expect("later transaction resolves first");
     let second = pop_packet(&mut resolver, "later completed packet");
     let McpePacketData::LevelChunkPacket(second) = second.data else {
@@ -327,12 +293,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
     assert_eq!(resolver.stats().pending_transactions, 1);
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash: ah,
-                payload: a.to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(ah, a.to_vec())]))
         .expect("earlier transaction resolves");
 
     let first = pop_packet(&mut resolver, "first packet");
@@ -386,12 +347,7 @@ fn same_column_block_update_waits_for_cached_chunk_and_survives_replacement() {
     );
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash,
-                payload: chunk_payload.to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(hash, chunk_payload.to_vec())]))
         .expect("resolve cached column");
 
     let mut consumed_column = None;
@@ -401,7 +357,7 @@ fn same_column_block_update_waits_for_cached_chunk_and_survives_replacement() {
                 let McpePacketData::LevelChunkPacket(packet) = packet.data else {
                     panic!("expected cached LevelChunk")
                 };
-                assert_eq!(packet.x, 4);
+                assert_eq!(packet.chunk_position.x, 4);
                 consumed_column = Some(0);
             }
             BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(updates)) => {
@@ -439,12 +395,7 @@ fn rejected_response_abandons_dead_transaction_and_unblocks_its_column() {
         .expect("same-column update");
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash,
-                payload: b"wrong-payload".to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(hash, b"wrong-payload".to_vec())]))
         .expect("semantic integrity rejection stays non-fatal");
 
     assert_eq!(
@@ -569,15 +520,7 @@ fn pressure_rotation_and_staged_rejection_refresh_queued_recovery_accounting() {
     hashes.push(missing_hash);
 
     let status = resolver
-        .accept_cached_packet(
-            LevelChunkPacket {
-                x: 999,
-                sub_chunk_count: 3,
-                blobs: Some(LevelChunkPacketBlobs { hashes }),
-                ..Default::default()
-            }
-            .into(),
-        )
+        .accept_cached_packet(cached_level_chunk(999, 0, hashes, b"").into())
         .expect("staged rejection after rotation remains non-fatal");
 
     assert_eq!(status.recovery.map(|recovery| recovery.x), Some(0));
@@ -636,7 +579,7 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         Some(BlobCacheReady::Packet(packet))
             if matches!(
                 &packet.data,
-                McpePacketData::LevelChunkPacket(packet) if packet.x == 0
+                McpePacketData::LevelChunkPacket(packet) if packet.chunk_position.x == 0
             )
     ));
 
@@ -700,7 +643,7 @@ fn pending_transition_to_pressure_releases_an_existing_cached_ready_packet() {
         Some(BlobCacheReady::Packet(packet))
             if matches!(
                 &packet.data,
-                McpePacketData::LevelChunkPacket(packet) if packet.x == 0
+                McpePacketData::LevelChunkPacket(packet) if packet.chunk_position.x == 0
             )
     ));
 }
@@ -751,18 +694,7 @@ fn reconstruction_cost_is_bounded_before_duplicate_blob_copies_are_allocated() {
 
     let status = resolver
         .accept_cached_packet(
-            LevelChunkPacket {
-                x: 17,
-                z: -4,
-                dimension: 0,
-                sub_chunk_count: 1,
-                blobs: Some(LevelChunkPacketBlobs {
-                    hashes: vec![hash, hash],
-                }),
-                payload: vec![0x7f],
-                ..Default::default()
-            }
-            .into(),
+            cached_level_chunk(17, -4, vec![hash, hash], &[0x7f]).into(),
         )
         .expect("reconstruction safety excess stays non-fatal");
 

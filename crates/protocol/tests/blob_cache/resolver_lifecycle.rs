@@ -10,7 +10,7 @@ fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
         .expect("unresolved cached transaction");
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket { blobs: Vec::new() })
+        .accept_miss_response(miss_response(Vec::new()))
         .expect("well-formed empty response is a successful no-op");
 
     assert_eq!(resolver.stats().empty_miss_responses, 1);
@@ -18,12 +18,7 @@ fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
     assert!(resolver.pop_ready().is_none());
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash,
-                payload: payload.to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(hash, payload.to_vec())]))
         .expect("the original one-shot response still resolves the transaction");
     assert!(matches!(
         pop_packet(&mut resolver, "resolved cached transaction").data,
@@ -47,12 +42,7 @@ fn fast_transfer_reset_does_not_authorize_a_late_prior_backend_response() {
     );
 
     resolver
-        .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![Blob {
-                hash,
-                payload: payload.to_vec(),
-            }],
-        })
+        .accept_miss_response(miss_response(vec![(hash, payload.to_vec())]))
         .expect("well-formed late response is skipped without disconnecting");
     assert!(!resolver.cache().contains(hash));
     assert_eq!(resolver.stats().miss_response_unsolicited, 1);

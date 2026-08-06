@@ -4,9 +4,9 @@ use bytes::{Buf, Bytes, BytesMut};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
-    codec::{BedrockCodec, BedrockSized, Nbt, VarInt},
+    codec::{BedrockCodec, Nbt},
     version::v1_26_40::{
-        ActorRuntimeId, ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
+        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
         FullContainerName, FullContainerNameContainerName, InventoryContentPacket,
         InventorySlotPacket, ItemStackResponseInfoResult, ItemStackResponsePacket, McpePacketName,
         MobArmorEquipmentPacket, PlayerHotbarPacket,
@@ -805,33 +805,7 @@ fn response_result_code(
     Ok(bytes[0])
 }
 
-fn validate_nbt(nbt: &Nbt) -> Result<(), InventoryPacketError> {
-    validate_item_nbt_size(nbt.0.len())?;
-    let mut bytes = nbt.0.clone();
-    Nbt::decode_little_endian(&mut bytes).map_err(|_| InventoryPacketError::InvalidItemNbt)?;
-    if bytes.has_remaining() {
-        return Err(InventoryPacketError::InvalidItemNbt);
-    }
-    Ok(())
-}
 
-fn encode_extra<T>(value: &T) -> Result<Vec<u8>, InventoryPacketError>
-where
-    T: BedrockCodec<Args = ()> + BedrockSized,
-{
-    let size = value.encoded_size();
-    if size > MAX_ITEM_EXTRA_BYTES {
-        return Err(InventoryPacketError::ItemExtraTooLarge {
-            bytes: size,
-            max: MAX_ITEM_EXTRA_BYTES,
-        });
-    }
-    let mut bytes = BytesMut::with_capacity(size);
-    value
-        .encode(&mut bytes)
-        .map_err(|_| InventoryPacketError::EncodingFailed)?;
-    Ok(bytes.to_vec())
-}
 
 fn container_identity_varint(
     window_id: i32,

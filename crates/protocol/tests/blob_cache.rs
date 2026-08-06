@@ -363,21 +363,25 @@ fn cached_inline_level_chunk_classifies_unique_hashes_and_reconstructs_wire_orde
     assert_eq!(resolver.stats().hashes_classified, 2);
 }
 
+/// A sub-chunk-limited column splices its biome blob before the inline tail.
+///
+/// RETARGETED. Protocol 1001 spelled "request mode" as the `sub_chunk_count:
+/// -2` sentinel paired with `highest_subchunk_count`. 1.26.40 drops both
+/// sentinels: gophertunnel `packet/level_chunk.go` carries a real
+/// `SubChunkCount` plus an optional `ClientRequestSubChunkLimit`, modelled here
+/// as `client_request_sub_chunk_limit`. The column below is the same thing the
+/// old test described - one biome blob and one inline tail byte - expressed in
+/// the shape that replaced the sentinel.
 #[test]
-fn request_mode_level_chunk_reconstructs_biome_before_uncached_tail() {
+fn sub_chunk_limited_level_chunk_reconstructs_biome_before_uncached_tail() {
     let biome = b"biome-data";
     let hash = client_blob_hash(biome);
     let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(biome).expect("seed biome");
     let mut resolver = BlobCacheResolver::new(cache);
     let packet: protocol::Packet = LevelChunkPacket {
-        x: 1,
-        z: 2,
-        dimension: 0,
-        sub_chunk_count: -2,
-        highest_subchunk_count: Some(7),
-        blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
-        payload: vec![0],
+        client_request_sub_chunk_limit: Some(7),
+        ..cached_level_chunk(1, 2, vec![hash], &[0])
     }
     .into();
 
@@ -387,7 +391,15 @@ fn request_mode_level_chunk_reconstructs_biome_before_uncached_tail() {
     let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected level chunk")
     };
-    assert_eq!(packet.payload, [biome.as_slice(), &[0]].concat());
+    assert_eq!(
+        packet.serialized_chunk_data,
+        [biome.as_slice(), &[0]].concat()
+    );
+    assert_eq!(
+        packet.client_request_sub_chunk_limit,
+        Some(7),
+        "reconstruction must not disturb the sub-chunk limit"
+    );
 }
 
 #[test]
@@ -411,22 +423,25 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     let McpePacketData::SubChunkPacket(packet) = packet.data else {
         panic!("expected subchunk")
     };
-    let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = packet.entries else {
-        panic!("cache marker must be removed")
-    };
+    // There is only one entry type now, so "the cache marker is removed" means
+    // `cache_enabled` is cleared and every entry's `blob_id` is `None`; the
+    // result enum is no longer translated between two parallel shapes.
+    assert!(!packet.cache_enabled, "cache marker must be removed");
+    let entries = &packet.sub_chunk_data;
+    assert!(entries.iter().all(|entry| entry.blob_id.is_none()));
     assert_eq!(
-        entries[0].result,
-        SubChunkEntryWithoutCachingItemResult::Success
+        entries[0].sub_chunk_request_result,
+        SubChunkRequestResult::Success
     );
     assert_eq!(
-        entries[0].payload,
-        [subchunk.as_slice(), nbt_tail.as_slice()].concat()
+        entries[0].serialized_sub_chunk.as_deref(),
+        Some([subchunk.as_slice(), nbt_tail.as_slice()].concat().as_slice())
     );
     assert_eq!(
-        entries[1].result,
-        SubChunkEntryWithoutCachingItemResult::SuccessAllAir
+        entries[1].sub_chunk_request_result,
+        SubChunkRequestResult::SuccessAllAir
     );
-    assert!(entries[1].payload.is_empty());
+    assert_eq!(entries[1].serialized_sub_chunk.as_deref(), Some(&[][..]));
     assert_eq!(resolver.stats().reconstructed_sub_chunks, 1);
 }
 
@@ -548,27 +563,19 @@ fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
     let hit = cache.insert(b"hit").expect("seed semantic-shape hit");
     let miss = client_blob_hash(b"miss");
 
+    // Both shapes are recoverable skips: a negative `subchunks_count`, which
+    // is no longer a request-mode sentinel and is simply nonsense, and a count
+    // that disagrees with the hash vector (gophertunnel requires exactly
+    // `SubChunkCount + 1` hashes).
     let packets: [protocol::Packet; 2] = [
         LevelChunkPacket {
-            x: 4,
-            z: -7,
-            dimension: 0,
-            sub_chunk_count: -3,
-            blobs: Some(LevelChunkPacketBlobs {
-                hashes: vec![hit, miss],
-            }),
-            ..Default::default()
+            subchunks_count: -3,
+            ..cached_level_chunk(4, -7, vec![hit, miss], b"")
         }
         .into(),
         LevelChunkPacket {
-            x: 4,
-            z: -7,
-            dimension: 0,
-            sub_chunk_count: 0,
-            blobs: Some(LevelChunkPacketBlobs {
-                hashes: vec![hit, miss],
-            }),
-            ..Default::default()
+            subchunks_count: 0,
+            ..cached_level_chunk(4, -7, vec![hit, miss], b"")
         }
         .into(),
     ];
@@ -668,13 +675,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
         hashes.push(cache.insert(&payload).expect("seed small blob"));
         expected.extend_from_slice(&payload);
     }
-    let packet: protocol::Packet = LevelChunkPacket {
-        sub_chunk_count: 176,
-        blobs: Some(LevelChunkPacketBlobs { hashes }),
-        payload: b"tail".to_vec(),
-        ..Default::default()
-    }
-    .into();
+    let packet: protocol::Packet = cached_level_chunk(0, 0, hashes, b"tail").into();
     let mut resolver = BlobCacheResolver::new(cache);
 
     resolver
@@ -685,7 +686,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
         panic!("expected level chunk")
     };
     expected.extend_from_slice(b"tail");
-    assert_eq!(packet.payload, expected);
+    assert_eq!(packet.serialized_chunk_data, expected);
 }
 
 #[test]
@@ -705,12 +706,12 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
     assert_eq!(packets.len(), 1);
     let encoded = protocol::encode(&packets[0].clone().into(), &session).expect("encode status");
     let decoded = protocol::decode_batch(encoded, &session).expect("decode status");
-    let McpePacketData::PacketClientCacheBlobStatus(status) = &decoded[0].data else {
+    let McpePacketData::ClientCacheBlobStatusPacket(status) = &decoded[0].data else {
         panic!("expected cache blob status")
     };
 
-    assert_eq!(status.have, vec![hit_hash]);
-    assert_eq!(status.missing, vec![miss_hash]);
+    assert_eq!(status.found_ids, vec![hit_hash]);
+    assert_eq!(status.missing_ids, vec![miss_hash]);
 }
 
 #[test]
@@ -723,12 +724,7 @@ fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
     let mut resolver = BlobCacheResolver::new(cache);
     let status = resolver
         .accept_cached_packet(
-            LevelChunkPacket {
-                sub_chunk_count: 4_095,
-                blobs: Some(LevelChunkPacketBlobs { hashes }),
-                ..Default::default()
-            }
-            .into(),
+            cached_level_chunk(0, 0, hashes, b"").into(),
         )
         .expect("classify every referenced hash through the only status-producing path");
     let packets = status.into_packets();
@@ -737,19 +733,19 @@ fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
     assert!(
         packets
             .iter()
-            .all(|packet| packet.missing.len() + packet.have.len() <= 4_095)
+            .all(|packet| packet.missing_ids.len() + packet.found_ids.len() <= 4_095)
     );
     assert_eq!(
         packets
             .iter()
-            .flat_map(|packet| packet.missing.iter().copied())
+            .flat_map(|packet| packet.missing_ids.iter().copied())
             .collect::<Vec<_>>(),
         missing
     );
     assert_eq!(
         packets
             .iter()
-            .flat_map(|packet| packet.have.iter().copied())
+            .flat_map(|packet| packet.found_ids.iter().copied())
             .collect::<Vec<_>>(),
         vec![hit]
     );
@@ -760,7 +756,7 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     let wanted = b"wanted";
     let wanted_hash = client_blob_hash(wanted);
 
-    let exercise = |blobs: Vec<Blob>, expected_pending| {
+    let exercise = |blobs: Vec<(u64, Vec<u8>)>, expected_pending| {
         let cache = ClientBlobCache::with_limits(limits(128));
         let mut resolver = BlobCacheResolver::new(cache.clone());
         resolver
@@ -770,7 +766,7 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
             ))
             .expect("pending wanted blob");
         resolver
-            .accept_miss_response(ClientCacheMissResponsePacket { blobs })
+            .accept_miss_response(miss_response(blobs))
             .expect("semantically invalid response is a recoverable skip");
         assert!(!cache.contains(wanted_hash));
         assert_eq!(resolver.stats().pending_transactions, expected_pending);
@@ -788,10 +784,7 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     let unsolicited = b"unsolicited";
     assert_eq!(
         exercise(
-            vec![Blob {
-                hash: client_blob_hash(unsolicited),
-                payload: unsolicited.to_vec(),
-            }],
+            vec![(client_blob_hash(unsolicited), unsolicited.to_vec())],
             1,
         ),
         0
@@ -799,14 +792,8 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     assert_eq!(
         exercise(
             vec![
-                Blob {
-                    hash: wanted_hash,
-                    payload: wanted.to_vec(),
-                },
-                Blob {
-                    hash: wanted_hash,
-                    payload: b"different".to_vec(),
-                },
+                (wanted_hash, wanted.to_vec()),
+                (wanted_hash, b"different".to_vec()),
             ],
             0,
         ),
@@ -815,14 +802,8 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     assert_eq!(
         exercise(
             vec![
-                Blob {
-                    hash: wanted_hash,
-                    payload: wanted.to_vec(),
-                },
-                Blob {
-                    hash: wanted_hash,
-                    payload: b"poison".to_vec(),
-                },
+                (wanted_hash, wanted.to_vec()),
+                (wanted_hash, b"poison".to_vec()),
             ],
             0,
         ),
@@ -831,14 +812,8 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
     assert_eq!(
         exercise(
             vec![
-                Blob {
-                    hash: wanted_hash,
-                    payload: wanted.to_vec(),
-                },
-                Blob {
-                    hash: client_blob_hash(unsolicited),
-                    payload: unsolicited.to_vec(),
-                },
+                (wanted_hash, wanted.to_vec()),
+                (client_blob_hash(unsolicited), unsolicited.to_vec()),
             ],
             0,
         ),
@@ -913,7 +888,7 @@ fn distinct_transactions_publish_out_of_order() {
         let McpePacketData::LevelChunkPacket(packet) = packet.data else {
             panic!("expected LevelChunk")
         };
-        assert_eq!(packet.x, *expected_x);
+        assert_eq!(packet.chunk_position.x, *expected_x);
     }
     let (_, first_hash, first_payload) = &fixtures[0];
     resolver
@@ -923,7 +898,7 @@ fn distinct_transactions_publish_out_of_order() {
     let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected LevelChunk")
     };
-    assert_eq!(packet.x, fixtures[0].0);
+    assert_eq!(packet.chunk_position.x, fixtures[0].0);
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().pending_bytes, 0);
 }
@@ -1006,7 +981,7 @@ fn abandoning_a_hash_owner_promotes_waiter_and_keeps_late_response_authorized() 
     let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected the promoted waiter to reconstruct as a LevelChunk");
     };
-    assert_eq!(packet.x, 22);
+    assert_eq!(packet.chunk_position.x, 22);
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(_)))

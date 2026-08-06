@@ -1011,9 +1011,9 @@ mod tests {
         const HALF_LIMIT: usize = 8 * 1024 * 1024;
         let level_chunk = || {
             McpePacket::from(crate::valentine::LevelChunkPacket {
-                // 1.26.40 models the chunk blob as a length-prefixed byte string;
-                // NUL bytes keep the encoded length at exactly HALF_LIMIT.
-                serialized_chunk_data: "\0".repeat(HALF_LIMIT),
+                // The chunk blob is a length-prefixed byte buffer; HALF_LIMIT
+                // zero bytes keep the encoded length at exactly HALF_LIMIT.
+                serialized_chunk_data: vec![0u8; HALF_LIMIT],
                 ..Default::default()
             })
         };
