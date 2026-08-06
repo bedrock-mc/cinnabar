@@ -26,7 +26,8 @@ Copied paths:
 - `crates/valentine/bedrock_versions/v1_26_0`
 - `crates/valentine/bedrock_versions/v1_26_30`
 - `crates/valentine/bedrock_versions/v1_26_40` (from `axolotl-stack` main
-  `7028631`; see "Bedrock 1.26.40 readiness" below)
+  `781dfcb0ab443476b62df3c983750c0c1527a95a`; see "Bedrock 1.26.40
+  readiness" below)
 - `crates/valentine/Cargo.toml` and `README.md`
 - `crates/jolyne/src`
 - `crates/jolyne/Cargo.toml` and `README.md`
@@ -119,45 +120,91 @@ The upstream commit records these generator-input gitlinks:
 
 Wire behaviour and byte fixtures use the exact project pin
 `hashimthearab/gophertunnel` commit
-`9948b1729395d2e819fce28e079d4a7bfc67716c`. It is the behavioural authority
-for these patches; an unrelated local checkout or later `lunar` head is not.
+`be6713da4dc051a4197f897d04835e89e9c54321` (`lunar`, module pseudo-version
+`v1.25.3-0.20260806044231-be6713da4dc0`, Minecraft `1.26.40` / protocol 2168).
+It is the behavioural authority for these patches; an unrelated local checkout
+or later `lunar` head is not. The protocol-1001 fixtures were generated against
+commit `9948b1729395d2e819fce28e079d4a7bfc67716c`, which is what the still
+unmigrated `v1_26_30` patches above were reviewed against.
 
 ## Bedrock 1.26.40 readiness
 
-`bedrock_versions/v1_26_40` is vendored and compiles, but **nothing selects it
-yet**. Cinnabar stays on `bedrock_1_26_30` / protocol 1001. The version is now
-chosen in one place per crate rather than hardcoded: `jolyne` gained
-`bedrock_1_26_30` (default) and `bedrock_1_26_40` features that forward to
-Valentine, and `jolyne/src/valentine.rs` re-exports whichever is enabled.
-Flipping both `crates/protocol/Cargo.toml` dependencies is the whole switch.
+Cinnabar runs on Bedrock 1.26.40 / protocol 2168. `crates/protocol/Cargo.toml`
+selects `bedrock_1_26_40` for the wire format and keeps `bedrock_1_26_30`
+enabled alongside it purely as a content-registry data source; the two version
+modules are additive and compile side by side.
 
-Three things must land before that flip is correct:
+Three things that used to be local patches are now upstream and survive
+regeneration:
 
-- **The generated crate carries no allocation guards.** `v1_26_40` was
-  regenerated from the EndstoneMC BDS dumps and contains none of the
-  `MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
-  `MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
-  bounds that `v1_26_30` applies before every eager collection allocation, nor
-  the `ItemNew` air/empty-item handling in `v1_26_30/src/types.rs`. These are
-  hostile-input protections no schema source emits; regenerating drops them.
-  They belong in the generator, not in another hand-patch.
-- **Type names differ.** The Endstone frontend uses BDS's own vocabulary, so
-  only 207 of 528 generated structs keep their prismarine-era names. `Vec3F` is
-  `Vec3`, `Vec2F` is `Vec2`, `BlockCoordinates` is `BlockPos`,
-  `AvailableEntityIdentifiersPacket` is `AvailableActorIdentifiersPacket`, and
-  `StartGamePacket`'s inline world fields moved into a nested `LevelSettings`
-  (`StartGamePacketChatRestrictionLevel` becomes
-  `LevelSettingsChatRestrictionLevel`, and so on). Jolyne needs about a dozen
-  renames; the protocol crate's own `ItemLegacy` / `Skin` /
-  `SubchunkPacketEntries` / `Blob` references need the same treatment.
-- **The Go core moves in lockstep or not at all.** `tools/fixturegen/main.go`
-  asserts `minecraft.DefaultProtocol` is exactly 1001 / `1.26.33`, so bumping
-  the `core/go.mod` gophertunnel replace to a 1.26.40 revision without
-  regenerating the byte fixtures fails by construction — which is the intended
-  behaviour, since the fixtures are what pin Rust decoding to real wire bytes.
+- `decode_inner_with_remaining` for borrowed packets (`axolotl-stack` `d075eb2`),
+  replacing the hand-patched `v1_26_30/src/borrowed.rs` behaviour.
+- Length-prefixed binary buffers are typed `Vec<u8>` instead of a lossily
+  decoded `String` (`781dfcb`). Chunk, sub-chunk, blob-cache and item user-data
+  payloads survive a decode/encode round trip; the framing is unchanged.
+- `GameRuleRuleValue`'s `Int32` and `Float` arms encode through `I32LE`/`F32LE`
+  rather than the big-endian bare primitive codecs (`781dfcb`). The root cause
+  was union-arm lowering in the generator, so `DataStoreUpdate` Double and
+  `ServerboundPackSettingChange` Float were corrected with them.
 
-`v1_26_40` also has no `blocks`, `items`, `states`, `entities`, `biomes`, or
+### Open: no allocation guards
+
+**This remains deliberate debt.** `v1_26_40` contains none of the
+`MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
+`MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
+bounds that `v1_26_30` applied before every eager collection allocation:
+`grep -c ArrayLengthExceeded` over `bedrock_versions/v1_26_40/src/` returns 0
+where `v1_26_30` had 44 sites. Every length-prefixed field decodes as a bare
+`Vec::with_capacity(len)` over an attacker-controlled varint, so a peer can
+force a large reservation before the read fails. These are hostile-input
+protections no schema source emits, and they belong in the generator rather
+than in another hand-patch. `tests/world_collection_bounds.rs` and
+`tests/biome_definition_list.rs` are two-sided tripwires: they assert the read
+fails with EOF today and fail loudly if `ArrayLengthExceeded` reappears, which
+is the signal to restore the strict assertions.
+
+Cinnabar's own pre-decode gates in `crates/protocol/src/{codec,inventory}.rs`
+still bound counts and text before the owned decoder allocates, so the exposed
+surface is the packets those gates do not cover.
+
+### Open: BedrockSafetyRedactableString has an extra presence byte
+
+`ItemStackResponseSlotInfo::custom_name` and `StructureEditorData::structure_name`
+are typed `BedrockSafetyRedactableString`, which encodes an `unredacted` string,
+a presence byte, and an optional `redacted` string. gophertunnel writes two
+plain adjacent strings in both places (`StackResponseSlotInfo.Marshal` in
+`minecraft/protocol/item_stack.go`), so the generated decoder reads the second
+string's length prefix as the presence flag and then reads a bogus length.
+
+`fixtures/item_stack_response.bin` therefore cannot decode. It fails loudly
+rather than corrupting, and only those two fields use the type. The BDS type has
+an `std::optional` member but its serializer appears to write both halves
+unconditionally, so this is a generator artifact for the correction layer.
+`login::tests::item_stack_response_fixture_pins_the_redactable_string_divergence`
+asserts the failure and starts failing once it is fixed.
+
+### Open: borrowed LevelChunk payloads are owned
+
+`LevelChunkPacketView::serialized_chunk_data` is an owned `Vec<u8>` rather than
+a zero-copy `BorrowedStr`, an allocation regression on the hottest packet.
+Acknowledged upstream as a generator follow-up (it could use
+`take_varint_prefixed_bytes` for `Array{VarInt,U8}`). Relatedly, there is no
+`TextPacketBodyView`, so the borrowed text path materialises the body strings
+before `validate_borrowed_ui_packet` runs; `codec::validate_raw_text_packet` is
+what actually enforces UTF-8 before allocation.
+
+### Open: varint strictness on actor IDs
+
+`v1_26_30` decoded `MovePlayer` runtime and ridden IDs through
+`protocol::wire::read_var_u64`, which rejected overflow past 2^63 and overlong
+encodings. `ActorRuntimeId` now decodes through the shared `VarLong`, which only
+errors at shift >= 70, so a 10-byte varint decodes with its high bits dropped.
+`move_player_rejects_overlong_runtime_and_ridden_varint_ids` pins the surviving
+11-byte rejection.
+
+`v1_26_40` has no `blocks`, `items`, `states`, `entities`, `biomes`, or
 `block_palette` modules: the BDS dumps describe the wire, not the content
-registries. `crates/protocol/src/world.rs` reads
-`v1_26_30::biomes::ALL_BIOMES`, so that data must keep coming from the
-prismarine-derived crate or from `tools/registrygen`.
+registries. `crates/protocol/src/world.rs` reads `v1_26_30::biomes::ALL_BIOMES`
+and `crates/protocol/src/item.rs` reads the generated `v1_26_30` items table, so
+that data keeps coming from the prismarine-derived crate. Both sites are
+commented as deliberate data pins.

@@ -325,15 +325,16 @@ fn rawtext_scores_resolve_from_the_retained_scoreboard_and_reader_identity() {
             1,
             2,
             UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: Arc::from([
                     ProtocolScoreEntry {
+                        action: ProtocolScoreAction::Change,
                         scoreboard_id: 1,
                         objective_name: Arc::from("coins"),
                         score: 250,
                         identity: ProtocolScoreIdentity::FakePlayer(Arc::from("Hashim")),
                     },
                     ProtocolScoreEntry {
+                        action: ProtocolScoreAction::Change,
                         scoreboard_id: 2,
                         objective_name: Arc::from("coins"),
                         score: 9,
@@ -464,8 +465,8 @@ fn protocol_scoreboard_and_boss_events_route_into_ui_owned_state() {
             3,
             2,
             UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: Arc::from([ProtocolScoreEntry {
+                    action: ProtocolScoreAction::Change,
                     scoreboard_id: 8,
                     objective_name: Arc::from("wins"),
                     score: 12,

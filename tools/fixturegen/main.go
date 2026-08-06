@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	gameVersion     = "1.26.33"
-	protocolID      = 1001
+	gameVersion     = "1.26.40"
+	protocolID      = 2168
 	senderSubClient = 1
 	targetSubClient = 2
 )
@@ -167,29 +167,38 @@ func fixtures() []fixture {
 			name: "LevelChunk",
 			file: "level_chunk.bin",
 			pk: &packet.LevelChunk{
-				Position:        protocol.ChunkPos{3, -4},
-				Dimension:       0,
-				SubChunkCount:   protocol.SubChunkRequestModeLimited,
-				HighestSubChunk: 24,
-				CacheEnabled:    false,
-				RawPayload:      []byte{0xde, 0xad, 0xbe, 0xef},
+				Position:      protocol.ChunkPos{3, -4},
+				Dimension:     0,
+				SubChunkCount: 0,
+				// 1.26.40 replaced the SubChunkRequestMode sentinels stored in
+				// SubChunkCount (and the uint16 HighestSubChunk that followed
+				// the "limited" sentinel) with a plain count plus an optional
+				// varint32 sub-chunk limit. The blob hash slice is now written
+				// unconditionally rather than only when CacheEnabled is set.
+				SubChunkLimit: protocol.Option(int32(24)),
+				CacheEnabled:  false,
+				RawPayload:    []byte{0xde, 0xad, 0xbe, 0xef},
 			},
 		},
 		{
 			name: "MovePlayer",
 			file: "move_player.bin",
 			pk: &packet.MovePlayer{
-				EntityRuntimeID:          42,
-				Position:                 mgl32.Vec3{1.25, 64, -2.5},
-				Pitch:                    10.5,
-				Yaw:                      20.25,
-				HeadYaw:                  30.75,
-				Mode:                     packet.MoveModeTeleport,
-				OnGround:                 true,
-				RiddenEntityRuntimeID:    0,
-				TeleportCause:            packet.TeleportCauseCommand,
-				TeleportSourceEntityType: 87,
-				Tick:                     1234,
+				EntityRuntimeID:       42,
+				Position:              mgl32.Vec3{1.25, 64, -2.5},
+				Pitch:                 10.5,
+				Yaw:                   20.25,
+				HeadYaw:               30.75,
+				Mode:                  packet.MoveModeTeleport,
+				OnGround:              true,
+				RiddenEntityRuntimeID: 0,
+				// 1.26.40 moved the two teleport int32s behind an optional
+				// TeleportData block instead of gating them on Mode.
+				TeleportData: protocol.Option(protocol.TeleportData{
+					TeleportCause:            packet.TeleportCauseCommand,
+					TeleportSourceEntityType: 87,
+				}),
+				Tick: 1234,
 			},
 		},
 		{
@@ -328,7 +337,7 @@ func fixtures() []fixture {
 				},
 			},
 			wireAuthority: "hashimthearab/gophertunnel",
-			wireCommit:    "9948b1729395d2e819fce28e079d4a7bfc67716c",
+			wireCommit:    "be6713da4dc051a4197f897d04835e89e9c54321",
 		},
 		{
 			name: "InventoryContent",
@@ -405,13 +414,15 @@ func inventoryItem(networkID int32, count uint16, stackNetworkID int32) protocol
 			BlockRuntimeID: 91,
 			Count:          count,
 			NBTData:        map[string]any{"fixture": int32(1)},
-			HasNetworkID:   true,
 		},
 	}
 }
 
 func playerAuthInputFixture() *packet.PlayerAuthInput {
-	flags := protocol.NewBitset(packet.PlayerAuthInputBitsetSize)
+	// 1.26.40 sends the input flags as a list of set flag IDs rather than a
+	// std::bitset, so the fixture builds a protocol.InputFlags instead of a
+	// protocol.Bitset.
+	flags := protocol.NewInputFlags(packet.InputFlagCount)
 	for _, flag := range []int{
 		packet.InputFlagJumping,
 		packet.InputFlagUp,

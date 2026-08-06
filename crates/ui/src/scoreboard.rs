@@ -91,6 +91,12 @@ impl ScoreOwner {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreEntry {
+    /// Whether this entry sets or clears a score.
+    ///
+    /// Bedrock 1.26.40 moved the verb from the packet header onto each entry, so
+    /// one SetScore packet may mix removals with changes (gophertunnel's
+    /// `ScoreboardEntry.Marshal` tags every entry independently).
+    pub action: ScoreAction,
     pub scoreboard_id: i64,
     pub objective_name: Arc<str>,
     pub score: i32,
@@ -110,7 +116,6 @@ pub enum ScoreboardEvent {
         objective_name: Arc<str>,
     },
     Scores {
-        action: ScoreAction,
         entries: Arc<[ScoreEntry]>,
     },
 }
@@ -235,7 +240,7 @@ impl ScoreboardStore {
             ScoreboardEvent::RemoveObjective { objective_name } => {
                 self.remove_objective(&objective_name)
             }
-            ScoreboardEvent::Scores { action, entries } => self.apply_scores(action, &entries),
+            ScoreboardEvent::Scores { entries } => self.apply_scores(&entries),
         };
         self.last_sequence = Some(sequence);
         if result == RetainedUiApply::Applied {
@@ -499,7 +504,7 @@ impl ScoreboardStore {
         RetainedUiApply::Applied
     }
 
-    fn apply_scores(&mut self, action: ScoreAction, entries: &[ScoreEntry]) -> RetainedUiApply {
+    fn apply_scores(&mut self, entries: &[ScoreEntry]) -> RetainedUiApply {
         if entries.len() > MAX_SCORES {
             self.diagnostics.score_event_limit_rejections = self
                 .diagnostics
@@ -520,7 +525,7 @@ impl ScoreboardStore {
                 return RetainedUiApply::Ignored;
             };
             let key = (Arc::clone(&entry.objective_name), entry.scoreboard_id);
-            match action {
+            match entry.action {
                 ScoreAction::Change => {
                     staged.insert(
                         key,

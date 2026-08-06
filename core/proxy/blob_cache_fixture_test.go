@@ -57,22 +57,36 @@ func TestClientBlobCachePinnedFixture(t *testing.T) {
 		CacheEnabled: true,
 		SubChunkEntries: []bedrock.SubChunkEntry{
 			{
-				Result:     bedrock.SubChunkResultSuccess,
-				BlobHash:   subChunkAHash,
-				RawPayload: []byte("block-entity-nbt"),
+				Result: bedrock.SubChunkResultSuccess,
+				// 1.26.40 carries the blob hash and the raw payload as
+				// optionals rather than a bare uint64 and byte slice, so an
+				// all-air entry simply omits the hash instead of sending the
+				// ^0 sentinel.
+				BlobHash:   bedrock.Option(subChunkAHash),
+				RawPayload: bedrock.Option([]byte("block-entity-nbt")),
 			},
 			{
-				Result:   bedrock.SubChunkResultSuccessAllAir,
-				BlobHash: ^uint64(0),
+				Result: bedrock.SubChunkResultSuccessAllAir,
 			},
 		},
 	}
-	first := append(append([]byte{}, cache[subChunks.SubChunkEntries[0].BlobHash]...), subChunks.SubChunkEntries[0].RawPayload...)
+	firstHash, ok := subChunks.SubChunkEntries[0].BlobHash.Value()
+	if !ok {
+		t.Fatal("cached SubChunk entry must carry a blob hash")
+	}
+	firstPayload, ok := subChunks.SubChunkEntries[0].RawPayload.Value()
+	if !ok {
+		t.Fatal("cached SubChunk entry must carry a block-entity payload")
+	}
+	first := append(append([]byte{}, cache[firstHash]...), firstPayload...)
 	if want := []byte("subchunk-ablock-entity-nbt"); !bytes.Equal(first, want) {
 		t.Fatalf("SubChunk block-entity tail = %q, want %q", first, want)
 	}
 	if subChunks.SubChunkEntries[1].Result != bedrock.SubChunkResultSuccessAllAir {
 		t.Fatal("all-air entry must not request its sentinel blob hash")
+	}
+	if _, ok := subChunks.SubChunkEntries[1].BlobHash.Value(); ok {
+		t.Fatal("all-air entry must omit its blob hash")
 	}
 
 	invalid := bedrock.CacheBlob{Hash: subChunkAHash, Payload: []byte("poison")}

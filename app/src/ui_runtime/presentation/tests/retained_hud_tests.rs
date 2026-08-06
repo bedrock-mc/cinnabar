@@ -307,10 +307,10 @@ fn install_mixed_scoreboard_slot(
             local_millis: 0,
             server_tick: None,
             event: UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: rows
                     .iter()
                     .map(|(id, identity, score)| ProtocolScoreEntry {
+                        action: ProtocolScoreAction::Change,
                         scoreboard_id: *id,
                         objective_name: Arc::from("objective"),
                         score: *score,
@@ -345,10 +345,10 @@ fn install_scoreboard(runtime: &mut UiRuntime, title: &str, rows: &[(i64, &str, 
             local_millis: 0,
             server_tick: None,
             event: UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: rows
                     .iter()
                     .map(|(id, name, score)| ProtocolScoreEntry {
+                        action: ProtocolScoreAction::Change,
                         scoreboard_id: *id,
                         objective_name: Arc::from("objective"),
                         score: *score,

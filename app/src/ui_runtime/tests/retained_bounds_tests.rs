@@ -14,8 +14,8 @@ use protocol::{
     ActorEffectAction, ActorEffectEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
     BossStyle as ProtocolBossStyle, ContainerIdentity, InventoryContentEvent, InventoryEvent,
-    NetworkItemStack, ObjectiveEvent, ScoreAction as ProtocolScoreAction,
-    ScoreEntry as ProtocolScoreEntry, ScoreEvent, ScoreIdentity as ProtocolScoreIdentity,
+    NetworkItemStack, ObjectiveEvent, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ScoreIdentity as ProtocolScoreIdentity,
 };
 use sha2::Digest;
 use ui::{
@@ -64,6 +64,7 @@ fn saturated_runtime() -> UiRuntime {
         .unwrap();
     let entries: Vec<ProtocolScoreEntry> = (0..64)
         .map(|index| ProtocolScoreEntry {
+            action: protocol::ScoreAction::Change,
             scoreboard_id: index,
             objective_name: Arc::from("bench"),
             score: index as i32 * 3,
@@ -75,7 +76,6 @@ fn saturated_runtime() -> UiRuntime {
             1,
             next(),
             UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: entries.into(),
             }),
         ))

@@ -538,7 +538,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
 }
 
 fn start_game_inventory_authority(game_data: &protocol::GameData) -> InventoryEvent {
-    normalize_authority(game_data.start_game.server_authoritative_inventory)
+    normalize_authority(game_data.start_game.enable_item_stack_net_manager)
 }
 
 trait NetworkSession: Send {

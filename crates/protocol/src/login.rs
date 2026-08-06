@@ -7,10 +7,7 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_30::{McpePacketData, McpePacketName, WindowId},
-};
+use valentine::bedrock::version::v1_26_40::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::socket_transport::SocketTransport;
@@ -203,7 +200,7 @@ impl<T: Transport> PlaySession<T> {
             Ok(packet) => {
                 if matches!(
                     &packet.data,
-                    McpePacketData::PacketTransfer(_) | McpePacketData::PacketDisconnect(_)
+                    McpePacketData::TransferPacket(_) | McpePacketData::DisconnectPacket(_)
                 ) {
                     self.reset_blob_cache_pending();
                 }
@@ -418,7 +415,7 @@ impl<T: Transport> PlaySession<T> {
 
             if matches!(
                 packet_name,
-                McpePacketName::PacketTransfer | McpePacketName::PacketDisconnect
+                McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
             ) {
                 if let Err(error) = self.stream.decode_raw_packet(raw) {
                     return Err(self.fail_session(error));
@@ -433,9 +430,9 @@ impl<T: Transport> PlaySession<T> {
 
             if matches!(
                 packet_name,
-                McpePacketName::PacketLevelChunk
-                    | McpePacketName::PacketSubchunk
-                    | McpePacketName::PacketClientCacheMissResponse
+                McpePacketName::LevelChunkPacket
+                    | McpePacketName::SubChunkPacket
+                    | McpePacketName::ClientCacheMissResponsePacket
             ) {
                 let packet = match self.stream.decode_raw_packet(raw) {
                     Ok(packet) => packet,
@@ -447,7 +444,7 @@ impl<T: Transport> PlaySession<T> {
                         .expect("enabled path owns a resolver"),
                     &packet,
                 )?;
-                if let McpePacketData::PacketClientCacheMissResponse(response) = packet.data {
+                if let McpePacketData::ClientCacheMissResponsePacket(response) = packet.data {
                     if let Err(error) = self
                         .blob_cache
                         .as_mut()
@@ -541,7 +538,7 @@ fn reset_blob_cache_for_decoded_candidate(
 ) -> Result<bool, crate::BlobCacheError> {
     if matches!(
         &packet.data,
-        McpePacketData::PacketLevelChunk(_) | McpePacketData::PacketSubchunk(_)
+        McpePacketData::LevelChunkPacket(_) | McpePacketData::SubChunkPacket(_)
     ) {
         resolver.reset_pending_for_fast_transfer_candidate()
     } else {
@@ -551,13 +548,10 @@ fn reset_blob_cache_for_decoded_candidate(
 
 fn is_cached_world_packet(packet: &Packet) -> bool {
     match &packet.data {
-        McpePacketData::PacketLevelChunk(packet) => packet.blobs.is_some(),
-        McpePacketData::PacketSubchunk(packet) => matches!(
-            packet.entries,
-            valentine::bedrock::version::v1_26_30::SubchunkPacketEntries::SubChunkEntryWithCaching(
-                _
-            )
-        ),
+        // 1.26.40 states cache participation with an explicit flag on both
+        // packets rather than an optional hash list or an entry-type union.
+        McpePacketData::LevelChunkPacket(packet) => packet.cache_enabled,
+        McpePacketData::SubChunkPacket(packet) => packet.cache_enabled,
         _ => false,
     }
 }
@@ -567,11 +561,11 @@ fn reset_cache_for_immediate_boundary(
     packet: McpePacketName,
 ) -> Result<bool, crate::BlobCacheError> {
     match packet {
-        McpePacketName::PacketTransfer => {
+        McpePacketName::TransferPacket => {
             resolver.recover_pending()?;
             Ok(true)
         }
-        McpePacketName::PacketDisconnect => {
+        McpePacketName::DisconnectPacket => {
             resolver.reset_pending();
             Ok(true)
         }
@@ -597,61 +591,61 @@ fn decode_world_raw_with(
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if !matches!(
         raw.id,
-        McpePacketName::PacketText
-            | McpePacketName::PacketCommandOutput
-            | McpePacketName::PacketPlayStatus
-            | McpePacketName::PacketSetHealth
-            | McpePacketName::PacketBossEvent
-            | McpePacketName::PacketSetTitle
-            | McpePacketName::PacketModalFormRequest
-            | McpePacketName::PacketRemoveObjective
-            | McpePacketName::PacketSetDisplayObjective
-            | McpePacketName::PacketSetScore
-            | McpePacketName::PacketToastRequest
-            | McpePacketName::PacketUpdateSoftEnum
-            | McpePacketName::PacketBiomeDefinitionList
-            | McpePacketName::PacketAddPlayer
-            | McpePacketName::PacketAddEntity
-            | McpePacketName::PacketRemoveEntity
-            | McpePacketName::PacketMoveEntity
-            | McpePacketName::PacketMoveEntityDelta
-            | McpePacketName::PacketSetEntityData
-            | McpePacketName::PacketUpdateAttributes
-            | McpePacketName::PacketPlayerList
-            | McpePacketName::PacketItemRegistry
-            | McpePacketName::PacketMobEquipment
-            | McpePacketName::PacketMobArmorEquipment
-            | McpePacketName::PacketMobEffect
-            | McpePacketName::PacketSetEntityLink
-            | McpePacketName::PacketSetPlayerGameType
-            | McpePacketName::PacketSetDefaultGameType
-            | McpePacketName::PacketInventoryContent
-            | McpePacketName::PacketInventorySlot
-            | McpePacketName::PacketPlayerHotbar
-            | McpePacketName::PacketItemStackResponse
-            | McpePacketName::PacketContainerOpen
-            | McpePacketName::PacketContainerClose
-            | McpePacketName::PacketContainerSetData
-            | McpePacketName::PacketAnimate
-            | McpePacketName::PacketAnimateEntity
-            | McpePacketName::PacketLevelChunk
-            | McpePacketName::PacketSubchunk
-            | McpePacketName::PacketUpdateBlock
-            | McpePacketName::PacketUpdateSubchunkBlocks
-            | McpePacketName::PacketBlockEntityData
-            | McpePacketName::PacketChunkRadiusUpdate
-            | McpePacketName::PacketNetworkChunkPublisherUpdate
-            | McpePacketName::PacketChangeDimension
-            | McpePacketName::PacketRespawn
-            | McpePacketName::PacketMovePlayer
-            | McpePacketName::PacketCorrectPlayerMovePrediction
-            | McpePacketName::PacketSetTime
-            | McpePacketName::PacketGameRulesChanged
-            | McpePacketName::PacketLevelEvent
+        McpePacketName::TextPacket
+            | McpePacketName::CommandOutputPacket
+            | McpePacketName::PlayStatusPacket
+            | McpePacketName::SetHealthPacket
+            | McpePacketName::BossEventPacket
+            | McpePacketName::SetTitlePacket
+            | McpePacketName::ModalFormRequestPacket
+            | McpePacketName::RemoveObjectivePacket
+            | McpePacketName::SetDisplayObjectivePacket
+            | McpePacketName::SetScorePacket
+            | McpePacketName::ToastRequestPacket
+            | McpePacketName::UpdateSoftEnumPacket
+            | McpePacketName::BiomeDefinitionListPacket
+            | McpePacketName::AddPlayerPacket
+            | McpePacketName::AddActorPacket
+            | McpePacketName::RemoveActorPacket
+            | McpePacketName::MoveActorAbsolutePacket
+            | McpePacketName::MoveActorDeltaPacket
+            | McpePacketName::SetActorDataPacket
+            | McpePacketName::UpdateAttributesPacket
+            | McpePacketName::PlayerListPacket
+            | McpePacketName::ItemRegistryPacket
+            | McpePacketName::MobEquipmentPacket
+            | McpePacketName::MobArmorEquipmentPacket
+            | McpePacketName::MobEffectPacket
+            | McpePacketName::SetActorLinkPacket
+            | McpePacketName::SetPlayerGameTypePacket
+            | McpePacketName::SetDefaultGameTypePacket
+            | McpePacketName::InventoryContentPacket
+            | McpePacketName::InventorySlotPacket
+            | McpePacketName::PlayerHotbarPacket
+            | McpePacketName::ItemStackResponsePacket
+            | McpePacketName::ContainerOpenPacket
+            | McpePacketName::ContainerClosePacket
+            | McpePacketName::ContainerSetDataPacket
+            | McpePacketName::AnimatePacket
+            | McpePacketName::AnimateEntityPacket
+            | McpePacketName::LevelChunkPacket
+            | McpePacketName::SubChunkPacket
+            | McpePacketName::UpdateBlockPacket
+            | McpePacketName::UpdateSubChunkBlocksPacket
+            | McpePacketName::BlockActorDataPacket
+            | McpePacketName::ChunkRadiusUpdatedPacket
+            | McpePacketName::NetworkChunkPublisherUpdatePacket
+            | McpePacketName::ChangeDimensionPacket
+            | McpePacketName::RespawnPacket
+            | McpePacketName::MovePlayerPacket
+            | McpePacketName::CorrectPlayerMovePredictionPacket
+            | McpePacketName::SetTimePacket
+            | McpePacketName::GameRulesChangedPacket
+            | McpePacketName::LevelEventPacket
     ) {
         return Ok(None);
     }
-    if raw.id == McpePacketName::PacketMoveEntity {
+    if raw.id == McpePacketName::MoveActorAbsolutePacket {
         return Ok(Some(WorldEvent::Actor(
             crate::actor::normalize_move_entity_body(raw.body(), current_dimension)
                 .map_err(crate::world::WorldPacketError::from)?,
@@ -660,7 +654,7 @@ fn decode_world_raw_with(
     crate::inventory::validate_raw_inventory_packet(&raw)
         .map_err(crate::world::WorldPacketError::from)?;
     crate::codec::validate_raw_ui_frame(raw.inner_frame()).map_err(demote_ui_semantic_rejection)?;
-    if raw.id == McpePacketName::PacketMobEquipment
+    if raw.id == McpePacketName::MobEquipmentPacket
         && let Some(equipment) = decode_empty_mob_equipment(&raw)?
     {
         return Ok(Some(WorldEvent::Equipment(equipment)));
@@ -726,7 +720,8 @@ fn decode_empty_mob_equipment(
     }
     let inventory_slot = body.get_u8();
     let selected_slot = body.get_u8();
-    let window = WindowId::decode(&mut body, ())?;
+    // The container ID is a plain byte in 1.26.40 rather than a named enum.
+    let window = body.get_u8();
     if body.has_remaining() {
         return Err(ProtocolError::TrailingPacketBytes {
             remaining: body.remaining(),

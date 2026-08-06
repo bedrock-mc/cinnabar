@@ -6,9 +6,9 @@ use protocol::{
     TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
     parse_raw_text,
 };
-use valentine::bedrock::version::v1_26_30::{
-    SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
-    TextPacketContentJson, TextPacketType,
+use valentine::bedrock::version::v1_26_40::{
+    SetTitlePacket, SetTitlePacketTitleType, TextPacket, TextPacketBody,
+    TextPacketPayloadMessageOnly, TextPacketPayloadMessageOnlyMessageType,
 };
 
 const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
@@ -16,23 +16,35 @@ const WHISPER_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_whisper_r
 const ANNOUNCEMENT_FIXTURE: &[u8] =
     include_bytes!("../fixtures/text_object_announcement_rawtext.bin");
 
+/// Builds a MessageOnly Text packet, the union arm gophertunnel writes for
+/// every TextObject* kind (`minecraft/protocol/packet/text.go`).
+fn message_only(
+    message_type: TextPacketPayloadMessageOnlyMessageType,
+    message: String,
+) -> TextPacket {
+    TextPacket {
+        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
+            message_type,
+            message,
+        }),
+        ..Default::default()
+    }
+}
+
 fn normalize_json(
-    kind: TextPacketType,
+    kind: TextPacketPayloadMessageOnlyMessageType,
     message: String,
 ) -> Result<protocol::RawTextEvent, UiPacketError> {
-    let content = TextPacketContentJson { message };
-    let content = match kind {
-        TextPacketType::Json => TextPacketContent::Json(content),
-        TextPacketType::JsonWhisper => TextPacketContent::JsonWhisper(content),
-        TextPacketType::JsonAnnouncement => TextPacketContent::JsonAnnouncement(content),
-        _ => panic!("test helper accepts only object text packet kinds"),
-    };
-    let packet = TextPacket {
-        category: TextPacketCategory::MessageOnly,
-        type_: kind,
-        content: Some(content),
-        ..Default::default()
-    };
+    assert!(
+        matches!(
+            kind,
+            TextPacketPayloadMessageOnlyMessageType::TextObject
+                | TextPacketPayloadMessageOnlyMessageType::TextObjectWhisper
+                | TextPacketPayloadMessageOnlyMessageType::TextObjectAnnouncement
+        ),
+        "test helper accepts only object text packet kinds"
+    );
+    let packet = message_only(kind, message);
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(UiEvent::RawText(event)))) => Ok(event),
         Ok(other) => panic!("expected normalized text event, got {other:?}"),
@@ -42,12 +54,7 @@ fn normalize_json(
 }
 
 fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
-    let packet = TextPacket {
-        category: TextPacketCategory::MessageOnly,
-        type_: TextPacketType::Raw,
-        content: Some(TextPacketContent::Raw(TextPacketContentJson { message })),
-        ..Default::default()
-    };
+    let packet = message_only(TextPacketPayloadMessageOnlyMessageType::Raw, message);
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
         Ok(other) => panic!("expected normalized UI event, got {other:?}"),
@@ -66,12 +73,12 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
 }
 
 fn normalize_title_object(
-    action: SetTitlePacketType,
+    action: SetTitlePacketTitleType,
     message: &str,
 ) -> Result<protocol::TitleEvent, UiPacketError> {
     let packet = SetTitlePacket {
-        type_: action,
-        text: message.to_owned(),
+        title_type: action,
+        title_text: message.to_owned(),
         ..Default::default()
     };
     match into_world_event(packet.into(), 0) {
@@ -83,7 +90,7 @@ fn normalize_title_object(
 }
 
 #[test]
-fn protocol_1001_object_text_fixtures_emit_human_text_without_json_leakage() {
+fn object_text_fixtures_emit_human_text_without_json_leakage() {
     let object = decode_fixture(OBJECT_FIXTURE);
     assert_eq!(object.text.kind, TextKind::Json);
     assert_eq!(object.text.message.as_ref(), "\u{a7}aLBSG human chat");
@@ -254,7 +261,13 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
         r#"{"rawtext":"not-an-array"}"#,
     ] {
         assert!(parse_raw_text(value).is_err(), "accepted {value}");
-        assert!(normalize_json(TextPacketType::Json, value.to_owned()).is_err());
+        assert!(
+            normalize_json(
+                TextPacketPayloadMessageOnlyMessageType::TextObject,
+                value.to_owned()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -399,7 +412,7 @@ fn raw_text_rejects_explicit_null_translation_arguments() {
 #[test]
 fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     let event = normalize_json(
-        TextPacketType::Json,
+        TextPacketPayloadMessageOnlyMessageType::TextObject,
         r#"{"rawtext":[{"translate":"multiplayer.player.joined","with":["Alice"]}]}"#.to_owned(),
     )
     .unwrap();
@@ -416,15 +429,18 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 }
 
 #[test]
-fn protocol_1001_title_object_actions_retain_typed_raw_text_without_json_leakage() {
+fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
-        (SetTitlePacketType::SetTitleJson, TitleAction::SetTitleJson),
         (
-            SetTitlePacketType::SetSubtitleJson,
+            SetTitlePacketTitleType::TitleTextObject,
+            TitleAction::SetTitleJson,
+        ),
+        (
+            SetTitlePacketTitleType::SubtitleTextObject,
             TitleAction::SetSubtitleJson,
         ),
         (
-            SetTitlePacketType::ActionBarMessageJson,
+            SetTitlePacketTitleType::ActionbarTextObject,
             TitleAction::ActionBarJson,
         ),
     ] {
@@ -462,7 +478,7 @@ fn protocol_1001_title_object_actions_retain_typed_raw_text_without_json_leakage
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            SetTitlePacketType::SetTitleJson,
+            SetTitlePacketTitleType::TitleTextObject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)

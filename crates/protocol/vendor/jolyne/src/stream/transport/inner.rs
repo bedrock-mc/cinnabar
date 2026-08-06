@@ -162,7 +162,7 @@ impl<T: Transport> BedrockTransport<T> {
 
     /// Returns the current packet decode/encode args derived from transport session state.
     pub fn packet_args(&self) -> McpePacketArgs {
-        McpePacketArgs::from(&self.session)
+        McpePacketArgs
     }
 
     /// Sends a packet. Behavior depends on `set_auto_flush`.

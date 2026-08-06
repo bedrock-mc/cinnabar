@@ -1,6 +1,8 @@
 use super::*;
 
-use valentine::bedrock::version::v1_26_30::{SubchunkRequestPacket, Vec3I8, Vec3Li};
+use valentine::bedrock::version::v1_26_40::{
+    DimensionType, SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos, SubChunkRequestPacket,
+};
 
 /// Builds one bounded vertical-column SubChunkRequest.
 pub fn request_sub_chunk_column(
@@ -25,19 +27,21 @@ pub fn request_sub_chunk_column(
                 offset,
             },
         )?;
-        requests.push(Vec3I8 {
-            x: 0,
-            y: offset as i8,
-            z: 0,
+        requests.push(SubChunkPacketPayloadSubChunkPosOffset {
+            subchunk_offset_x: 0,
+            subchunk_offset_y: offset as i8,
+            subchunk_offset_z: 0,
         });
     }
-    Ok(SubchunkRequestPacket {
-        dimension,
-        requests,
-        origin: Vec3Li {
-            x: chunk_x,
-            y: base_sub_chunk_y,
-            z: chunk_z,
+    // Field renames only: gophertunnel packet/sub_chunk_request.go still writes
+    // Varint32 Dimension, then the offset slice, then the centre SubChunkPos.
+    Ok(SubChunkRequestPacket {
+        dimension_type: DimensionType { value: dimension },
+        sub_chunk_position_offset_list: requests,
+        center_pos: SubChunkPos {
+            subchunk_position_x: chunk_x,
+            subchunk_position_y: base_sub_chunk_y,
+            subchunk_position_z: chunk_z,
         },
     }
     .into())

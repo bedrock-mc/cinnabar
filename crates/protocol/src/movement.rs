@@ -1,9 +1,10 @@
 use std::ops::{BitOr, BitOrAssign};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_30::{
-    InputFlag, PlayerAuthInputPacket, PlayerAuthInputPacketInputMode,
-    PlayerAuthInputPacketInteractionModel, PlayerAuthInputPacketPlayMode, Vec2F, Vec3F,
+use valentine::bedrock::version::v1_26_40::{
+    PlayerAuthInputPacket, PlayerAuthInputPacketInputDataItem, PlayerAuthInputPacketInputMode,
+    PlayerAuthInputPacketNewInteractionModel, PlayerAuthInputPacketPlayMode, PlayerInputTick, Vec2,
+    Vec3,
 };
 
 use crate::Packet;
@@ -110,54 +111,162 @@ pub fn player_auth_input(
         return Err(PlayerAuthInputError::NonFiniteState);
     }
 
-    let move_vector = vec2(snapshot.move_vector);
     Ok(PlayerAuthInputPacket {
-        pitch: snapshot.pitch,
-        yaw: snapshot.yaw,
+        player_rotation: Vec2 {
+            x: snapshot.pitch,
+            y: snapshot.yaw,
+        },
         position: vec3(snapshot.position),
-        move_vector: move_vector.clone(),
-        head_yaw: snapshot.head_yaw,
-        input_data: InputFlag::from_bits_retain(snapshot.flags.bits()),
+        move_vector: vec2(snapshot.move_vector),
+        player_head_rotation: snapshot.head_yaw,
+        input_data: input_data_items(snapshot.flags),
         input_mode: match snapshot.input_mode {
             PlayerInputMode::Mouse => PlayerAuthInputPacketInputMode::Mouse,
             PlayerInputMode::Touch => PlayerAuthInputPacketInputMode::Touch,
             PlayerInputMode::GamePad => PlayerAuthInputPacketInputMode::GamePad,
         },
         play_mode: PlayerAuthInputPacketPlayMode::Normal,
-        // Gophertunnel's protocol-1001 authority writes this field as unsigned
-        // varint. The pinned generated Valentine definition currently labels it
-        // ZigZag32, so -1 is the generated representation whose wire bytes are
-        // the authoritative unsigned value 1 (crosshair). Keep this workaround
-        // contained behind the vendor-neutral snapshot API.
-        interaction_model: PlayerAuthInputPacketInteractionModel::Unknown(-1),
-        interact_rotation: Vec2F {
+        // 1.26.40 agrees with gophertunnel here, which writes the interaction
+        // model with io.Varint32 (zigzag) in packet/player_auth_input.go. The
+        // protocol-1001 code sent Unknown(-1) because the generated definition
+        // was zigzag while the authority was an unsigned varint; that
+        // workaround is obsolete and the named variant is now correct.
+        new_interaction_model: PlayerAuthInputPacketNewInteractionModel::Crosshair,
+        interact_rotation: Vec2 {
             x: snapshot.pitch,
-            z: snapshot.yaw,
+            y: snapshot.yaw,
         },
-        tick,
-        delta: vec3(snapshot.delta),
-        transaction: None,
+        client_tick: PlayerInputTick { inputtick: tick },
+        pos_delta: vec3(snapshot.delta),
+        // These are the OUTER bool of each of gophertunnel's DoubleOptionalFunc
+        // fields (minecraft/protocol/io.go): `outer := true; r.Bool(&outer);
+        // if outer { OptionalFunc(...) }`. A Go writer can never emit false
+        // here -- it is hardcoded true -- and the generated Option's own
+        // presence byte is the inner flag that actually says "no payload".
+        constant_12: true,
+        item_use_transaction: None,
+        constant_14: true,
         item_stack_request: None,
-        content: None,
-        block_action: None,
-        analogue_move_vector: vec2(snapshot.analogue_move_vector),
+        constant_16: true,
+        player_block_actions: None,
+        constant_18: true,
+        vehicle_rotation: None,
+        constant_20: true,
+        client_predicted_vehicle: None,
+        analog_move_vector: vec2(snapshot.analogue_move_vector),
         camera_orientation: vec3(snapshot.camera_orientation),
         raw_move_vector: vec2(snapshot.raw_move_vector),
+        // The presence bool gophertunnel's InputFlagList writes before the flag
+        // count (minecraft/protocol/input_flags.go). Writing false here would
+        // make a peer read zero flags and then consume the count byte as the
+        // input mode, desyncing the rest of the packet.
+        constant_4: true,
     }
     .into())
 }
 
-fn vec3(value: [f32; 3]) -> Vec3F {
-    Vec3F {
+/// Expands the bitset the app owns into the flag list 1.26.40 puts on the wire.
+///
+/// The input flags stopped being a bitset and became a length-prefixed list of
+/// the flag IDs that are set (gophertunnel's `protocol.InputFlagList`). Each
+/// generated variant's ordinal is exactly the bit position the protocol-1001
+/// bitset used, so bit `n` maps to the variant declared `n`th and the app-facing
+/// `PlayerInputFlags` constants keep their meaning unchanged.
+fn input_data_items(flags: PlayerInputFlags) -> Vec<PlayerAuthInputPacketInputDataItem> {
+    use PlayerAuthInputPacketInputDataItem as Item;
+
+    const ITEMS: [Item; 66] = [
+        Item::Ascend,
+        Item::Descend,
+        Item::NorthJump,
+        Item::JumpDown,
+        Item::SprintDown,
+        Item::ChangeHeight,
+        Item::Jumping,
+        Item::AutoJumpingInWater,
+        Item::Sneaking,
+        Item::SneakDown,
+        Item::Up,
+        Item::Down,
+        Item::Left,
+        Item::Right,
+        Item::UpLeft,
+        Item::UpRight,
+        Item::WantUp,
+        Item::WantDown,
+        Item::WantDownSlow,
+        Item::WantUpSlow,
+        Item::Sprinting,
+        Item::AscendBlock,
+        Item::DescendBlock,
+        Item::SneakToggleDown,
+        Item::PersistSneak,
+        Item::StartSprinting,
+        Item::StopSprinting,
+        Item::StartSneaking,
+        Item::StopSneaking,
+        Item::StartSwimming,
+        Item::StopSwimming,
+        Item::StartJumping,
+        Item::StartGliding,
+        Item::StopGliding,
+        Item::PerformItemInteraction,
+        Item::PerformBlockActions,
+        Item::PerformItemStackRequest,
+        Item::HandledTeleport,
+        Item::Emoting,
+        Item::MissedSwing,
+        Item::StartCrawling,
+        Item::StopCrawling,
+        Item::StartFlying,
+        Item::StopFlying,
+        Item::ClientAckServerData,
+        Item::IsInClientPredictedVehicle,
+        Item::PaddlingLeft,
+        Item::PaddlingRight,
+        Item::BlockBreakingDelayEnabled,
+        Item::HorizontalCollision,
+        Item::VerticalCollision,
+        Item::DownLeft,
+        Item::DownRight,
+        Item::StartUsingItem,
+        Item::IsCameraRelativeMovementEnabled,
+        Item::IsRotControlledByMoveDirection,
+        Item::StartSpinAttack,
+        Item::StopSpinAttack,
+        Item::IsHotbarOnlyTouch,
+        Item::JumpReleasedRaw,
+        Item::JumpPressedRaw,
+        Item::JumpCurrentRaw,
+        Item::SneakReleasedRaw,
+        Item::SneakPressedRaw,
+        Item::SneakCurrentRaw,
+        Item::InternalUpdate,
+    ];
+
+    let bits = flags.bits();
+    (0..u64::BITS)
+        .filter(|bit| bits & (1u64 << bit) != 0)
+        .map(|bit| {
+            ITEMS
+                .get(bit as usize)
+                .cloned()
+                .unwrap_or(Item::Unknown(bit as i32))
+        })
+        .collect()
+}
+
+fn vec3(value: [f32; 3]) -> Vec3 {
+    Vec3 {
         x: value[0],
         y: value[1],
         z: value[2],
     }
 }
 
-fn vec2(value: [f32; 2]) -> Vec2F {
-    Vec2F {
+fn vec2(value: [f32; 2]) -> Vec2 {
+    Vec2 {
         x: value[0],
-        z: value[1],
+        y: value[1],
     }
 }
