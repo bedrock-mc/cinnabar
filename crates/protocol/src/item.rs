@@ -6,12 +6,20 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
     version::v1_26_40::{
-        AnimateEntityPacket, AnimatePacket, AnimatePacketActionId, Item, ItemContentExtra,
-        ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
-        ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemRegistryPacket,
-        ItemstatesItemVersion, MobEquipmentPacket, WindowId,
+        ActorRuntimeId, AnimateEntityPacket, AnimatePacket, AnimatePacketAction, ItemDataItemVersion,
+        ItemRegistryPacket, MobEquipmentPacket,
     },
 };
+
+/// The single item shape 1.26.40 puts on the wire.
+///
+/// Protocol 1001 modelled three separate item encodings (`Item`, `ItemNew`,
+/// `ItemV4`) plus a `ShieldItemId`-discriminated extra-data union, because the
+/// prismarine schema described each call site independently. BDS has one
+/// descriptor whose trailing user data is an opaque length-prefixed buffer, so
+/// the shield ID is no longer needed to decode an item.
+type ItemStackDescriptor =
+    valentine::bedrock::version::v1_26_40::CerealizerNetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
@@ -28,11 +36,15 @@ pub const HOTBAR_SLOT_COUNT: u8 = 9;
 pub fn select_hotbar_slot_packet(runtime_id: u64, slot: u8) -> crate::Packet {
     let slot = slot.min(HOTBAR_SLOT_COUNT - 1);
     MobEquipmentPacket {
-        runtime_entity_id: runtime_id as i64,
-        item: ItemNew::default(),
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: runtime_id as i64,
+        },
+        item: ItemStackDescriptor::default(),
         slot,
         selected_slot: slot,
-        window_id: WindowId::Inventory,
+        // The inventory container. 1.26.40 carries the raw ID rather than a
+        // named WindowId enum.
+        container_id: 0,
     }
     .into()
 }
@@ -102,26 +114,23 @@ pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
     root_damage_tag(&nbt)
 }
 
+/// Extracts the root NBT compound from an item's user-data buffer.
+///
+/// 1.26.40 hands the buffer over verbatim instead of modelling its interior, so
+/// the leading header is read here. gophertunnel's `Writer.itemUserData`
+/// (`minecraft/protocol/writer.go`) writes an `int16` that is `-1` when a
+/// compound follows and `0` when none does; when it is `-1` a `uint8` version of
+/// `1` follows and then the compound in *fixed* little-endian NBT. The
+/// `canPlaceOn` / `canBreak` lists and the shield blocking tick trail the
+/// compound, which is why only the root level is walked.
 fn decode_extra_nbt(extra: &[u8]) -> Option<Bytes> {
-    let mut buffer = Bytes::copy_from_slice(extra);
-    if let Ok(decoded) = ItemExtraDataWithoutBlockingTick::decode(&mut buffer, ())
-        && buffer.is_empty()
-    {
-        return decoded
-            .nbt
-            .filter(|nbt| nbt.version == 1)
-            .map(|nbt| nbt.nbt.0);
+    const HEADER_LEN: usize = 3;
+    let header = extra.get(..HEADER_LEN)?;
+    let marker = i16::from_le_bytes([header[0], header[1]]);
+    if marker != -1 || header[2] != 1 {
+        return None;
     }
-    let mut buffer = Bytes::copy_from_slice(extra);
-    if let Ok(decoded) = ItemExtraDataWithBlockingTick::decode(&mut buffer, ())
-        && buffer.is_empty()
-    {
-        return decoded
-            .nbt
-            .filter(|nbt| nbt.version == 1)
-            .map(|nbt| nbt.nbt.0);
-    }
-    None
+    Some(Bytes::copy_from_slice(&extra[HEADER_LEN..]))
 }
 
 /// Walks one fixed little-endian NBT compound root for an integer `Damage`.
@@ -374,79 +383,39 @@ pub enum ItemPacketError {
     NonFiniteActionField(&'static str),
 }
 
-pub(crate) fn normalize_item(item: Item) -> Result<NetworkItemStack, ItemPacketError> {
-    let Some(content) = item.content else {
-        if item.network_id == 0 {
-            return Ok(NetworkItemStack::empty());
-        }
-        return Err(ItemPacketError::ContradictoryStackId);
-    };
-    if item.network_id == 0 {
-        return Err(ItemPacketError::ContradictoryStackId);
+/// Normalises the one item descriptor 1.26.40 uses everywhere.
+///
+/// Protocol 1001 needed a normaliser per encoding (`Item`, `ItemNew`) because
+/// the schema modelled them separately, and the "contradictory stack id" checks
+/// existed to reject prismarine shapes that could describe a present item and an
+/// absent one at once. BDS has a single descriptor whose optional net ID is a
+/// plain `Option`, so those contradictions are no longer representable and the
+/// two normalisers collapse into this one.
+///
+/// gophertunnel's `Reader.ItemInstance` (`minecraft/protocol/reader.go`) reads
+/// every field unconditionally rather than short-circuiting on a zero ID, so an
+/// empty stack is still a fully-formed descriptor and is recognised by its ID
+/// alone.
+pub(crate) fn normalize_item(item: ItemStackDescriptor) -> Result<NetworkItemStack, ItemPacketError> {
+    validate_item_user_data(&item.user_data_buffer)?;
+    if item.id == 0 {
+        return Ok(NetworkItemStack::empty());
     }
-    let stack_network_id = match (content.has_stack_id, content.stack_id) {
-        (0, None) => -1,
-        (0, Some(_)) => return Err(ItemPacketError::ContradictoryStackId),
-        (1, Some(stack_id)) if stack_id > 0 => stack_id,
-        (1, Some(_)) | (2.., Some(_)) => return Err(ItemPacketError::ContradictoryStackId),
-        (_, None) => return Err(ItemPacketError::ContradictoryStackId),
-    };
-    let extra = match &content.extra {
-        ItemContentExtra::Default(extra) => {
-            validate_extra_without_blocking(extra)?;
-            encode_extra(extra)?
-        }
-        ItemContentExtra::ShieldItemId(extra) => {
-            validate_extra_with_blocking(extra)?;
-            encode_extra(extra)?
-        }
-    };
-    make_stack(
-        item.network_id,
-        content.metadata,
-        stack_network_id,
-        content.count,
-        content.block_runtime_id,
-        extra,
-    )
-}
-
-fn normalize_item_new(item: ItemNew) -> Result<NetworkItemStack, ItemPacketError> {
-    match &item.extra {
-        ItemNewExtra::Default(extra) => validate_extra_without_blocking(extra)?,
-        ItemNewExtra::ShieldItemId(extra) => validate_extra_with_blocking(extra)?,
-    }
-    if item.network_id == 0 {
-        if item.count == 0
-            && item.metadata == 0
-            && item.stack_id.is_none()
-            && item.block_runtime_id == 0
-            && matches!(
-                &item.extra,
-                ItemNewExtra::Default(extra)
-                    if extra == &ItemExtraDataWithoutBlockingTick::default()
-            )
-        {
-            return Ok(NetworkItemStack::empty());
-        }
-        return Err(ItemPacketError::ContradictoryStackId);
-    }
-    let stack_network_id = match item.stack_id {
+    // An absent net ID is the "no stack tracking" case, which the app models as
+    // -1. gophertunnel leaves StackNetworkID at 0 when the bool is unset; the
+    // distinction is preserved here rather than collapsing the two.
+    let stack_network_id = match item.net_id_variant {
         None => -1,
-        Some(stack_id) if stack_id.empty == 0 && stack_id.id > 0 => stack_id.id,
+        Some(stack_id) if stack_id > 0 => stack_id,
         Some(_) => return Err(ItemPacketError::ContradictoryStackId),
     };
-    let extra = match &item.extra {
-        ItemNewExtra::Default(extra) => encode_extra(extra)?,
-        ItemNewExtra::ShieldItemId(extra) => encode_extra(extra)?,
-    };
     make_stack(
-        i32::from(item.network_id),
-        item.metadata,
+        i32::from(item.id),
+        item.auxvalue,
         stack_network_id,
-        item.count,
+        item.stacksize,
         item.block_runtime_id,
-        extra,
+        item.user_data_buffer,
     )
 }
 
@@ -509,38 +478,45 @@ where
     Ok(bytes.to_vec())
 }
 
-fn validate_extra_without_blocking(
-    extra: &ItemExtraDataWithoutBlockingTick,
-) -> Result<(), ItemPacketError> {
-    validate_extra_fields(extra.nbt.as_ref(), &extra.can_place_on, &extra.can_destroy)
-}
-
-fn validate_extra_with_blocking(
-    extra: &ItemExtraDataWithBlockingTick,
-) -> Result<(), ItemPacketError> {
-    validate_extra_fields(extra.nbt.as_ref(), &extra.can_place_on, &extra.can_destroy)
-}
-
-fn validate_extra_fields(
-    nbt: Option<&ItemExtraDataWithoutBlockingTickNbt>,
-    can_place_on: &[String],
-    can_destroy: &[String],
-) -> Result<(), ItemPacketError> {
-    if let Some(nbt) = nbt {
-        if nbt.version != 1 {
-            return Err(ItemPacketError::UnsupportedItemNbtVersion(nbt.version));
-        }
-        validate_item_extra_nbt(&nbt.nbt)?;
+/// Bounds an item's user-data buffer and checks the compound it may carry.
+///
+/// The generated 1.26.40 decoder hands this over as opaque bytes, so the header
+/// is interpreted here exactly as gophertunnel's `Writer.itemUserData` writes it
+/// (`minecraft/protocol/writer.go`): an `int16` of `-1` introduces a `uint8`
+/// version and a fixed little-endian compound, and `0` means no compound.
+/// Anything else is malformed. The trailing `canPlaceOn` / `canBreak` lists and
+/// the shield blocking tick are not re-validated: they are carried through
+/// verbatim and never re-encoded field-by-field, which is what made the
+/// protocol-1001 per-string length checks necessary.
+fn validate_item_user_data(extra: &[u8]) -> Result<(), ItemPacketError> {
+    if extra.len() > MAX_ITEM_EXTRA_BYTES {
+        return Err(ItemPacketError::ItemExtraTooLarge {
+            bytes: extra.len(),
+            max: MAX_ITEM_EXTRA_BYTES,
+        });
     }
-    for value in can_place_on.iter().chain(can_destroy) {
-        if value.len() > i16::MAX as usize {
-            return Err(ItemPacketError::ItemExtraStringTooLarge {
-                bytes: value.len(),
-                max: i16::MAX as usize,
-            });
-        }
+    if extra.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    let header = extra
+        .get(..2)
+        .ok_or(ItemPacketError::InvalidItemNbt)?;
+    match i16::from_le_bytes([header[0], header[1]]) {
+        0 => Ok(()),
+        -1 => {
+            let version = *extra.get(2).ok_or(ItemPacketError::InvalidItemNbt)?;
+            if version != 1 {
+                return Err(ItemPacketError::UnsupportedItemNbtVersion(version));
+            }
+            // Only the compound is validated. The canPlaceOn/canBreak lists and
+            // the shield blocking tick follow it in the same buffer, so unlike
+            // the standalone NBT checks trailing bytes here are expected.
+            let mut bytes = Bytes::copy_from_slice(&extra[3..]);
+            Nbt::decode_little_endian(&mut bytes).map_err(|_| ItemPacketError::InvalidItemNbt)?;
+            Ok(())
+        }
+        _ => Err(ItemPacketError::InvalidItemNbt),
+    }
 }
 
 fn validate_item_extra_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
@@ -564,38 +540,38 @@ fn validate_registry_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
 pub(crate) fn normalize_item_registry(
     packet: ItemRegistryPacket,
 ) -> Result<ItemActorEvent, ItemPacketError> {
-    if packet.itemstates.len() > MAX_ITEM_REGISTRY_ENTRIES {
+    if packet.item_data.len() > MAX_ITEM_REGISTRY_ENTRIES {
         return Err(ItemPacketError::TooManyRegistryEntries {
-            count: packet.itemstates.len(),
+            count: packet.item_data.len(),
             max: MAX_ITEM_REGISTRY_ENTRIES,
         });
     }
-    let mut identifiers = HashSet::with_capacity(packet.itemstates.len());
-    let mut network_ids = HashSet::with_capacity(packet.itemstates.len());
-    let mut entries = Vec::with_capacity(packet.itemstates.len());
-    for item in packet.itemstates {
-        if item.name.len() > MAX_ACTION_IDENTIFIER_BYTES {
+    let mut identifiers = HashSet::with_capacity(packet.item_data.len());
+    let mut network_ids = HashSet::with_capacity(packet.item_data.len());
+    let mut entries = Vec::with_capacity(packet.item_data.len());
+    for item in packet.item_data {
+        if item.item_name.len() > MAX_ACTION_IDENTIFIER_BYTES {
             return Err(ItemPacketError::ItemIdentifierTooLong {
-                bytes: item.name.len(),
+                bytes: item.item_name.len(),
                 max: MAX_ACTION_IDENTIFIER_BYTES,
             });
         }
-        let network_id = i32::from(item.runtime_id);
-        if !identifiers.insert(item.name.clone()) || !network_ids.insert(network_id) {
+        let network_id = i32::from(item.item_id);
+        if !identifiers.insert(item.item_name.clone()) || !network_ids.insert(network_id) {
             return Err(ItemPacketError::DuplicateRegistryEntry);
         }
-        validate_registry_nbt(&item.nbt)?;
-        let component_bytes = encode_extra(&item.nbt)?;
-        let version = match item.version {
-            ItemstatesItemVersion::Legacy => ItemRegistryVersion::Legacy,
-            ItemstatesItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
-            ItemstatesItemVersion::None => ItemRegistryVersion::None,
-            ItemstatesItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
+        validate_registry_nbt(&item.item_component_data)?;
+        let component_bytes = encode_extra(&item.item_component_data)?;
+        let version = match item.item_version {
+            ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
+            ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
+            ItemDataItemVersion::None => ItemRegistryVersion::None,
+            ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
         entries.push(ItemRegistryEntry {
-            identifier: Arc::from(item.name),
+            identifier: Arc::from(item.item_name),
             network_id,
-            component_based: item.component_based,
+            component_based: item.is_component_based,
             version,
             component_digest: Sha256::digest(component_bytes).into(),
         });
@@ -608,13 +584,13 @@ pub(crate) fn normalize_item_registry(
 pub(crate) fn normalize_equipment(
     packet: MobEquipmentPacket,
 ) -> Result<EquipmentEvent, ItemPacketError> {
-    let actor_runtime_id = runtime_id(packet.runtime_entity_id)?;
+    let actor_runtime_id = runtime_id(packet.target_runtime_id.actor_runtime_id)?;
     normalize_equipment_parts(
         actor_runtime_id,
-        normalize_item_new(packet.item)?,
+        normalize_item(packet.item)?,
         packet.slot,
         packet.selected_slot,
-        packet.window_id,
+        packet.container_id,
     )
 }
 
@@ -622,7 +598,7 @@ pub(crate) fn normalize_empty_equipment(
     actor_runtime_id: u64,
     inventory_slot: u8,
     selected_slot: u8,
-    window: WindowId,
+    container_id: u8,
 ) -> Result<EquipmentEvent, ItemPacketError> {
     if actor_runtime_id == 0 {
         return Err(ItemPacketError::InvalidRuntimeId(0));
@@ -632,7 +608,7 @@ pub(crate) fn normalize_empty_equipment(
         NetworkItemStack::empty(),
         inventory_slot,
         selected_slot,
-        window,
+        container_id,
     )
 }
 
@@ -641,12 +617,12 @@ fn normalize_equipment_parts(
     stack: NetworkItemStack,
     inventory_slot: u8,
     selected_slot: u8,
-    window: WindowId,
+    container_id: u8,
 ) -> Result<EquipmentEvent, ItemPacketError> {
     // Handedness comes from the window, not the slot. Servers send non-hotbar
     // or sentinel slot values (e.g. 0xFF) that the client never reads, so the
     // raw slots are retained verbatim rather than rejected.
-    let (window_id, handedness) = window_id(window);
+    let (window_id, handedness) = window_id(container_id);
     Ok(EquipmentEvent {
         actor_runtime_id,
         stack,
@@ -664,19 +640,18 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
     if let Some(source) = &packet.swing_source {
         validate_text("swing source", source, MAX_ACTION_IDENTIFIER_BYTES)?;
     }
-    let kind = match packet.action_id {
-        AnimatePacketActionId::SwingArm => ActorActionKind::SwingArm,
-        AnimatePacketActionId::WakeUp => ActorActionKind::Wake,
-        AnimatePacketActionId::CriticalHit => ActorActionKind::CriticalHit,
-        AnimatePacketActionId::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
-        AnimatePacketActionId::UnknownValue(128) => ActorActionKind::RowRight,
-        AnimatePacketActionId::UnknownValue(129) => ActorActionKind::RowLeft,
-        AnimatePacketActionId::None => ActorActionKind::Ignored { action_id: 0 },
-        AnimatePacketActionId::Unknown => ActorActionKind::Ignored { action_id: 2 },
-        AnimatePacketActionId::UnknownValue(action_id) => ActorActionKind::Ignored { action_id },
+    let kind = match packet.action {
+        AnimatePacketAction::Swing => ActorActionKind::SwingArm,
+        AnimatePacketAction::WakeUp => ActorActionKind::Wake,
+        AnimatePacketAction::CriticalHit => ActorActionKind::CriticalHit,
+        AnimatePacketAction::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
+        AnimatePacketAction::Unknown(128u8) => ActorActionKind::RowRight,
+        AnimatePacketAction::Unknown(129u8) => ActorActionKind::RowLeft,
+        AnimatePacketAction::NoAction => ActorActionKind::Ignored { action_id: 0 },
+        AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {
-        actor_runtime_ids: Arc::from([runtime_id(packet.runtime_entity_id)?]),
+        actor_runtime_ids: Arc::from([runtime_id(packet.target_actor_runtime_id.actor_runtime_id)?]),
         kind,
         data: packet.data,
         swing_source: packet.swing_source.map(Arc::from),
@@ -686,42 +661,42 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
 pub(crate) fn normalize_animate_entity(
     packet: AnimateEntityPacket,
 ) -> Result<ItemActorEvent, ItemPacketError> {
-    if packet.runtime_entity_ids.is_empty()
-        || packet.runtime_entity_ids.len() > MAX_ANIMATE_ENTITY_IDS
+    if packet.m_runtime_ids.is_empty()
+        || packet.m_runtime_ids.len() > MAX_ANIMATE_ENTITY_IDS
     {
         return Err(ItemPacketError::InvalidAnimationTargetCount {
-            count: packet.runtime_entity_ids.len(),
+            count: packet.m_runtime_ids.len(),
             max: MAX_ANIMATE_ENTITY_IDS,
         });
     }
     validate_text(
         "animation",
-        &packet.animation,
+        &packet.m_animation,
         MAX_ANIMATION_IDENTIFIER_BYTES,
     )?;
     validate_text(
         "controller",
-        &packet.controller,
+        &packet.m_controller,
         MAX_ACTION_IDENTIFIER_BYTES,
     )?;
     validate_text(
         "next state",
-        &packet.next_state,
+        &packet.m_next_state,
         MAX_ACTION_IDENTIFIER_BYTES,
     )?;
     validate_text(
         "stop condition",
-        &packet.stop_condition,
+        &packet.m_stop_expression,
         MAX_ACTION_IDENTIFIER_BYTES,
     )?;
-    if !packet.blend_out_time.is_finite() {
+    if !packet.m_blend_out_time.is_finite() {
         return Err(ItemPacketError::NonFiniteActionField("blend_out_time"));
     }
-    let mut seen = HashSet::with_capacity(packet.runtime_entity_ids.len());
+    let mut seen = HashSet::with_capacity(packet.m_runtime_ids.len());
     let actor_runtime_ids = packet
-        .runtime_entity_ids
+        .m_runtime_ids
         .into_iter()
-        .map(runtime_id)
+        .map(|id| runtime_id(id.actor_runtime_id))
         .map(|result| {
             let id = result?;
             if !seen.insert(id) {
@@ -733,10 +708,10 @@ pub(crate) fn normalize_animate_entity(
     Ok(ItemActorEvent::Action(ActorActionEvent {
         actor_runtime_ids: Arc::from(actor_runtime_ids),
         kind: ActorActionKind::Custom {
-            animation: Arc::from(packet.animation),
-            controller: Arc::from(packet.controller),
+            animation: Arc::from(packet.m_animation),
+            controller: Arc::from(packet.m_controller),
         },
-        data: packet.blend_out_time,
+        data: packet.m_blend_out_time,
         swing_source: None,
     }))
 }
@@ -759,43 +734,29 @@ fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), Item
     Ok(())
 }
 
-fn window_id(window: WindowId) -> (u8, Option<ActorHandedness>) {
-    let (wire, handedness): (i8, Option<ActorHandedness>) = match window {
-        WindowId::DropContents => (-100, None),
-        WindowId::Beacon => (-24, None),
-        WindowId::TradingOutput => (-23, None),
-        WindowId::TradingUseInputs => (-22, None),
-        WindowId::TradingInput2 => (-21, None),
-        WindowId::TradingInput1 => (-20, None),
-        WindowId::EnchantOutput => (-17, None),
-        WindowId::EnchantMaterial => (-16, None),
-        WindowId::EnchantInput => (-15, None),
-        WindowId::AnvilOutput => (-13, None),
-        WindowId::AnvilResult => (-12, None),
-        WindowId::AnvilMaterial => (-11, None),
-        WindowId::ContainerInput => (-10, None),
-        WindowId::CraftingUseIngredient => (-5, None),
-        WindowId::CraftingResult => (-4, None),
-        WindowId::CraftingRemoveIngredient => (-3, None),
-        WindowId::CraftingAddIngredient => (-2, None),
-        WindowId::None => (-1, None),
-        WindowId::Inventory => (0, Some(ActorHandedness::Right)),
-        WindowId::First => (1, None),
-        WindowId::Last => (100, None),
-        WindowId::Offhand => (119, Some(ActorHandedness::Left)),
-        WindowId::Armor => (120, None),
-        WindowId::Creative => (121, None),
-        WindowId::Hotbar => (122, Some(ActorHandedness::Right)),
-        WindowId::FixedInventory => (123, None),
-        WindowId::Ui => (124, None),
-        WindowId::Unknown(value) => (value, None),
+/// Maps a raw container ID to its wire value and the hand it implies.
+///
+/// Protocol 1001 modelled this as a named `WindowId` enum, so every container
+/// had to be enumerated just to get the wire number back. 1.26.40 carries a raw
+/// `u8` (gophertunnel's `MobEquipment.WindowID`), so only the two containers
+/// that actually imply handedness need naming.
+fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
+    const INVENTORY: u8 = 0;
+    // 119 as a u8 is the two's-complement image of the signed -9 offhand ID.
+    const OFFHAND: u8 = 119;
+    const HOTBAR: u8 = 122;
+
+    let handedness = match container_id {
+        INVENTORY | HOTBAR => Some(ActorHandedness::Right),
+        OFFHAND => Some(ActorHandedness::Left),
+        _ => None,
     };
-    (u8::from_ne_bytes(wire.to_ne_bytes()), handedness)
+    (container_id, handedness)
 }
 
 #[cfg(test)]
 mod hotbar_tests {
-    use valentine::bedrock::version::v1_26_40::{ItemNew, McpePacketData};
+    use valentine::bedrock::version::v1_26_40::McpePacketData;
 
     use super::*;
 
@@ -805,12 +766,12 @@ mod hotbar_tests {
         else {
             panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
         };
-        assert_eq!(packet.runtime_entity_id, 4242);
+        assert_eq!(packet.target_runtime_id.actor_runtime_id, 4242);
         assert_eq!(packet.slot, 3);
         assert_eq!(packet.selected_slot, 3);
-        assert_eq!(packet.window_id, WindowId::Inventory);
+        assert_eq!(packet.container_id, 0);
         // Inventory contents are not tracked, so the held item is empty (air); servers reconcile.
-        assert_eq!(packet.item, ItemNew::default());
+        assert_eq!(packet.item, ItemStackDescriptor::default());
     }
 
     #[test]

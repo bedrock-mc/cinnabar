@@ -7,9 +7,19 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_40::{
     ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket, LevelChunkPacket, McpePacketData,
-    SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
+    SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
 };
+
+/// The per-entry sub-chunk request result. Aliased because the generated name
+/// carries the whole payload path.
+pub(crate) use valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult as SubChunkRequestResult;
+
+/// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
+pub(crate) fn dimension_id(
+    dimension: &valentine::bedrock::version::v1_26_40::DimensionType,
+) -> i32 {
+    dimension.value
+}
 
 use crate::{ChunkResyncEvent, Packet, SubChunkReplyAdmissionEvent, WorldEvent};
 
@@ -282,7 +292,7 @@ pub fn client_blob_hash(payload: &[u8]) -> u64 {
 #[derive(Debug)]
 enum PendingPacket {
     LevelChunk(Box<LevelChunkPacket>),
-    SubChunk(Box<SubchunkPacket>),
+    SubChunk(Box<SubChunkPacket>),
 }
 
 #[derive(Debug)]
@@ -402,15 +412,15 @@ fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCach
             data: McpePacketData::LevelChunkPacket(packet),
             ..
         }) => {
-            let hash_bytes = packet.blobs.as_ref().map_or(Ok(0), |blobs| {
-                blobs
-                    .hashes
-                    .capacity()
-                    .checked_mul(size_of::<u64>())
-                    .ok_or(BlobCacheError::ByteCountOverflow)
-            })?;
+            // 1.26.40 writes the blob hashes unconditionally rather than
+            // nesting them behind an optional, so they are always accounted.
+            let hash_bytes = packet
+                .cache_metadata
+                .capacity()
+                .checked_mul(size_of::<u64>())
+                .ok_or(BlobCacheError::ByteCountOverflow)?;
             size_of::<LevelChunkPacket>()
-                .checked_add(packet.payload.capacity())
+                .checked_add(packet.serialized_chunk_data.capacity())
                 .and_then(|bytes| bytes.checked_add(hash_bytes))
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
@@ -418,17 +428,22 @@ fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCach
             data: McpePacketData::SubChunkPacket(packet),
             ..
         }) => {
-            let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = &packet.entries
-            else {
+            // Caching is now a packet-level flag plus a per-entry optional
+            // blob ID rather than two separate entry types, so an already
+            // resolved reply is one whose cache flag is clear.
+            if packet.cache_enabled {
                 return Err(BlobCacheError::NotCachedPacket);
-            };
+            }
+            let entries = &packet.sub_chunk_data;
             entries
                 .capacity()
-                .checked_mul(size_of::<SubChunkEntryWithoutCachingItem>())
-                .and_then(|bytes| bytes.checked_add(size_of::<SubchunkPacket>()))
+                .checked_mul(size_of::<SubChunkPacketPayloadSubChunkPacketData>())
+                .and_then(|bytes| bytes.checked_add(size_of::<SubChunkPacket>()))
                 .and_then(|bytes| {
                     entries.iter().try_fold(bytes, |total, entry| {
-                        total.checked_add(entry.payload.capacity())
+                        total.checked_add(
+                            entry.serialized_sub_chunk.as_ref().map_or(0, Vec::capacity),
+                        )
                     })
                 })
                 .ok_or(BlobCacheError::ByteCountOverflow)

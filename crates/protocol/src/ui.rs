@@ -3,15 +3,13 @@ use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_40::{
-    BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketOverlay,
-    BossEventPacketType, CommandOrigin, CommandOutputPacket, CommandRequestPacket,
-    LevelEventPacket, LevelEventPacketEvent, ModalFormRequestPacket, PlayStatusPacket,
-    PlayStatusPacketStatus, RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket,
-    SetScorePacket, SetScorePacketAction, SetScorePacketEntriesItemContent,
-    SetScorePacketEntriesItemContentEntityUniqueId, SetScorePacketEntriesItemContentEntryType,
-    TextPacket, TextPacketCategory, TextPacketContent, TextPacketContentAnnouncement,
-    TextPacketContentView, TextPacketType, ToastRequestPacket, UpdateSoftEnumPacket,
-    UpdateSoftEnumPacketActionType,
+    BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketEventType,
+    BossEventPacketOverlay, CommandOriginData, CommandOutputPacket, CommandRequestPacket,
+    LevelEventPacket, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
+    RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
+    SetScorePacketScoreInfoItem, TextPacket, TextPacketBody, TextPacketPayloadAuthorAndMessage,
+    TextPacketPayloadAuthorAndMessageMessageType, ToastRequestPacket, UpdateSoftEnumPacket,
+    UpdateSoftEnumPacketUpdateType,
 };
 
 mod text;
@@ -75,16 +73,19 @@ pub fn chat_text_packet(
     message: &str,
 ) -> Result<crate::Packet, ChatPacketError> {
     validate_outbound_chat(source_name, xuid, message)?;
+    // gophertunnel derives the union tag from the message type
+    // (`minecraft/protocol/packet/text.go`, `Text.Marshal`): TextTypeChat is
+    // written under TextCategoryAuthoredMessage, which is the AuthorAndMessage
+    // payload here.
     Ok(TextPacket {
-        needs_translation: false,
-        category: TextPacketCategory::Authored,
-        type_: TextPacketType::Chat,
-        content: Some(TextPacketContent::Chat(TextPacketContentAnnouncement {
-            source_name: source_name.to_owned(),
+        localize: false,
+        body: TextPacketBody::AuthorAndMessage(TextPacketPayloadAuthorAndMessage {
+            message_type: TextPacketPayloadAuthorAndMessageMessageType::Chat,
+            player_name: source_name.to_owned(),
             message: message.to_owned(),
-        })),
-        xuid: xuid.to_owned(),
-        platform_chat_id: String::new(),
+        }),
+        senders_xuid: xuid.to_owned(),
+        platform_id: String::new(),
         filtered_message: None,
     }
     .into())
@@ -104,15 +105,19 @@ pub fn chat_input_packet(
         return chat_text_packet(source_name, xuid, message);
     }
 
+    // The origin discriminant is a lowercase name string on this wire, not an
+    // integer: gophertunnel's `commandOriginToString` maps
+    // `CommandOriginPlayer` to exactly "player"
+    // (`minecraft/protocol/command.go`).
     Ok(CommandRequestPacket {
         command: message.to_owned(),
-        origin: CommandOrigin {
+        origin: CommandOriginData {
             type_: "player".to_owned(),
             uuid: uuid::Uuid::new_v4(),
             request_id: String::new(),
-            player_entity_id: 0,
+            player_id: 0,
         },
-        internal: false,
+        is_internal: false,
         version: "latest".to_owned(),
     }
     .into())
@@ -218,8 +223,17 @@ pub enum ScoreIdentity {
     None,
 }
 
+/// One scoreboard line update.
+///
+/// 1.26.40 moved the add/remove verb out of the packet and into each entry:
+/// gophertunnel's `ScoreboardEntry.Marshal` (`minecraft/protocol/scoreboard.go`)
+/// writes a per-entry variant of "remove", "changeplayer", "changeentity" or
+/// "changefakeplayer", so a single packet may mix removals with changes. A
+/// `Remove` entry carries only an optional objective name on the wire, so
+/// `score` reads 0 and `identity` reads `ScoreIdentity::None` for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScoreEntry {
+    pub action: ScoreAction,
     pub scoreboard_id: i64,
     pub objective_name: Arc<str>,
     pub score: i32,
@@ -228,7 +242,6 @@ pub struct ScoreEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScoreEvent {
-    pub action: ScoreAction,
     pub entries: Arc<[ScoreEntry]>,
 }
 
@@ -502,14 +515,18 @@ fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
 pub(crate) fn normalize_command_output(
     packet: CommandOutputPacket,
 ) -> Result<UiEvent, UiPacketError> {
-    if packet.output.len() > MAX_COMMAND_OUTPUT_MESSAGES {
+    // 1.26.40 groups the output-type, success count, messages and data set into
+    // a nested `CommandOutput`; the wire order is unchanged
+    // (gophertunnel `minecraft/protocol/packet/command_output.go`).
+    let output = packet.output;
+    if output.output_messages.len() > MAX_COMMAND_OUTPUT_MESSAGES {
         return Err(UiPacketError::TooManyCommandOutputMessages {
-            count: packet.output.len(),
+            count: output.output_messages.len(),
             max: MAX_COMMAND_OUTPUT_MESSAGES,
         });
     }
-    let messages = packet
-        .output
+    let messages = output
+        .output_messages
         .into_iter()
         .map(|message| {
             if message.parameters.len() > MAX_CHAT_PARAMETERS {
@@ -520,7 +537,7 @@ pub(crate) fn normalize_command_output(
             }
             Ok(CommandOutputMessage {
                 message_id: bounded_text(message.message_id)?,
-                success: message.success,
+                success: message.successful,
                 parameters: Arc::from(
                     message
                         .parameters
@@ -532,17 +549,17 @@ pub(crate) fn normalize_command_output(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(UiEvent::CommandOutput(CommandOutputEvent {
-        output_type: bounded_text(packet.output_type)?,
-        success_count: packet.success_count,
+        output_type: bounded_text(output.output_type)?,
+        success_count: output.success_count,
         messages: Arc::from(messages),
-        data: packet.data.map(bounded_text).transpose()?,
+        data: output.data_set.map(bounded_text).transpose()?,
     }))
 }
 
 pub(crate) fn normalize_toast(packet: ToastRequestPacket) -> Result<UiEvent, UiPacketError> {
     Ok(UiEvent::Hud(HudEvent::Toast {
         title: bounded_text(packet.title)?,
-        message: bounded_text(packet.message)?,
+        message: bounded_text(packet.content)?,
     }))
 }
 
@@ -553,19 +570,29 @@ pub(crate) fn normalize_health(packet: SetHealthPacket) -> UiEvent {
 }
 
 pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEvent, UiPacketError> {
+    // 1.26.40 renamed every failure variant to the Mojang spelling. The mapping
+    // below is by wire value against gophertunnel's `PlayStatus*` constants
+    // (`minecraft/protocol/packet/play_status.go`): 1 = client outdated,
+    // 2 = server outdated (this crate's historical `FailedSpawn` name),
+    // 5 = vanilla client -> education server, 6 = education client -> vanilla
+    // server, 8 = editor client -> vanilla server, 9 = vanilla -> editor.
     let status = match packet.status {
         PlayStatusPacketStatus::LoginSuccess => PlayerStatus::LoginSuccess,
-        PlayStatusPacketStatus::FailedClient => PlayerStatus::FailedClient,
-        PlayStatusPacketStatus::FailedSpawn => PlayerStatus::FailedSpawn,
+        PlayStatusPacketStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
+        PlayStatusPacketStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
         PlayStatusPacketStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
-        PlayStatusPacketStatus::FailedInvalidTenant => PlayerStatus::FailedInvalidTenant,
-        PlayStatusPacketStatus::FailedVanillaEdu => PlayerStatus::FailedVanillaEducation,
-        PlayStatusPacketStatus::FailedEduVanilla => PlayerStatus::FailedEducationVanilla,
-        PlayStatusPacketStatus::FailedServerFull => PlayerStatus::FailedServerFull,
-        PlayStatusPacketStatus::FailedEditorVanillaMismatch => {
+        PlayStatusPacketStatus::LoginFailedInvalidTenant => PlayerStatus::FailedInvalidTenant,
+        PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla => {
+            PlayerStatus::FailedVanillaEducation
+        }
+        PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu => {
+            PlayerStatus::FailedEducationVanilla
+        }
+        PlayStatusPacketStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
+        PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        PlayStatusPacketStatus::FailedVanillaEditorMismatch => {
+        PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
         PlayStatusPacketStatus::Unknown(value) => {
@@ -582,9 +609,9 @@ pub(crate) fn normalize_display_objective(
     packet: SetDisplayObjectivePacket,
 ) -> Result<UiEvent, UiPacketError> {
     Ok(UiEvent::Objective(ObjectiveEvent::Display {
-        display_slot: bounded_text(packet.display_slot)?,
+        display_slot: bounded_text(packet.display_slot_name)?,
         objective_name: bounded_text(packet.objective_name)?,
-        display_name: bounded_text(packet.display_name)?,
+        display_name: bounded_text(packet.objective_display_name)?,
         criteria_name: bounded_text(packet.criteria_name)?,
         sort_order: packet.sort_order,
     }))
@@ -598,89 +625,80 @@ pub(crate) fn normalize_remove_objective(
     }))
 }
 
-fn score_identity(
-    content: Option<Box<SetScorePacketEntriesItemContent>>,
-) -> Result<ScoreIdentity, UiPacketError> {
-    let Some(content) = content else {
-        return Ok(ScoreIdentity::None);
-    };
-    match content.entry_type {
-        SetScorePacketEntriesItemContentEntryType::Player => match content.entity_unique_id {
-            Some(SetScorePacketEntriesItemContentEntityUniqueId::Player(id)) => {
-                Ok(ScoreIdentity::Player(id))
-            }
-            _ => Ok(ScoreIdentity::None),
-        },
-        SetScorePacketEntriesItemContentEntryType::Entity => match content.entity_unique_id {
-            Some(SetScorePacketEntriesItemContentEntityUniqueId::Entity(id)) => {
-                Ok(ScoreIdentity::Entity(id))
-            }
-            _ => Ok(ScoreIdentity::None),
-        },
-        SetScorePacketEntriesItemContentEntryType::FakePlayer => Ok(ScoreIdentity::FakePlayer(
-            bounded_text(content.custom_name.unwrap_or_default())?,
-        )),
-        SetScorePacketEntriesItemContentEntryType::Unknown(value) => {
-            Err(UiPacketError::UnknownEnum {
-                kind: "score identity",
-                value: i64::from(value),
-            })
-        }
-    }
-}
-
+/// Normalizes SetScore, whose verb is now carried per entry.
+///
+/// The unknown-identity arm the protocol-1001 shape needed is gone: the entry
+/// union only decodes the four variants gophertunnel writes, and an out-of-range
+/// variant is rejected by the generated decoder before it reaches here.
 pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacketError> {
-    if packet.entries.len() > MAX_SCORE_ENTRIES_PER_PACKET {
+    if packet.score_info.len() > MAX_SCORE_ENTRIES_PER_PACKET {
         return Err(UiPacketError::TooManyScores {
-            count: packet.entries.len(),
+            count: packet.score_info.len(),
             max: MAX_SCORE_ENTRIES_PER_PACKET,
         });
     }
-    let action = match packet.action {
-        SetScorePacketAction::Change => ScoreAction::Change,
-        SetScorePacketAction::Remove => ScoreAction::Remove,
-        SetScorePacketAction::Unknown(value) => {
-            return Err(UiPacketError::UnknownEnum {
-                kind: "score action",
-                value: i64::from(value),
-            });
-        }
-    };
     let entries = packet
-        .entries
+        .score_info
         .into_iter()
-        .map(|entry| {
-            Ok(ScoreEntry {
-                scoreboard_id: entry.scoreboard_id,
+        .map(|entry| match entry {
+            SetScorePacketScoreInfoItem::RemoveScore(entry) => Ok(ScoreEntry {
+                action: ScoreAction::Remove,
+                scoreboard_id: entry.scoreboard_id.scoreboard_id,
+                // A removal carries an optional objective name and nothing
+                // else, so there is no score or identity to report.
+                objective_name: bounded_text(entry.objective_name.unwrap_or_default())?,
+                score: 0,
+                identity: ScoreIdentity::None,
+            }),
+            SetScorePacketScoreInfoItem::ChangePlayerScore(entry) => Ok(ScoreEntry {
+                action: ScoreAction::Change,
+                scoreboard_id: entry.scoreboard_id.scoreboard_id,
                 objective_name: bounded_text(entry.objective_name)?,
-                score: entry.score,
-                identity: score_identity(entry.content)?,
-            })
+                score: entry.score_value,
+                identity: ScoreIdentity::Player(entry.player_unique_id.player_unique_id),
+            }),
+            SetScorePacketScoreInfoItem::ChangeEntityScore(entry) => Ok(ScoreEntry {
+                action: ScoreAction::Change,
+                scoreboard_id: entry.scoreboard_id.scoreboard_id,
+                objective_name: bounded_text(entry.objective_name)?,
+                score: entry.score_value,
+                identity: ScoreIdentity::Entity(entry.actor_id.actor_unique_id),
+            }),
+            SetScorePacketScoreInfoItem::ChangeFakePlayerScore(entry) => Ok(ScoreEntry {
+                action: ScoreAction::Change,
+                scoreboard_id: entry.scoreboard_id.scoreboard_id,
+                objective_name: bounded_text(entry.objective_name)?,
+                score: entry.score_value,
+                identity: ScoreIdentity::FakePlayer(bounded_text(entry.fake_player_name)?),
+            }),
         })
         .collect::<Result<Vec<_>, UiPacketError>>()?;
     Ok(UiEvent::Score(ScoreEvent {
-        action,
         entries: Arc::from(entries),
     }))
 }
 
 pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacketError> {
-    if !packet.progress.is_finite() {
+    if !packet.health_percent.is_finite() {
         return Err(UiPacketError::NonFiniteBossProgress {
-            bits: packet.progress.to_bits(),
+            bits: packet.health_percent.to_bits(),
         });
     }
-    let action = match packet.type_ {
-        BossEventPacketType::ShowBar => BossAction::Show,
-        BossEventPacketType::RegisterPlayer => BossAction::RegisterPlayer,
-        BossEventPacketType::HideBar => BossAction::Hide,
-        BossEventPacketType::UnregisterPlayer => BossAction::UnregisterPlayer,
-        BossEventPacketType::SetBarProgress => BossAction::SetProgress,
-        BossEventPacketType::SetBarTitle => BossAction::SetTitle,
-        BossEventPacketType::UpdateProperties => BossAction::UpdateProperties,
-        BossEventPacketType::Texture => BossAction::Texture,
-        BossEventPacketType::Query => BossAction::Query,
-        BossEventPacketType::Unknown(value) => {
+    // 1.26.40 renamed the event verbs to the Mojang spellings; the wire values
+    // are unchanged and still line up 0..=8 with gophertunnel's `BossEvent*`
+    // constants (`minecraft/protocol/packet/boss_event.go`), so `UpdateStyle`
+    // is value 7, the one gophertunnel calls `BossEventTexture`.
+    let action = match packet.event_type {
+        BossEventPacketEventType::Add => BossAction::Show,
+        BossEventPacketEventType::PlayerAdded => BossAction::RegisterPlayer,
+        BossEventPacketEventType::Remove => BossAction::Hide,
+        BossEventPacketEventType::PlayerRemoved => BossAction::UnregisterPlayer,
+        BossEventPacketEventType::UpdatePercent => BossAction::SetProgress,
+        BossEventPacketEventType::UpdateName => BossAction::SetTitle,
+        BossEventPacketEventType::UpdateProperties => BossAction::UpdateProperties,
+        BossEventPacketEventType::UpdateStyle => BossAction::Texture,
+        BossEventPacketEventType::Query => BossAction::Query,
+        BossEventPacketEventType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss action",
                 value: i64::from(value),
@@ -717,17 +735,20 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
         }
     };
     Ok(UiEvent::Boss(BossEvent {
-        target_entity_id: packet.target_entity_id,
-        player_id: packet.player_id,
+        target_entity_id: packet.target_actor_id.actor_unique_id,
+        player_id: packet.player_id.actor_unique_id,
         action,
-        title: bounded_text(packet.title)?,
-        filtered_title: bounded_text(packet.filtered_title)?,
-        progress: packet.progress,
+        title: bounded_text(packet.name)?,
+        filtered_title: bounded_text(packet.filtered_name)?,
+        progress: packet.health_percent,
         style: BossStyle {
             color,
             overlay,
-            // Protocol 1001's BossEvent wire has no sky-darkening or fog fields.
-            // Preserve that absence instead of inventing a vanilla style value.
+            // The 1.26.40 BossEvent wire has no sky-darkening or fog fields
+            // (gophertunnel `BossEvent.Marshal` writes only the two ids, the
+            // event type, both titles, the health percentage, the colour and
+            // the overlay). Preserve that absence instead of inventing a
+            // vanilla style value.
             darken_sky: None,
             create_world_fog: None,
         },
@@ -737,23 +758,23 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
 pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, UiPacketError> {
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: packet.form_id,
-        json: bounded_form(packet.data)?,
+        json: bounded_form(packet.form_uijson)?,
     }))
 }
 
-/// Normalizes the protocol-1001 server soft-enum delta used by local command completion.
+/// Normalizes the server soft-enum delta used by local command completion.
 /// Request identities belong to the local editor; this wire packet carries no request ID.
 pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnumPacket) -> Result<UiEvent, UiPacketError> {
-    if packet.options.len() > MAX_CHAT_AUTOCOMPLETE {
+    if packet.values.len() > MAX_CHAT_AUTOCOMPLETE {
         return Err(UiPacketError::TooManyAutocompleteSuggestions {
-            count: packet.options.len(),
+            count: packet.values.len(),
             max: MAX_CHAT_AUTOCOMPLETE,
         });
     }
-    let enum_name = bounded_text(packet.enum_type)?;
+    let enum_name = bounded_text(packet.enum_name)?;
     let mut retained_bytes = enum_name.len();
-    let mut suggestions = Vec::with_capacity(packet.options.len());
-    for option in packet.options {
+    let mut suggestions = Vec::with_capacity(packet.values.len());
+    for option in packet.values {
         retained_bytes = retained_bytes.checked_add(option.len()).ok_or(
             UiPacketError::AutocompleteTooLarge {
                 bytes: usize::MAX,
@@ -768,11 +789,14 @@ pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnumPacket) -> Result<UiEven
         }
         suggestions.push(bounded_text(option)?);
     }
-    let action = match packet.action_type {
-        UpdateSoftEnumPacketActionType::Add => ChatAutocompleteAction::Add,
-        UpdateSoftEnumPacketActionType::Remove => ChatAutocompleteAction::Remove,
-        UpdateSoftEnumPacketActionType::Update => ChatAutocompleteAction::Replace,
-        UpdateSoftEnumPacketActionType::Unknown(value) => {
+    // `Replace` is wire value 2, gophertunnel's `SoftEnumActionSet`
+    // (`minecraft/protocol/packet/update_soft_enum.go`) — the same value the
+    // protocol-1001 shape spelled `Update`.
+    let action = match packet.update_type {
+        UpdateSoftEnumPacketUpdateType::Add => ChatAutocompleteAction::Add,
+        UpdateSoftEnumPacketUpdateType::Remove => ChatAutocompleteAction::Remove,
+        UpdateSoftEnumPacketUpdateType::Replace => ChatAutocompleteAction::Replace,
+        UpdateSoftEnumPacketUpdateType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "soft enum action",
                 value: i64::from(value),
@@ -786,7 +810,28 @@ pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnumPacket) -> Result<UiEven
     }))
 }
 
-/// Normalizes protocol-1001 block cracking without inventing a stage or actor ID.
+/// Block-cracking LevelEvent ids.
+///
+/// 1.26.40 carries LevelEvent as a raw `event_id` instead of a named enum, so
+/// the three ids this module cares about are pinned here against gophertunnel's
+/// `LevelEventStartBlockCracking` / `LevelEventStopBlockCracking` /
+/// `LevelEventUpdateBlockCracking` (`minecraft/protocol/packet/level_event.go`).
+pub(crate) const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
+pub(crate) const LEVEL_EVENT_STOP_BLOCK_CRACKING: i32 = 3601;
+pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
+
+/// Whether a LevelEvent id is one of the three block-cracking events.
+#[must_use]
+pub(crate) const fn is_block_crack_event(event_id: i32) -> bool {
+    matches!(
+        event_id,
+        LEVEL_EVENT_START_BLOCK_CRACKING
+            | LEVEL_EVENT_STOP_BLOCK_CRACKING
+            | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
+    )
+}
+
+/// Normalizes block cracking without inventing a stage or actor ID.
 ///
 /// The wire `data` field is the server-authored progress rate (`65535 / break_ticks`).
 /// A downstream tick owner may derive the ten visual atlas stages from accumulated
@@ -799,14 +844,14 @@ pub(crate) fn normalize_block_crack(
         exact_block_coordinate(packet.position.y, "y")?,
         exact_block_coordinate(packet.position.z, "z")?,
     ];
-    let action = match packet.event {
-        LevelEventPacketEvent::BlockStopBreak => BlockCrackAction::Stop,
-        LevelEventPacketEvent::BlockStartBreak | LevelEventPacketEvent::BlockBreakSpeed => {
+    let action = match packet.event_id {
+        LEVEL_EVENT_STOP_BLOCK_CRACKING => BlockCrackAction::Stop,
+        LEVEL_EVENT_START_BLOCK_CRACKING | LEVEL_EVENT_UPDATE_BLOCK_CRACKING => {
             let progress_per_tick = u16::try_from(packet.data)
                 .ok()
                 .filter(|value| *value != 0)
                 .ok_or(UiPacketError::InvalidBlockCrackSpeed { value: packet.data })?;
-            if packet.event == LevelEventPacketEvent::BlockStartBreak {
+            if packet.event_id == LEVEL_EVENT_START_BLOCK_CRACKING {
                 BlockCrackAction::Start { progress_per_tick }
             } else {
                 BlockCrackAction::UpdateSpeed { progress_per_tick }
@@ -830,6 +875,17 @@ fn exact_block_coordinate(value: f32, field: &'static str) -> Result<i32, UiPack
     })
 }
 
+/// Length-only check for a string the borrowed view already materialized.
+fn bounded_borrowed_text(value: &str) -> Result<(), UiPacketError> {
+    if value.len() > MAX_UI_TEXT_BYTES {
+        return Err(UiPacketError::TextTooLong {
+            bytes: value.len(),
+            max: MAX_UI_TEXT_BYTES,
+        });
+    }
+    Ok(())
+}
+
 fn validate_utf8(value: &BorrowedStr, field: &'static str) -> Result<(), UiPacketError> {
     if value.as_bytes().len() > MAX_UI_TEXT_BYTES {
         return Err(UiPacketError::TextTooLong {
@@ -848,48 +904,50 @@ pub(crate) fn validate_borrowed_ui_packet(
 ) -> Result<(), UiPacketError> {
     match packet {
         BorrowedMcpePacketData::TextPacket(packet) => {
-            if let Some(content) = &packet.content {
-                match content {
-                    TextPacketContentView::Announcement(value)
-                    | TextPacketContentView::Chat(value)
-                    | TextPacketContentView::Whisper(value) => {
-                        validate_utf8(&value.source_name, "text.source_name")?;
-                        validate_utf8(&value.message, "text.message")?;
+            // valentine does not emit a borrowed view for the `TextPacketBody`
+            // union, so `TextPacketView::body` is the owned `TextPacketBody`:
+            // its strings are already materialized (and therefore already valid
+            // UTF-8) by the time this runs. `codec::validate_raw_text_packet`
+            // is what rejects invalid UTF-8 and oversized parameter lists
+            // straight off the raw frame; this arm re-checks the retained byte
+            // and parameter budgets.
+            match &packet.body {
+                TextPacketBody::MessageOnly(payload) => {
+                    bounded_borrowed_text(&payload.message)?;
+                }
+                TextPacketBody::AuthorAndMessage(payload) => {
+                    bounded_borrowed_text(&payload.player_name)?;
+                    bounded_borrowed_text(&payload.message)?;
+                }
+                TextPacketBody::MessageAndParams(payload) => {
+                    bounded_borrowed_text(&payload.message)?;
+                    if payload.parameter_list.len() > MAX_CHAT_PARAMETERS {
+                        return Err(UiPacketError::TooManyChatParameters {
+                            count: payload.parameter_list.len(),
+                            max: MAX_CHAT_PARAMETERS,
+                        });
                     }
-                    TextPacketContentView::Json(value)
-                    | TextPacketContentView::JsonAnnouncement(value)
-                    | TextPacketContentView::JsonWhisper(value)
-                    | TextPacketContentView::Raw(value)
-                    | TextPacketContentView::System(value)
-                    | TextPacketContentView::Tip(value) => {
-                        validate_utf8(&value.message, "text.message")?;
-                    }
-                    TextPacketContentView::JukeboxPopup(value)
-                    | TextPacketContentView::Popup(value)
-                    | TextPacketContentView::Translation(value) => {
-                        validate_utf8(&value.message, "text.message")?;
-                        for parameter in &value.parameters {
-                            validate_utf8(parameter, "text.parameter")?;
-                        }
+                    for parameter in &payload.parameter_list {
+                        bounded_borrowed_text(parameter)?;
                     }
                 }
             }
-            validate_utf8(&packet.xuid, "text.xuid")?;
-            validate_utf8(&packet.platform_chat_id, "text.platform_chat_id")?;
+            validate_utf8(&packet.senders_xuid, "text.xuid")?;
+            validate_utf8(&packet.platform_id, "text.platform_chat_id")?;
             if let Some(filtered_message) = &packet.filtered_message {
                 validate_utf8(filtered_message, "text.filtered_message")?;
             }
             Ok(())
         }
         BorrowedMcpePacketData::ModalFormRequestPacket(packet) => {
-            if packet.data.as_bytes().len() > MAX_FORM_JSON_BYTES {
+            if packet.form_uijson.as_bytes().len() > MAX_FORM_JSON_BYTES {
                 return Err(UiPacketError::FormTooLarge {
-                    bytes: packet.data.as_bytes().len(),
+                    bytes: packet.form_uijson.as_bytes().len(),
                     max: MAX_FORM_JSON_BYTES,
                 });
             }
             packet
-                .data
+                .form_uijson
                 .as_str()
                 .map(|_| ())
                 .map_err(|_| UiPacketError::InvalidUtf8 {
@@ -897,38 +955,38 @@ pub(crate) fn validate_borrowed_ui_packet(
                 })
         }
         BorrowedMcpePacketData::SetTitlePacket(packet) => {
-            validate_utf8(&packet.text, "set_title.text")?;
+            validate_utf8(&packet.title_text, "set_title.text")?;
             validate_utf8(&packet.xuid, "set_title.xuid")?;
             validate_utf8(&packet.platform_online_id, "set_title.platform_online_id")?;
-            validate_utf8(&packet.filtered_message, "set_title.filtered_message")
+            validate_utf8(&packet.filtered_title_message, "set_title.filtered_message")
         }
         BorrowedMcpePacketData::BossEventPacket(packet) => {
-            validate_utf8(&packet.title, "boss.title")?;
-            validate_utf8(&packet.filtered_title, "boss.filtered_title")
+            validate_utf8(&packet.name, "boss.title")?;
+            validate_utf8(&packet.filtered_name, "boss.filtered_title")
         }
         BorrowedMcpePacketData::ToastRequestPacket(packet) => {
             validate_utf8(&packet.title, "toast.title")?;
-            validate_utf8(&packet.message, "toast.message")
+            validate_utf8(&packet.content, "toast.message")
         }
         BorrowedMcpePacketData::RemoveObjectivePacket(packet) => {
             validate_utf8(&packet.objective_name, "objective.name")
         }
         BorrowedMcpePacketData::SetDisplayObjectivePacket(packet) => {
-            validate_utf8(&packet.display_slot, "objective.display_slot")?;
+            validate_utf8(&packet.display_slot_name, "objective.display_slot")?;
             validate_utf8(&packet.objective_name, "objective.name")?;
-            validate_utf8(&packet.display_name, "objective.display_name")?;
+            validate_utf8(&packet.objective_display_name, "objective.display_name")?;
             validate_utf8(&packet.criteria_name, "objective.criteria_name")
         }
         BorrowedMcpePacketData::UpdateSoftEnumPacket(packet) => {
-            if packet.options.len() > MAX_CHAT_AUTOCOMPLETE {
+            if packet.values.len() > MAX_CHAT_AUTOCOMPLETE {
                 return Err(UiPacketError::TooManyAutocompleteSuggestions {
-                    count: packet.options.len(),
+                    count: packet.values.len(),
                     max: MAX_CHAT_AUTOCOMPLETE,
                 });
             }
-            validate_utf8(&packet.enum_type, "soft_enum.name")?;
-            let mut retained_bytes = packet.enum_type.as_bytes().len();
-            for option in &packet.options {
+            validate_utf8(&packet.enum_name, "soft_enum.name")?;
+            let mut retained_bytes = packet.enum_name.as_bytes().len();
+            for option in &packet.values {
                 validate_utf8(option, "soft_enum.option")?;
                 retained_bytes = retained_bytes.checked_add(option.as_bytes().len()).ok_or(
                     UiPacketError::AutocompleteTooLarge {

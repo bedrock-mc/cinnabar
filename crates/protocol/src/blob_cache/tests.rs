@@ -1,20 +1,76 @@
 use super::*;
 
+/// Builds a cache-enabled LevelChunk for one column referencing `hashes`.
+///
+/// 1.26.40 writes the blob hashes unconditionally and states cache
+/// participation with `cache_enabled`, so the protocol-1001 `blobs: Some(..)`
+/// literal has no direct equivalent. `subchunks_count` is 0 because
+/// gophertunnel's packet/level_chunk.go expects SubChunkCount + 1 hashes and
+/// these fixtures carry exactly one; the old -1 request-mode sentinel is gone.
+fn cached_level_chunk(x: i32, hashes: Vec<u64>) -> LevelChunkPacket {
+    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    LevelChunkPacket {
+        chunk_position: valentine::bedrock::version::v1_26_40::ChunkPos { x, z: 0 },
+        subchunks_count,
+        cache_enabled: true,
+        cache_metadata: hashes
+            .into_iter()
+            .map(
+                |blob_id| valentine::bedrock::version::v1_26_40::LevelChunkPacketPayloadSubChunkMetadata {
+                    blob_id,
+                },
+            )
+            .collect(),
+        ..Default::default()
+    }
+}
+
+/// Builds one sub-chunk entry at the given offset.
+fn sub_chunk_entry(
+    dx: i8,
+    dy: i8,
+    dz: i8,
+    result: SubChunkRequestResult,
+    payload: Option<Vec<u8>>,
+    blob_id: Option<u64>,
+) -> SubChunkPacketPayloadSubChunkPacketData {
+    SubChunkPacketPayloadSubChunkPacketData {
+        sub_chunk_pos_offset: valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPosOffset {
+            subchunk_offset_x: dx,
+            subchunk_offset_y: dy,
+            subchunk_offset_z: dz,
+        },
+        sub_chunk_request_result: result,
+        serialized_sub_chunk: payload,
+        blob_id,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn ready_subchunk_accounting_uses_retained_entry_and_payload_capacities() {
     let mut payload = Vec::with_capacity(4_096);
     payload.push(0x5a);
     let mut entries = Vec::with_capacity(16);
-    entries.push(SubChunkEntryWithoutCachingItem {
-        payload,
-        ..Default::default()
-    });
-    let expected = size_of::<SubchunkPacket>()
-        + entries.capacity() * size_of::<SubChunkEntryWithoutCachingItem>()
-        + entries[0].payload.capacity();
+    entries.push(sub_chunk_entry(
+        0,
+        0,
+        0,
+        SubChunkRequestResult::Success,
+        Some(payload),
+        None,
+    ));
+    let expected = size_of::<SubChunkPacket>()
+        + entries.capacity() * size_of::<SubChunkPacketPayloadSubChunkPacketData>()
+        + entries[0]
+            .serialized_sub_chunk
+            .as_ref()
+            .expect("fixture payload")
+            .capacity();
     let value = BlobCacheReady::Packet(
-        SubchunkPacket {
-            entries: SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries),
+        SubChunkPacket {
+            cache_enabled: false,
+            sub_chunk_data: entries,
             ..Default::default()
         }
         .into(),
@@ -32,17 +88,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
         let hash = client_blob_hash(&payload);
         resolver
             .accept_cached_packet(
-                LevelChunkPacket {
-                    x,
-                    sub_chunk_count: -1,
-                    blobs: Some(
-                        valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                            hashes: vec![hash],
-                        },
-                    ),
-                    ..Default::default()
-                }
-                .into(),
+                cached_level_chunk(x, vec![hash]).into(),
             )
             .expect("grow unresolved pending queue");
     }
@@ -72,14 +118,8 @@ fn pending_accounting_includes_owned_hash_capacity() {
     let mut payload = Vec::with_capacity(17);
     payload.extend_from_slice(b"retained-payload");
     let packet = LevelChunkPacket {
-        sub_chunk_count: 2,
-        blobs: Some(
-            valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                hashes: hashes.clone(),
-            },
-        ),
-        payload,
-        ..Default::default()
+        serialized_chunk_data: payload,
+        ..cached_level_chunk(0, hashes.clone())
     };
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     resolver
@@ -95,14 +135,8 @@ fn pending_accounting_includes_owned_hash_capacity() {
         panic!("expected a pending LevelChunk");
     };
     let packet_bytes = size_of::<LevelChunkPacket>()
-        + packet.payload.capacity()
-        + packet
-            .blobs
-            .as_ref()
-            .expect("cached packet retains its blobs")
-            .hashes
-            .capacity()
-            * size_of::<u64>();
+        + packet.serialized_chunk_data.capacity()
+        + packet.cache_metadata.capacity() * size_of::<u64>();
     let expected = packet_bytes
         + transaction.hashes.capacity() * size_of::<u64>()
         + transaction.unique_hashes.capacity() * size_of::<u64>()
@@ -170,17 +204,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
     for (x, hash) in [(1, shared), (2, shared), (3, other)] {
         resolver
             .accept_cached_packet(
-                LevelChunkPacket {
-                    x,
-                    sub_chunk_count: -1,
-                    blobs: Some(
-                        valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                            hashes: vec![hash],
-                        },
-                    ),
-                    ..Default::default()
-                }
-                .into(),
+                cached_level_chunk(x, vec![hash]).into(),
             )
             .expect("index pending transaction by its missing hash");
     }
@@ -189,9 +213,9 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
-            blobs: vec![valentine::bedrock::version::v1_26_40::Blob {
-                hash: shared,
-                payload: shared_payload.to_vec(),
+            missing_blobs: vec![valentine::bedrock::version::v1_26_40::MissingBlobData {
+                blob_id: shared,
+                blob_data: shared_payload.to_vec(),
             }],
         })
         .expect("resolve only the shared index bucket");
@@ -206,30 +230,25 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
 fn retained_cached_subchunk_emits_admission_before_reconstruction() {
     let payload = b"admitted-subchunk";
     let hash = client_blob_hash(payload);
-    let packet = valentine::bedrock::version::v1_26_40::SubchunkPacket {
-        dimension: 2,
-        origin: valentine::bedrock::version::v1_26_40::Vec3I { x: 4, y: -4, z: 9 },
-        entries:
-            valentine::bedrock::version::v1_26_40::SubchunkPacketEntries::SubChunkEntryWithCaching(
-                vec![
-                    valentine::bedrock::version::v1_26_40::SubChunkEntryWithCachingItem {
-                        dx: 0,
-                        dy: 1,
-                        dz: -1,
-                        result: SubChunkEntryWithCachingItemResult::Success,
-                        payload: Some(payload.to_vec()),
-                        blob_id: hash,
-                        ..Default::default()
-                    },
-                    valentine::bedrock::version::v1_26_40::SubChunkEntryWithCachingItem {
-                        dx: 1,
-                        dy: 2,
-                        dz: 0,
-                        result: SubChunkEntryWithCachingItemResult::SuccessAllAir,
-                        ..Default::default()
-                    },
-                ],
+    let packet = SubChunkPacket {
+        cache_enabled: true,
+        dimension_type: valentine::bedrock::version::v1_26_40::DimensionType { value: 2 },
+        center_pos: valentine::bedrock::version::v1_26_40::SubChunkPos {
+            subchunk_position_x: 4,
+            subchunk_position_y: -4,
+            subchunk_position_z: 9,
+        },
+        sub_chunk_data: vec![
+            sub_chunk_entry(
+                0,
+                1,
+                -1,
+                SubChunkRequestResult::Success,
+                Some(payload.to_vec()),
+                Some(hash),
             ),
+            sub_chunk_entry(1, 2, 0, SubChunkRequestResult::SuccessAllAir, None, None),
+        ],
     }
     .into();
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
@@ -258,16 +277,7 @@ fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
         let hash = client_blob_hash(payload.as_bytes());
         resolver
             .accept_cached_packet(
-                LevelChunkPacket {
-                    x: i32::try_from(x).expect("test coordinate fits"),
-                    sub_chunk_count: -1,
-                    blobs: Some(
-                        valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                            hashes: vec![hash],
-                        },
-                    ),
-                    ..Default::default()
-                }
+                cached_level_chunk(i32::try_from(x).expect("test coordinate fits"), vec![hash])
                 .into(),
             )
             .expect("fill the bounded cached transaction window");
@@ -275,18 +285,16 @@ fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
 
     let payload = b"pressure-subchunk";
     let hash = client_blob_hash(payload);
-    let packet = valentine::bedrock::version::v1_26_40::SubchunkPacket {
-        entries:
-            valentine::bedrock::version::v1_26_40::SubchunkPacketEntries::SubChunkEntryWithCaching(
-                vec![
-                    valentine::bedrock::version::v1_26_40::SubChunkEntryWithCachingItem {
-                        result: SubChunkEntryWithCachingItemResult::Success,
-                        payload: Some(payload.to_vec()),
-                        blob_id: hash,
-                        ..Default::default()
-                    },
-                ],
-            ),
+    let packet = SubChunkPacket {
+        cache_enabled: true,
+        sub_chunk_data: vec![sub_chunk_entry(
+            0,
+            0,
+            0,
+            SubChunkRequestResult::Success,
+            Some(payload.to_vec()),
+            Some(hash),
+        )],
         ..Default::default()
     }
     .into();
@@ -316,16 +324,7 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
         let payload = format!("coalesced-pressure-{x}");
         resolver
             .accept_cached_packet(
-                LevelChunkPacket {
-                    x: i32::try_from(x).expect("test coordinate fits"),
-                    sub_chunk_count: -1,
-                    blobs: Some(
-                        valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                            hashes: vec![client_blob_hash(payload.as_bytes())],
-                        },
-                    ),
-                    ..Default::default()
-                }
+                cached_level_chunk(i32::try_from(x).expect("test coordinate fits"), vec![client_blob_hash(payload.as_bytes())])
                 .into(),
             )
             .expect("fill every recovery slot except the queued event");
@@ -333,16 +332,7 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
 
     let mut status = resolver
         .accept_cached_packet_with_size(
-            LevelChunkPacket {
-                x: 999,
-                sub_chunk_count: -1,
-                blobs: Some(
-                    valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs {
-                        hashes: vec![client_blob_hash(b"oversized-current")],
-                    },
-                ),
-                ..Default::default()
-            }
+            cached_level_chunk(999, vec![client_blob_hash(b"oversized-current")])
             .into(),
             MAX_CLIENT_BLOB_PENDING_BYTES,
         )

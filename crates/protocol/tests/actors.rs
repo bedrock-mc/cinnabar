@@ -3,35 +3,64 @@ use protocol::{
     PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_40::{
-    AddActorPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
-    EntityPropertiesIntsItem, MetadataDictionaryItem, MetadataDictionaryItemKey,
-    MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
-    MoveActorDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
-    PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
-    PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, Skin, SkinImage,
-    UpdateAttributesPacket, Vec3F,
+    ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData, DataItemEntry,
+    DataItemEntryPayload, DataItemFloatPayload, DataItemFloatPayloadType, DataItemStringPayload,
+    DataItemStringPayloadType, MoveActorAbsoluteData, MoveActorAbsolutePacket, MoveActorDeltaData,
+    MoveActorDeltaPacket, PlayerInputTick, PlayerListPacket, PlayerListPacketEntriesItem,
+    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry, PropertySyncData,
+    PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
+    RemoveActorPacket, SerializedAbilitiesData, SerializedSkinRef, SetActorDataPacket, SkinImage,
+    SynchedActorDataCopyableDataList, UpdateAttributesPacket, Vec2, Vec3,
 };
+
+/// Builds the actor-data entry 1.26.40 puts on the wire for a string value.
+///
+/// 1.26.40 keys actor data by raw id (4 is the name tag) and tags each payload
+/// with its own value type, so there is no named key enum to spell out.
+fn string_actor_data(id: i32, value: &str) -> DataItemEntry {
+    DataItemEntry {
+        id,
+        payload: DataItemEntryPayload::DataItemStringPayload(DataItemStringPayload {
+            type_: DataItemStringPayloadType::String,
+            value: value.to_owned(),
+        }),
+    }
+}
+
+fn float_actor_data(id: i32, value: f32) -> DataItemEntry {
+    DataItemEntry {
+        id,
+        payload: DataItemEntryPayload::DataItemFloatPayload(DataItemFloatPayload {
+            type_: DataItemFloatPayloadType::Float,
+            value,
+        }),
+    }
+}
 
 #[test]
 fn add_entity_normalizes_to_a_vendor_neutral_actor_spawn() {
     let packet = AddActorPacket {
-        unique_id: -17,
-        runtime_id: 42,
-        entity_type: "minecraft:bee".to_owned(),
-        position: Vec3F {
+        target_actor_id: ActorUniqueId {
+            actor_unique_id: -17,
+        },
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 42,
+        },
+        actor_type: "minecraft:bee".to_owned(),
+        position: Vec3 {
             x: 1.25,
             y: 70.5,
             z: -8.75,
         },
-        velocity: Vec3F {
+        velocity: Vec3 {
             x: 0.1,
             y: -0.2,
             z: 0.3,
         },
-        pitch: 15.0,
-        yaw: 90.0,
-        head_yaw: 80.0,
-        body_yaw: 70.0,
+        // 1.26.40 packs pitch and yaw into a single Vec2, in that order.
+        rotation: Vec2 { x: 15.0, y: 90.0 },
+        y_head_rotation: 80.0,
+        y_body_rotation: 70.0,
         ..Default::default()
     }
     .into();
@@ -67,10 +96,17 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     let uuid = Default::default();
     let add = AddPlayerPacket {
         uuid,
-        username: "Alex".to_owned(),
-        unique_id: -9,
-        runtime_id: 55,
-        position: Vec3F {
+        player_name: "Alex".to_owned(),
+        // AddPlayer has no standalone unique ID in 1.26.40; the spawned player's
+        // unique ID is the first field of the embedded ability data.
+        abilities_data: SerializedAbilitiesData {
+            target_player_raw_id: -9,
+            ..Default::default()
+        },
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        position: Vec3 {
             x: 1.0,
             y: 2.0,
             z: 3.0,
@@ -78,7 +114,12 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
         ..Default::default()
     }
     .into();
-    let remove = RemoveEntityPacket { entity_id_self: -9 }.into();
+    let remove = RemoveActorPacket {
+        target_actor_id: ActorUniqueId {
+            actor_unique_id: -9,
+        },
+    }
+    .into();
 
     let Some(WorldEvent::Actor(ActorEvent::Spawn(spawn))) =
         into_world_event(add, 1).expect("normalize add player")
@@ -106,31 +147,35 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
 
 #[test]
 fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
-    let absolute = MoveEntityPacket {
-        runtime_entity_id: 55,
-        flags: 3,
-        position: Vec3F {
-            x: 4.0,
-            y: 5.0,
-            z: 6.0,
-        },
-        rotation: Rotation {
-            yaw: vec![64],
-            pitch: vec![32],
-            head_yaw: vec![128],
+    let absolute = MoveActorAbsolutePacket {
+        move_data: MoveActorAbsoluteData {
+            actor_runtime_id: ActorRuntimeId {
+                actor_runtime_id: 55,
+            },
+            header: 3,
+            position: Vec3 {
+                x: 4.0,
+                y: 5.0,
+                z: 6.0,
+            },
+            rotation_x: 32,
+            rotation_y: 64,
+            rotation_y_head: 128,
         },
     }
     .into();
     let delta = MoveActorDeltaPacket {
-        runtime_entity_id: 55,
-        flags: DeltaMoveFlags::HAS_X
-            | DeltaMoveFlags::HAS_Y
-            | DeltaMoveFlags::HAS_ROT_Y
-            | DeltaMoveFlags::ON_GROUND,
-        x: Some(7.5),
-        y: Some(8.25),
-        rot_y: Some(192),
-        ..Default::default()
+        move_data: MoveActorDeltaData {
+            actor_runtime_id: ActorRuntimeId {
+                actor_runtime_id: 55,
+            },
+            new_position_x: Some(7.5),
+            new_position_y: Some(8.25),
+            // Bedrock reads rotation bytes unsigned; the generator types them i8.
+            rotation_y: Some(192_u8 as i8),
+            is_on_ground: true,
+            ..Default::default()
+        },
     }
     .into();
 
@@ -163,39 +208,41 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
 
 #[test]
 fn metadata_properties_and_attributes_are_normalized_without_generated_types() {
-    let metadata = MetadataDictionaryItem {
-        key: MetadataDictionaryItemKey::Nametag,
-        type_: MetadataDictionaryItemType::String,
-        value: MetadataDictionaryItemValue::Default(Box::new(Some(
-            MetadataDictionaryItemValueDefault::String("Beeatrice".to_owned()),
-        ))),
-    };
-    let set_data = SetEntityDataPacket {
-        runtime_entity_id: 55,
-        metadata: vec![metadata],
-        properties: EntityProperties {
-            ints: vec![EntityPropertiesIntsItem { index: 3, value: 9 }],
-            floats: vec![EntityPropertiesFloatsItem {
-                index: 4,
-                value: 0.75,
+    let set_data = SetActorDataPacket {
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        actor_data: SynchedActorDataCopyableDataList {
+            data: vec![string_actor_data(4, "Beeatrice")],
+        },
+        synched_properties: PropertySyncData {
+            int_entries_list: vec![PropertySyncDataPropertySyncIntEntry {
+                property_index: 3,
+                data: 9,
+            }],
+            float_entries_list: vec![PropertySyncDataPropertySyncFloatEntry {
+                property_index: 4,
+                data: 0.75,
             }],
         },
-        tick: 10,
+        tick: PlayerInputTick { inputtick: 10 },
     }
     .into();
     let attributes = UpdateAttributesPacket {
-        runtime_entity_id: 55,
-        attributes: vec![PlayerAttributesItem {
-            min: 0.0,
-            max: 20.0,
-            current: 17.5,
-            default_min: 0.0,
-            default_max: 20.0,
-            default: 20.0,
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        attribute_list: vec![AttributeData {
+            min_value: 0.0,
+            max_value: 20.0,
+            current_value: 17.5,
+            default_min_value: 0.0,
+            default_max_value: 20.0,
+            default_value: 20.0,
             name: "minecraft:health".to_owned(),
             modifiers: vec![],
         }],
-        tick: 11,
+        tick: PlayerInputTick { inputtick: 11 },
     }
     .into();
 
@@ -234,27 +281,65 @@ fn metadata_properties_and_attributes_are_normalized_without_generated_types() {
 }
 
 #[test]
+fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
+    // 1.26.40 sends both flag words as ordinary Int64 payloads; only the
+    // actor-data id (0 and 92) distinguishes them from a plain long.
+    let set_data = SetActorDataPacket {
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        actor_data: SynchedActorDataCopyableDataList {
+            data: vec![
+                int64_actor_data(0, 0b1010),
+                int64_actor_data(92, 0b0110),
+                int64_actor_data(7, 42),
+            ],
+        },
+        ..Default::default()
+    }
+    .into();
+
+    let Some(WorldEvent::Actor(ActorEvent::Metadata(update))) =
+        into_world_event(set_data, 0).expect("normalize flag metadata")
+    else {
+        panic!("expected metadata update")
+    };
+    assert_eq!(update.metadata[0].value, ActorMetadataValue::Flags(0b1010));
+    assert_eq!(
+        update.metadata[1].value,
+        ActorMetadataValue::FlagsExtended(0b0110)
+    );
+    assert_eq!(update.metadata[2].value, ActorMetadataValue::Long(42));
+}
+
+fn int64_actor_data(id: i32, value: i64) -> DataItemEntry {
+    use valentine::bedrock::version::v1_26_40::{DataItemInt64Payload, DataItemInt64PayloadType};
+
+    DataItemEntry {
+        id,
+        payload: DataItemEntryPayload::DataItemInt64Payload(DataItemInt64Payload {
+            type_: DataItemInt64PayloadType::Int64,
+            value,
+        }),
+    }
+}
+
+#[test]
 fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
-    // A metadata entry the client cannot model (empty value) is dropped, and
-    // the surrounding well-formed entry is still retained.
-    let set_data = SetEntityDataPacket {
-        runtime_entity_id: 55,
-        metadata: vec![
-            MetadataDictionaryItem {
-                key: MetadataDictionaryItemKey::Nametag,
-                type_: MetadataDictionaryItemType::String,
-                value: MetadataDictionaryItemValue::Default(Box::new(None)),
-            },
-            MetadataDictionaryItem {
-                key: MetadataDictionaryItemKey::Nametag,
-                type_: MetadataDictionaryItemType::String,
-                value: MetadataDictionaryItemValue::Default(Box::new(Some(
-                    MetadataDictionaryItemValueDefault::String("Beeatrice".to_owned()),
-                ))),
-            },
-        ],
-        properties: EntityProperties::default(),
-        tick: 10,
+    // A metadata entry the client cannot model (non-finite float) is dropped,
+    // and the surrounding well-formed entry is still retained.
+    let set_data = SetActorDataPacket {
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        actor_data: SynchedActorDataCopyableDataList {
+            data: vec![
+                float_actor_data(56, f32::NAN),
+                string_actor_data(4, "Beeatrice"),
+            ],
+        },
+        synched_properties: PropertySyncData::default(),
+        tick: PlayerInputTick { inputtick: 10 },
     }
     .into();
     let Some(WorldEvent::Actor(ActorEvent::Metadata(update))) =
@@ -271,30 +356,32 @@ fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
     // A non-finite attribute (servers send INFINITY for "unbounded") is dropped
     // while the finite attribute survives.
     let attributes = UpdateAttributesPacket {
-        runtime_entity_id: 55,
-        attributes: vec![
-            PlayerAttributesItem {
-                min: 0.0,
-                max: f32::INFINITY,
-                current: 1.0,
-                default_min: 0.0,
-                default_max: 0.0,
-                default: 0.0,
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 55,
+        },
+        attribute_list: vec![
+            AttributeData {
+                min_value: 0.0,
+                max_value: f32::INFINITY,
+                current_value: 1.0,
+                default_min_value: 0.0,
+                default_max_value: 0.0,
+                default_value: 0.0,
                 name: "minecraft:luck".to_owned(),
                 modifiers: vec![],
             },
-            PlayerAttributesItem {
-                min: 0.0,
-                max: 20.0,
-                current: 17.5,
-                default_min: 0.0,
-                default_max: 20.0,
-                default: 20.0,
+            AttributeData {
+                min_value: 0.0,
+                max_value: 20.0,
+                current_value: 17.5,
+                default_min_value: 0.0,
+                default_max_value: 20.0,
+                default_value: 20.0,
                 name: "minecraft:health".to_owned(),
                 modifiers: vec![],
             },
         ],
-        tick: 11,
+        tick: PlayerInputTick { inputtick: 11 },
     }
     .into();
     let Some(WorldEvent::Actor(ActorEvent::Attributes(update))) =
@@ -309,31 +396,35 @@ fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
 #[test]
 fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     let uuid = Default::default();
+    // 1.26.40 tags every record individually, so an add list and a remove list
+    // are just two different entry variants -- there is no packet-level action,
+    // no shared record count, and no trailing verified array to cross-check.
     let add = PlayerListPacket {
-        records: PlayerRecords {
-            type_: PlayerRecordsType::Add,
-            records_count: 1,
-            records: vec![Some(PlayerRecordsRecordsItem::Add(Box::new(
-                PlayerRecordsRecordsItemAdd {
-                    uuid,
-                    entity_unique_id: 77,
-                    username: "Steve".to_owned(),
+        entries: vec![PlayerListPacketEntriesItem::AddEntry(Box::new(
+            PlayerListPacketPayloadAddEntry {
+                uuid,
+                actor_unique_id: ActorUniqueId {
+                    actor_unique_id: 77,
+                },
+                player_name: "Steve".to_owned(),
+                serialized_skin: SerializedSkinRef {
+                    // The old trailing "verified" bool is now the skin's own
+                    // trusted flag, serialised as a string.
+                    trusted_skin_flag: "true".to_owned(),
                     ..Default::default()
                 },
-            )))],
-            verified: Some(vec![true]),
-        },
+                ..Default::default()
+            },
+        ))],
     }
     .into();
     let remove = PlayerListPacket {
-        records: PlayerRecords {
-            type_: PlayerRecordsType::Remove,
-            records_count: 1,
-            records: vec![Some(PlayerRecordsRecordsItem::Remove(
-                PlayerRecordsRecordsItemRemove { uuid },
-            ))],
-            verified: None,
-        },
+        entries: vec![PlayerListPacketEntriesItem::RemoveEntry(
+            PlayerListPacketPayloadRemoveEntry {
+                uuid,
+                ..Default::default()
+            },
+        )],
     }
     .into();
 
@@ -367,41 +458,37 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
 #[test]
 fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     let rgba = vec![0x7f; 64 * 64 * 4];
-    let classic = PlayerRecordsRecordsItemAdd {
-        username: "Classic".to_owned(),
-        skin_data: Skin {
-            skin_data: SkinImage {
+    let classic = PlayerListPacketPayloadAddEntry {
+        player_name: "Classic".to_owned(),
+        serialized_skin: SerializedSkinRef {
+            image_data: SkinImage {
                 width: 64,
                 height: 64,
-                data: rgba.clone(),
+                image_bytes: rgba.clone(),
             },
+            trusted_skin_flag: "true".to_owned(),
             ..Default::default()
         },
         ..Default::default()
     };
-    let persona = PlayerRecordsRecordsItemAdd {
-        username: "Persona".to_owned(),
-        skin_data: Skin {
-            persona: true,
-            skin_data: SkinImage {
+    let persona = PlayerListPacketPayloadAddEntry {
+        player_name: "Persona".to_owned(),
+        serialized_skin: SerializedSkinRef {
+            is_persona: true,
+            image_data: SkinImage {
                 width: 64,
                 height: 64,
-                data: rgba,
+                image_bytes: rgba,
             },
             ..Default::default()
         },
         ..Default::default()
     };
     let packet = PlayerListPacket {
-        records: PlayerRecords {
-            type_: PlayerRecordsType::Add,
-            records_count: 2,
-            records: vec![
-                Some(PlayerRecordsRecordsItem::Add(Box::new(classic))),
-                Some(PlayerRecordsRecordsItem::Add(Box::new(persona))),
-            ],
-            verified: Some(vec![true, false]),
-        },
+        entries: vec![
+            PlayerListPacketEntriesItem::AddEntry(Box::new(classic)),
+            PlayerListPacketEntriesItem::AddEntry(Box::new(persona)),
+        ],
     }
     .into();
 
@@ -411,8 +498,13 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
         panic!("expected player-list update")
     };
 
-    let PlayerListEntry::Add { skin, .. } = &update.entries[0] else {
-        panic!("expected add entry")
+    let PlayerListEntry::Add {
+        skin,
+        verified: true,
+        ..
+    } = &update.entries[0]
+    else {
+        panic!("expected trusted add entry")
     };
     assert_eq!(
         skin,
@@ -422,8 +514,13 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
             rgba8: vec![0x7f; 64 * 64 * 4].into(),
         })
     );
-    let PlayerListEntry::Add { skin, .. } = &update.entries[1] else {
-        panic!("expected add entry")
+    let PlayerListEntry::Add {
+        skin,
+        verified: false,
+        ..
+    } = &update.entries[1]
+    else {
+        panic!("expected untrusted add entry")
     };
     assert_eq!(
         skin,
@@ -434,13 +531,16 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
 #[test]
 fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
     let too_long = AddActorPacket {
-        entity_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1),
+        actor_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1),
         ..Default::default()
     }
     .into();
     let non_finite = AddActorPacket {
-        entity_type: "minecraft:bee".to_owned(),
-        yaw: f32::NAN,
+        actor_type: "minecraft:bee".to_owned(),
+        rotation: Vec2 {
+            x: 0.0,
+            y: f32::NAN,
+        },
         ..Default::default()
     }
     .into();

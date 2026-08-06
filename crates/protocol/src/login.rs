@@ -9,7 +9,7 @@ use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
 use valentine::bedrock::{
     codec::BedrockCodec,
-    version::v1_26_40::{McpePacketData, McpePacketName, WindowId},
+    version::v1_26_40::{McpePacketData, McpePacketName},
 };
 use valentine::protocol::wire;
 
@@ -551,13 +551,10 @@ fn reset_blob_cache_for_decoded_candidate(
 
 fn is_cached_world_packet(packet: &Packet) -> bool {
     match &packet.data {
-        McpePacketData::LevelChunkPacket(packet) => packet.blobs.is_some(),
-        McpePacketData::SubChunkPacket(packet) => matches!(
-            packet.entries,
-            valentine::bedrock::version::v1_26_40::SubchunkPacketEntries::SubChunkEntryWithCaching(
-                _
-            )
-        ),
+        // 1.26.40 states cache participation with an explicit flag on both
+        // packets rather than an optional hash list or an entry-type union.
+        McpePacketData::LevelChunkPacket(packet) => packet.cache_enabled,
+        McpePacketData::SubChunkPacket(packet) => packet.cache_enabled,
         _ => false,
     }
 }
@@ -613,7 +610,7 @@ fn decode_world_raw_with(
             | McpePacketName::AddPlayerPacket
             | McpePacketName::AddActorPacket
             | McpePacketName::RemoveActorPacket
-            | McpePacketName::PacketMoveEntity
+            | McpePacketName::MoveActorAbsolutePacket
             | McpePacketName::MoveActorDeltaPacket
             | McpePacketName::SetActorDataPacket
             | McpePacketName::UpdateAttributesPacket
@@ -651,7 +648,7 @@ fn decode_world_raw_with(
     ) {
         return Ok(None);
     }
-    if raw.id == McpePacketName::PacketMoveEntity {
+    if raw.id == McpePacketName::MoveActorAbsolutePacket {
         return Ok(Some(WorldEvent::Actor(
             crate::actor::normalize_move_entity_body(raw.body(), current_dimension)
                 .map_err(crate::world::WorldPacketError::from)?,
@@ -726,7 +723,8 @@ fn decode_empty_mob_equipment(
     }
     let inventory_slot = body.get_u8();
     let selected_slot = body.get_u8();
-    let window = WindowId::decode(&mut body, ())?;
+    // The container ID is a plain byte in 1.26.40 rather than a named enum.
+    let window = body.get_u8();
     if body.has_remaining() {
         return Err(ProtocolError::TrailingPacketBytes {
             remaining: body.remaining(),

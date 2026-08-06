@@ -3,9 +3,9 @@ use super::*;
 pub(super) fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
     match &packet.data {
         McpePacketData::LevelChunkPacket(packet) => Some(ChunkResyncEvent {
-            dimension: packet.dimension,
-            x: packet.x,
-            z: packet.z,
+            dimension: dimension_id(&packet.dimension_id),
+            x: packet.chunk_position.x,
+            z: packet.chunk_position.z,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }),
@@ -20,9 +20,9 @@ pub(super) fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
 pub(super) fn unadmitted_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
-            dimension: packet.dimension,
-            x: packet.x,
-            z: packet.z,
+            dimension: dimension_id(&packet.dimension_id),
+            x: packet.chunk_position.x,
+            z: packet.chunk_position.z,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
@@ -34,31 +34,43 @@ pub(super) fn unadmitted_packet_recovery(packet: &PendingPacket) -> Vec<ChunkRes
 pub(super) fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResyncEvent> {
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
-            dimension: packet.dimension,
-            x: packet.x,
-            z: packet.z,
+            dimension: dimension_id(&packet.dimension_id),
+            x: packet.chunk_position.x,
+            z: packet.chunk_position.z,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
 
         PendingPacket::SubChunk(packet) => {
-            let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+            if !packet.cache_enabled {
                 return Vec::new();
-            };
+            }
             let mut columns = BTreeMap::<(i32, i32), BTreeSet<i32>>::new();
-            for entry in entries {
+            for entry in &packet.sub_chunk_data {
+                let offset = &entry.sub_chunk_pos_offset;
                 columns
                     .entry((
-                        packet.origin.x.saturating_add(i32::from(entry.dx)),
-                        packet.origin.z.saturating_add(i32::from(entry.dz)),
+                        packet
+                            .center_pos
+                            .subchunk_position_x
+                            .saturating_add(i32::from(offset.subchunk_offset_x)),
+                        packet
+                            .center_pos
+                            .subchunk_position_z
+                            .saturating_add(i32::from(offset.subchunk_offset_z)),
                     ))
                     .or_default()
-                    .insert(packet.origin.y.saturating_add(i32::from(entry.dy)));
+                    .insert(
+                        packet
+                            .center_pos
+                            .subchunk_position_y
+                            .saturating_add(i32::from(offset.subchunk_offset_y)),
+                    );
             }
             columns
                 .into_iter()
                 .map(|((x, z), ys)| ChunkResyncEvent {
-                    dimension: packet.dimension,
+                    dimension: dimension_id(&packet.dimension_type),
                     x,
                     z,
                     requested_sub_chunks: None,
@@ -75,24 +87,29 @@ fn ready_value_recovery(value: &BlobCacheReady) -> Vec<ChunkResyncEvent> {
     };
     match &packet.data {
         McpePacketData::LevelChunkPacket(packet) => vec![ChunkResyncEvent {
-            dimension: packet.dimension,
-            x: packet.x,
-            z: packet.z,
+            dimension: dimension_id(&packet.dimension_id),
+            x: packet.chunk_position.x,
+            z: packet.chunk_position.z,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
-        McpePacketData::SubChunkPacket(packet) => match &packet.entries {
-            SubchunkPacketEntries::SubChunkEntryWithCaching(entries) => sub_chunk_recoveries(
-                packet.dimension,
-                [packet.origin.x, packet.origin.y, packet.origin.z],
-                entries.iter().map(|entry| [entry.dx, entry.dy, entry.dz]),
-            ),
-            SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) => sub_chunk_recoveries(
-                packet.dimension,
-                [packet.origin.x, packet.origin.y, packet.origin.z],
-                entries.iter().map(|entry| [entry.dx, entry.dy, entry.dz]),
-            ),
-        },
+        // Cached and uncached replies are one entry type now, so both cases
+        // collapse into a single traversal.
+        McpePacketData::SubChunkPacket(packet) => sub_chunk_recoveries(
+            dimension_id(&packet.dimension_type),
+            [
+                packet.center_pos.subchunk_position_x,
+                packet.center_pos.subchunk_position_y,
+                packet.center_pos.subchunk_position_z,
+            ],
+            packet.sub_chunk_data.iter().map(|entry| {
+                [
+                    entry.sub_chunk_pos_offset.subchunk_offset_x,
+                    entry.sub_chunk_pos_offset.subchunk_offset_y,
+                    entry.sub_chunk_pos_offset.subchunk_offset_z,
+                ]
+            }),
+        ),
         _ => Vec::new(),
     }
 }
@@ -130,21 +147,32 @@ pub(super) fn cached_sub_chunk_admission(
     let PendingPacket::SubChunk(packet) = packet else {
         return None;
     };
-    let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries else {
+    if !packet.cache_enabled {
         return None;
-    };
-    let positions = entries
+    }
+    let positions = packet
+        .sub_chunk_data
         .iter()
         .map(|entry| {
+            let offset = &entry.sub_chunk_pos_offset;
             [
-                packet.origin.x.saturating_add(i32::from(entry.dx)),
-                packet.origin.y.saturating_add(i32::from(entry.dy)),
-                packet.origin.z.saturating_add(i32::from(entry.dz)),
+                packet
+                    .center_pos
+                    .subchunk_position_x
+                    .saturating_add(i32::from(offset.subchunk_offset_x)),
+                packet
+                    .center_pos
+                    .subchunk_position_y
+                    .saturating_add(i32::from(offset.subchunk_offset_y)),
+                packet
+                    .center_pos
+                    .subchunk_position_z
+                    .saturating_add(i32::from(offset.subchunk_offset_z)),
             ]
         })
         .collect::<Vec<_>>();
     (!positions.is_empty()).then_some(SubChunkReplyAdmissionEvent {
-        dimension: packet.dimension,
+        dimension: dimension_id(&packet.dimension_type),
         positions,
     })
 }

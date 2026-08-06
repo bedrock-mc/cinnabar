@@ -3,10 +3,9 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_40::{
-    CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
-    GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
-    McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
-    SubChunkEntryWithoutCachingItemResult, SubchunkPacketEntries,
+    CorrectPlayerMovePredictionPacketPredictionType, GameRule, GameRuleRuleValue, McpePacketData,
+    MovePlayerPacketPositionMode, RespawnPacketState,
+    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
 };
 
 use crate::{
@@ -60,6 +59,25 @@ pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
 pub const MAX_BIOME_NAME_BYTES: usize = 256;
 
+// LevelEvent ids. 1.26.40 stopped modelling LevelEventPacket's event as a
+// generated enum (`LevelEventPacket.event_id` is a bare varint32), so the ids
+// this crate reacts to are pinned here from gophertunnel
+// `minecraft/protocol/packet/level_event.go` @ be6713da4dc051a4197f897d04835e89e9c54321.
+/// `LevelEventStartRaining`.
+pub(crate) const LEVEL_EVENT_START_RAINING: i32 = 3001;
+/// `LevelEventStartThunderstorm`.
+pub(crate) const LEVEL_EVENT_START_THUNDERSTORM: i32 = 3002;
+/// `LevelEventStopRaining`.
+pub(crate) const LEVEL_EVENT_STOP_RAINING: i32 = 3003;
+/// `LevelEventStopThunderstorm`.
+pub(crate) const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = 3004;
+/// `LevelEventStartBlockCracking`.
+pub(crate) const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
+/// `LevelEventStopBlockCracking`.
+pub(crate) const LEVEL_EVENT_STOP_BLOCK_CRACKING: i32 = 3601;
+/// `LevelEventUpdateBlockCracking`.
+pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
+
 /// StartGame data reduced to the fields required by the renderer and world streamer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorldBootstrap {
@@ -78,24 +96,25 @@ impl WorldBootstrap {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {
         let start_game = &game_data.start_game;
+        let settings = &start_game.settings;
         Self {
-            dimension: match start_game.dimension {
-                StartGamePacketDimension::Overworld => 0,
-                StartGamePacketDimension::Nether => 1,
-                StartGamePacketDimension::End => 2,
-                StartGamePacketDimension::Unknown(value) => value,
-            },
-            local_player_runtime_id: start_game.runtime_entity_id as u64,
-            local_player_unique_id: start_game.entity_id,
+            // 1.26.40 stopped naming the vanilla dimension ids in an enum and
+            // moved the field into LevelSettings' spawn block. gophertunnel
+            // packet/start_game.go writes `Dimension int32` (Varint32) right
+            // after `UserDefinedBiomeName`, which is exactly
+            // `settings.spawn_settings.dimension` here, so the raw id is used.
+            dimension: settings.spawn_settings.dimension,
+            local_player_runtime_id: start_game.runtime_id.actor_runtime_id as u64,
+            local_player_unique_id: start_game.entity_id.actor_unique_id,
             player_position: [
-                start_game.player_position.x,
-                start_game.player_position.y,
-                start_game.player_position.z,
+                start_game.position.x,
+                start_game.position.y,
+                start_game.position.z,
             ],
             world_spawn_position: [
-                start_game.spawn_position.x,
-                start_game.spawn_position.y,
-                start_game.spawn_position.z,
+                settings.default_spawn_block_position.x,
+                settings.default_spawn_block_position.y,
+                settings.default_spawn_block_position.z,
             ],
             air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
             block_network_ids_are_hashes: start_game.block_network_ids_are_hashes,
@@ -124,26 +143,18 @@ pub struct WorldEnvironmentBootstrap {
 impl WorldEnvironmentBootstrap {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {
-        let start_game = &game_data.start_game;
+        let settings = &game_data.start_game.settings;
         Self {
-            initial_time: start_game.current_tick,
-            day_cycle_lock_time: start_game.day_cycle_stop_time,
-            daylight_cycle_enabled: start_game
-                .gamerules
-                .iter()
-                .find_map(|rule| {
-                    if rule.name.eq_ignore_ascii_case("dodaylightcycle")
-                        && rule.type_ == GameRuleVarintType::Bool
-                        && let Some(GameRuleVarintValue::Bool(enabled)) = &rule.value
-                    {
-                        Some(*enabled)
-                    } else {
-                        None
-                    }
-                })
+            // gophertunnel packet/start_game.go writes `Time int64`; the
+            // generated field is u64 over the same eight little-endian bytes.
+            initial_time: game_data.start_game.level_current_time as i64,
+            day_cycle_lock_time: settings.day_cycle_stop_time,
+            // StartGame and GameRulesChanged now carry the same `GameRule`
+            // type, so the two rule scans collapse into one helper.
+            daylight_cycle_enabled: daylight_cycle_rule_update(&settings.rule_data.rules_list)
                 .unwrap_or(true),
-            rain_level: normalize_weather_level(start_game.rain_level),
-            lightning_level: normalize_weather_level(start_game.lightning_level),
+            rain_level: normalize_weather_level(settings.rain_level),
+            lightning_level: normalize_weather_level(settings.lightning_level),
         }
     }
 }
@@ -353,14 +364,18 @@ impl MovePlayerMode {
     }
 }
 
-impl From<MovePlayerPacketMode> for MovePlayerMode {
-    fn from(mode: MovePlayerPacketMode) -> Self {
+impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
+    fn from(mode: MovePlayerPacketPositionMode) -> Self {
+        // 1.26.40 renames the mode variants but keeps the wire values, so this
+        // stays a name-only remap: gophertunnel packet/move_player.go pins
+        // MoveModeNormal=0, MoveModeReset=1, MoveModeTeleport=2,
+        // MoveModeRotation=3, which are Normal/Respawn/Teleport/OnlyHeadRot here.
         match mode {
-            MovePlayerPacketMode::Normal => Self::Normal,
-            MovePlayerPacketMode::Reset => Self::Reset,
-            MovePlayerPacketMode::Teleport => Self::Teleport,
-            MovePlayerPacketMode::Rotation => Self::Rotation,
-            MovePlayerPacketMode::Unknown(value) => Self::Unknown(value),
+            MovePlayerPacketPositionMode::Normal => Self::Normal,
+            MovePlayerPacketPositionMode::Respawn => Self::Reset,
+            MovePlayerPacketPositionMode::Teleport => Self::Teleport,
+            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
+            MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
 }
@@ -570,7 +585,7 @@ pub fn into_world_event(
         McpePacketData::RemoveActorPacket(packet) => {
             WorldEvent::Actor(normalize_remove_entity(packet, current_dimension))
         }
-        McpePacketData::PacketMoveEntity(packet) => {
+        McpePacketData::MoveActorAbsolutePacket(packet) => {
             WorldEvent::Actor(normalize_move_entity(*packet, current_dimension)?)
         }
         McpePacketData::MoveActorDeltaPacket(packet) => {
@@ -583,7 +598,7 @@ pub fn into_world_event(
             WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
         }
         McpePacketData::PlayerListPacket(packet) => {
-            WorldEvent::Actor(normalize_player_list(*packet)?)
+            WorldEvent::Actor(normalize_player_list(packet)?)
         }
         McpePacketData::ItemRegistryPacket(packet) => {
             WorldEvent::ItemActor(normalize_item_registry(packet)?)
@@ -602,12 +617,12 @@ pub fn into_world_event(
         }
         McpePacketData::SetPlayerGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
-                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
+                update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
             }))
         }
         McpePacketData::SetDefaultGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
-                update: PlayerGameMode::update_from_game_mode(packet.gamemode),
+                update: PlayerGameMode::update_from_default_game_mode(packet.default_game_type),
             }))
         }
         McpePacketData::InventoryContentPacket(packet) => {
@@ -636,20 +651,31 @@ pub fn into_world_event(
             WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
         }
         McpePacketData::BiomeDefinitionListPacket(packet) => {
-            if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {
+            // 1.26.40 renames the packet's two collections and splits each
+            // entry into a `key` (the string-table index) plus a `value`
+            // payload. The wire is unchanged: gophertunnel protocol/biome.go
+            // writes Int16 NameIndex, Int16 BiomeID, then the climate floats.
+            let string_list = packet.stringlist.strings;
+            let biome_definitions = packet.mapof_biomenamestodata;
+            if biome_definitions.len() > MAX_BIOME_DEFINITIONS {
                 return Err(WorldPacketError::TooManyBiomeDefinitions {
-                    count: packet.biome_definitions.len(),
+                    count: biome_definitions.len(),
                     max: MAX_BIOME_DEFINITIONS,
                 });
             }
-            let mut definitions = Vec::with_capacity(packet.biome_definitions.len());
-            for (definition_index, definition) in packet.biome_definitions.into_iter().enumerate() {
-                let name = usize::try_from(definition.name_index)
+            let mut definitions = Vec::with_capacity(biome_definitions.len());
+            for (definition_index, definition) in biome_definitions.into_iter().enumerate() {
+                // The generated key is u16 while gophertunnel declares the same
+                // two bytes as a signed Int16, so it is reinterpreted here to
+                // keep out-of-range indices reported exactly as before.
+                let name_index = definition.key as i16;
+                let definition = definition.value;
+                let name = usize::try_from(name_index)
                     .ok()
-                    .and_then(|index| packet.string_list.get(index))
+                    .and_then(|index| string_list.get(index))
                     .ok_or(WorldPacketError::InvalidBiomeNameIndex {
-                        index: definition.name_index,
-                        string_count: packet.string_list.len(),
+                        index: name_index,
+                        string_count: string_list.len(),
                     })?;
                 if name.len() > MAX_BIOME_NAME_BYTES {
                     return Err(WorldPacketError::BiomeNameTooLong {
@@ -660,7 +686,7 @@ pub fn into_world_event(
                 for (field, value) in [
                     ("temperature", definition.temperature),
                     ("downfall", definition.downfall),
-                    ("snow_foliage", definition.snow_foliage),
+                    ("snow_foliage", definition.foliagesnow),
                 ] {
                     if !value.is_finite() {
                         return Err(WorldPacketError::NonFiniteBiomeClimate {
@@ -671,12 +697,12 @@ pub fn into_world_event(
                 }
                 let name = canonical_biome_name(name);
                 definitions.push(BiomeDefinitionEvent {
-                    biome_id: (definition.biome_id != u16::MAX).then_some(definition.biome_id),
+                    biome_id: (definition.id != u16::MAX).then_some(definition.id),
                     name,
                     temperature: definition.temperature,
                     downfall: definition.downfall,
-                    snow_foliage: definition.snow_foliage,
-                    map_water_color: definition.map_water_colour as u32,
+                    snow_foliage: definition.foliagesnow,
+                    map_water_color: definition.mapwatercolor_argb as u32,
                 });
             }
             WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
@@ -684,77 +710,113 @@ pub fn into_world_event(
             })
         }
         McpePacketData::LevelChunkPacket(packet) => {
-            if packet.blobs.is_some() {
+            // gophertunnel packet/level_chunk.go writes BlobHashes
+            // unconditionally now, so the presence of hashes no longer marks a
+            // cached transfer. `CacheEnabled` is the authoritative gate.
+            if packet.cache_enabled {
                 return Err(WorldPacketError::CachedChunksUnsupported);
             }
-            let mode = match packet.sub_chunk_count {
-                count if count >= 0 => {
-                    let count = count as usize;
+            // The old `-1` / `-2` sentinels folded into SubChunkCount are gone.
+            // gophertunnel reads SubChunkCount as a Varuint32 (and rejects
+            // values above 64), then reads `SubChunkLimit Optional[int32]`.
+            // Presence of the limit is what selects client-request mode; its
+            // documented `-1` value means "no limit".
+            let mode = match packet.client_request_sub_chunk_limit {
+                Some(-1) => LevelChunkMode::LimitlessRequests,
+                Some(limit) => LevelChunkMode::LimitedRequests {
+                    highest: u16::try_from(limit)
+                        .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
+                },
+                None => {
+                    // SubChunkCount is unsigned on the wire but decoded into an
+                    // i32, so anything above i32::MAX still surfaces as negative.
+                    if packet.subchunks_count < 0 {
+                        return Err(WorldPacketError::InvalidSubChunkCount(
+                            packet.subchunks_count,
+                        ));
+                    }
+                    let count = packet.subchunks_count as usize;
                     // Bound by the absolute protocol maximum, not the vanilla
                     // dimension height: custom servers advertise standard
                     // dimension ids with taller-than-vanilla world columns.
                     if count > MAX_SUB_CHUNK_REQUESTS {
                         return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-                            dimension: packet.dimension,
+                            dimension: packet.dimension_id.value,
                             count,
                             max: MAX_SUB_CHUNK_REQUESTS,
                         });
                     }
                     LevelChunkMode::Inline { count }
                 }
-                -2 => LevelChunkMode::LimitedRequests {
-                    highest: packet
-                        .highest_subchunk_count
-                        .ok_or(WorldPacketError::MissingHighestSubChunk)?,
-                },
-                -1 => LevelChunkMode::LimitlessRequests,
-                count => return Err(WorldPacketError::InvalidSubChunkCount(count)),
             };
             WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: packet.dimension,
-                x: packet.x,
-                z: packet.z,
+                dimension: packet.dimension_id.value,
+                x: packet.chunk_position.x,
+                z: packet.chunk_position.z,
                 mode,
-                payload: packet.payload,
+                payload: packet.serialized_chunk_data,
             })
         }
         McpePacketData::SubChunkPacket(packet) => {
-            let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = packet.entries else {
+            // The 1.26.30 split between cached and non-cached entry lists is
+            // gone: gophertunnel protocol/sub_chunk.go models one SubChunkEntry
+            // with `BlobHash Optional[uint64]`, and packet/sub_chunk.go keeps
+            // the packet-level CacheEnabled flag as the mode switch.
+            if packet.cache_enabled {
                 return Err(WorldPacketError::CachedChunksUnsupported);
-            };
-            let origin = [packet.origin.x, packet.origin.y, packet.origin.z];
-            let mut normalized = Vec::with_capacity(entries.len());
-            for entry in entries {
-                let offset = [entry.dx, entry.dy, entry.dz];
+            }
+            let origin = [
+                packet.center_pos.subchunk_position_x,
+                packet.center_pos.subchunk_position_y,
+                packet.center_pos.subchunk_position_z,
+            ];
+            let mut normalized = Vec::with_capacity(packet.sub_chunk_data.len());
+            for entry in packet.sub_chunk_data {
+                let offset = [
+                    entry.sub_chunk_pos_offset.subchunk_offset_x,
+                    entry.sub_chunk_pos_offset.subchunk_offset_y,
+                    entry.sub_chunk_pos_offset.subchunk_offset_z,
+                ];
                 let position = checked_sub_chunk_position(origin, offset)?;
-                let result = match entry.result {
-                    SubChunkEntryWithoutCachingItemResult::Success => SubChunkResult::Success {
-                        payload: entry.payload,
-                    },
-                    SubChunkEntryWithoutCachingItemResult::SuccessAllAir => SubChunkResult::AllAir,
-                    SubChunkEntryWithoutCachingItemResult::Undefined => {
+                // Result names were realigned onto the vanilla SubChunkResult
+                // constants (gophertunnel protocol/sub_chunk.go): Undefined=0,
+                // Success=1, ChunkNotFound=2, InvalidDimension=3,
+                // PlayerNotFound=4, IndexOutOfBounds=5, SuccessAllAir=6.
+                let result = match entry.sub_chunk_request_result {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Success => {
+                        SubChunkResult::Success {
+                            // RawPayload is Optional now; a Success entry
+                            // without one carries no sub-chunk bytes, which is
+                            // the same empty payload 1.26.30 would have decoded.
+                            payload: entry.serialized_sub_chunk.unwrap_or_default(),
+                        }
+                    }
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir => {
+                        SubChunkResult::AllAir
+                    }
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Undefined => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
                     }
-                    SubChunkEntryWithoutCachingItemResult::ChunkNotFound => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
                     }
-                    SubChunkEntryWithoutCachingItemResult::InvalidDimension => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::WrongDimension => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
                     }
-                    SubChunkEntryWithoutCachingItemResult::PlayerNotFound => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::PlayerDoesntExist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
                     }
-                    SubChunkEntryWithoutCachingItemResult::YIndexOutOfBounds => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::IndexOutOfBounds => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
                     }
-                    SubChunkEntryWithoutCachingItemResult::Unknown(value) => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(value) => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(value))
                     }
                 };
                 normalized.push(SubChunkEntryEvent { position, result });
             }
             WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: packet.dimension,
+                dimension: packet.dimension_type.value,
                 entries: normalized,
             })
         }
@@ -762,22 +824,31 @@ pub fn into_world_event(
             let layer = normalize_layer(packet.layer)?;
             WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
                 dimension: current_dimension,
-                position: [packet.position.x, packet.position.y, packet.position.z],
+                position: [
+                    packet.block_position.x,
+                    packet.block_position.y,
+                    packet.block_position.z,
+                ],
                 layer,
                 network_id: packet.block_runtime_id as u32,
             }])
         }
         McpePacketData::UpdateSubChunkBlocksPacket(packet) => {
-            let mut updates = Vec::with_capacity(packet.blocks.len() + packet.extra.len());
-            updates.extend(packet.blocks.into_iter().map(|update| BlockUpdateEvent {
+            // The two block lists moved into a nested `blocks_changed` struct;
+            // gophertunnel packet/update_sub_chunk_blocks.go still writes
+            // Blocks (layer 0) then Extra (layer 1) back to back.
+            let standards = packet.blocks_changed.blocks_changed_standards;
+            let extras = packet.blocks_changed.blocks_changed_extras;
+            let mut updates = Vec::with_capacity(standards.len() + extras.len());
+            updates.extend(standards.into_iter().map(|update| BlockUpdateEvent {
                 dimension: current_dimension,
-                position: [update.position.x, update.position.y, update.position.z],
+                position: [update.pos.x, update.pos.y, update.pos.z],
                 layer: 0,
                 network_id: update.runtime_id as u32,
             }));
-            updates.extend(packet.extra.into_iter().map(|update| BlockUpdateEvent {
+            updates.extend(extras.into_iter().map(|update| BlockUpdateEvent {
                 dimension: current_dimension,
-                position: [update.position.x, update.position.y, update.position.z],
+                position: [update.pos.x, update.pos.y, update.pos.z],
                 layer: 1,
                 network_id: update.runtime_id as u32,
             }));
@@ -786,61 +857,81 @@ pub fn into_world_event(
         McpePacketData::BlockActorDataPacket(packet) => {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
                 dimension: current_dimension,
-                position: [packet.position.x, packet.position.y, packet.position.z],
-                nbt: packet.nbt.0.to_vec(),
+                position: [
+                    packet.block_position.x,
+                    packet.block_position.y,
+                    packet.block_position.z,
+                ],
+                nbt: packet.actor_data_tags.0.to_vec(),
             })
         }
         McpePacketData::ChunkRadiusUpdatedPacket(packet) => {
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
         }
         McpePacketData::NetworkChunkPublisherUpdatePacket(packet) => {
-            let radius_blocks = u32::try_from(packet.radius)
-                .map_err(|_| WorldPacketError::InvalidPublisherRadius(packet.radius))?;
+            let radius_blocks = u32::try_from(packet.newradiusforview).map_err(|_| {
+                WorldPacketError::InvalidPublisherRadius(packet.newradiusforview)
+            })?;
             WorldEvent::PublisherUpdate(PublisherUpdateEvent {
                 center: [
-                    packet.coordinates.x,
-                    packet.coordinates.y,
-                    packet.coordinates.z,
+                    packet.newpositionforview.x,
+                    packet.newpositionforview.y,
+                    packet.newpositionforview.z,
                 ],
                 radius_blocks,
             })
         }
         McpePacketData::ChangeDimensionPacket(packet) => {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
-                dimension: packet.dimension,
+                dimension: packet.dimension_id.value,
                 position: [packet.position.x, packet.position.y, packet.position.z],
             })
         }
         McpePacketData::RespawnPacket(packet) => WorldEvent::Respawn(RespawnEvent {
             position: [packet.position.x, packet.position.y, packet.position.z],
-            state: packet.state,
-            runtime_entity_id: packet.runtime_entity_id,
+            // The state byte is typed now; gophertunnel packet/respawn.go pins
+            // SearchingForSpawn=0, ReadyToSpawn=1, ClientReadyToSpawn=2, and
+            // this event deliberately keeps the raw wire value.
+            state: match packet.state {
+                RespawnPacketState::SearchingForSpawn => 0,
+                RespawnPacketState::ReadyToSpawn => 1,
+                RespawnPacketState::ClientReadyToSpawn => 2,
+                RespawnPacketState::Unknown(value) => value,
+            },
+            runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
         }),
         McpePacketData::MovePlayerPacket(packet) => {
-            let mode = MovePlayerMode::from(packet.mode);
+            let mode = MovePlayerMode::from(packet.position_mode);
             WorldEvent::MovePlayer(MovePlayerEvent {
-                runtime_id: packet.runtime_id,
+                runtime_id: packet.player_runtime_id.actor_runtime_id as u64,
                 position: [packet.position.x, packet.position.y, packet.position.z],
-                pitch: packet.pitch,
-                yaw: packet.yaw,
-                head_yaw: packet.head_yaw,
+                // gophertunnel packet/move_player.go writes Pitch then Yaw as
+                // two float32s, which the generated crate models as a Vec2
+                // whose second component is `y`, not `z`.
+                pitch: packet.rotation.x,
+                yaw: packet.rotation.y,
+                head_yaw: packet.y_head_rotation,
                 mode,
                 on_ground: packet.on_ground,
                 teleported: mode.is_teleport(),
-                source_tick: packet.tick,
+                source_tick: packet.tick.inputtick,
             })
         }
         McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {
             if packet.prediction_type != CorrectPlayerMovePredictionPacketPredictionType::Player {
                 return Ok(None);
             }
-            let tick = u64::try_from(packet.tick)
-                .map_err(|_| WorldPacketError::NegativeMovementCorrectionTick(packet.tick))?;
+            let tick = packet.tick.inputtick;
+            let tick = u64::try_from(tick)
+                .map_err(|_| WorldPacketError::NegativeMovementCorrectionTick(tick))?;
             WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-                position: [packet.position.x, packet.position.y, packet.position.z],
-                delta: [packet.delta.x, packet.delta.y, packet.delta.z],
+                position: [packet.pos.x, packet.pos.y, packet.pos.z],
+                delta: [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z],
+                // Vec2's components are (x, y) in 1.26.40; gophertunnel
+                // packet/correct_player_move_prediction.go writes Rotation as
+                // one Vec2 of (pitch, yaw).
                 pitch: packet.rotation.x,
-                yaw: packet.rotation.z,
+                yaw: packet.rotation.y,
                 on_ground: packet.on_ground,
                 tick,
             })
@@ -849,34 +940,34 @@ pub fn into_world_event(
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
         McpePacketData::GameRulesChangedPacket(packet) => {
-            let Some(enabled) = daylight_cycle_rule_update(&packet.rules) else {
+            let Some(enabled) = daylight_cycle_rule_update(&packet.rule_data.rules_list) else {
                 return Ok(None);
             };
             WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
         }
         McpePacketData::LevelEventPacket(packet) => {
             if matches!(
-                packet.event,
-                LevelEventPacketEvent::BlockStartBreak
-                    | LevelEventPacketEvent::BlockStopBreak
-                    | LevelEventPacketEvent::BlockBreakSpeed
+                packet.event_id,
+                LEVEL_EVENT_START_BLOCK_CRACKING
+                    | LEVEL_EVENT_STOP_BLOCK_CRACKING
+                    | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
             ) {
                 return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
             }
-            let update = match packet.event {
-                LevelEventPacketEvent::StartRain => WeatherUpdateEvent {
+            let update = match packet.event_id {
+                LEVEL_EVENT_START_RAINING => WeatherUpdateEvent {
                     channel: WeatherChannel::Rain,
                     level: 1.0,
                 },
-                LevelEventPacketEvent::StopRain => WeatherUpdateEvent {
+                LEVEL_EVENT_STOP_RAINING => WeatherUpdateEvent {
                     channel: WeatherChannel::Rain,
                     level: 0.0,
                 },
-                LevelEventPacketEvent::StartThunder => WeatherUpdateEvent {
+                LEVEL_EVENT_START_THUNDERSTORM => WeatherUpdateEvent {
                     channel: WeatherChannel::Lightning,
                     level: 1.0,
                 },
-                LevelEventPacketEvent::StopThunder => WeatherUpdateEvent {
+                LEVEL_EVENT_STOP_THUNDERSTORM => WeatherUpdateEvent {
                     channel: WeatherChannel::Lightning,
                     level: 0.0,
                 },
@@ -889,11 +980,17 @@ pub fn into_world_event(
     Ok(Some(event))
 }
 
-fn daylight_cycle_rule_update(rules: &[GameRuleI32]) -> Option<bool> {
+/// Reads the authoritative `doDaylightCycle` switch from a rule list.
+///
+/// 1.26.40 collapses the 1.26.30 `GameRuleI32` / `GameRuleVarint` pair (and
+/// their separate `type_` discriminants) into one `GameRule` whose value is a
+/// tagged union, so the redundant "declared type matches the value arm" check
+/// the old modelling required is gone: a non-boolean rule simply cannot decode
+/// into `GameRuleRuleValue::Bool`.
+fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
     rules.iter().find_map(|rule| {
-        if rule.name.eq_ignore_ascii_case("dodaylightcycle")
-            && rule.type_ == GameRuleI32Type::Bool
-            && let Some(GameRuleI32Value::Bool(enabled)) = &rule.value
+        if rule.rule_name.eq_ignore_ascii_case("dodaylightcycle")
+            && let GameRuleRuleValue::Bool(enabled) = &rule.rule_value
         {
             Some(*enabled)
         } else {
