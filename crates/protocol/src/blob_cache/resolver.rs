@@ -237,14 +237,11 @@ impl BlobCacheResolver {
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
                 for entry in entries {
                     bytes = bytes
-                        .checked_add(
-                            entry.serialized_sub_chunk.as_ref().map_or(0, Vec::capacity),
-                        )
+                        .checked_add(entry.serialized_sub_chunk.as_ref().map_or(0, Vec::capacity))
                         .ok_or(BlobCacheError::ByteCountOverflow)?;
                     // A cached entry carries its blob ID; one without a blob
                     // ID was served inline even on a cache-enabled packet.
-                    if entry.sub_chunk_request_result
-                        == SubChunkRequestResult::Success
+                    if entry.sub_chunk_request_result == SubChunkRequestResult::Success
                         && let Some(blob_id) = entry.blob_id
                     {
                         hashes.push(blob_id);

@@ -14,8 +14,8 @@ use protocol::{
     ActorEffectAction, ActorEffectEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
     BossStyle as ProtocolBossStyle, ContainerIdentity, InventoryContentEvent, InventoryEvent,
-    NetworkItemStack, ObjectiveEvent,
-    ScoreEntry as ProtocolScoreEntry, ScoreEvent, ScoreIdentity as ProtocolScoreIdentity,
+    NetworkItemStack, ObjectiveEvent, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
+    ScoreIdentity as ProtocolScoreIdentity,
 };
 use sha2::Digest;
 use ui::{

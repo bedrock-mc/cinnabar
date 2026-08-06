@@ -56,14 +56,13 @@ impl RawPacket {
         let body_preview = self.body.iter().take(32).copied().collect::<Vec<_>>();
         let mut buf = self.inner_frame;
         let (header, data) =
-            McpePacketData::decode_inner(&mut buf, crate::valentine::packet_args(session)).map_err(|source| {
-                JolyneError::PacketDecode {
+            McpePacketData::decode_inner(&mut buf, crate::valentine::packet_args(session))
+                .map_err(|source| JolyneError::PacketDecode {
                     packet_id,
                     body_len,
                     body_preview,
                     source,
-                }
-            })?;
+                })?;
         if buf.has_remaining() {
             return Err(JolyneError::PacketTrailingBytes {
                 packet_id,

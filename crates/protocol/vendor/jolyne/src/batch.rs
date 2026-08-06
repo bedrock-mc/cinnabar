@@ -5,7 +5,8 @@ fn decode_packets(
 ) -> Result<Vec<McpePacket>, JolyneError> {
     let mut packets = Vec::new();
     while cursor.has_remaining() {
-        let (header, data) = McpePacketData::decode_inner(&mut cursor, crate::valentine::packet_args(session))?;
+        let (header, data) =
+            McpePacketData::decode_inner(&mut cursor, crate::valentine::packet_args(session))?;
         packets.push(McpePacket { header, data });
     }
     Ok(packets)
@@ -116,7 +117,8 @@ fn decode_payload(
 ) -> Result<Vec<McpePacket>, JolyneError> {
     if payload.first().copied() == Some(GAME_FRAME_ID) {
         let mut buf = payload.clone();
-        let (header, data) = McpePacketData::decode_game_frame(&mut buf, crate::valentine::packet_args(session))?;
+        let (header, data) =
+            McpePacketData::decode_game_frame(&mut buf, crate::valentine::packet_args(session))?;
         return Ok(vec![McpePacket { header, data }]);
     }
     decode_packets(payload, session)

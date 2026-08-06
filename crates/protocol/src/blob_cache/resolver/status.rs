@@ -114,7 +114,9 @@ impl BlobCacheStatus {
         let mut packets = Vec::new();
         while missing.peek().is_some() || have.peek().is_some() {
             let mut packet = ClientCacheBlobStatusPacket::default();
-            while packet.missing_ids.len() + packet.found_ids.len() < MAX_CLIENT_BLOB_HASHES_PER_PACKET {
+            while packet.missing_ids.len() + packet.found_ids.len()
+                < MAX_CLIENT_BLOB_HASHES_PER_PACKET
+            {
                 if let Some(hash) = missing.next() {
                     packet.missing_ids.push(hash);
                 } else if let Some(hash) = have.next() {

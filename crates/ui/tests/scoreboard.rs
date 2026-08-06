@@ -279,14 +279,7 @@ fn score_item_limit_and_utf8_budget_updates_are_exact_and_atomic() {
         .map(|id| score("scores", id as i64, id as i32, ScoreOwner::None))
         .collect::<Vec<_>>()
         .into();
-    store
-        .apply(
-            2,
-            ScoreboardEvent::Scores {
-                entries,
-            },
-        )
-        .unwrap();
+    store.apply(2, ScoreboardEvent::Scores { entries }).unwrap();
     assert_eq!(store.score_count(), MAX_SCORES);
     let before_bytes = store.retained_text_bytes();
     assert_eq!(

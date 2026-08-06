@@ -106,7 +106,8 @@ pub fn decode_batch(
         let mut frame = frame_start.slice(..length_prefix + declared);
         bytes.advance(declared);
         validate_raw_ui_frame(&frame)?;
-        let (header, data) = McpePacketData::decode_inner(&mut frame, jolyne::valentine::packet_args(session))?;
+        let (header, data) =
+            McpePacketData::decode_inner(&mut frame, jolyne::valentine::packet_args(session))?;
         if frame.has_remaining() {
             return Err(ProtocolError::TrailingPacketBytes {
                 remaining: frame.remaining(),

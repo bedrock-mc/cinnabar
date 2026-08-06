@@ -6,9 +6,9 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, Nbt},
     version::v1_26_40::{
-        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
-        FullContainerName, FullContainerNameContainerName, InventoryContentPacket,
-        InventorySlotPacket, ItemStackResponseInfoResult, ItemStackResponsePacket, McpePacketName,
+        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
+        FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
+        ItemStackResponseInfoResult, ItemStackResponsePacket, McpePacketName,
         MobArmorEquipmentPacket, PlayerHotbarPacket,
     },
 };
@@ -295,7 +295,8 @@ pub fn normalize_content(
     packet: InventoryContentPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     validate_slot_count(packet.slots.len())?;
-    let container = container_identity_varint(packet.container_id, Some(packet.full_container_name))?;
+    let container =
+        container_identity_varint(packet.container_id, Some(packet.full_container_name))?;
     let slots = packet
         .slots
         .into_iter()
@@ -310,11 +311,15 @@ pub fn normalize_content(
 
 pub fn normalize_slot(packet: InventorySlotPacket) -> Result<InventoryEvent, InventoryPacketError> {
     let slot = checked_slot(packet.slot)?;
-    let container = container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
+    let container =
+        container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
     Ok(InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity { container, slot },
         stack: normalize_item_descriptor(packet.item)?,
-        storage_item: packet.storage_item.map(normalize_item_descriptor).transpose()?,
+        storage_item: packet
+            .storage_item
+            .map(normalize_item_descriptor)
+            .transpose()?,
     }))
 }
 
@@ -369,8 +374,7 @@ pub fn normalize_response(
                         // (protocol/item_stack.go), which map to the unredacted
                         // and redacted halves respectively.
                         let custom_name = slot.custom_name.unredacted;
-                        let filtered_custom_name =
-                            slot.custom_name.redacted.unwrap_or_default();
+                        let filtered_custom_name = slot.custom_name.redacted.unwrap_or_default();
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
                         // The stack net ID is a double optional now: absent means
@@ -429,11 +433,7 @@ pub fn normalize_container_open(
     Ok(InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
         window_type: raw_window_type(packet.container_type)?,
-        position: [
-            packet.position.x,
-            packet.position.y,
-            packet.position.z,
-        ],
+        position: [packet.position.x, packet.position.y, packet.position.z],
         runtime_entity_id: packet.target_actor_id.actor_unique_id,
     }))
 }
@@ -775,7 +775,9 @@ fn validate_item_user_data(extra: &[u8]) -> Result<(), InventoryPacketError> {
     if extra.is_empty() {
         return Ok(());
     }
-    let header = extra.get(..2).ok_or(InventoryPacketError::InvalidItemExtra)?;
+    let header = extra
+        .get(..2)
+        .ok_or(InventoryPacketError::InvalidItemExtra)?;
     match i16::from_le_bytes([header[0], header[1]]) {
         0 => Ok(()),
         -1 => {
@@ -795,17 +797,13 @@ fn validate_item_user_data(extra: &[u8]) -> Result<(), InventoryPacketError> {
 }
 
 /// Recovers the wire code behind an unrecognised item-stack response result.
-fn response_result_code(
-    result: &ItemStackResponseInfoResult,
-) -> Result<u8, InventoryPacketError> {
+fn response_result_code(result: &ItemStackResponseInfoResult) -> Result<u8, InventoryPacketError> {
     let mut bytes = BytesMut::with_capacity(1);
     result
         .encode(&mut bytes)
         .map_err(|_| InventoryPacketError::EncodingFailed)?;
     Ok(bytes[0])
 }
-
-
 
 fn container_identity_varint(
     window_id: i32,

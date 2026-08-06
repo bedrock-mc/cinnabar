@@ -7,3 +7,6 @@
 /.worktrees/
 *.log
 
+
+# Go build artifacts; the architecture check forbids committed binaries.
+*.exe

@@ -30,8 +30,7 @@ use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
     ActorRuntimeId, ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket,
     LoginPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket,
-    ResourcePackClientResponsePacketPayloadDownloadingFinished,
+    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketPayloadDownloadingFinished,
     ResourcePackClientResponsePacketPayloadResourcePackStackFinished,
     ResourcePackClientResponsePacketResponse, ServerboundLoadingScreenPacket,
     ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,

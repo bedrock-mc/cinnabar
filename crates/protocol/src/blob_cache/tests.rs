@@ -15,11 +15,11 @@ fn cached_level_chunk(x: i32, hashes: Vec<u64>) -> LevelChunkPacket {
         cache_enabled: true,
         cache_metadata: hashes
             .into_iter()
-            .map(
-                |blob_id| valentine::bedrock::version::v1_26_40::LevelChunkPacketPayloadSubChunkMetadata {
+            .map(|blob_id| {
+                valentine::bedrock::version::v1_26_40::LevelChunkPacketPayloadSubChunkMetadata {
                     blob_id,
-                },
-            )
+                }
+            })
             .collect(),
         ..Default::default()
     }
@@ -35,11 +35,12 @@ fn sub_chunk_entry(
     blob_id: Option<u64>,
 ) -> SubChunkPacketPayloadSubChunkPacketData {
     SubChunkPacketPayloadSubChunkPacketData {
-        sub_chunk_pos_offset: valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPosOffset {
-            subchunk_offset_x: dx,
-            subchunk_offset_y: dy,
-            subchunk_offset_z: dz,
-        },
+        sub_chunk_pos_offset:
+            valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPosOffset {
+                subchunk_offset_x: dx,
+                subchunk_offset_y: dy,
+                subchunk_offset_z: dz,
+            },
         sub_chunk_request_result: result,
         serialized_sub_chunk: payload,
         blob_id,
@@ -87,9 +88,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
         let payload = [x as u8];
         let hash = client_blob_hash(&payload);
         resolver
-            .accept_cached_packet(
-                cached_level_chunk(x, vec![hash]).into(),
-            )
+            .accept_cached_packet(cached_level_chunk(x, vec![hash]).into())
             .expect("grow unresolved pending queue");
     }
     assert!(resolver.pending.capacity() >= 8);
@@ -203,9 +202,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     for (x, hash) in [(1, shared), (2, shared), (3, other)] {
         resolver
-            .accept_cached_packet(
-                cached_level_chunk(x, vec![hash]).into(),
-            )
+            .accept_cached_packet(cached_level_chunk(x, vec![hash]).into())
             .expect("index pending transaction by its missing hash");
     }
     assert_eq!(resolver.pending_by_hash[&shared].len(), 2);
@@ -278,7 +275,7 @@ fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
         resolver
             .accept_cached_packet(
                 cached_level_chunk(i32::try_from(x).expect("test coordinate fits"), vec![hash])
-                .into(),
+                    .into(),
             )
             .expect("fill the bounded cached transaction window");
     }
@@ -324,7 +321,10 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
         let payload = format!("coalesced-pressure-{x}");
         resolver
             .accept_cached_packet(
-                cached_level_chunk(i32::try_from(x).expect("test coordinate fits"), vec![client_blob_hash(payload.as_bytes())])
+                cached_level_chunk(
+                    i32::try_from(x).expect("test coordinate fits"),
+                    vec![client_blob_hash(payload.as_bytes())],
+                )
                 .into(),
             )
             .expect("fill every recovery slot except the queued event");
@@ -332,8 +332,7 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
 
     let mut status = resolver
         .accept_cached_packet_with_size(
-            cached_level_chunk(999, vec![client_blob_hash(b"oversized-current")])
-            .into(),
+            cached_level_chunk(999, vec![client_blob_hash(b"oversized-current")]).into(),
             MAX_CLIENT_BLOB_PENDING_BYTES,
         )
         .expect("pending-byte rejection after rotation remains non-fatal");

@@ -6,8 +6,8 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
     version::v1_26_40::{
-        ActorRuntimeId, AnimateEntityPacket, AnimatePacket, AnimatePacketAction, ItemDataItemVersion,
-        ItemRegistryPacket, MobEquipmentPacket,
+        ActorRuntimeId, AnimateEntityPacket, AnimatePacket, AnimatePacketAction,
+        ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
     },
 };
 
@@ -396,7 +396,9 @@ pub enum ItemPacketError {
 /// every field unconditionally rather than short-circuiting on a zero ID, so an
 /// empty stack is still a fully-formed descriptor and is recognised by its ID
 /// alone.
-pub(crate) fn normalize_item(item: ItemStackDescriptor) -> Result<NetworkItemStack, ItemPacketError> {
+pub(crate) fn normalize_item(
+    item: ItemStackDescriptor,
+) -> Result<NetworkItemStack, ItemPacketError> {
     validate_item_user_data(&item.user_data_buffer)?;
     if item.id == 0 {
         return Ok(NetworkItemStack::empty());
@@ -498,9 +500,7 @@ fn validate_item_user_data(extra: &[u8]) -> Result<(), ItemPacketError> {
     if extra.is_empty() {
         return Ok(());
     }
-    let header = extra
-        .get(..2)
-        .ok_or(ItemPacketError::InvalidItemNbt)?;
+    let header = extra.get(..2).ok_or(ItemPacketError::InvalidItemNbt)?;
     match i16::from_le_bytes([header[0], header[1]]) {
         0 => Ok(()),
         -1 => {
@@ -518,7 +518,6 @@ fn validate_item_user_data(extra: &[u8]) -> Result<(), ItemPacketError> {
         _ => Err(ItemPacketError::InvalidItemNbt),
     }
 }
-
 
 fn validate_registry_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
     let mut bytes = nbt.0.clone();
@@ -643,7 +642,9 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {
-        actor_runtime_ids: Arc::from([runtime_id(packet.target_actor_runtime_id.actor_runtime_id)?]),
+        actor_runtime_ids: Arc::from([runtime_id(
+            packet.target_actor_runtime_id.actor_runtime_id,
+        )?]),
         kind,
         data: packet.data,
         swing_source: packet.swing_source.map(Arc::from),
@@ -653,9 +654,7 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
 pub(crate) fn normalize_animate_entity(
     packet: AnimateEntityPacket,
 ) -> Result<ItemActorEvent, ItemPacketError> {
-    if packet.m_runtime_ids.is_empty()
-        || packet.m_runtime_ids.len() > MAX_ANIMATE_ENTITY_IDS
-    {
+    if packet.m_runtime_ids.is_empty() || packet.m_runtime_ids.len() > MAX_ANIMATE_ENTITY_IDS {
         return Err(ItemPacketError::InvalidAnimationTargetCount {
             count: packet.m_runtime_ids.len(),
             max: MAX_ANIMATE_ENTITY_IDS,

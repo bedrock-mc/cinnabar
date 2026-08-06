@@ -99,7 +99,12 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
         McpePacketData::StartGamePacket(start) => {
             // `ActorUniqueId`/`ActorRuntimeId` are single-field wrapper structs.
             assert_eq!(start.entity_id, ActorUniqueId { actor_unique_id: 1 });
-            assert_eq!(start.runtime_id, ActorRuntimeId { actor_runtime_id: 2 });
+            assert_eq!(
+                start.runtime_id,
+                ActorRuntimeId {
+                    actor_runtime_id: 2
+                }
+            );
             // `player_gamemode` -> `game_type`.
             assert_eq!(start.game_type, StartGamePacketGameType::Creative);
             // `player_position` -> `position`, `Vec3F` -> `Vec3`.
@@ -126,11 +131,7 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
             // `BlockCoordinates` -> `BlockPos`.
             assert_eq!(
                 settings.default_spawn_block_position,
-                BlockPos {
-                    x: 8,
-                    y: 64,
-                    z: -8,
-                }
+                BlockPos { x: 8, y: 64, z: -8 }
             );
             // `game_version` -> `base_game_version`; the fixture is 1.26.40.
             assert_eq!(settings.base_game_version, "1.26.40");
@@ -237,17 +238,14 @@ fn move_player_fixture_decodes_and_round_trips_exactly() {
                 }
             );
             // `pitch`/`yaw` -> `rotation: Vec2 { x, y }`.
-            assert_eq!(
-                movement.rotation,
-                Vec2 {
-                    x: 10.5,
-                    y: 20.25,
-                }
-            );
+            assert_eq!(movement.rotation, Vec2 { x: 10.5, y: 20.25 });
             // `head_yaw` -> `y_head_rotation`.
             assert_eq!(movement.y_head_rotation, 30.75);
             // `mode` -> `position_mode`.
-            assert_eq!(movement.position_mode, MovePlayerPacketPositionMode::Teleport);
+            assert_eq!(
+                movement.position_mode,
+                MovePlayerPacketPositionMode::Teleport
+            );
             assert!(movement.on_ground);
             assert_eq!(
                 movement.riding_runtime_id,
@@ -305,13 +303,7 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
         ]
     );
     // `pitch`/`yaw` -> `player_rotation: Vec2 { x, y }`.
-    assert_eq!(
-        input.player_rotation,
-        Vec2 {
-            x: 10.5,
-            y: 20.25,
-        }
-    );
+    assert_eq!(input.player_rotation, Vec2 { x: 10.5, y: 20.25 });
     assert_eq!(
         input.position,
         Vec3 {

@@ -37,9 +37,7 @@ pub(super) fn projected_reconstruction_bytes(
                 bytes = bytes
                     .checked_add(blob.payload.len())
                     .and_then(|bytes| {
-                        bytes.checked_add(
-                            entry.serialized_sub_chunk.as_ref().map_or(0, Vec::len),
-                        )
+                        bytes.checked_add(entry.serialized_sub_chunk.as_ref().map_or(0, Vec::len))
                     })
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
             }

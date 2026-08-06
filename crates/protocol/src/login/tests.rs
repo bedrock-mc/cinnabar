@@ -68,16 +68,15 @@ use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_40::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
-    AnimatePacket, AnimatePacketAction, BiomeDefinitionListPacket, BlockActorDataPacket, BlockPos,
-    CerealizerNetworkItemStackDescriptorSerializedData,
+    AnimatePacket, AnimatePacketAction, BiomeDefinitionData, BiomeDefinitionListPacket,
+    BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
+    BlockPos, CerealizerNetworkItemStackDescriptorSerializedData,
     CorrectPlayerMovePredictionPacket, GameRule, GameRuleRuleValue, GameRulesChangedPacket,
     GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MobEquipmentPacket,
-    BiomeDefinitionData, BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList,
     MovePlayerPacket, PlayerInputTick, RespawnPacket, RespawnPacketState, SetTimePacket,
-    TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly, TextPacketPayloadMessageOnlyMessageType, UpdateBlockPacket, Vec2,
-    Vec3,
+    TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
+    TextPacketPayloadMessageOnlyMessageType, UpdateBlockPacket, Vec2, Vec3,
 };
 
 /// Builds a cache-enabled LevelChunk carrying exactly the given blob hashes.
@@ -113,9 +112,7 @@ fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() 
     let mut resolver = BlobCacheResolver::new(cache);
     let missing = crate::client_blob_hash(b"missing");
     resolver
-        .accept_cached_packet(
-            cached_level_chunk(vec![missing]).into(),
-        )
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
         .expect("pending cached column");
 
     assert!(
@@ -140,9 +137,7 @@ fn fast_transfer_arm_is_consumed_only_after_a_chunk_candidate_decodes() {
     let missing = crate::client_blob_hash(b"old-backend-missing");
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     resolver
-        .accept_cached_packet(
-            cached_level_chunk(vec![missing]).into(),
-        )
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
         .expect("old unresolved transaction");
     resolver.arm_fast_transfer_reset();
 
@@ -472,7 +467,8 @@ fn canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization() {
 #[test]
 fn item_stack_response_fixture_pins_the_redactable_string_divergence() {
     let session = BedrockSession { shield_item_id: 0 };
-    let mut batch = Bytes::copy_from_slice(&include_bytes!("../../fixtures/item_stack_response.bin")[..]);
+    let mut batch =
+        Bytes::copy_from_slice(&include_bytes!("../../fixtures/item_stack_response.bin")[..]);
     assert_eq!(batch.get_u8(), 0xfe);
     let raw = decode_packet_raw(&mut batch).expect("raw item stack response");
 
