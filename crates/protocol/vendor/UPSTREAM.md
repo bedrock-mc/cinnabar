@@ -26,7 +26,8 @@ Copied paths:
 - `crates/valentine/bedrock_versions/v1_26_0`
 - `crates/valentine/bedrock_versions/v1_26_30`
 - `crates/valentine/bedrock_versions/v1_26_40` (from `axolotl-stack` main
-  `7028631`; see "Bedrock 1.26.40 readiness" below)
+  `d075eb24063b2d3dadcbd8dbc3d0eea26e09b048`; see "Bedrock 1.26.40
+  readiness" below)
 - `crates/valentine/Cargo.toml` and `README.md`
 - `crates/jolyne/src`
 - `crates/jolyne/Cargo.toml` and `README.md`
@@ -128,45 +129,87 @@ unmigrated `v1_26_30` patches above were reviewed against.
 
 ## Bedrock 1.26.40 readiness
 
-`bedrock_versions/v1_26_40` is vendored and compiles, but **nothing selects it
-yet**. Cinnabar stays on `bedrock_1_26_30` / protocol 1001. The version is now
-chosen in one place per crate rather than hardcoded: `jolyne` gained
-`bedrock_1_26_30` (default) and `bedrock_1_26_40` features that forward to
-Valentine, and `jolyne/src/valentine.rs` re-exports whichever is enabled.
-Flipping both `crates/protocol/Cargo.toml` dependencies is the whole switch.
+`crates/protocol/Cargo.toml` now selects `bedrock_1_26_40` for the wire format
+and keeps `bedrock_1_26_30` enabled alongside it purely as a content-registry
+data source. The two version modules are additive and compile side by side.
+Jolyne's client path is fully migrated and its suite passes. **The protocol
+crate itself is not migrated and this branch is not mergeable**: two generated
+wire defects have to be fixed upstream first, because both change generated
+field types and would invalidate any cinnabar code written against the current
+shapes.
 
-Three things must land before that flip is correct:
+`decode_inner_with_remaining` is no longer a local patch. `axolotl-stack`
+`d075eb2` generates it for borrowed packets, so the retained-remaining-bytes
+behaviour that `v1_26_30/src/borrowed.rs` hand-patched is now generator-emitted
+and survives regeneration.
 
-- **The generated crate carries no allocation guards.** `v1_26_40` was
-  regenerated from the EndstoneMC BDS dumps and contains none of the
-  `MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
-  `MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
+### Blocking: length-prefixed binary buffers are typed `String`
+
+The Endstone dumps declare these fields `string` because BDS uses C++
+`std::string`, which is a byte string with no encoding guarantee. The generator
+maps that to a Rust `String` and decodes it with `decode_utf8_lossy_owned`, so
+every byte sequence that is not valid UTF-8 becomes U+FFFD. Decode is not
+byte-preserving and re-encode changes the length:
+
+    sent  00 80 9f ff fe 41 c3 28
+    recv  00 efbfbd efbfbd efbfbd efbfbd 41 efbfbd 28
+
+The framing is right and only the content is mangled, so nothing fails loudly;
+encode and decode corrupt symmetrically. Affected fields carrying binary:
+
+- `LevelChunkPacket.serialized_chunk_data` (chunk blob)
+- `SubChunkPacketPayloadSubChunkPacketData.serialized_sub_chunk`
+- `MissingBlobData.blob_data` (client cache miss response)
+- `user_data_buffer` on both item stack descriptors (item NBT)
+- `ResourcePackChunkDataPacket.chunk_data`
+
+gophertunnel types the same LevelChunk field `RawPayload []byte` and writes it
+with `io.ByteSlice` (`minecraft/protocol/packet/level_chunk.go`), which is the
+identical varint-prefixed framing. `v1_26_30` had this right as
+`payload: ByteArray`. This is the same defect `axolotl-stack` `d11ca37` fixed
+for `LoginPacket.connection_request` through the `overrides-endstone`
+correction layer; the rest of the class is still open. Chunk and sub-chunk
+payloads are cinnabar's primary world data, so this blocks rendering outright.
+
+### Blocking: GameRule integer values are written big-endian
+
+`GameRuleRuleValue::Int32` encodes through the bare `i32` `BedrockCodec`, whose
+`encode` is `buf.put_i32` — big-endian. gophertunnel writes the same value with
+`w.Uint32` (`minecraft/protocol/writer.go`), which is little-endian in both the
+big- and little-endian writer variants; its only deliberately big-endian helper
+is `BEInt32`, used for fields such as PlayStatus. The values are therefore
+byte-swapped relative to BDS wherever a game rule carries an int, which covers
+`StartGamePacket`'s rule list and `GameRulesChangedPacket`, and so reaches the
+`start_game.bin` fixture.
+
+The bare `i32` codec being big-endian is not wrong by itself — PlayStatus
+genuinely is big-endian — but it is the wrong codec for this field.
+
+### Still open from before
+
+- **The generated crate carries no allocation guards.** `v1_26_40` contains
+  none of the `MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS`
+  / `MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
   bounds that `v1_26_30` applies before every eager collection allocation, nor
-  the `ItemNew` air/empty-item handling in `v1_26_30/src/types.rs`. These are
-  hostile-input protections no schema source emits; regenerating drops them.
-  They belong in the generator, not in another hand-patch.
-- **Type names differ.** The Endstone frontend uses BDS's own vocabulary, so
-  only 207 of 528 generated structs keep their prismarine-era names. `Vec3F` is
-  `Vec3`, `Vec2F` is `Vec2`, `BlockCoordinates` is `BlockPos`,
-  `AvailableEntityIdentifiersPacket` is `AvailableActorIdentifiersPacket`, and
-  `StartGamePacket`'s inline world fields moved into a nested `LevelSettings`
-  (`StartGamePacketChatRestrictionLevel` becomes
-  `LevelSettingsChatRestrictionLevel`, and so on). Jolyne needs about a dozen
-  renames; the protocol crate's own `ItemLegacy` / `Skin` /
-  `SubchunkPacketEntries` / `Blob` references need the same treatment.
-- **The Go core moves in lockstep or not at all.** This half has now landed:
-  `core/go.mod` and `tools/fixturegen/go.mod` replace gophertunnel with
-  `hashimthearab/gophertunnel v1.25.3-0.20260806044231-be6713da4dc0`, and
-  `tools/fixturegen/main.go` asserts `minecraft.DefaultProtocol` is exactly
-  2168 / `1.26.40`. The byte fixtures under `crates/protocol/fixtures` were
-  regenerated against that pin, so `start_game`, `level_chunk`, `move_player`,
-  `player_auth_input`, `material_reducer`, `inventory_content`,
-  `inventory_slot` and `item_stack_response` now carry 1.26.40 bytes. Rust
-  decoding is pinned to those bytes and must be adapted before the crate
-  feature flip is green.
+  the `ItemNew` air/empty-item handling. These are hostile-input protections no
+  schema source emits; regenerating drops them. They belong in the generator,
+  not in another hand-patch. **This caveat remains deliberate debt.**
+- **Type names and shapes differ.** Only 207 of 528 generated structs keep
+  their prismarine-era names, and many are reshaped rather than renamed: the
+  three item wire formats collapse into one descriptor with an opaque user-data
+  buffer, `TextPacket` becomes a three-arm body union, `SetScorePacket` moves
+  its action to a per-entry union, entity metadata loses its named key enum and
+  its bitflag types, `SubChunk` caching/non-caching entries merge behind an
+  `Option<u64>` blob id, `GameMode` and `LevelEventPacketEvent` lose their named
+  enums entirely, and `PlayerAuthInput` input flags become a list of set flag
+  ids instead of a bitset.
+- **The Go core has landed.** `core/go.mod` and `tools/fixturegen/go.mod` use
+  `hashimthearab/gophertunnel v1.25.3-0.20260806044231-be6713da4dc0`, and the
+  byte fixtures under `crates/protocol/fixtures` carry 1.26.40 bytes.
 
 `v1_26_40` also has no `blocks`, `items`, `states`, `entities`, `biomes`, or
 `block_palette` modules: the BDS dumps describe the wire, not the content
-registries. `crates/protocol/src/world.rs` reads
-`v1_26_30::biomes::ALL_BIOMES`, so that data must keep coming from the
-prismarine-derived crate or from `tools/registrygen`.
+registries. `crates/protocol/src/world.rs` reads `v1_26_30::biomes::ALL_BIOMES`
+and `crates/protocol/src/item.rs` reads the generated `v1_26_30` items table,
+so that data keeps coming from the prismarine-derived crate. Both sites are
+commented as deliberate data pins.
