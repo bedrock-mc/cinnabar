@@ -42334,1804 +42334,1615 @@ impl BorrowedMcpePacketData {
             }
         }
     }
+    /// Decodes a borrowed payload and reports how many payload bytes
+    /// were left unconsumed by the packet's own decoder.
+    ///
+    /// The transport layer uses the remaining count to reject frames
+    /// with trailing bytes without having to materialise an owned
+    /// packet. `Raw` payloads are reported as fully consumed
+    /// (`0` remaining) because nothing has parsed them yet.
     fn decode_payload(
         name: crate::McpePacketName,
         payload: bytes::Bytes,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        Ok(match name {
+    ) -> Result<(Self, usize), crate::bedrock::error::DecodeError> {
+        let mut payload = payload;
+        let data = match name {
             crate::McpePacketName::LoginPacket => {
-                let mut payload = payload;
                 Self::LoginPacket(
-                        <LoginPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LoginPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayStatusPacket => {
-                let mut payload = payload;
                 Self::PlayStatusPacket(
-                        <PlayStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerToClientHandshakePacket => {
-                let mut payload = payload;
                 Self::ServerToClientHandshakePacket(
-                        <ServerToClientHandshakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerToClientHandshakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientToServerHandshakePacket => {
-                let mut payload = payload;
                 Self::ClientToServerHandshakePacket(
-                        <ClientToServerHandshakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientToServerHandshakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePacksInfoPacket => {
-                let mut payload = payload;
                 Self::ResourcePacksInfoPacket(
-                        <ResourcePacksInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePacksInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePackStackPacket => {
-                let mut payload = payload;
                 Self::ResourcePackStackPacket(
-                        <ResourcePackStackPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePackStackPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::TextPacket => {
-                let mut payload = payload;
                 Self::TextPacket(
-                        <TextPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <TextPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetTimePacket => {
-                let mut payload = payload;
                 Self::SetTimePacket(
-                        <SetTimePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetTimePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RemoveActorPacket => {
-                let mut payload = payload;
                 Self::RemoveActorPacket(
-                        <RemoveActorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RemoveActorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerPlayerPostMovePositionPacket => {
-                let mut payload = payload;
                 Self::ServerPlayerPostMovePositionPacket(
-                        <ServerPlayerPostMovePositionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerPlayerPostMovePositionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::TakeItemActorPacket => {
-                let mut payload = payload;
                 Self::TakeItemActorPacket(
-                        <TakeItemActorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <TakeItemActorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MoveActorAbsolutePacket => {
-                let mut payload = payload;
                 Self::MoveActorAbsolutePacket(
-                        <MoveActorAbsolutePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MoveActorAbsolutePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MovePlayerPacket => {
-                let mut payload = payload;
                 Self::MovePlayerPacket(
-                        <MovePlayerPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MovePlayerPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateBlockPacket => {
-                let mut payload = payload;
                 Self::UpdateBlockPacket(
-                        <UpdateBlockPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateBlockPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AddPaintingPacket => {
-                let mut payload = payload;
                 Self::AddPaintingPacket(
-                        <AddPaintingPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AddPaintingPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LevelEventPacket => {
-                let mut payload = payload;
                 Self::LevelEventPacket(
-                        <LevelEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LevelEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::BlockEventPacket => {
-                let mut payload = payload;
                 Self::BlockEventPacket(
-                        <BlockEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <BlockEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ActorEventPacket => {
-                let mut payload = payload;
                 Self::ActorEventPacket(
-                        <ActorEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ActorEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MobEffectPacket => {
-                let mut payload = payload;
                 Self::MobEffectPacket(
-                        <MobEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MobEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateAttributesPacket => {
-                let mut payload = payload;
                 Self::UpdateAttributesPacket(
-                        <UpdateAttributesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateAttributesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MobEquipmentPacket => {
-                let mut payload = payload;
                 Self::MobEquipmentPacket(
-                        <MobEquipmentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MobEquipmentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MobArmorEquipmentPacket => {
-                let mut payload = payload;
                 Self::MobArmorEquipmentPacket(
-                        <MobArmorEquipmentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MobArmorEquipmentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::InteractPacket => {
-                let mut payload = payload;
                 Self::InteractPacket(
-                        <InteractPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <InteractPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::BlockPickRequestPacket => {
-                let mut payload = payload;
                 Self::BlockPickRequestPacket(
-                        <BlockPickRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <BlockPickRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ActorPickRequestPacket => {
-                let mut payload = payload;
                 Self::ActorPickRequestPacket(
-                        <ActorPickRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ActorPickRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerActionPacket => {
-                let mut payload = payload;
                 Self::PlayerActionPacket(
-                        <PlayerActionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerActionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::HurtArmorPacket => {
-                let mut payload = payload;
                 Self::HurtArmorPacket(
-                        <HurtArmorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <HurtArmorPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetActorMotionPacket => {
-                let mut payload = payload;
                 Self::SetActorMotionPacket(
-                        <SetActorMotionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetActorMotionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetActorLinkPacket => {
-                let mut payload = payload;
                 Self::SetActorLinkPacket(
-                        <SetActorLinkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetActorLinkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetHealthPacket => {
-                let mut payload = payload;
                 Self::SetHealthPacket(
-                        <SetHealthPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetHealthPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetSpawnPositionPacket => {
-                let mut payload = payload;
                 Self::SetSpawnPositionPacket(
-                        <SetSpawnPositionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetSpawnPositionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AnimatePacket => {
-                let mut payload = payload;
                 Self::AnimatePacket(
-                        <AnimatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AnimatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RespawnPacket => {
-                let mut payload = payload;
                 Self::RespawnPacket(
-                        <RespawnPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RespawnPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ContainerOpenPacket => {
-                let mut payload = payload;
                 Self::ContainerOpenPacket(
-                        <ContainerOpenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ContainerOpenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ContainerClosePacket => {
-                let mut payload = payload;
                 Self::ContainerClosePacket(
-                        <ContainerClosePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ContainerClosePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerHotbarPacket => {
-                let mut payload = payload;
                 Self::PlayerHotbarPacket(
-                        <PlayerHotbarPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerHotbarPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::InventoryContentPacket => {
-                let mut payload = payload;
                 Self::InventoryContentPacket(
-                        <InventoryContentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <InventoryContentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::InventorySlotPacket => {
-                let mut payload = payload;
                 Self::InventorySlotPacket(
-                        <InventorySlotPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <InventorySlotPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ContainerSetDataPacket => {
-                let mut payload = payload;
                 Self::ContainerSetDataPacket(
-                        <ContainerSetDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ContainerSetDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CraftingDataPacket => {
-                let mut payload = payload;
                 Self::CraftingDataPacket(
-                        <CraftingDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CraftingDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::GuiDataPickItemPacket => {
-                let mut payload = payload;
                 Self::GuiDataPickItemPacket(
-                        <GuiDataPickItemPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <GuiDataPickItemPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::BlockActorDataPacket => {
-                let mut payload = payload;
                 Self::BlockActorDataPacket(
-                        <BlockActorDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <BlockActorDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LevelChunkPacket => {
-                let mut payload = payload;
                 Self::LevelChunkPacket(
-                        <LevelChunkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LevelChunkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetCommandsEnabledPacket => {
-                let mut payload = payload;
                 Self::SetCommandsEnabledPacket(
-                        <SetCommandsEnabledPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetCommandsEnabledPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetDifficultyPacket => {
-                let mut payload = payload;
                 Self::SetDifficultyPacket(
-                        <SetDifficultyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetDifficultyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ChangeDimensionPacket => {
-                let mut payload = payload;
                 Self::ChangeDimensionPacket(
-                        <ChangeDimensionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ChangeDimensionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetPlayerGameTypePacket => {
-                let mut payload = payload;
                 Self::SetPlayerGameTypePacket(
-                        <SetPlayerGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetPlayerGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SimpleEventPacket => {
-                let mut payload = payload;
                 Self::SimpleEventPacket(
-                        <SimpleEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SimpleEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SpawnExperienceOrbPacket => {
-                let mut payload = payload;
                 Self::SpawnExperienceOrbPacket(
-                        <SpawnExperienceOrbPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SpawnExperienceOrbPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundMapItemDataPacket => {
-                let mut payload = payload;
                 Self::ClientboundMapItemDataPacket(
-                        <ClientboundMapItemDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundMapItemDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MapInfoRequestPacket => {
-                let mut payload = payload;
                 Self::MapInfoRequestPacket(
-                        <MapInfoRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MapInfoRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RequestChunkRadiusPacket => {
-                let mut payload = payload;
                 Self::RequestChunkRadiusPacket(
-                        <RequestChunkRadiusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RequestChunkRadiusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ChunkRadiusUpdatedPacket => {
-                let mut payload = payload;
                 Self::ChunkRadiusUpdatedPacket(
-                        <ChunkRadiusUpdatedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ChunkRadiusUpdatedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraPacket => {
-                let mut payload = payload;
                 Self::CameraPacket(
-                        <CameraPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::BossEventPacket => {
-                let mut payload = payload;
                 Self::BossEventPacket(
-                        <BossEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <BossEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ShowCreditsPacket => {
-                let mut payload = payload;
                 Self::ShowCreditsPacket(
-                        <ShowCreditsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ShowCreditsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AvailableCommandsPacket => {
-                let mut payload = payload;
                 Self::AvailableCommandsPacket(
-                        <AvailableCommandsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AvailableCommandsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CommandRequestPacket => {
-                let mut payload = payload;
                 Self::CommandRequestPacket(
-                        <CommandRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CommandRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CommandOutputPacket => {
-                let mut payload = payload;
                 Self::CommandOutputPacket(
-                        <CommandOutputPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CommandOutputPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateTradePacket => {
-                let mut payload = payload;
                 Self::UpdateTradePacket(
-                        <UpdateTradePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateTradePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateEquipPacket => {
-                let mut payload = payload;
                 Self::UpdateEquipPacket(
-                        <UpdateEquipPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateEquipPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePackDataInfoPacket => {
-                let mut payload = payload;
                 Self::ResourcePackDataInfoPacket(
-                        <ResourcePackDataInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePackDataInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePackChunkDataPacket => {
-                let mut payload = payload;
                 Self::ResourcePackChunkDataPacket(
-                        <ResourcePackChunkDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePackChunkDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePackChunkRequestPacket => {
-                let mut payload = payload;
                 Self::ResourcePackChunkRequestPacket(
-                        <ResourcePackChunkRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePackChunkRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::TransferPacket => {
-                let mut payload = payload;
                 Self::TransferPacket(
-                        <TransferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <TransferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlaySoundPacket => {
-                let mut payload = payload;
                 Self::PlaySoundPacket(
-                        <PlaySoundPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlaySoundPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::StopSoundPacket => {
-                let mut payload = payload;
                 Self::StopSoundPacket(
-                        <StopSoundPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <StopSoundPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetTitlePacket => {
-                let mut payload = payload;
                 Self::SetTitlePacket(
-                        <SetTitlePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetTitlePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AddBehaviorTreePacket => {
-                let mut payload = payload;
                 Self::AddBehaviorTreePacket(
-                        <AddBehaviorTreePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AddBehaviorTreePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::StructureBlockUpdatePacket => {
-                let mut payload = payload;
                 Self::StructureBlockUpdatePacket(
-                        <StructureBlockUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <StructureBlockUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ShowStoreOfferPacket => {
-                let mut payload = payload;
                 Self::ShowStoreOfferPacket(
-                        <ShowStoreOfferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ShowStoreOfferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PurchaseReceiptPacket => {
-                let mut payload = payload;
                 Self::PurchaseReceiptPacket(
-                        <PurchaseReceiptPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PurchaseReceiptPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SubClientLoginPacket => {
-                let mut payload = payload;
                 Self::SubClientLoginPacket(
-                        <SubClientLoginPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SubClientLoginPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AutomationClientConnectPacket => {
-                let mut payload = payload;
                 Self::AutomationClientConnectPacket(
-                        <AutomationClientConnectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AutomationClientConnectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetLastHurtByPacket => {
-                let mut payload = payload;
                 Self::SetLastHurtByPacket(
-                        <SetLastHurtByPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetLastHurtByPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::NpcRequestPacket => {
-                let mut payload = payload;
                 Self::NpcRequestPacket(
-                        <NpcRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <NpcRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PhotoTransferPacket => {
-                let mut payload = payload;
                 Self::PhotoTransferPacket(
-                        <PhotoTransferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PhotoTransferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ModalFormRequestPacket => {
-                let mut payload = payload;
                 Self::ModalFormRequestPacket(
-                        <ModalFormRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ModalFormRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ModalFormResponsePacket => {
-                let mut payload = payload;
                 Self::ModalFormResponsePacket(
-                        <ModalFormResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ModalFormResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerSettingsRequestPacket => {
-                let mut payload = payload;
                 Self::ServerSettingsRequestPacket(
-                        <ServerSettingsRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerSettingsRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerSettingsResponsePacket => {
-                let mut payload = payload;
                 Self::ServerSettingsResponsePacket(
-                        <ServerSettingsResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerSettingsResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ShowProfilePacket => {
-                let mut payload = payload;
                 Self::ShowProfilePacket(
-                        <ShowProfilePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ShowProfilePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetDefaultGameTypePacket => {
-                let mut payload = payload;
                 Self::SetDefaultGameTypePacket(
-                        <SetDefaultGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetDefaultGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RemoveObjectivePacket => {
-                let mut payload = payload;
                 Self::RemoveObjectivePacket(
-                        <RemoveObjectivePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RemoveObjectivePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetDisplayObjectivePacket => {
-                let mut payload = payload;
                 Self::SetDisplayObjectivePacket(
-                        <SetDisplayObjectivePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetDisplayObjectivePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LabTablePacket => {
-                let mut payload = payload;
                 Self::LabTablePacket(
-                        <LabTablePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LabTablePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateBlockSyncedPacket => {
-                let mut payload = payload;
                 Self::UpdateBlockSyncedPacket(
-                        <UpdateBlockSyncedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateBlockSyncedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MoveActorDeltaPacket => {
-                let mut payload = payload;
                 Self::MoveActorDeltaPacket(
-                        <MoveActorDeltaPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MoveActorDeltaPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetScoreboardIdentityPacket => {
-                let mut payload = payload;
                 Self::SetScoreboardIdentityPacket(
-                        <SetScoreboardIdentityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetScoreboardIdentityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetLocalPlayerAsInitializedPacket => {
-                let mut payload = payload;
                 Self::SetLocalPlayerAsInitializedPacket(
-                        <SetLocalPlayerAsInitializedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetLocalPlayerAsInitializedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateSoftEnumPacket => {
-                let mut payload = payload;
                 Self::UpdateSoftEnumPacket(
-                        <UpdateSoftEnumPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateSoftEnumPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::NetworkStackLatencyPacket => {
-                let mut payload = payload;
                 Self::NetworkStackLatencyPacket(
-                        <NetworkStackLatencyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <NetworkStackLatencyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SpawnParticleEffectPacket => {
-                let mut payload = payload;
                 Self::SpawnParticleEffectPacket(
-                        <SpawnParticleEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SpawnParticleEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AvailableActorIdentifiersPacket => {
-                let mut payload = payload;
                 Self::AvailableActorIdentifiersPacket(
-                        <AvailableActorIdentifiersPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AvailableActorIdentifiersPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::NetworkChunkPublisherUpdatePacket => {
-                let mut payload = payload;
                 Self::NetworkChunkPublisherUpdatePacket(
-                        <NetworkChunkPublisherUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <NetworkChunkPublisherUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::BiomeDefinitionListPacket => {
-                let mut payload = payload;
                 Self::BiomeDefinitionListPacket(
-                        <BiomeDefinitionListPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <BiomeDefinitionListPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LevelSoundEventPacket => {
-                let mut payload = payload;
                 Self::LevelSoundEventPacket(
-                        <LevelSoundEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LevelSoundEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LevelEventGenericPacket => {
-                let mut payload = payload;
                 Self::LevelEventGenericPacket(
-                        <LevelEventGenericPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LevelEventGenericPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LecternUpdatePacket => {
-                let mut payload = payload;
                 Self::LecternUpdatePacket(
-                        <LecternUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LecternUpdatePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientCacheStatusPacket => {
-                let mut payload = payload;
                 Self::ClientCacheStatusPacket(
-                        <ClientCacheStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientCacheStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::OnScreenTextureAnimationPacket => {
-                let mut payload = payload;
                 Self::OnScreenTextureAnimationPacket(
-                        <OnScreenTextureAnimationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <OnScreenTextureAnimationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MapCreateLockedCopyPacket => {
-                let mut payload = payload;
                 Self::MapCreateLockedCopyPacket(
-                        <MapCreateLockedCopyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MapCreateLockedCopyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::StructureTemplateDataRequestPacket => {
-                let mut payload = payload;
                 Self::StructureTemplateDataRequestPacket(
-                        <StructureTemplateDataRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <StructureTemplateDataRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::StructureTemplateDataResponsePacket => {
-                let mut payload = payload;
                 Self::StructureTemplateDataResponsePacket(
-                        <StructureTemplateDataResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <StructureTemplateDataResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientCacheBlobStatusPacket => {
-                let mut payload = payload;
                 Self::ClientCacheBlobStatusPacket(
-                        <ClientCacheBlobStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientCacheBlobStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientCacheMissResponsePacket => {
-                let mut payload = payload;
                 Self::ClientCacheMissResponsePacket(
-                        <ClientCacheMissResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientCacheMissResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::EducationSettingsPacket => {
-                let mut payload = payload;
                 Self::EducationSettingsPacket(
-                        <EducationSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <EducationSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::EmotePacket => {
-                let mut payload = payload;
                 Self::EmotePacket(
-                        <EmotePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <EmotePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MultiplayerSettingsPacket => {
-                let mut payload = payload;
                 Self::MultiplayerSettingsPacket(
-                        <MultiplayerSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MultiplayerSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SettingsCommandPacket => {
-                let mut payload = payload;
                 Self::SettingsCommandPacket(
-                        <SettingsCommandPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SettingsCommandPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AnvilDamagePacket => {
-                let mut payload = payload;
                 Self::AnvilDamagePacket(
-                        <AnvilDamagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AnvilDamagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CompletedUsingItemPacket => {
-                let mut payload = payload;
                 Self::CompletedUsingItemPacket(
-                        <CompletedUsingItemPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CompletedUsingItemPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::NetworkSettingsPacket => {
-                let mut payload = payload;
                 Self::NetworkSettingsPacket(
-                        <NetworkSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <NetworkSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CreativeContentPacket => {
-                let mut payload = payload;
                 Self::CreativeContentPacket(
-                        <CreativeContentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CreativeContentPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ItemStackResponsePacket => {
-                let mut payload = payload;
                 Self::ItemStackResponsePacket(
-                        <ItemStackResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ItemStackResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerArmorDamagePacket => {
-                let mut payload = payload;
                 Self::PlayerArmorDamagePacket(
-                        <PlayerArmorDamagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerArmorDamagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CodeBuilderPacket => {
-                let mut payload = payload;
                 Self::CodeBuilderPacket(
-                        <CodeBuilderPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CodeBuilderPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdatePlayerGameTypePacket => {
-                let mut payload = payload;
                 Self::UpdatePlayerGameTypePacket(
-                        <UpdatePlayerGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdatePlayerGameTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::EmoteListPacket => {
-                let mut payload = payload;
                 Self::EmoteListPacket(
-                        <EmoteListPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <EmoteListPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PositionTrackingDbServerBroadcastPacket => {
-                let mut payload = payload;
                 Self::PositionTrackingDbServerBroadcastPacket(
-                        <PositionTrackingDbServerBroadcastPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PositionTrackingDbServerBroadcastPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PositionTrackingDbClientRequestPacket => {
-                let mut payload = payload;
                 Self::PositionTrackingDbClientRequestPacket(
-                        <PositionTrackingDbClientRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PositionTrackingDbClientRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::DebugInfoPacket => {
-                let mut payload = payload;
                 Self::DebugInfoPacket(
-                        <DebugInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <DebugInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PacketViolationWarningPacket => {
-                let mut payload = payload;
                 Self::PacketViolationWarningPacket(
-                        <PacketViolationWarningPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PacketViolationWarningPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MotionPredictionHintsPacket => {
-                let mut payload = payload;
                 Self::MotionPredictionHintsPacket(
-                        <MotionPredictionHintsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MotionPredictionHintsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AnimateEntityPacket => {
-                let mut payload = payload;
                 Self::AnimateEntityPacket(
-                        <AnimateEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AnimateEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraShakePacket => {
-                let mut payload = payload;
                 Self::CameraShakePacket(
-                        <CameraShakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraShakePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerFogPacket => {
-                let mut payload = payload;
                 Self::PlayerFogPacket(
-                        <PlayerFogPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerFogPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CorrectPlayerMovePredictionPacket => {
-                let mut payload = payload;
                 Self::CorrectPlayerMovePredictionPacket(
-                        <CorrectPlayerMovePredictionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CorrectPlayerMovePredictionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ItemRegistryPacket => {
-                let mut payload = payload;
                 Self::ItemRegistryPacket(
-                        <ItemRegistryPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ItemRegistryPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundDebugRendererPacket => {
-                let mut payload = payload;
                 Self::ClientboundDebugRendererPacket(
-                        <ClientboundDebugRendererPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundDebugRendererPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SyncActorPropertyPacket => {
-                let mut payload = payload;
                 Self::SyncActorPropertyPacket(
-                        <SyncActorPropertyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SyncActorPropertyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AddVolumeEntityPacket => {
-                let mut payload = payload;
                 Self::AddVolumeEntityPacket(
-                        <AddVolumeEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AddVolumeEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RemoveVolumeEntityPacket => {
-                let mut payload = payload;
                 Self::RemoveVolumeEntityPacket(
-                        <RemoveVolumeEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RemoveVolumeEntityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SimulationTypePacket => {
-                let mut payload = payload;
                 Self::SimulationTypePacket(
-                        <SimulationTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SimulationTypePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::NpcDialoguePacket => {
-                let mut payload = payload;
                 Self::NpcDialoguePacket(
-                        <NpcDialoguePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <NpcDialoguePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::EduUriResourcePacket => {
-                let mut payload = payload;
                 Self::EduUriResourcePacket(
-                        <EduUriResourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <EduUriResourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CreatePhotoPacket => {
-                let mut payload = payload;
                 Self::CreatePhotoPacket(
-                        <CreatePhotoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CreatePhotoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateSubChunkBlocksPacket => {
-                let mut payload = payload;
                 Self::UpdateSubChunkBlocksPacket(
-                        <UpdateSubChunkBlocksPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateSubChunkBlocksPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SubChunkRequestPacket => {
-                let mut payload = payload;
                 Self::SubChunkRequestPacket(
-                        <SubChunkRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SubChunkRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerStartItemCooldownPacket => {
-                let mut payload = payload;
                 Self::PlayerStartItemCooldownPacket(
-                        <PlayerStartItemCooldownPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerStartItemCooldownPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ScriptMessagePacket => {
-                let mut payload = payload;
                 Self::ScriptMessagePacket(
-                        <ScriptMessagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ScriptMessagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CodeBuilderSourcePacket => {
-                let mut payload = payload;
                 Self::CodeBuilderSourcePacket(
-                        <CodeBuilderSourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CodeBuilderSourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::TickingAreasLoadStatusPacket => {
-                let mut payload = payload;
                 Self::TickingAreasLoadStatusPacket(
-                        <TickingAreasLoadStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <TickingAreasLoadStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::DimensionDataPacket => {
-                let mut payload = payload;
                 Self::DimensionDataPacket(
-                        <DimensionDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <DimensionDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AgentActionEventPacket => {
-                let mut payload = payload;
                 Self::AgentActionEventPacket(
-                        <AgentActionEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AgentActionEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ChangeMobPropertyPacket => {
-                let mut payload = payload;
                 Self::ChangeMobPropertyPacket(
-                        <ChangeMobPropertyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ChangeMobPropertyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LessonProgressPacket => {
-                let mut payload = payload;
                 Self::LessonProgressPacket(
-                        <LessonProgressPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LessonProgressPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RequestAbilityPacket => {
-                let mut payload = payload;
                 Self::RequestAbilityPacket(
-                        <RequestAbilityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RequestAbilityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RequestPermissionsPacket => {
-                let mut payload = payload;
                 Self::RequestPermissionsPacket(
-                        <RequestPermissionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RequestPermissionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ToastRequestPacket => {
-                let mut payload = payload;
                 Self::ToastRequestPacket(
-                        <ToastRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ToastRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateAbilitiesPacket => {
-                let mut payload = payload;
                 Self::UpdateAbilitiesPacket(
-                        <UpdateAbilitiesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateAbilitiesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateAdventureSettingsPacket => {
-                let mut payload = payload;
                 Self::UpdateAdventureSettingsPacket(
-                        <UpdateAdventureSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateAdventureSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::DeathInfoPacket => {
-                let mut payload = payload;
                 Self::DeathInfoPacket(
-                        <DeathInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <DeathInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::EditorNetworkPacket => {
-                let mut payload = payload;
                 Self::EditorNetworkPacket(
-                        <EditorNetworkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <EditorNetworkPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::FeatureRegistryPacket => {
-                let mut payload = payload;
                 Self::FeatureRegistryPacket(
-                        <FeatureRegistryPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <FeatureRegistryPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerStatsPacket => {
-                let mut payload = payload;
                 Self::ServerStatsPacket(
-                        <ServerStatsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerStatsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RequestNetworkSettingsPacket => {
-                let mut payload = payload;
                 Self::RequestNetworkSettingsPacket(
-                        <RequestNetworkSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RequestNetworkSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::GameTestRequestPacket => {
-                let mut payload = payload;
                 Self::GameTestRequestPacket(
-                        <GameTestRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <GameTestRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::GameTestResultsPacket => {
-                let mut payload = payload;
                 Self::GameTestResultsPacket(
-                        <GameTestResultsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <GameTestResultsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateClientInputLocksPacket => {
-                let mut payload = payload;
                 Self::UpdateClientInputLocksPacket(
-                        <UpdateClientInputLocksPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateClientInputLocksPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraPresetsPacket => {
-                let mut payload = payload;
                 Self::CameraPresetsPacket(
-                        <CameraPresetsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraPresetsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UnlockedRecipesPacket => {
-                let mut payload = payload;
                 Self::UnlockedRecipesPacket(
-                        <UnlockedRecipesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UnlockedRecipesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraInstructionPacket => {
-                let mut payload = payload;
                 Self::CameraInstructionPacket(
-                        <CameraInstructionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraInstructionPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::TrimDataPacket => {
-                let mut payload = payload;
                 Self::TrimDataPacket(
-                        <TrimDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <TrimDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::OpenSignPacket => {
-                let mut payload = payload;
                 Self::OpenSignPacket(
-                        <OpenSignPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <OpenSignPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AgentAnimationPacket => {
-                let mut payload = payload;
                 Self::AgentAnimationPacket(
-                        <AgentAnimationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AgentAnimationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::RefreshEntitlementsPacket => {
-                let mut payload = payload;
                 Self::RefreshEntitlementsPacket(
-                        <RefreshEntitlementsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <RefreshEntitlementsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PlayerToggleCrafterSlotRequestPacket => {
-                let mut payload = payload;
                 Self::PlayerToggleCrafterSlotRequestPacket(
-                        <PlayerToggleCrafterSlotRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PlayerToggleCrafterSlotRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetPlayerInventoryOptionsPacket => {
-                let mut payload = payload;
                 Self::SetPlayerInventoryOptionsPacket(
-                        <SetPlayerInventoryOptionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetPlayerInventoryOptionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SetHudPacket => {
-                let mut payload = payload;
                 Self::SetHudPacket(
-                        <SetHudPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SetHudPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::AwardAchievementPacket => {
-                let mut payload = payload;
                 Self::AwardAchievementPacket(
-                        <AwardAchievementPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <AwardAchievementPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundCloseFormPacket => {
-                let mut payload = payload;
                 Self::ClientboundCloseFormPacket(
-                        <ClientboundCloseFormPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundCloseFormPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerboundLoadingScreenPacket => {
-                let mut payload = payload;
                 Self::ServerboundLoadingScreenPacket(
-                        <ServerboundLoadingScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerboundLoadingScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::JigsawStructureDataPacket => {
-                let mut payload = payload;
                 Self::JigsawStructureDataPacket(
-                        <JigsawStructureDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <JigsawStructureDataPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CurrentStructureFeaturePacket => {
-                let mut payload = payload;
                 Self::CurrentStructureFeaturePacket(
-                        <CurrentStructureFeaturePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CurrentStructureFeaturePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerboundDiagnosticsPacket => {
-                let mut payload = payload;
                 Self::ServerboundDiagnosticsPacket(
-                        <ServerboundDiagnosticsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerboundDiagnosticsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraAimAssistPacket => {
-                let mut payload = payload;
                 Self::CameraAimAssistPacket(
-                        <CameraAimAssistPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraAimAssistPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ContainerRegistryCleanupPacket => {
-                let mut payload = payload;
                 Self::ContainerRegistryCleanupPacket(
-                        <ContainerRegistryCleanupPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ContainerRegistryCleanupPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::MovementEffectPacket => {
-                let mut payload = payload;
                 Self::MovementEffectPacket(
-                        <MovementEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <MovementEffectPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraAimAssistPresetsPacket => {
-                let mut payload = payload;
                 Self::CameraAimAssistPresetsPacket(
-                        <CameraAimAssistPresetsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraAimAssistPresetsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientCameraAimAssistPacket => {
-                let mut payload = payload;
                 Self::ClientCameraAimAssistPacket(
-                        <ClientCameraAimAssistPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientCameraAimAssistPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::UpdateClientOptionsPacket => {
-                let mut payload = payload;
                 Self::UpdateClientOptionsPacket(
-                        <UpdateClientOptionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <UpdateClientOptionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundControlSchemeSetPacket => {
-                let mut payload = payload;
                 Self::ClientboundControlSchemeSetPacket(
-                        <ClientboundControlSchemeSetPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundControlSchemeSetPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::GraphicsOverrideParameterPacket => {
-                let mut payload = payload;
                 Self::GraphicsOverrideParameterPacket(
-                        <GraphicsOverrideParameterPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <GraphicsOverrideParameterPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundDataDrivenUiShowScreenPacket => {
-                let mut payload = payload;
                 Self::ClientboundDataDrivenUiShowScreenPacket(
-                        <ClientboundDataDrivenUiShowScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundDataDrivenUiShowScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundDataDrivenUiCloseScreenPacket => {
-                let mut payload = payload;
                 Self::ClientboundDataDrivenUiCloseScreenPacket(
-                        <ClientboundDataDrivenUiCloseScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundDataDrivenUiCloseScreenPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundDataDrivenUiReloadPacket => {
-                let mut payload = payload;
                 Self::ClientboundDataDrivenUiReloadPacket(
-                        <ClientboundDataDrivenUiReloadPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundDataDrivenUiReloadPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ClientboundTextureShiftPacket => {
-                let mut payload = payload;
                 Self::ClientboundTextureShiftPacket(
-                        <ClientboundTextureShiftPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ClientboundTextureShiftPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::VoxelShapesPacket => {
-                let mut payload = payload;
                 Self::VoxelShapesPacket(
-                        <VoxelShapesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <VoxelShapesPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraSplinePacket => {
-                let mut payload = payload;
                 Self::CameraSplinePacket(
-                        <CameraSplinePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraSplinePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::CameraAimAssistActorPriorityPacket => {
-                let mut payload = payload;
                 Self::CameraAimAssistActorPriorityPacket(
-                        <CameraAimAssistActorPriorityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <CameraAimAssistActorPriorityPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ResourcePacksReadyForValidationPacket => {
-                let mut payload = payload;
                 Self::ResourcePacksReadyForValidationPacket(
-                        <ResourcePacksReadyForValidationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ResourcePacksReadyForValidationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::LocatorBarPacket => {
-                let mut payload = payload;
                 Self::LocatorBarPacket(
-                        <LocatorBarPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <LocatorBarPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PartyChangedPacket => {
-                let mut payload = payload;
                 Self::PartyChangedPacket(
-                        <PartyChangedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PartyChangedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerboundDataDrivenScreenClosedPacket => {
-                let mut payload = payload;
                 Self::ServerboundDataDrivenScreenClosedPacket(
-                        <ServerboundDataDrivenScreenClosedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerboundDataDrivenScreenClosedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerStoreInfoPacket => {
-                let mut payload = payload;
                 Self::ServerStoreInfoPacket(
-                        <ServerStoreInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerStoreInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::ServerPresenceInfoPacket => {
-                let mut payload = payload;
                 Self::ServerPresenceInfoPacket(
-                        <ServerPresenceInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <ServerPresenceInfoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::SendPartyDestinationCookiePacket => {
-                let mut payload = payload;
                 Self::SendPartyDestinationCookiePacket(
-                        <SendPartyDestinationCookiePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <SendPartyDestinationCookiePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
             crate::McpePacketName::PartyDestinationCookieResponsePacket => {
-                let mut payload = payload;
                 Self::PartyDestinationCookieResponsePacket(
-                        <PartyDestinationCookieResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            &mut payload,
-                            (),
-                        )?,
-                    )
+                    <PartyDestinationCookieResponsePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
             }
-            _ => Self::Raw { name, payload },
-        })
+            _ => return Ok((Self::Raw { name, payload }, 0)),
+        };
+        let remaining = bytes::Buf::remaining(&payload);
+        Ok((data, remaining))
     }
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -44143,11 +43954,19 @@ impl BorrowedMcpePacket {
     pub fn decode_inner(
         buf: &mut bytes::Bytes,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        Ok(Self::decode_inner_with_remaining(buf)?.0)
+    }
+    /// Decodes one length-prefixed inner frame and also returns the
+    /// number of declared payload bytes the packet decoder did not
+    /// consume, so callers can reject trailing-byte frames.
+    pub fn decode_inner_with_remaining(
+        buf: &mut bytes::Bytes,
+    ) -> Result<(Self, usize), crate::bedrock::error::DecodeError> {
         let mut frame = crate::bedrock::borrowed::take_var_u32_prefixed_bytes(buf)?;
         let header_raw = crate::protocol::wire::read_var_u32(&mut frame)?;
         let payload_len = bytes::Buf::remaining(&frame);
         let payload = frame.split_to(payload_len);
-        Self::from_raw_frame(crate::bedrock::borrowed::RawMcpeFrame {
+        Self::from_raw_frame_with_remaining(crate::bedrock::borrowed::RawMcpeFrame {
             header: crate::bedrock::borrowed::RawMcpeHeader {
                 id_raw: header_raw & 0x3ff,
                 from_subclient: (header_raw >> 10) & 0x3,
@@ -44165,6 +43984,13 @@ impl BorrowedMcpePacket {
     pub fn from_raw_frame(
         frame: crate::bedrock::borrowed::RawMcpeFrame,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        Ok(Self::from_raw_frame_with_remaining(frame)?.0)
+    }
+    /// Like [`Self::from_raw_frame`], but also reports the number of
+    /// payload bytes left unconsumed inside the frame.
+    pub fn from_raw_frame_with_remaining(
+        frame: crate::bedrock::borrowed::RawMcpeFrame,
+    ) -> Result<(Self, usize), crate::bedrock::error::DecodeError> {
         let name = match frame.header.id_raw {
             1u32 => crate::McpePacketName::LoginPacket,
             2u32 => crate::McpePacketName::PlayStatusPacket,
@@ -44399,11 +44225,14 @@ impl BorrowedMcpePacket {
                 return Err(crate::bedrock::error::DecodeError::InvalidPacketId { id });
             }
         };
-        let data = BorrowedMcpePacketData::decode_payload(name, frame.payload)?;
-        Ok(Self {
-            header: frame.header,
-            data,
-        })
+        let (data, remaining) = BorrowedMcpePacketData::decode_payload(name, frame.payload)?;
+        Ok((
+            Self {
+                header: frame.header,
+                data,
+            },
+            remaining,
+        ))
     }
     pub fn packet_id(&self) -> crate::McpePacketName {
         self.data.packet_id()
