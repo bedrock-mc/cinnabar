@@ -820,17 +820,6 @@ pub(crate) const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
 pub(crate) const LEVEL_EVENT_STOP_BLOCK_CRACKING: i32 = 3601;
 pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
 
-/// Whether a LevelEvent id is one of the three block-cracking events.
-#[must_use]
-pub(crate) const fn is_block_crack_event(event_id: i32) -> bool {
-    matches!(
-        event_id,
-        LEVEL_EVENT_START_BLOCK_CRACKING
-            | LEVEL_EVENT_STOP_BLOCK_CRACKING
-            | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
-    )
-}
-
 /// Normalizes block cracking without inventing a stage or actor ID.
 ///
 /// The wire `data` field is the server-authored progress rate (`65535 / break_ticks`).

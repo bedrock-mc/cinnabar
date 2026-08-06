@@ -478,21 +478,22 @@ pub(crate) fn validate_raw_inventory_packet(
             let count = read_count(&mut body)?;
             validate_slot_count(count)?;
             for _ in 0..count {
-                scan_item_v4(&mut body)?;
+                scan_item_descriptor(&mut body)?;
             }
             scan_full_container(&mut body)?;
-            scan_item_v4(&mut body)?;
+            scan_item_descriptor(&mut body)?;
         }
         McpePacketName::InventorySlotPacket => {
-            read_var_i32(&mut body)?;
+            // The container ID is a plain byte in 1.26.40, not a varint.
+            take_u8(&mut body)?;
             read_var_i32(&mut body)?;
             if read_presence(&mut body)? {
                 scan_full_container(&mut body)?;
             }
             if read_presence(&mut body)? {
-                scan_item_new(&mut body)?;
+                scan_item_descriptor(&mut body)?;
             }
-            scan_item_new(&mut body)?;
+            scan_item_descriptor(&mut body)?;
         }
         McpePacketName::ItemStackResponsePacket => scan_stack_responses(&mut body)?,
         _ => {}
@@ -511,7 +512,9 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
     for _ in 0..response_count {
         let status = take_u8(body)?;
         read_var_i32(body)?;
-        if status != 0 {
+        // The container list is a double optional now: a presence byte gates the
+        // whole list, and it may be absent even on a successful response.
+        if status != 0 || !read_presence(body)? {
             continue;
         }
         let container_count = read_count(body)?;
@@ -531,10 +534,18 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
                 });
             }
             for _ in 0..slot_count {
+                // requested_slot, slot, amount
                 take_bytes(body, 3)?;
-                read_var_i32(body)?;
+                // The stack net ID is a double optional in 1.26.40.
+                if read_presence(body)? {
+                    read_var_i32(body)?;
+                }
+                // The two custom names are one redactable string: the unredacted
+                // value, then an optional redacted one.
                 scan_response_name(body)?;
-                scan_response_name(body)?;
+                if read_presence(body)? {
+                    scan_response_name(body)?;
+                }
                 read_var_i32(body)?;
             }
         }
@@ -553,22 +564,17 @@ fn scan_response_name(body: &mut Bytes) -> Result<(), InventoryPacketError> {
     take_bytes(body, length)
 }
 
-fn scan_item_v4(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+/// Walks one item descriptor without materialising it.
+///
+/// Protocol 1001 needed a scanner per item encoding; 1.26.40 has one shape. The
+/// layout is `id: i16 LE`, `stacksize: u16 LE`, `auxvalue` varint, an optional
+/// net ID (presence byte then one zigzag varint -- the old model wrote two
+/// varints here for its `empty`/`id` pair), `block_runtime_id` varint, and the
+/// length-prefixed user-data buffer.
+fn scan_item_descriptor(body: &mut Bytes) -> Result<(), InventoryPacketError> {
     take_bytes(body, 4)?;
     read_var_i32(body)?;
     if read_presence(body)? {
-        read_var_i32(body)?;
-        read_var_i32(body)?;
-    }
-    read_var_i32(body)?;
-    scan_item_extra(body)
-}
-
-fn scan_item_new(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    take_bytes(body, 4)?;
-    read_var_i32(body)?;
-    if read_presence(body)? {
-        read_var_i32(body)?;
         read_var_i32(body)?;
     }
     read_var_i32(body)?;

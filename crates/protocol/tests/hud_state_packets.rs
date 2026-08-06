@@ -243,7 +243,9 @@ fn set_entity_link_normalizes_typed_rider_links() {
                 target_a: ActorUniqueId {
                     actor_unique_id: -55,
                 },
-                target_b: ActorUniqueId { actor_unique_id: -7 },
+                target_b: ActorUniqueId {
+                    actor_unique_id: -7,
+                },
                 type_: wire,
                 immediate: true,
                 passenger_initiated: false,
@@ -316,8 +318,11 @@ fn world_bootstrap_carries_the_local_player_unique_id() {
         entity_identifiers: None,
         creative_content: None,
     };
-    game_data.start_game.entity_id = -3;
-    game_data.start_game.runtime_entity_id = 3;
+    // 1.26.40 wraps both StartGame ids in named newtypes.
+    game_data.start_game.entity_id = ActorUniqueId {
+        actor_unique_id: -3,
+    };
+    game_data.start_game.runtime_id = runtime_id(3);
     let bootstrap = protocol::WorldBootstrap::from_game_data(&game_data);
     assert_eq!(bootstrap.local_player_unique_id, -3);
     assert_eq!(bootstrap.local_player_runtime_id, 3);

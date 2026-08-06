@@ -191,15 +191,20 @@ fn validate_raw_soft_enum_packet(mut payload: Bytes) -> Result<(), ProtocolError
     Ok(())
 }
 
+/// Bounds and UTF-8-checks a SetScore frame before the owned decoder allocates.
+///
+/// 1.26.40 moved the action from the packet header onto each entry, so a single
+/// packet may mix removals with changes. The layout below is gophertunnel's
+/// `ScoreboardEntry.Marshal` (`minecraft/protocol/scoreboard.go`): a varuint32
+/// variant, the lowercase variant name, a varint64 entry ID, and then a
+/// variant-specific body. This still runs before `SetScorePacket::decode`, which
+/// reserves capacity from the entry count without an upper bound of its own.
 fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
-    let action = u8::decode(&mut payload, ())?;
-    if action > 1 {
-        return Err(UiPacketError::UnknownEnum {
-            kind: "score action",
-            value: i64::from(action),
-        }
-        .into());
-    }
+    const REMOVE: i64 = 0;
+    const CHANGE_PLAYER: i64 = 1;
+    const CHANGE_ENTITY: i64 = 2;
+    const CHANGE_FAKE_PLAYER: i64 = 3;
+
     let count_raw = VarInt::decode(&mut payload, ())?.0 as i64;
     if count_raw < 0 {
         return Err(
@@ -215,26 +220,33 @@ fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
         .into());
     }
     for _ in 0..count {
+        let variant = i64::from(u8::decode(&mut payload, ())?);
+        if !matches!(
+            variant,
+            REMOVE | CHANGE_PLAYER | CHANGE_ENTITY | CHANGE_FAKE_PLAYER
+        ) {
+            return Err(UiPacketError::UnknownEnum {
+                kind: "score action",
+                value: variant,
+            }
+            .into());
+        }
+        // The variant name string gophertunnel writes after the tag.
+        let _action = take_raw_ui_text(&mut payload, "score.action")?;
         let _scoreboard_id = ZigZag64::decode(&mut payload, ())?;
+        if variant == REMOVE {
+            // A removal carries only an optional objective name.
+            if bool::decode(&mut payload, ())? {
+                let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
+            }
+            continue;
+        }
         let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
         let _score = I32LE::decode(&mut payload, ())?;
-        if action == 0 {
-            let identity = i8::decode(&mut payload, ())?;
-            match identity {
-                1 | 2 => {
-                    let _entity_id = ZigZag64::decode(&mut payload, ())?;
-                }
-                3 => {
-                    let _custom_name = take_raw_ui_text(&mut payload, "score.custom_name")?;
-                }
-                value => {
-                    return Err(UiPacketError::UnknownEnum {
-                        kind: "score identity",
-                        value: i64::from(value),
-                    }
-                    .into());
-                }
-            }
+        if variant == CHANGE_FAKE_PLAYER {
+            let _fake_player_name = take_raw_ui_text(&mut payload, "score.custom_name")?;
+        } else {
+            let _entity_id = ZigZag64::decode(&mut payload, ())?;
         }
     }
     Ok(())

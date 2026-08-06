@@ -52,8 +52,10 @@ pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
 
 /// Maximum live biome definitions retained from one server packet.
 ///
-/// This matches the generated v1001 packet decoder's collection ceiling, and
-/// is repeated here because callers may construct generated packets directly.
+/// This matched the 1.26.30 generated decoder's own collection ceiling. The
+/// 1.26.40 generated crate emits no collection ceilings at all (see the module
+/// header of `tests/world_collection_bounds.rs`), so this is now the only bound
+/// applied to the list and it must stay enforced here.
 pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
@@ -515,6 +517,13 @@ pub enum WorldPacketError {
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
 
+    /// Unreachable since 1.26.40.
+    ///
+    /// The limit is no longer gated behind a `-2` SubChunkCount sentinel that a
+    /// server could set without supplying the value; gophertunnel
+    /// `packet/level_chunk.go` models it as `SubChunkLimit Optional[int32]`, so
+    /// "request mode" and "limit present" are the same bit. Retained so the
+    /// public error surface does not change.
     #[error("limited LevelChunk omitted HighestSubChunk")]
     MissingHighestSubChunk,
 

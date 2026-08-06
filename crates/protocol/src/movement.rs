@@ -138,22 +138,29 @@ pub fn player_auth_input(
         },
         client_tick: PlayerInputTick { inputtick: tick },
         pos_delta: vec3(snapshot.delta),
-        // Each of these pairs is one of gophertunnel's DoubleOptionalFunc
-        // fields: a bool that gates whether the payload follows.
-        constant_12: false,
+        // These are the OUTER bool of each of gophertunnel's DoubleOptionalFunc
+        // fields (minecraft/protocol/io.go): `outer := true; r.Bool(&outer);
+        // if outer { OptionalFunc(...) }`. A Go writer can never emit false
+        // here -- it is hardcoded true -- and the generated Option's own
+        // presence byte is the inner flag that actually says "no payload".
+        constant_12: true,
         item_use_transaction: None,
-        constant_14: false,
+        constant_14: true,
         item_stack_request: None,
-        constant_16: false,
+        constant_16: true,
         player_block_actions: None,
-        constant_18: false,
+        constant_18: true,
         vehicle_rotation: None,
-        constant_20: false,
+        constant_20: true,
         client_predicted_vehicle: None,
         analog_move_vector: vec2(snapshot.analogue_move_vector),
         camera_orientation: vec3(snapshot.camera_orientation),
         raw_move_vector: vec2(snapshot.raw_move_vector),
-        constant_4: false,
+        // The presence bool gophertunnel's InputFlagList writes before the flag
+        // count (minecraft/protocol/input_flags.go). Writing false here would
+        // make a peer read zero flags and then consume the count byte as the
+        // input mode, desyncing the rest of the packet.
+        constant_4: true,
     }
     .into())
 }

@@ -261,7 +261,13 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
         r#"{"rawtext":"not-an-array"}"#,
     ] {
         assert!(parse_raw_text(value).is_err(), "accepted {value}");
-        assert!(normalize_json(TextPacketPayloadMessageOnlyMessageType::TextObject, value.to_owned()).is_err());
+        assert!(
+            normalize_json(
+                TextPacketPayloadMessageOnlyMessageType::TextObject,
+                value.to_owned()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -425,7 +431,10 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 #[test]
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
-        (SetTitlePacketTitleType::TitleTextObject, TitleAction::SetTitleJson),
+        (
+            SetTitlePacketTitleType::TitleTextObject,
+            TitleAction::SetTitleJson,
+        ),
         (
             SetTitlePacketTitleType::SubtitleTextObject,
             TitleAction::SetSubtitleJson,

@@ -742,7 +742,7 @@ fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), Item
 /// that actually imply handedness need naming.
 fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
     const INVENTORY: u8 = 0;
-    // 119 as a u8 is the two's-complement image of the signed -9 offhand ID.
+    // The offhand container ID, matching gophertunnel's ContainerIDOffhand.
     const OFFHAND: u8 = 119;
     const HOTBAR: u8 = 122;
 

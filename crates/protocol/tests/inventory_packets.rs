@@ -9,14 +9,14 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_40::{
-    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, ContainerSlotType,
-    FullContainerName, InventoryContentPacket, InventorySlotPacket, InventorySlotPacketArgs,
-    ItemExtraDataWithoutBlockingTick, ItemNew, ItemNewExtra, ItemStackResponsePacket,
-    ItemStackResponsesItem, ItemStackResponsesItemContent,
-    ItemStackResponsesItemContentContainersItem,
-    ItemStackResponsesItemContentContainersItemSlotsItem, ItemStackResponsesItemStatus, ItemV4,
-    ItemV4NetIdVariant, ItemV4NetIdVariantType, McpePacketData, PlayerHotbarPacket, WindowId,
-    WindowIdVarint, WindowType,
+    ActorUniqueId, BedrockSafetyRedactableString, BlockPos,
+    CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
+    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
+    FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
+    ItemStackResponseContainerInfo, ItemStackResponseInfo, ItemStackResponseInfoResult,
+    ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData, PlayerHotbarPacket,
+    TypedClientNetIdStructItemStackRequestIdTagInt32T0,
+    TypedServerNetIdStructItemStackNetIdTagInt32T0,
 };
 
 const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin");
@@ -24,38 +24,100 @@ const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
 const HOTBAR_FIXTURE: &[u8] = include_bytes!("../fixtures/player_hotbar.bin");
 const RESPONSE_FIXTURE: &[u8] = include_bytes!("../fixtures/item_stack_response.bin");
 
-fn item_v4(network_id: i16, count: u16, stack_network_id: i32, extra: &[u8]) -> ItemV4 {
-    ItemV4 {
-        network_id,
-        count,
-        metadata: -2,
-        net_id_variant: Some(ItemV4NetIdVariant {
-            type_: ItemV4NetIdVariantType::ItemStackNetId,
-            id: stack_network_id,
-        }),
+/// `CONTAINER_ID_INVENTORY`. 1.26.40 carries raw container IDs rather than the
+/// named `WindowId` / `WindowIdVarint` enums protocol 1001 modelled.
+const INVENTORY_CONTAINER: u8 = 0;
+/// `CONTAINER_ID_FIRST`, the first server-assigned container window.
+const FIRST_CONTAINER: u8 = 1;
+/// `ContainerType::Container`, the wire code the named `WindowType` enum used.
+const CONTAINER_TYPE: u8 = 0;
+
+/// Builds an item user-data buffer that carries no NBT compound.
+///
+/// The three protocol-1001 item encodings collapse into one descriptor whose
+/// trailing user data is an opaque length-prefixed buffer, so fixtures spell the
+/// layout out instead of naming interior fields. gophertunnel
+/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/writer.go`
+/// `Writer.itemUserData`: an `int16` of 0 means "no compound", then `canPlaceOn`
+/// and `canBreak` as `uint32`-counted lists of `StringUTF` (an `int16` length
+/// prefix). The shield blocking tick is written only for shield items.
+fn item_user_data(can_place_on: &[&str]) -> Vec<u8> {
+    let mut buffer = 0i16.to_le_bytes().to_vec();
+    buffer.extend((can_place_on.len() as u32).to_le_bytes());
+    for identifier in can_place_on {
+        buffer.extend((identifier.len() as i16).to_le_bytes());
+        buffer.extend_from_slice(identifier.as_bytes());
+    }
+    buffer.extend(0u32.to_le_bytes());
+    buffer
+}
+
+/// One item descriptor. Protocol 1001 needed an `ItemV4` and an `ItemNew`
+/// builder here because the schema modelled the content and slot encodings
+/// separately; 1.26.40 puts the same descriptor in both places.
+fn item(id: i16, stacksize: u16, stack_network_id: i32, user_data: Vec<u8>) -> ItemStackDescriptor {
+    ItemStackDescriptor {
+        id,
+        stacksize,
+        auxvalue: -2,
+        net_id_variant: Some(stack_network_id),
         block_runtime_id: 91,
-        extra_data: extra.to_vec(),
+        user_data_buffer: user_data,
     }
 }
 
-fn item_new(network_id: i16, count: u16, stack_network_id: i32) -> ItemNew {
-    ItemNew {
-        network_id,
-        count,
-        metadata: 3,
-        stack_id: Some(valentine::bedrock::version::v1_26_40::ItemNewStackId {
-            empty: 0,
-            id: stack_network_id,
-        }),
-        block_runtime_id: 92,
-        extra: ItemNewExtra::Default(ItemExtraDataWithoutBlockingTick::default()),
-    }
-}
-
-fn full_container(slot_type: ContainerSlotType, dynamic_id: Option<u32>) -> FullContainerName {
+fn full_container(
+    container_name: FullContainerNameContainerName,
+    dynamic_id: Option<u32>,
+) -> FullContainerName {
     FullContainerName {
-        container_id: slot_type,
-        dynamic_container_id: dynamic_id,
+        container_name,
+        dynamic_id,
+    }
+}
+
+/// One response slot. `constant_3` is the always-true outer flag of the
+/// double-optional the stack net ID is written behind: gophertunnel
+/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/io.go`
+/// `DoubleOptionalFunc` writes `outer := true` and then the inner presence bool.
+/// The two protocol-1001 name fields are now the unredacted and redacted halves
+/// of one redactable string (`minecraft/protocol/item_stack.go` writes
+/// `CustomName` then `FilteredCustomName`).
+fn response_slot(
+    slot: u8,
+    amount: u8,
+    item_stack_id: i32,
+    custom_name: &str,
+    filtered_custom_name: &str,
+    durability_correction: i32,
+) -> ItemStackResponseSlotInfo {
+    ItemStackResponseSlotInfo {
+        requested_slot: slot,
+        slot,
+        amount,
+        constant_3: true,
+        item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 {
+            id: item_stack_id,
+        }),
+        custom_name: BedrockSafetyRedactableString {
+            unredacted: custom_name.to_owned(),
+            redacted: Some(filtered_custom_name.to_owned()),
+        },
+        durability_correction,
+    }
+}
+
+/// One accepted response. `constant_2` is the outer flag of the same
+/// double-optional wrapping the container list.
+fn accepted_response(
+    request_id: i32,
+    containers: Vec<ItemStackResponseContainerInfo>,
+) -> ItemStackResponseInfo {
+    ItemStackResponseInfo {
+        result: ItemStackResponseInfoResult::Success,
+        client_request_id: TypedClientNetIdStructItemStackRequestIdTagInt32T0 { id: request_id },
+        constant_2: true,
+        containers: Some(containers),
     }
 }
 
@@ -110,11 +172,18 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
 
 #[test]
 fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() {
+    let first_user_data = item_user_data(&["minecraft:stone"]);
     let content = InventoryContentPacket {
-        window_id: WindowIdVarint::Inventory,
-        input: vec![item_v4(5, 2, 11, b"first"), item_v4(6, 3, 12, b"second")],
-        container: full_container(ContainerSlotType::HotbarAndInventory, Some(7)),
-        storage_item: ItemV4::default(),
+        container_id: i32::from(INVENTORY_CONTAINER),
+        slots: vec![
+            item(5, 2, 11, first_user_data.clone()),
+            item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
+        ],
+        full_container_name: full_container(
+            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer,
+            Some(7),
+        ),
+        storage_item: ItemStackDescriptor::default(),
     };
     let InventoryEvent::Content(content) = normalize_content(content).unwrap() else {
         panic!("expected content event")
@@ -125,15 +194,18 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert_eq!(content.slots[0].network_id, 5);
     assert_eq!(content.slots[1].network_id, 6);
     assert_eq!(content.slots[0].metadata, u32::MAX - 1);
-    let first_digest: [u8; 32] = Sha256::digest(b"first").into();
+    let first_digest: [u8; 32] = Sha256::digest(&first_user_data).into();
     assert_eq!(content.slots[0].nbt_digest, first_digest);
 
     let slot = InventorySlotPacket {
-        window_id: WindowIdVarint::Inventory,
+        container_id: INVENTORY_CONTAINER,
         slot: 8,
-        container: Some(full_container(ContainerSlotType::Inventory, None)),
+        full_container_name: Some(full_container(
+            FullContainerNameContainerName::InventoryContainer,
+            None,
+        )),
         storage_item: None,
-        item: item_new(7, 4, 13),
+        item: item(7, 4, 13, Vec::new()),
     };
     let InventoryEvent::Slot(slot) = normalize_slot(slot).unwrap() else {
         panic!("expected slot event")
@@ -144,8 +216,8 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
 
     let hotbar = PlayerHotbarPacket {
         selected_slot: 4,
-        window_id: WindowId::Inventory,
-        select_slot: true,
+        container_id: INVENTORY_CONTAINER,
+        shouldselectslot: true,
     };
     let InventoryEvent::SelectedSlot(selected) = normalize_hotbar(hotbar).unwrap() else {
         panic!("expected selected-slot event")
@@ -154,24 +226,16 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert!(selected.select_slot);
 
     let response = ItemStackResponsePacket {
-        responses: vec![ItemStackResponsesItem {
-            status: ItemStackResponsesItemStatus::Ok,
-            request_id: 44,
-            content: Some(ItemStackResponsesItemContent {
-                containers: vec![ItemStackResponsesItemContentContainersItem {
-                    slot_type: full_container(ContainerSlotType::Hotbar, Some(9)),
-                    slots: vec![ItemStackResponsesItemContentContainersItemSlotsItem {
-                        slot: 2,
-                        hotbar_slot: 2,
-                        count: 5,
-                        item_stack_id: 13,
-                        custom_name: "named".to_owned(),
-                        filtered_custom_name: "filtered".to_owned(),
-                        durability_correction: -3,
-                    }],
-                }],
-            }),
-        }],
+        responses: vec![accepted_response(
+            44,
+            vec![ItemStackResponseContainerInfo {
+                full_container_name: full_container(
+                    FullContainerNameContainerName::HotbarContainer,
+                    Some(9),
+                ),
+                slots: vec![response_slot(2, 5, 13, "named", "filtered", -3)],
+            }],
+        )],
     };
     let InventoryEvent::Response(response) = normalize_response(response).unwrap() else {
         panic!("expected response event")
@@ -187,12 +251,20 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             .as_ref(),
         "named"
     );
+    assert_eq!(
+        response.responses[0].containers[0].slots[0]
+            .filtered_custom_name
+            .as_ref(),
+        "filtered"
+    );
 
     let open = ContainerOpenPacket {
-        window_id: WindowId::First,
-        window_type: WindowType::Container,
-        coordinates: valentine::bedrock::version::v1_26_40::BlockCoordinates { x: 1, y: 64, z: -2 },
-        runtime_entity_id: -77,
+        container_id: FIRST_CONTAINER,
+        container_type: CONTAINER_TYPE,
+        position: BlockPos { x: 1, y: 64, z: -2 },
+        target_actor_id: ActorUniqueId {
+            actor_unique_id: -77,
+        },
     };
     let InventoryEvent::Open(open) = normalize_container_open(open).unwrap() else {
         panic!("expected open event")
@@ -202,17 +274,17 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert_eq!(open.runtime_entity_id, -77);
 
     let close = ContainerClosePacket {
-        window_id: WindowId::First,
-        window_type: WindowType::Container,
-        server: true,
+        container_id: FIRST_CONTAINER,
+        container_type: CONTAINER_TYPE,
+        server_initiated_close: true,
     };
     assert!(matches!(
         normalize_container_close(close).unwrap(),
         InventoryEvent::Close(_)
     ));
     let data = ContainerSetDataPacket {
-        window_id: WindowId::First,
-        property: -4,
+        container_id: FIRST_CONTAINER,
+        id: -4,
         value: 99,
     };
     assert!(matches!(
@@ -233,10 +305,13 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     );
 
     let unknown = InventoryContentPacket {
-        window_id: WindowIdVarint::Unknown(-777),
-        input: Vec::new(),
-        container: full_container(ContainerSlotType::Unknown(211), Some(u32::MAX)),
-        storage_item: ItemV4::default(),
+        container_id: -777,
+        slots: Vec::new(),
+        full_container_name: full_container(
+            FullContainerNameContainerName::Unknown(211),
+            Some(u32::MAX),
+        ),
+        storage_item: ItemStackDescriptor::default(),
     };
     let InventoryEvent::Content(content) = normalize_content(unknown).unwrap() else {
         panic!("expected content event")
@@ -246,10 +321,10 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     assert_eq!(content.container.dynamic_id, Some(u32::MAX));
 
     let negative_item_id = InventoryContentPacket {
-        window_id: WindowIdVarint::Inventory,
-        input: vec![item_v4(-5, 1, 1, b"")],
-        container: FullContainerName::default(),
-        storage_item: ItemV4::default(),
+        container_id: i32::from(INVENTORY_CONTAINER),
+        slots: vec![item(-5, 1, 1, Vec::new())],
+        full_container_name: FullContainerName::default(),
+        storage_item: ItemStackDescriptor::default(),
     };
     let InventoryEvent::Content(content) = normalize_content(negative_item_id).unwrap() else {
         panic!("expected content event")
@@ -260,11 +335,11 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
 #[test]
 fn invalid_slots_items_and_collection_sizes_fail_closed() {
     let invalid_slot = InventorySlotPacket {
-        window_id: WindowIdVarint::Inventory,
+        container_id: INVENTORY_CONTAINER,
         slot: -1,
-        container: None,
+        full_container_name: None,
         storage_item: None,
-        item: item_new(1, 1, 1),
+        item: item(1, 1, 1, Vec::new()),
     };
     assert_eq!(
         normalize_slot(invalid_slot).unwrap_err(),
@@ -272,10 +347,10 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let oversized = InventoryContentPacket {
-        window_id: WindowIdVarint::Inventory,
-        input: vec![ItemV4::default(); MAX_CONTAINER_SLOTS + 1],
-        container: FullContainerName::default(),
-        storage_item: ItemV4::default(),
+        container_id: i32::from(INVENTORY_CONTAINER),
+        slots: vec![ItemStackDescriptor::default(); MAX_CONTAINER_SLOTS + 1],
+        full_container_name: FullContainerName::default(),
+        storage_item: ItemStackDescriptor::default(),
     };
     assert_eq!(
         normalize_content(oversized).unwrap_err(),
@@ -286,15 +361,10 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let bad_extra = InventoryContentPacket {
-        window_id: WindowIdVarint::Inventory,
-        input: vec![item_v4(
-            1,
-            1,
-            1,
-            &vec![0; protocol::MAX_ITEM_EXTRA_BYTES + 1],
-        )],
-        container: FullContainerName::default(),
-        storage_item: ItemV4::default(),
+        container_id: i32::from(INVENTORY_CONTAINER),
+        slots: vec![item(1, 1, 1, vec![0; protocol::MAX_ITEM_EXTRA_BYTES + 1])],
+        full_container_name: FullContainerName::default(),
+        storage_item: ItemStackDescriptor::default(),
     };
     assert!(matches!(
         normalize_content(bad_extra),
@@ -313,7 +383,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
 #[test]
 fn response_nested_collection_bounds_are_checked_before_retention() {
     let too_many_responses = ItemStackResponsePacket {
-        responses: vec![ItemStackResponsesItem::default(); MAX_STACK_RESPONSES + 1],
+        responses: vec![ItemStackResponseInfo::default(); MAX_STACK_RESPONSES + 1],
     };
     assert_eq!(
         normalize_response(too_many_responses).unwrap_err(),
@@ -323,16 +393,10 @@ fn response_nested_collection_bounds_are_checked_before_retention() {
         }
     );
 
-    let response = ItemStackResponsesItem {
-        status: ItemStackResponsesItemStatus::Ok,
-        request_id: 1,
-        content: Some(ItemStackResponsesItemContent {
-            containers: vec![
-                ItemStackResponsesItemContentContainersItem::default();
-                MAX_RESPONSE_CONTAINERS + 1
-            ],
-        }),
-    };
+    let response = accepted_response(
+        1,
+        vec![ItemStackResponseContainerInfo::default(); MAX_RESPONSE_CONTAINERS + 1],
+    );
     assert_eq!(
         normalize_response(ItemStackResponsePacket {
             responses: vec![response]
@@ -347,24 +411,16 @@ fn response_nested_collection_bounds_are_checked_before_retention() {
 
 #[test]
 fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
-    let response = ItemStackResponsesItem {
-        status: ItemStackResponsesItemStatus::Ok,
-        request_id: 2,
-        content: Some(ItemStackResponsesItemContent {
-            containers: vec![ItemStackResponsesItemContentContainersItem {
-                slot_type: full_container(ContainerSlotType::Hotbar, None),
-                slots: vec![ItemStackResponsesItemContentContainersItemSlotsItem {
-                    slot: 3,
-                    hotbar_slot: 3,
-                    count: 0,
-                    item_stack_id: 0,
-                    custom_name: String::new(),
-                    filtered_custom_name: String::new(),
-                    durability_correction: 0,
-                }],
-            }],
-        }),
-    };
+    let response = accepted_response(
+        2,
+        vec![ItemStackResponseContainerInfo {
+            full_container_name: full_container(
+                FullContainerNameContainerName::HotbarContainer,
+                None,
+            ),
+            slots: vec![response_slot(3, 0, 0, "", "", 0)],
+        }],
+    );
     let InventoryEvent::Response(event) = normalize_response(ItemStackResponsePacket {
         responses: vec![response],
     })
@@ -378,19 +434,20 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
 
 #[test]
 fn accepted_response_rejects_negative_stack_ids() {
-    let response = ItemStackResponsesItem {
-        status: ItemStackResponsesItemStatus::Ok,
-        request_id: 3,
-        content: Some(ItemStackResponsesItemContent {
-            containers: vec![ItemStackResponsesItemContentContainersItem {
-                slot_type: full_container(ContainerSlotType::Hotbar, None),
-                slots: vec![ItemStackResponsesItemContentContainersItemSlotsItem {
-                    item_stack_id: -1,
-                    ..Default::default()
-                }],
+    let response = accepted_response(
+        3,
+        vec![ItemStackResponseContainerInfo {
+            full_container_name: full_container(
+                FullContainerNameContainerName::HotbarContainer,
+                None,
+            ),
+            slots: vec![ItemStackResponseSlotInfo {
+                constant_3: true,
+                item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 { id: -1 }),
+                ..Default::default()
             }],
-        }),
-    };
+        }],
+    );
     assert_eq!(
         normalize_response(ItemStackResponsePacket {
             responses: vec![response]
@@ -433,12 +490,18 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
     );
 }
 
-// Regression: an InventorySlot whose items carry a zero-length "extra" blob (air / empty
-// items) must decode rather than fail. Gophertunnel's ItemInstanceNew reader returns without
-// parsing when the extra blob is empty; valentine previously always read a 2-byte discriminant
-// from the empty sub-buffer, producing "unexpected end of buffer: needed 2 bytes, had 0" on a
-// real Lifeboat/sm3 join. shield_item_id is 0 here, so air items (network_id 0) also match the
-// shield branch — the guard must fire before that check.
+// Regression: an InventorySlot whose items carry a zero-length user-data blob (air / empty
+// items) must decode rather than fail. gophertunnel's writer emits a zero-length ByteSlice
+// for an absent stack (`Writer.itemUserData`, `minecraft/protocol/writer.go`, the `!present`
+// branch) and its reader returns without parsing when that blob is empty
+// (`Reader.itemUserData`); valentine previously always read a 2-byte discriminant from the
+// empty sub-buffer, producing "unexpected end of buffer: needed 2 bytes, had 0" on a real
+// Lifeboat/sm3 join.
+//
+// 1.26.40 removes the shield-ID-discriminated extra-data union that made that read
+// conditional at all: the user data is one opaque length-prefixed buffer, so `shield_item_id`
+// is no longer a decode argument. The same wire body is kept because it still exercises the
+// case the bug was found on — two descriptors whose user-data length prefix is zero.
 #[test]
 fn inventory_slot_with_empty_extra_items_decodes_and_round_trips() {
     use valentine::bedrock::codec::BedrockCodec;
@@ -450,18 +513,17 @@ fn inventory_slot_with_empty_extra_items_decodes_and_round_trips() {
     ];
 
     let mut buf: &[u8] = &body;
-    let packet =
-        InventorySlotPacket::decode(&mut buf, InventorySlotPacketArgs { shield_item_id: 0 })
-            .expect("empty-extra items must decode instead of erroring");
+    let packet = InventorySlotPacket::decode(&mut buf, ())
+        .expect("empty-user-data items must decode instead of erroring");
     assert!(buf.is_empty(), "entire body consumed, no trailing bytes");
 
     let storage = packet.storage_item.as_ref().expect("storage item present");
-    assert_eq!(storage.network_id, 0, "storage item is air");
-    assert!(matches!(storage.extra, ItemNewExtra::Default(_)));
-    assert_eq!(packet.item.network_id, 0, "new item is air");
-    assert!(matches!(packet.item.extra, ItemNewExtra::Default(_)));
+    assert_eq!(storage.id, 0, "storage item is air");
+    assert!(storage.user_data_buffer.is_empty());
+    assert_eq!(packet.item.id, 0, "new item is air");
+    assert!(packet.item.user_data_buffer.is_empty());
 
-    // Air items re-encode to a zero-length extra blob, reproducing the original bytes exactly.
+    // Air items re-encode to a zero-length user-data blob, reproducing the original bytes exactly.
     let mut out = Vec::new();
     packet.encode(&mut out).expect("re-encode");
     assert_eq!(out, body, "round-trips back to the original wire bytes");

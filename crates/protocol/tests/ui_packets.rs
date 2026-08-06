@@ -178,9 +178,7 @@ fn command_output_is_bounded_and_normalized_for_chat_presentation() {
 
 #[test]
 fn score_entries_carry_their_own_verb() {
-    use valentine::bedrock::version::v1_26_40::{
-        ChangeFakePlayerScore, RemoveScore, ScoreboardId,
-    };
+    use valentine::bedrock::version::v1_26_40::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
 
     // 1.26.40 moved the add/remove verb into each entry, so one packet may mix
     // removals with changes (gophertunnel `ScoreboardEntry.Marshal`).
@@ -231,10 +229,7 @@ fn oversized_text_scores_and_form_json_fail_closed() {
     );
 
     let scores = SetScorePacket {
-        score_info: vec![
-            SetScorePacketScoreInfoItem::default();
-            MAX_SCORE_ENTRIES_PER_PACKET + 1
-        ],
+        score_info: vec![SetScorePacketScoreInfoItem::default(); MAX_SCORE_ENTRIES_PER_PACKET + 1],
     };
     assert_eq!(
         ui(scores).unwrap_err(),

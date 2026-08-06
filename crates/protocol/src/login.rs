@@ -7,10 +7,7 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_40::{McpePacketData, McpePacketName},
-};
+use valentine::bedrock::version::v1_26_40::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::socket_transport::SocketTransport;
