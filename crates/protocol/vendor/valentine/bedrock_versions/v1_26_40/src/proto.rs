@@ -3952,7 +3952,7 @@ pub struct LevelChunkPacket {
     pub client_request_sub_chunk_limit: Option<i32>,
     pub cache_enabled: bool,
     pub cache_metadata: Vec<LevelChunkPacketPayloadSubChunkMetadata>,
-    pub serialized_chunk_data: String,
+    pub serialized_chunk_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for LevelChunkPacket {
     fn encoded_size(&self) -> usize {
@@ -3982,10 +3982,13 @@ impl crate::bedrock::codec::BedrockSized for LevelChunkPacket {
                 .sum::<usize>()
         };
         size += {
-            let _len = (&self.serialized_chunk_data).as_bytes().len();
+            let _len = (&self.serialized_chunk_data).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.serialized_chunk_data)
+                .iter()
+                .map(|_item| 1usize)
+                .sum::<usize>()
         };
         size
     }
@@ -4010,10 +4013,11 @@ impl crate::bedrock::codec::BedrockCodec for LevelChunkPacket {
         for item in &self.cache_metadata {
             item.encode(buf)?;
         }
-        let bytes = (&self.serialized_chunk_data).as_bytes();
-        let len = bytes.len();
+        let len = self.serialized_chunk_data.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.serialized_chunk_data {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -4068,25 +4072,24 @@ impl crate::bedrock::codec::BedrockCodec for LevelChunkPacket {
             tmp_vec
         };
         let serialized_chunk_data = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self {
             chunk_position,
@@ -6147,7 +6150,7 @@ pub struct ResourcePackDataInfoPacket {
     pub chunk_size: u32,
     pub numberof_chunks: u32,
     pub file_size: u64,
-    pub file_hash: String,
+    pub file_hash: Vec<u8>,
     pub is_premium_pack: bool,
     pub pack_type: u8,
 }
@@ -6164,10 +6167,10 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackDataInfoPacket {
         size += 4usize;
         size += 8usize;
         size += {
-            let _len = (&self.file_hash).as_bytes().len();
+            let _len = (&self.file_hash).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.file_hash).iter().map(|_item| 1usize).sum::<usize>()
         };
         size += 1usize;
         size += 1usize;
@@ -6185,10 +6188,11 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackDataInfoPacket {
         crate::bedrock::codec::U32LE(self.chunk_size).encode(buf)?;
         crate::bedrock::codec::U32LE(self.numberof_chunks).encode(buf)?;
         crate::bedrock::codec::U64LE(self.file_size).encode(buf)?;
-        let bytes = (&self.file_hash).as_bytes();
-        let len = bytes.len();
+        let len = self.file_hash.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.file_hash {
+            (*item).encode(buf)?;
+        }
         self.is_premium_pack.encode(buf)?;
         self.pack_type.encode(buf)?;
         Ok(())
@@ -6229,25 +6233,24 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackDataInfoPacket {
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let file_hash = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         let is_premium_pack = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let pack_type = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -6267,7 +6270,7 @@ pub struct ResourcePackChunkDataPacket {
     pub resource_name: String,
     pub chunk_id: u32,
     pub byte_offset: u64,
-    pub chunk_data: String,
+    pub chunk_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for ResourcePackChunkDataPacket {
     fn encoded_size(&self) -> usize {
@@ -6281,10 +6284,10 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackChunkDataPacket {
         size += 4usize;
         size += 8usize;
         size += {
-            let _len = (&self.chunk_data).as_bytes().len();
+            let _len = (&self.chunk_data).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.chunk_data).iter().map(|_item| 1usize).sum::<usize>()
         };
         size
     }
@@ -6299,10 +6302,11 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackChunkDataPacket {
         buf.put_slice(bytes);
         crate::bedrock::codec::U32LE(self.chunk_id).encode(buf)?;
         crate::bedrock::codec::U64LE(self.byte_offset).encode(buf)?;
-        let bytes = (&self.chunk_data).as_bytes();
-        let len = bytes.len();
+        let len = self.chunk_data.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.chunk_data {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -6338,25 +6342,24 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackChunkDataPacket {
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let chunk_data = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self {
             resource_name,
@@ -7233,16 +7236,19 @@ impl crate::bedrock::codec::BedrockCodec for PlayerSkinPacket {
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SubClientLoginPacket {
-    pub sub_client_connection_request: String,
+    pub sub_client_connection_request: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for SubClientLoginPacket {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
-            let _len = (&self.sub_client_connection_request).as_bytes().len();
+            let _len = (&self.sub_client_connection_request).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.sub_client_connection_request)
+                .iter()
+                .map(|_item| 1usize)
+                .sum::<usize>()
         };
         size
     }
@@ -7251,10 +7257,11 @@ impl crate::bedrock::codec::BedrockCodec for SubClientLoginPacket {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        let bytes = (&self.sub_client_connection_request).as_bytes();
-        let len = bytes.len();
+        let len = self.sub_client_connection_request.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.sub_client_connection_request {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -7263,25 +7270,24 @@ impl crate::bedrock::codec::BedrockCodec for SubClientLoginPacket {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
         let sub_client_connection_request = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self {
             sub_client_connection_request,
@@ -7499,7 +7505,7 @@ impl crate::bedrock::codec::BedrockCodec for NpcRequestPacket {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PhotoTransferPacket {
     pub photo_name: String,
-    pub photo_data: String,
+    pub photo_data: Vec<u8>,
     pub book_id: String,
     pub type_: PhotoTransferPacketType,
     pub source_type: PhotoTransferPacketSourceType,
@@ -7516,10 +7522,10 @@ impl crate::bedrock::codec::BedrockSized for PhotoTransferPacket {
             )) + _len
         };
         size += {
-            let _len = (&self.photo_data).as_bytes().len();
+            let _len = (&self.photo_data).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.photo_data).iter().map(|_item| 1usize).sum::<usize>()
         };
         size += {
             let _len = (&self.book_id).as_bytes().len();
@@ -7547,10 +7553,11 @@ impl crate::bedrock::codec::BedrockCodec for PhotoTransferPacket {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.photo_data).as_bytes();
-        let len = bytes.len();
+        let len = self.photo_data.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.photo_data {
+            (*item).encode(buf)?;
+        }
         let bytes = (&self.book_id).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
@@ -7591,25 +7598,24 @@ impl crate::bedrock::codec::BedrockCodec for PhotoTransferPacket {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let photo_data = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         let book_id = {
             let len_raw =
@@ -10974,17 +10980,17 @@ impl crate::bedrock::codec::BedrockCodec for PositionTrackingDbClientRequestPack
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DebugInfoPacket {
     pub actor_id: ActorUniqueId,
-    pub data: String,
+    pub data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for DebugInfoPacket {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.actor_id);
         size += {
-            let _len = (&self.data).as_bytes().len();
+            let _len = (&self.data).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.data).iter().map(|_item| 1usize).sum::<usize>()
         };
         size
     }
@@ -10994,10 +11000,11 @@ impl crate::bedrock::codec::BedrockCodec for DebugInfoPacket {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         self.actor_id.encode(buf)?;
-        let bytes = (&self.data).as_bytes();
-        let len = bytes.len();
+        let len = self.data.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.data {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -11007,25 +11014,24 @@ impl crate::bedrock::codec::BedrockCodec for DebugInfoPacket {
         let _ = buf;
         let actor_id = <ActorUniqueId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let data = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self { actor_id, data })
     }
@@ -12531,7 +12537,7 @@ impl crate::bedrock::codec::BedrockCodec for PlayerStartItemCooldownPacket {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScriptMessagePacket {
     pub message_id: String,
-    pub message_value: String,
+    pub message_value: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for ScriptMessagePacket {
     fn encoded_size(&self) -> usize {
@@ -12543,10 +12549,13 @@ impl crate::bedrock::codec::BedrockSized for ScriptMessagePacket {
             )) + _len
         };
         size += {
-            let _len = (&self.message_value).as_bytes().len();
+            let _len = (&self.message_value).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.message_value)
+                .iter()
+                .map(|_item| 1usize)
+                .sum::<usize>()
         };
         size
     }
@@ -12559,10 +12568,11 @@ impl crate::bedrock::codec::BedrockCodec for ScriptMessagePacket {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.message_value).as_bytes();
-        let len = bytes.len();
+        let len = self.message_value.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.message_value {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -12592,25 +12602,24 @@ impl crate::bedrock::codec::BedrockCodec for ScriptMessagePacket {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let message_value = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self {
             message_id,
@@ -13429,7 +13438,7 @@ impl crate::bedrock::codec::BedrockCodec for DeathInfoPacket {
 pub struct EditorNetworkPacket {
     pub route_to_manager: bool,
     pub raw_variant_name: String,
-    pub raw_variant_data: String,
+    pub raw_variant_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for EditorNetworkPacket {
     fn encoded_size(&self) -> usize {
@@ -13442,10 +13451,13 @@ impl crate::bedrock::codec::BedrockSized for EditorNetworkPacket {
             )) + _len
         };
         size += {
-            let _len = (&self.raw_variant_data).as_bytes().len();
+            let _len = (&self.raw_variant_data).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + _len
+            )) + (&self.raw_variant_data)
+                .iter()
+                .map(|_item| 1usize)
+                .sum::<usize>()
         };
         size
     }
@@ -13459,10 +13471,11 @@ impl crate::bedrock::codec::BedrockCodec for EditorNetworkPacket {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.raw_variant_data).as_bytes();
-        let len = bytes.len();
+        let len = self.raw_variant_data.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
+        for item in &self.raw_variant_data {
+            (*item).encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -13493,25 +13506,24 @@ impl crate::bedrock::codec::BedrockCodec for EditorNetworkPacket {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let raw_variant_data = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            let raw =
+                <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
+                .0 as i64;
+            if raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let len = raw as usize;
+            let mut tmp_vec = Vec::with_capacity(len);
+            for _ in 0..len {
+                tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            tmp_vec
         };
         Ok(Self {
             route_to_manager,

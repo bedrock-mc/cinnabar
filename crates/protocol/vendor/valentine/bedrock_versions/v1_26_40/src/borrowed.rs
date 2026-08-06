@@ -9034,7 +9034,7 @@ pub struct CerealizerNetworkItemInstanceDescriptorSerializedDataView {
     pub stacksize: u16,
     pub auxvalue: i32,
     pub block_runtime_id: i32,
-    pub user_data_buffer: crate::bedrock::borrowed::BorrowedStr,
+    pub user_data_buffer: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized
     for CerealizerNetworkItemInstanceDescriptorSerializedDataView
@@ -9052,9 +9052,12 @@ impl crate::bedrock::codec::BedrockSized
                 *&self.block_runtime_id,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.user_data_buffer).as_bytes().len()) as i32,
+                ((&self.user_data_buffer).len()) as i32,
             ))
-            + (&self.user_data_buffer).as_bytes().len()
+            + (&self.user_data_buffer)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
@@ -9087,7 +9090,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 (),
             )?
             .0;
-        let user_data_buffer = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let user_data_buffer = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             id,
             stacksize,
@@ -9107,9 +9131,10 @@ impl CerealizerNetworkItemInstanceDescriptorSerializedDataView {
         crate::bedrock::codec::U16LE(*&self.stacksize).encode(buf)?;
         crate::bedrock::codec::VarInt(*&self.auxvalue).encode(buf)?;
         crate::bedrock::codec::ZigZag32(*&self.block_runtime_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.user_data_buffer).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.user_data_buffer).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.user_data_buffer).len()) as i32).encode(buf)?;
+        for item in &self.user_data_buffer {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -9123,7 +9148,10 @@ impl From<CerealizerNetworkItemInstanceDescriptorSerializedDataView>
             stacksize: value.stacksize,
             auxvalue: value.auxvalue,
             block_runtime_id: value.block_runtime_id,
-            user_data_buffer: (value.user_data_buffer).to_string_lossy().into_owned(),
+            user_data_buffer: (value.user_data_buffer)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
@@ -10923,7 +10951,7 @@ impl From<ExperimentsView> for Experiments {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureRegistryFeatureBinaryJsonFormatView {
     pub feature_name: crate::bedrock::borrowed::BorrowedStr,
-    pub binary_json_output: crate::bedrock::borrowed::BorrowedStr,
+    pub binary_json_output: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for FeatureRegistryFeatureBinaryJsonFormatView {
     fn encoded_size(&self) -> usize {
@@ -10933,9 +10961,12 @@ impl crate::bedrock::codec::BedrockSized for FeatureRegistryFeatureBinaryJsonFor
             ))
             + (&self.feature_name).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.binary_json_output).as_bytes().len()) as i32,
+                ((&self.binary_json_output).len()) as i32,
             ))
-            + (&self.binary_json_output).as_bytes().len()
+            + (&self.binary_json_output)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for FeatureRegistryFeatureBinaryJsonFormatView {
@@ -10947,7 +10978,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for FeatureRegistryFeatureBin
         let _ = &buf;
         let _ = _args;
         let feature_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let binary_json_output = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let binary_json_output = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             feature_name,
             binary_json_output,
@@ -10963,9 +11015,10 @@ impl FeatureRegistryFeatureBinaryJsonFormatView {
         crate::bedrock::codec::VarInt(((&self.feature_name).as_bytes().len()) as i32)
             .encode(buf)?;
         buf.put_slice((&self.feature_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.binary_json_output).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.binary_json_output).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.binary_json_output).len()) as i32).encode(buf)?;
+        for item in &self.binary_json_output {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -10974,7 +11027,10 @@ impl From<FeatureRegistryFeatureBinaryJsonFormatView> for FeatureRegistryFeature
         let _ = &value;
         Self {
             feature_name: (value.feature_name).to_string_lossy().into_owned(),
-            binary_json_output: (value.binary_json_output).to_string_lossy().into_owned(),
+            binary_json_output: (value.binary_json_output)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
@@ -11141,7 +11197,7 @@ pub struct CerealizerNetworkItemStackDescriptorSerializedDataView {
     pub auxvalue: i32,
     pub net_id_variant: Option<i32>,
     pub block_runtime_id: i32,
-    pub user_data_buffer: crate::bedrock::borrowed::BorrowedStr,
+    pub user_data_buffer: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized
     for CerealizerNetworkItemStackDescriptorSerializedDataView
@@ -11163,9 +11219,12 @@ impl crate::bedrock::codec::BedrockSized
                 *&self.block_runtime_id,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.user_data_buffer).as_bytes().len()) as i32,
+                ((&self.user_data_buffer).len()) as i32,
             ))
-            + (&self.user_data_buffer).as_bytes().len()
+            + (&self.user_data_buffer)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
@@ -11207,7 +11266,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 (),
             )?
             .0;
-        let user_data_buffer = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let user_data_buffer = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             id,
             stacksize,
@@ -11232,9 +11312,10 @@ impl CerealizerNetworkItemStackDescriptorSerializedDataView {
             crate::bedrock::codec::ZigZag32(*value).encode(buf)?;
         }
         crate::bedrock::codec::VarInt(*&self.block_runtime_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.user_data_buffer).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.user_data_buffer).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.user_data_buffer).len()) as i32).encode(buf)?;
+        for item in &self.user_data_buffer {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -11249,7 +11330,10 @@ impl From<CerealizerNetworkItemStackDescriptorSerializedDataView>
             auxvalue: value.auxvalue,
             net_id_variant: (value.net_id_variant).map(|value| value),
             block_runtime_id: value.block_runtime_id,
-            user_data_buffer: (value.user_data_buffer).to_string_lossy().into_owned(),
+            user_data_buffer: (value.user_data_buffer)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
@@ -16107,16 +16191,19 @@ impl From<MemoryMemoryCategoryCounterView> for MemoryMemoryCategoryCounter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MissingBlobDataView {
     pub blob_id: u64,
-    pub blob_data: crate::bedrock::borrowed::BorrowedStr,
+    pub blob_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for MissingBlobDataView {
     fn encoded_size(&self) -> usize {
         0usize
             + 8usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.blob_data).as_bytes().len()) as i32,
+                ((&self.blob_data).len()) as i32,
             ))
-            + (&self.blob_data).as_bytes().len()
+            + (&self.blob_data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for MissingBlobDataView {
@@ -16130,7 +16217,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MissingBlobDataView {
         let blob_id =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
-        let blob_data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let blob_data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self { blob_id, blob_data })
     }
 }
@@ -16141,8 +16249,10 @@ impl MissingBlobDataView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         crate::bedrock::codec::U64LE(*&self.blob_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.blob_data).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.blob_data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.blob_data).len()) as i32).encode(buf)?;
+        for item in &self.blob_data {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -16151,7 +16261,7 @@ impl From<MissingBlobDataView> for MissingBlobData {
         let _ = &value;
         Self {
             blob_id: value.blob_id,
-            blob_data: (value.blob_data).to_string_lossy().into_owned(),
+            blob_data: (value.blob_data).into_iter().map(|item| item).collect(),
         }
     }
 }
@@ -27334,7 +27444,7 @@ pub struct LevelChunkPacketView {
     pub client_request_sub_chunk_limit: Option<i32>,
     pub cache_enabled: bool,
     pub cache_metadata: Vec<LevelChunkPacketPayloadSubChunkMetadataView>,
-    pub serialized_chunk_data: crate::bedrock::borrowed::BorrowedStr,
+    pub serialized_chunk_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for LevelChunkPacketView {
     fn encoded_size(&self) -> usize {
@@ -27361,9 +27471,12 @@ impl crate::bedrock::codec::BedrockSized for LevelChunkPacketView {
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.serialized_chunk_data).as_bytes().len()) as i32,
+                ((&self.serialized_chunk_data).len()) as i32,
             ))
-            + (&self.serialized_chunk_data).as_bytes().len()
+            + (&self.serialized_chunk_data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for LevelChunkPacketView {
@@ -27428,7 +27541,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LevelChunkPacketView {
             }
             values
         };
-        let serialized_chunk_data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let serialized_chunk_data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             chunk_position,
             dimension_id,
@@ -27460,9 +27594,10 @@ impl LevelChunkPacketView {
         for item in &self.cache_metadata {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarInt(((&self.serialized_chunk_data).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.serialized_chunk_data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.serialized_chunk_data).len()) as i32).encode(buf)?;
+        for item in &self.serialized_chunk_data {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -27480,7 +27615,10 @@ impl From<LevelChunkPacketView> for LevelChunkPacket {
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
-            serialized_chunk_data: (value.serialized_chunk_data).to_string_lossy().into_owned(),
+            serialized_chunk_data: (value.serialized_chunk_data)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
@@ -29274,7 +29412,7 @@ pub struct ResourcePackDataInfoPacketView {
     pub chunk_size: u32,
     pub numberof_chunks: u32,
     pub file_size: u64,
-    pub file_hash: crate::bedrock::borrowed::BorrowedStr,
+    pub file_hash: Vec<u8>,
     pub is_premium_pack: bool,
     pub pack_type: u8,
 }
@@ -29289,9 +29427,12 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackDataInfoPacketView {
             + 4usize
             + 8usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.file_hash).as_bytes().len()) as i32,
+                ((&self.file_hash).len()) as i32,
             ))
-            + (&self.file_hash).as_bytes().len()
+            + (&self.file_hash)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.is_premium_pack)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.pack_type)
     }
@@ -29314,7 +29455,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackDataInfoPacke
         let file_size =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
-        let file_hash = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let file_hash = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         let is_premium_pack = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let pack_type = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -29340,8 +29502,10 @@ impl ResourcePackDataInfoPacketView {
         crate::bedrock::codec::U32LE(*&self.chunk_size).encode(buf)?;
         crate::bedrock::codec::U32LE(*&self.numberof_chunks).encode(buf)?;
         crate::bedrock::codec::U64LE(*&self.file_size).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.file_hash).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.file_hash).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.file_hash).len()) as i32).encode(buf)?;
+        for item in &self.file_hash {
+            (item).encode(buf)?;
+        }
         (&self.is_premium_pack).encode(buf)?;
         (&self.pack_type).encode(buf)?;
         Ok(())
@@ -29355,7 +29519,7 @@ impl From<ResourcePackDataInfoPacketView> for ResourcePackDataInfoPacket {
             chunk_size: value.chunk_size,
             numberof_chunks: value.numberof_chunks,
             file_size: value.file_size,
-            file_hash: (value.file_hash).to_string_lossy().into_owned(),
+            file_hash: (value.file_hash).into_iter().map(|item| item).collect(),
             is_premium_pack: value.is_premium_pack,
             pack_type: value.pack_type,
         }
@@ -29366,7 +29530,7 @@ pub struct ResourcePackChunkDataPacketView {
     pub resource_name: crate::bedrock::borrowed::BorrowedStr,
     pub chunk_id: u32,
     pub byte_offset: u64,
-    pub chunk_data: crate::bedrock::borrowed::BorrowedStr,
+    pub chunk_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for ResourcePackChunkDataPacketView {
     fn encoded_size(&self) -> usize {
@@ -29378,9 +29542,12 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackChunkDataPacketView {
             + 4usize
             + 8usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.chunk_data).as_bytes().len()) as i32,
+                ((&self.chunk_data).len()) as i32,
             ))
-            + (&self.chunk_data).as_bytes().len()
+            + (&self.chunk_data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackChunkDataPacketView {
@@ -29398,7 +29565,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackChunkDataPack
         let byte_offset =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
-        let chunk_data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let chunk_data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             resource_name,
             chunk_id,
@@ -29418,8 +29606,10 @@ impl ResourcePackChunkDataPacketView {
         buf.put_slice((&self.resource_name).as_bytes());
         crate::bedrock::codec::U32LE(*&self.chunk_id).encode(buf)?;
         crate::bedrock::codec::U64LE(*&self.byte_offset).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.chunk_data).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.chunk_data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.chunk_data).len()) as i32).encode(buf)?;
+        for item in &self.chunk_data {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -29430,7 +29620,7 @@ impl From<ResourcePackChunkDataPacketView> for ResourcePackChunkDataPacket {
             resource_name: (value.resource_name).to_string_lossy().into_owned(),
             chunk_id: value.chunk_id,
             byte_offset: value.byte_offset,
-            chunk_data: (value.chunk_data).to_string_lossy().into_owned(),
+            chunk_data: (value.chunk_data).into_iter().map(|item| item).collect(),
         }
     }
 }
@@ -30117,15 +30307,18 @@ impl From<PurchaseReceiptPacketView> for PurchaseReceiptPacket {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubClientLoginPacketView {
-    pub sub_client_connection_request: crate::bedrock::borrowed::BorrowedStr,
+    pub sub_client_connection_request: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for SubClientLoginPacketView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.sub_client_connection_request).as_bytes().len()) as i32,
+                ((&self.sub_client_connection_request).len()) as i32,
             ))
-            + (&self.sub_client_connection_request).as_bytes().len()
+            + (&self.sub_client_connection_request)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for SubClientLoginPacketView {
@@ -30136,8 +30329,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SubClientLoginPacketView 
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let sub_client_connection_request =
-            crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let sub_client_connection_request = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             sub_client_connection_request,
         })
@@ -30149,11 +30362,11 @@ impl SubClientLoginPacketView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarInt(
-            ((&self.sub_client_connection_request).as_bytes().len()) as i32,
-        )
-        .encode(buf)?;
-        buf.put_slice((&self.sub_client_connection_request).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.sub_client_connection_request).len()) as i32)
+            .encode(buf)?;
+        for item in &self.sub_client_connection_request {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -30162,8 +30375,9 @@ impl From<SubClientLoginPacketView> for SubClientLoginPacket {
         let _ = &value;
         Self {
             sub_client_connection_request: (value.sub_client_connection_request)
-                .to_string_lossy()
-                .into_owned(),
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
@@ -30334,7 +30548,7 @@ impl From<NpcRequestPacketView> for NpcRequestPacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhotoTransferPacketView {
     pub photo_name: crate::bedrock::borrowed::BorrowedStr,
-    pub photo_data: crate::bedrock::borrowed::BorrowedStr,
+    pub photo_data: Vec<u8>,
     pub book_id: crate::bedrock::borrowed::BorrowedStr,
     pub type_: PhotoTransferPacketType,
     pub source_type: PhotoTransferPacketSourceType,
@@ -30349,9 +30563,12 @@ impl crate::bedrock::codec::BedrockSized for PhotoTransferPacketView {
             ))
             + (&self.photo_name).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_data).as_bytes().len()) as i32,
+                ((&self.photo_data).len()) as i32,
             ))
-            + (&self.photo_data).as_bytes().len()
+            + (&self.photo_data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 ((&self.book_id).as_bytes().len()) as i32,
             ))
@@ -30374,7 +30591,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PhotoTransferPacketView {
         let _ = &buf;
         let _ = _args;
         let photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let photo_data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let photo_data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         let book_id = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
         let type_ =
             <PhotoTransferPacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -30406,8 +30644,10 @@ impl PhotoTransferPacketView {
         let _ = buf;
         crate::bedrock::codec::VarInt(((&self.photo_name).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.photo_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.photo_data).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.photo_data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.photo_data).len()) as i32).encode(buf)?;
+        for item in &self.photo_data {
+            (item).encode(buf)?;
+        }
         crate::bedrock::codec::VarInt(((&self.book_id).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.book_id).as_bytes());
         (&self.type_).encode(buf)?;
@@ -30424,7 +30664,7 @@ impl From<PhotoTransferPacketView> for PhotoTransferPacket {
         let _ = &value;
         Self {
             photo_name: (value.photo_name).to_string_lossy().into_owned(),
-            photo_data: (value.photo_data).to_string_lossy().into_owned(),
+            photo_data: (value.photo_data).into_iter().map(|item| item).collect(),
             book_id: (value.book_id).to_string_lossy().into_owned(),
             type_: value.type_,
             source_type: value.source_type,
@@ -33432,16 +33672,19 @@ impl From<PositionTrackingDbClientRequestPacketView> for PositionTrackingDbClien
 #[derive(Debug, Clone, PartialEq)]
 pub struct DebugInfoPacketView {
     pub actor_id: ActorUniqueIdView,
-    pub data: crate::bedrock::borrowed::BorrowedStr,
+    pub data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for DebugInfoPacketView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.actor_id)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.data).as_bytes().len()) as i32,
+                ((&self.data).len()) as i32,
             ))
-            + (&self.data).as_bytes().len()
+            + (&self.data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for DebugInfoPacketView {
@@ -33457,7 +33700,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for DebugInfoPacketView {
                 buf,
                 (),
             )?;
-        let data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self { actor_id, data })
     }
 }
@@ -33468,8 +33732,10 @@ impl DebugInfoPacketView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         (&self.actor_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.data).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.data).len()) as i32).encode(buf)?;
+        for item in &self.data {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -33478,7 +33744,7 @@ impl From<DebugInfoPacketView> for DebugInfoPacket {
         let _ = &value;
         Self {
             actor_id: (value.actor_id).into(),
-            data: (value.data).to_string_lossy().into_owned(),
+            data: (value.data).into_iter().map(|item| item).collect(),
         }
     }
 }
@@ -34815,7 +35081,7 @@ impl From<PlayerStartItemCooldownPacketView> for PlayerStartItemCooldownPacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScriptMessagePacketView {
     pub message_id: crate::bedrock::borrowed::BorrowedStr,
-    pub message_value: crate::bedrock::borrowed::BorrowedStr,
+    pub message_value: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for ScriptMessagePacketView {
     fn encoded_size(&self) -> usize {
@@ -34825,9 +35091,12 @@ impl crate::bedrock::codec::BedrockSized for ScriptMessagePacketView {
             ))
             + (&self.message_id).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.message_value).as_bytes().len()) as i32,
+                ((&self.message_value).len()) as i32,
             ))
-            + (&self.message_value).as_bytes().len()
+            + (&self.message_value)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for ScriptMessagePacketView {
@@ -34839,7 +35108,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ScriptMessagePacketView {
         let _ = &buf;
         let _ = _args;
         let message_id = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let message_value = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let message_value = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             message_id,
             message_value,
@@ -34854,9 +35144,10 @@ impl ScriptMessagePacketView {
         let _ = buf;
         crate::bedrock::codec::VarInt(((&self.message_id).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.message_id).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.message_value).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.message_value).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.message_value).len()) as i32).encode(buf)?;
+        for item in &self.message_value {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -34865,7 +35156,7 @@ impl From<ScriptMessagePacketView> for ScriptMessagePacket {
         let _ = &value;
         Self {
             message_id: (value.message_id).to_string_lossy().into_owned(),
-            message_value: (value.message_value).to_string_lossy().into_owned(),
+            message_value: (value.message_value).into_iter().map(|item| item).collect(),
         }
     }
 }
@@ -35706,7 +35997,7 @@ impl From<DeathInfoPacketView> for DeathInfoPacket {
 pub struct EditorNetworkPacketView {
     pub route_to_manager: bool,
     pub raw_variant_name: crate::bedrock::borrowed::BorrowedStr,
-    pub raw_variant_data: crate::bedrock::borrowed::BorrowedStr,
+    pub raw_variant_data: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for EditorNetworkPacketView {
     fn encoded_size(&self) -> usize {
@@ -35717,9 +36008,12 @@ impl crate::bedrock::codec::BedrockSized for EditorNetworkPacketView {
             ))
             + (&self.raw_variant_name).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.raw_variant_data).as_bytes().len()) as i32,
+                ((&self.raw_variant_data).len()) as i32,
             ))
-            + (&self.raw_variant_data).as_bytes().len()
+            + (&self.raw_variant_data)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for EditorNetworkPacketView {
@@ -35732,7 +36026,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for EditorNetworkPacketView {
         let _ = _args;
         let route_to_manager = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let raw_variant_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let raw_variant_data = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let raw_variant_data = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             route_to_manager,
             raw_variant_name,
@@ -35750,9 +36065,10 @@ impl EditorNetworkPacketView {
         crate::bedrock::codec::VarInt(((&self.raw_variant_name).as_bytes().len()) as i32)
             .encode(buf)?;
         buf.put_slice((&self.raw_variant_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.raw_variant_data).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.raw_variant_data).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.raw_variant_data).len()) as i32).encode(buf)?;
+        for item in &self.raw_variant_data {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -35762,7 +36078,10 @@ impl From<EditorNetworkPacketView> for EditorNetworkPacket {
         Self {
             route_to_manager: value.route_to_manager,
             raw_variant_name: (value.raw_variant_name).to_string_lossy().into_owned(),
-            raw_variant_data: (value.raw_variant_data).to_string_lossy().into_owned(),
+            raw_variant_data: (value.raw_variant_data)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }
