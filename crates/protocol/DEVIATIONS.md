@@ -8,6 +8,14 @@ against gophertunnel commit
 protocol documentation was not needed to distinguish these cases because the
 pinned encoder/decoder and live bytes agreed exactly.
 
+The Go core and `crates/protocol/fixtures` have since moved to gophertunnel
+`be6713da4dc051a4197f897d04835e89e9c54321` (Bedrock 1.26.40 / protocol 2168).
+Byte lengths and SHA-256 digests quoted below describe the protocol-1001
+generation of those fixtures; `material_reducer.bin` is the one cited fixture
+whose bytes changed, because 1.26.40 splits `CraftingData.Recipes` into eight
+typed recipe vectors. `available_commands.bin` and
+`available_commands_live_356513.bin` are byte-identical across the bump.
+
 ## Task 0.4 baseline
 
 No drift appeared in the original five fixtures. `NetworkSettings`,

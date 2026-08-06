@@ -119,8 +119,12 @@ The upstream commit records these generator-input gitlinks:
 
 Wire behaviour and byte fixtures use the exact project pin
 `hashimthearab/gophertunnel` commit
-`9948b1729395d2e819fce28e079d4a7bfc67716c`. It is the behavioural authority
-for these patches; an unrelated local checkout or later `lunar` head is not.
+`be6713da4dc051a4197f897d04835e89e9c54321` (`lunar`, module pseudo-version
+`v1.25.3-0.20260806044231-be6713da4dc0`, Minecraft `1.26.40` / protocol 2168).
+It is the behavioural authority for these patches; an unrelated local checkout
+or later `lunar` head is not. The protocol-1001 fixtures were generated against
+commit `9948b1729395d2e819fce28e079d4a7bfc67716c`, which is what the still
+unmigrated `v1_26_30` patches above were reviewed against.
 
 ## Bedrock 1.26.40 readiness
 
@@ -150,11 +154,16 @@ Three things must land before that flip is correct:
   `LevelSettingsChatRestrictionLevel`, and so on). Jolyne needs about a dozen
   renames; the protocol crate's own `ItemLegacy` / `Skin` /
   `SubchunkPacketEntries` / `Blob` references need the same treatment.
-- **The Go core moves in lockstep or not at all.** `tools/fixturegen/main.go`
-  asserts `minecraft.DefaultProtocol` is exactly 1001 / `1.26.33`, so bumping
-  the `core/go.mod` gophertunnel replace to a 1.26.40 revision without
-  regenerating the byte fixtures fails by construction — which is the intended
-  behaviour, since the fixtures are what pin Rust decoding to real wire bytes.
+- **The Go core moves in lockstep or not at all.** This half has now landed:
+  `core/go.mod` and `tools/fixturegen/go.mod` replace gophertunnel with
+  `hashimthearab/gophertunnel v1.25.3-0.20260806044231-be6713da4dc0`, and
+  `tools/fixturegen/main.go` asserts `minecraft.DefaultProtocol` is exactly
+  2168 / `1.26.40`. The byte fixtures under `crates/protocol/fixtures` were
+  regenerated against that pin, so `start_game`, `level_chunk`, `move_player`,
+  `player_auth_input`, `material_reducer`, `inventory_content`,
+  `inventory_slot` and `item_stack_response` now carry 1.26.40 bytes. Rust
+  decoding is pinned to those bytes and must be adapted before the crate
+  feature flip is green.
 
 `v1_26_40` also has no `blocks`, `items`, `states`, `entities`, `biomes`, or
 `block_palette` modules: the BDS dumps describe the wire, not the content
