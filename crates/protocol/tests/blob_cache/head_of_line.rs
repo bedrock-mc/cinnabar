@@ -169,13 +169,7 @@ fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
 fn zero_reference_status_is_suppressed_but_have_only_status_is_sent() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let empty = resolver
-        .accept_cached_packet(
-            SubchunkPacket {
-                entries: SubchunkPacketEntries::SubChunkEntryWithCaching(Vec::new()),
-                ..Default::default()
-            }
-            .into(),
-        )
+        .accept_cached_packet(cached_sub_chunk_packet(Vec::new()).into())
         .expect("well-formed empty cached SubChunk");
     assert!(
         empty.into_packets().is_empty(),
@@ -289,7 +283,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
     let McpePacketData::LevelChunkPacket(second) = second.data else {
         panic!()
     };
-    assert!(second.payload.ends_with(b"second"));
+    assert!(second.serialized_chunk_data.ends_with(b"second"));
     assert_eq!(resolver.stats().pending_transactions, 1);
 
     resolver
@@ -300,7 +294,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
     let McpePacketData::LevelChunkPacket(first) = first.data else {
         panic!()
     };
-    assert!(first.payload.ends_with(b"first"));
+    assert!(first.serialized_chunk_data.ends_with(b"first"));
 }
 
 #[test]
@@ -693,9 +687,7 @@ fn reconstruction_cost_is_bounded_before_duplicate_blob_copies_are_allocated() {
     let mut resolver = BlobCacheResolver::new(cache);
 
     let status = resolver
-        .accept_cached_packet(
-            cached_level_chunk(17, -4, vec![hash, hash], &[0x7f]).into(),
-        )
+        .accept_cached_packet(cached_level_chunk(17, -4, vec![hash, hash], &[0x7f]).into())
         .expect("reconstruction safety excess stays non-fatal");
 
     assert!(status.missing().is_empty());

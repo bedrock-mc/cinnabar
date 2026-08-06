@@ -147,7 +147,10 @@ fn assert_remove_payload(data: &McpePacketData) {
     let PlayerListPacketEntriesItem::RemoveEntry(entry) = &packet.entries[0] else {
         panic!("expected a Remove entry");
     };
-    assert_eq!(entry.action, PlayerListPacketPayloadRemoveEntryAction::Remove);
+    assert_eq!(
+        entry.action,
+        PlayerListPacketPayloadRemoveEntryAction::Remove
+    );
     assert_eq!(entry.uuid, FIXTURE_UUID);
 }
 

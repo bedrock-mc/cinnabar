@@ -15,14 +15,15 @@ use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 use jolyne::valentine::{
-    Blob, ChunkRadiusUpdatePacket, ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket,
-    ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, ItemstatesItem,
-    LevelChunkPacket, LevelChunkPacketBlobs, McpePacket, McpePacketData, McpePacketName,
-    NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm, PlayStatusPacket,
-    PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
-    ResourcePackIdVersionsItem, ResourcePackStackPacket, ResourcePacksInfoPacket,
-    ServerToClientHandshakePacket, ServerboundLoadingScreenPacket,
+    ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
+    ClientCacheMissResponsePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
+    DimensionType, ItemData, ItemRegistryPacket, LevelChunkPacket,
+    LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData, McpePacketName,
+    MissingBlobData, NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm,
+    PackInstanceId, PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
+    RequestNetworkSettingsPacket, ResourcePackClientResponsePacketResponse,
+    ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
+    ServerboundLoadingScreenPacket, ServerboundLoadingScreenPacketLoadingScreenPacketType,
     SetLocalPlayerAsInitializedPacket, SetTimePacket, StartGamePacket,
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
@@ -57,7 +58,9 @@ impl CompressionMode {
 
     fn network_value(self) -> NetworkSettingsPacketCompressionAlgorithm {
         match self {
-            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::Deflate,
+            // gophertunnel calls the zlib/deflate compressor `CompressionAlgorithmFlate`;
+            // the 1.26.40 generated enum spells the same wire value `ZLib`.
+            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::ZLib,
             Self::Snappy => NetworkSettingsPacketCompressionAlgorithm::Snappy,
             Self::None => NetworkSettingsPacketCompressionAlgorithm::Unknown(u16::MAX),
         }
@@ -217,7 +220,7 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketRequestNetworkSettings(
+                        data: McpePacketData::RequestNetworkSettingsPacket(
                             RequestNetworkSettingsPacket { .. }
                         ),
                         ..
@@ -238,13 +241,14 @@ impl ServerScript {
                 let login = match packets.as_slice() {
                     [
                         McpePacket {
-                            data: McpePacketData::PacketLogin(login),
+                            data: McpePacketData::LoginPacket(login),
                             ..
                         },
                     ] => login,
                     other => panic!("expected Login, got {other:?}"),
                 };
-                let client_public_key = login_public_key(&login.tokens.identity);
+                let client_public_key =
+                    login_public_key(&identity_chain(&login.connection_request));
                 let (handshake, crypto) = server_handshake(client_public_key);
                 self.crypto = Some(crypto);
                 self.enqueue_clear(&[McpePacket::from(handshake)], true);
@@ -261,7 +265,7 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketClientToServerHandshake(
+                        data: McpePacketData::ClientToServerHandshakePacket(
                             ClientToServerHandshakePacket {}
                         ),
                         ..
@@ -280,11 +284,11 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketClientCacheStatus(ClientCacheStatusPacket {
-                            enabled
+                        data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
+                            iscachesupported
                         }),
                         ..
-                    }] if *enabled == self.cache_enabled
+                    }] if *iscachesupported == self.cache_enabled
                 ));
                 self.stage = 4;
             }
@@ -293,27 +297,35 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketResourcePackClientResponse(
-                            ResourcePackClientResponsePacket {
-                                response_status:
-                                    ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
-                                ..
-                            }
-                        ),
+                        // 1.26.40 turns the flat `response_status` enum into a
+                        // payload-carrying union whose body repeats the response
+                        // name as a string; gophertunnel writes the same string
+                        // from `resourcePackResponseToString`
+                        // (packet/resource_pack_client_response.go).
+                        // `HaveAllPacks` is `PackResponseAllPacksDownloaded`,
+                        // i.e. `DownloadingFinished` here.
+                        data: McpePacketData::ResourcePackClientResponsePacket(response),
                         ..
-                    }]
+                    }] if matches!(
+                        &response.response,
+                        ResourcePackClientResponsePacketResponse::DownloadingFinished(payload)
+                            if payload.response_type == "downloadingfinished"
+                    )
                 ));
-                let resource_packs = self
+                // `resource_packs` is `texture_pack_list`, whose entries are
+                // `PackInstanceId { pack_id, version, sub_pack_name }`; the
+                // display name the 1001 model carried is not on the wire.
+                let texture_pack_list = self
                     .non_empty_pack_stack
-                    .then(|| ResourcePackIdVersionsItem {
-                        uuid: "pack-id".into(),
+                    .then(|| PackInstanceId {
+                        pack_id: "pack-id".into(),
                         version: "1.0.0".into(),
-                        name: "test pack".into(),
+                        sub_pack_name: "test pack".into(),
                     })
                     .into_iter()
                     .collect();
                 self.enqueue_encrypted(&[McpePacket::from(ResourcePackStackPacket {
-                    resource_packs,
+                    texture_pack_list,
                     ..Default::default()
                 })]);
                 self.stage = 5;
@@ -323,15 +335,15 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketResourcePackClientResponse(
-                            ResourcePackClientResponsePacket {
-                                response_status:
-                                    ResourcePackClientResponsePacketResponseStatus::Completed,
-                                ..
-                            }
-                        ),
+                        // `Completed` is gophertunnel's `PackResponseCompleted`,
+                        // spelled `ResourcePackStackFinished` in 1.26.40.
+                        data: McpePacketData::ResourcePackClientResponsePacket(response),
                         ..
-                    }]
+                    }] if matches!(
+                        &response.response,
+                        ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(payload)
+                            if payload.response_type == "resourcepackstackfinished"
+                    )
                 ));
                 if self.conflicting_start {
                     self.enqueue_encrypted(&[start_game(RUNTIME_ID), start_game(OTHER_RUNTIME_ID)]);
@@ -350,23 +362,29 @@ impl ServerScript {
                     packets.as_slice(),
                     [
                         McpePacket {
-                            data: McpePacketData::PacketServerboundLoadingScreen(
-                                ServerboundLoadingScreenPacket { type_: 1, .. }
+                            // The raw `type_` int is a named enum in 1.26.40;
+                            // 1 was StartLoadingScreen.
+                            data: McpePacketData::ServerboundLoadingScreenPacket(
+                                ServerboundLoadingScreenPacket {
+                                    loading_screen_packet_type:
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::StartLoadingScreen,
+                                    ..
+                                }
                             ),
                             ..
                         },
                         McpePacket {
-                            data: McpePacketData::PacketRequestChunkRadius(
+                            data: McpePacketData::RequestChunkRadiusPacket(
                                 RequestChunkRadiusPacket {
                                     chunk_radius: 16,
-                                    max_radius: 16,
+                                    max_chunk_radius: 16,
                                 }
                             ),
                             ..
                         }
                     ]
                 ));
-                let radius = McpePacket::from(ChunkRadiusUpdatePacket { chunk_radius: 16 });
+                let radius = McpePacket::from(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
                 let spawn = McpePacket::from(PlayStatusPacket {
                     status: PlayStatusPacketStatus::PlayerSpawn,
                 });
@@ -386,15 +404,23 @@ impl ServerScript {
                     packets.as_slice(),
                     [
                         McpePacket {
-                            data: McpePacketData::PacketServerboundLoadingScreen(
-                                ServerboundLoadingScreenPacket { type_: 2, .. }
+                            data: McpePacketData::ServerboundLoadingScreenPacket(
+                                ServerboundLoadingScreenPacket {
+                                    loading_screen_packet_type:
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::EndLoadingScreen,
+                                    ..
+                                }
                             ),
                             ..
                         },
                         McpePacket {
-                            data: McpePacketData::PacketSetLocalPlayerAsInitialized(
+                            // `runtime_entity_id` is the `player_id:
+                            // ActorRuntimeId` wrapper in 1.26.40.
+                            data: McpePacketData::SetLocalPlayerAsInitializedPacket(
                                 SetLocalPlayerAsInitializedPacket {
-                                    runtime_entity_id: RUNTIME_ID
+                                    player_id: ActorRuntimeId {
+                                        actor_runtime_id: RUNTIME_ID
+                                    }
                                 }
                             ),
                             ..
@@ -407,15 +433,7 @@ impl ServerScript {
                             let payload = b"cached-column";
                             let hash = protocol::client_blob_hash(payload);
                             self.enqueue_encrypted(&[
-                                McpePacket::from(LevelChunkPacket {
-                                    x: 9,
-                                    z: -11,
-                                    dimension: 0,
-                                    sub_chunk_count: 0,
-                                    blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
-                                    payload: b"tail".to_vec(),
-                                    ..Default::default()
-                                }),
+                                McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
                                 McpePacket::from(SetTimePacket { time: 34_567 }),
                             ]);
                         }
@@ -427,23 +445,22 @@ impl ServerScript {
                         }
                         CachePlayScript::InvalidMissResponseThenTraffic => {
                             let hash = protocol::client_blob_hash(b"semantic-response-wanted");
-                            self.enqueue_encrypted(&[McpePacket::from(LevelChunkPacket {
-                                x: 31,
-                                z: -47,
-                                dimension: 0,
-                                sub_chunk_count: 0,
-                                blobs: Some(LevelChunkPacketBlobs { hashes: vec![hash] }),
-                                ..Default::default()
-                            })]);
+                            self.enqueue_encrypted(&[McpePacket::from(cached_level_chunk(
+                                31,
+                                -47,
+                                vec![hash],
+                                b"",
+                            ))]);
                         }
                     }
                 } else {
                     // A malformed world packet (invalid sub-chunk count) must be
                     // skipped, not disconnect the session; the following SetTime
-                    // still arrives in order.
+                    // still arrives in order. A negative count is no longer a
+                    // request-mode sentinel in 1.26.40, so it is simply invalid.
                     self.enqueue_encrypted(&[
                         McpePacket::from(LevelChunkPacket {
-                            sub_chunk_count: -3,
+                            subchunks_count: -3,
                             ..Default::default()
                         }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
@@ -468,11 +485,14 @@ impl ServerScript {
                     assert!(matches!(
                         packets.as_slice(),
                         [McpePacket {
-                            data: McpePacketData::PacketClientCacheBlobStatus(
-                                ClientCacheBlobStatusPacket { missing, have }
+                            data: McpePacketData::ClientCacheBlobStatusPacket(
+                                ClientCacheBlobStatusPacket {
+                                    missing_ids,
+                                    found_ids
+                                }
                             ),
                             ..
-                        }] if missing == &[expected_hash] && have.is_empty()
+                        }] if missing_ids == &[expected_hash] && found_ids.is_empty()
                     ));
                     let response_payload = match self.cache_play_script {
                         CachePlayScript::ResolveValid => b"cached-column".as_slice(),
@@ -482,9 +502,9 @@ impl ServerScript {
                         CachePlayScript::TruncatedMissResponse => unreachable!(),
                     };
                     let mut response = vec![McpePacket::from(ClientCacheMissResponsePacket {
-                        blobs: vec![Blob {
-                            hash: expected_hash,
-                            payload: response_payload.to_vec(),
+                        missing_blobs: vec![MissingBlobData {
+                            blob_id: expected_hash,
+                            blob_data: response_payload.to_vec(),
                         }],
                     })];
                     if matches!(
@@ -500,8 +520,8 @@ impl ServerScript {
                 assert!(matches!(
                     packets.as_slice(),
                     [McpePacket {
-                        data: McpePacketData::PacketClientCacheStatus(ClientCacheStatusPacket {
-                            enabled: true
+                        data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
+                            iscachesupported: true
                         }),
                         ..
                     }]
@@ -661,6 +681,25 @@ fn encode_server_payload(payload: &[u8], mode: Option<CompressionMode>) -> Bytes
     frame.freeze()
 }
 
+/// Extracts the identity chain from a Login connection request.
+///
+/// Protocol 1001 modelled the request as two `LittleString`s and exposed them
+/// as `login.tokens.identity` / `.client`. 1.26.40 types the whole request as
+/// one opaque byte slice - gophertunnel does the same
+/// (`packet/login.go` writes `io.ByteSlice(&pk.ConnectionRequest)` and
+/// `minecraft/protocol/login/request.go` splits it) - so the framing is decoded
+/// here: a little-endian `u32` length and then that many bytes, twice.
+fn identity_chain(connection_request: &[u8]) -> String {
+    let (length, rest) = connection_request
+        .split_first_chunk::<4>()
+        .expect("connection request carries an identity chain length");
+    let length = u32::from_le_bytes(*length) as usize;
+    let chain = rest
+        .get(..length)
+        .expect("identity chain length must fit the connection request");
+    String::from_utf8(chain.to_vec()).expect("identity chain is UTF-8 JSON")
+}
+
 fn login_public_key(chain_json: &str) -> PublicKey {
     let value: serde_json::Value = serde_json::from_str(chain_json).expect("login chain JSON");
     let token = value["chain"][0].as_str().expect("self-signed token");
@@ -704,23 +743,51 @@ fn server_handshake(client_public_key: PublicKey) -> (ServerToClientHandshakePac
     )
     .expect("server handshake JWT");
     (
-        ServerToClientHandshakePacket { token },
+        ServerToClientHandshakePacket {
+            handshake_web_token: token,
+        },
         ScriptCrypto::new(key),
     )
 }
 
 fn start_game(runtime_entity_id: i64) -> McpePacket {
     McpePacket::from(StartGamePacket {
-        runtime_entity_id,
+        runtime_id: ActorRuntimeId {
+            actor_runtime_id: runtime_entity_id,
+        },
         ..Default::default()
     })
 }
 
+/// Builds a cache-enabled LevelChunk for one column referencing `hashes`.
+///
+/// 1.26.40 writes the blob hashes unconditionally and states cache
+/// participation with `cache_enabled`, so the protocol-1001 `blobs: Some(..)`
+/// literal has no equivalent. gophertunnel `packet/level_chunk.go` expects
+/// `SubChunkCount + 1` hashes, and the `-1` request-mode sentinel is gone.
+fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
+    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    LevelChunkPacket {
+        chunk_position: ChunkPos { x, z },
+        dimension_id: DimensionType { value: 0 },
+        subchunks_count,
+        cache_enabled: true,
+        cache_metadata: hashes
+            .into_iter()
+            .map(|blob_id| LevelChunkPacketPayloadSubChunkMetadata { blob_id })
+            .collect(),
+        serialized_chunk_data: tail.to_vec(),
+        ..Default::default()
+    }
+}
+
 fn item_registry() -> McpePacket {
+    // `itemstates` is `item_data`, and its entries lost the prismarine
+    // `name`/`runtime_id` spelling for gophertunnel's `Name`/`RuntimeID`.
     McpePacket::from(ItemRegistryPacket {
-        itemstates: vec![ItemstatesItem {
-            name: "minecraft:shield".into(),
-            runtime_id: 355,
+        item_data: vec![ItemData {
+            item_name: "minecraft:shield".into(),
+            item_id: 355,
             ..Default::default()
         }],
     })
@@ -731,7 +798,7 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
         .await
         .expect("scripted login");
-    assert_eq!(game_data.start_game.runtime_entity_id, RUNTIME_ID);
+    assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
     assert_eq!(session.decode_error_count(), 0);
 
     for expected_time in [12_345, 23_456] {
@@ -775,7 +842,9 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     // alive and counted one skip.
     assert_eq!(session.world_skip_count(), 1);
 
-    let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
+    let mut invalid = Packet::from(ClientCacheStatusPacket {
+        iscachesupported: true,
+    });
     invalid.header.id = McpePacketName::PlayStatusPacket;
     let error = session
         .send(invalid)
@@ -784,7 +853,9 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     assert!(matches!(error, ProtocolError::HeaderIdMismatch { .. }));
 
     session
-        .send(Packet::from(ClientCacheStatusPacket { enabled: true }))
+        .send(Packet::from(ClientCacheStatusPacket {
+            iscachesupported: true,
+        }))
         .await
         .expect("play send");
     let error = session.recv().await.expect_err("malformed batch must fail");

@@ -29,8 +29,8 @@ use jolyne::valentine::{
     BiomeDefinitionListPacket, BiomeDefinitionListPacketMapofBiomenamestodataItem,
     CerealizerExperimentsAnonExperimentToggle, CreativeContentPacket, CreativeGroupInfoPayload,
     CreativeItemEntryPayload, GameRule, ItemData, ItemRegistryPacket, ItemRegistryPacketView,
-    PackInfoData, PackInstanceId, ResourcePackStackPacket, ResourcePacksInfoPacket, ServerBlockProperty,
-    StartGamePacket,
+    PackInfoData, PackInstanceId, ResourcePackStackPacket, ResourcePacksInfoPacket,
+    ServerBlockProperty, StartGamePacket,
     bedrock::{
         codec::{BedrockCodec, U32LE, VarInt},
         error::DecodeError,
@@ -179,7 +179,9 @@ fn item_registry_owned_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
+    assert_rejected_without_a_length_ceiling(
+        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
 }
 
 #[test]
@@ -189,7 +191,9 @@ fn item_registry_owned_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
+    assert_rejected_without_a_length_ceiling(
+        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
 }
 
 #[test]
@@ -199,7 +203,9 @@ fn item_registry_borrowed_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
+    assert_rejected_without_a_length_ceiling(
+        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
+    );
 }
 
 #[test]
@@ -209,7 +215,9 @@ fn item_registry_borrowed_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
+    assert_rejected_without_a_length_ceiling(
+        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
+    );
 }
 
 /// StartGame's inline world fields moved into the nested `settings:

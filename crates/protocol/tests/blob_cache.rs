@@ -62,7 +62,12 @@ pub(crate) fn cache_metadata(hashes: Vec<u64>) -> Vec<LevelChunkPacketPayloadSub
 
 /// Builds a cache-enabled LevelChunk whose hash count is consistent with
 /// `subchunks_count`, which the resolver requires to be `hashes.len() - 1`.
-pub(crate) fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
+pub(crate) fn cached_level_chunk(
+    x: i32,
+    z: i32,
+    hashes: Vec<u64>,
+    tail: &[u8],
+) -> LevelChunkPacket {
     let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         chunk_position: ChunkPos { x, z },
@@ -435,7 +440,11 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     );
     assert_eq!(
         entries[0].serialized_sub_chunk.as_deref(),
-        Some([subchunk.as_slice(), nbt_tail.as_slice()].concat().as_slice())
+        Some(
+            [subchunk.as_slice(), nbt_tail.as_slice()]
+                .concat()
+                .as_slice()
+        )
     );
     assert_eq!(
         entries[1].sub_chunk_request_result,
@@ -723,9 +732,7 @@ fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
     hashes.push(hit);
     let mut resolver = BlobCacheResolver::new(cache);
     let status = resolver
-        .accept_cached_packet(
-            cached_level_chunk(0, 0, hashes, b"").into(),
-        )
+        .accept_cached_packet(cached_level_chunk(0, 0, hashes, b"").into())
         .expect("classify every referenced hash through the only status-producing path");
     let packets = status.into_packets();
 

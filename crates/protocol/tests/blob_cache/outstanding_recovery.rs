@@ -109,7 +109,10 @@ fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts(
         protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1
     );
     resolver
-        .accept_miss_response(miss_response(vec![(subchunk_hash, subchunk_payload.to_vec())]))
+        .accept_miss_response(miss_response(vec![(
+            subchunk_hash,
+            subchunk_payload.to_vec(),
+        )]))
         .expect("the admitted retry accepts its blob");
     assert!(matches!(
         resolver.pop_ready(),
@@ -177,29 +180,24 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
 
     for transaction in 0..256_i32 {
         let entries = (-128_i16..=127)
-            .map(|dx| SubChunkEntryWithCachingItem {
-                dx: i8::try_from(dx).unwrap(),
-                dy: 1,
-                dz: 0,
-                result: SubChunkEntryWithCachingItemResult::Success,
-                payload: Some(payload.to_vec()),
-                heightmap_type: HeightMapDataType::NoData,
-                heightmap: None,
-                render_heightmap_type: HeightMapDataType::NoData,
-                render_heightmap: None,
-                blob_id: hash,
+            .map(|dx| {
+                sub_chunk_entry(
+                    (i8::try_from(dx).unwrap(), 1, 0),
+                    SubChunkRequestResult::Success,
+                    Some(payload.to_vec()),
+                    Some(hash),
+                )
             })
             .collect();
         let mut status = resolver
             .accept_cached_packet(
-                SubchunkPacket {
-                    dimension: 0,
-                    origin: Vec3I {
-                        x: transaction.saturating_mul(512),
-                        y: -4,
-                        z: 0,
+                SubChunkPacket {
+                    center_pos: SubChunkPos {
+                        subchunk_position_x: transaction.saturating_mul(512),
+                        subchunk_position_y: -4,
+                        subchunk_position_z: 0,
                     },
-                    entries: SubchunkPacketEntries::SubChunkEntryWithCaching(entries),
+                    ..cached_sub_chunk_packet(entries)
                 }
                 .into(),
             )
