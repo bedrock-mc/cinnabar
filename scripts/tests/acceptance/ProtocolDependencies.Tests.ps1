@@ -86,7 +86,7 @@ Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
 $canonicalStringDecoys = @'
 [dependencies]
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_30"] }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
@@ -95,8 +95,8 @@ $quotedWrongPaths = $canonicalManifest.Replace(
     'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
     '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_30"] }'
 ).Replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client"] }'
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_30"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_30"] }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {

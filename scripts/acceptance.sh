@@ -132,7 +132,7 @@ if len(protocol_packages) != 1:
     )
 expected_dependencies = {
     "valentine": ["bedrock_1_26_30"],
-    "jolyne": ["client"],
+    "jolyne": ["client", "bedrock_1_26_30"],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [

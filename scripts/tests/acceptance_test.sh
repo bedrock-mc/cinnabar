@@ -74,14 +74,14 @@ text = text.replace(
     1,
 )
 text = text.replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client"] }',
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_30"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_30"] }',
     1,
 )
 decoys = '''description = """
 [dependencies]
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_30"] }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
