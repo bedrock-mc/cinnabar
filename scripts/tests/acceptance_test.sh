@@ -69,19 +69,19 @@ jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine
 jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
 text = path.read_text(encoding="utf-8")
 text = text.replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_30"] }',
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
     1,
 )
 text = text.replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client"] }',
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_40"] }',
     1,
 )
 decoys = '''description = """
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -95,7 +95,7 @@ cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/proto
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
