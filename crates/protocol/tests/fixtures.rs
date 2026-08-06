@@ -3,7 +3,7 @@ use protocol::{
     BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
     PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     GameMode, InputFlag, LegacyEntityType, McpePacketData, McpePacketName, MovePlayerPacketMode,
     MovePlayerPacketTeleportCause, NetworkSettingsPacketCompressionAlgorithm,
     PlayerAuthInputPacketInputMode, PlayerAuthInputPacketInteractionModel,
@@ -46,9 +46,9 @@ fn protocol_constants_are_pinned_to_1_26_30() {
 
 #[test]
 fn network_settings_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::PacketNetworkSettings);
+    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
     match &packet.data {
-        McpePacketData::PacketNetworkSettings(settings) => {
+        McpePacketData::NetworkSettingsPacket(settings) => {
             assert_eq!(settings.compression_threshold, 512);
             assert_eq!(
                 settings.compression_algorithm,
@@ -65,9 +65,9 @@ fn network_settings_fixture_decodes_and_round_trips_exactly() {
 
 #[test]
 fn start_game_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(START_GAME, McpePacketName::PacketStartGame);
+    let packet = decode_one(START_GAME, McpePacketName::StartGamePacket);
     match &packet.data {
-        McpePacketData::PacketStartGame(start) => {
+        McpePacketData::StartGamePacket(start) => {
             assert_eq!(start.entity_id, 1);
             assert_eq!(start.runtime_entity_id, 2);
             assert_eq!(start.player_gamemode, GameMode::Creative);
@@ -107,9 +107,9 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
 
 #[test]
 fn level_chunk_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(LEVEL_CHUNK, McpePacketName::PacketLevelChunk);
+    let packet = decode_one(LEVEL_CHUNK, McpePacketName::LevelChunkPacket);
     match &packet.data {
-        McpePacketData::PacketLevelChunk(chunk) => {
+        McpePacketData::LevelChunkPacket(chunk) => {
             assert_eq!(chunk.x, 3);
             assert_eq!(chunk.z, -4);
             assert_eq!(chunk.dimension, 0);
@@ -125,9 +125,9 @@ fn level_chunk_fixture_decodes_and_round_trips_exactly() {
 
 #[test]
 fn move_player_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(MOVE_PLAYER, McpePacketName::PacketMovePlayer);
+    let packet = decode_one(MOVE_PLAYER, McpePacketName::MovePlayerPacket);
     match &packet.data {
-        McpePacketData::PacketMovePlayer(movement) => {
+        McpePacketData::MovePlayerPacket(movement) => {
             assert_eq!(movement.runtime_id, 42);
             assert_eq!(
                 movement.position,
@@ -198,9 +198,9 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
 
 #[test]
 fn add_actor_fixture_maps_to_add_entity_and_round_trips_exactly() {
-    let packet = decode_one(ADD_ACTOR, McpePacketName::PacketAddEntity);
+    let packet = decode_one(ADD_ACTOR, McpePacketName::AddActorPacket);
     match &packet.data {
-        McpePacketData::PacketAddEntity(entity) => {
+        McpePacketData::AddActorPacket(entity) => {
             assert_eq!(entity.unique_id, -77);
             assert_eq!(entity.runtime_id, 77);
             assert_eq!(entity.entity_type, "minecraft:pig");
@@ -229,7 +229,7 @@ fn add_actor_fixture_maps_to_add_entity_and_round_trips_exactly() {
 
 #[test]
 fn decode_preserves_sender_and_target_subclients() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::PacketNetworkSettings);
+    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
     assert_eq!(
         (packet.header.from_subclient, packet.header.to_subclient),
         (1, 2)
@@ -310,15 +310,15 @@ fn decode_rejects_trailing_byte_inside_declared_entry() {
 
 #[test]
 fn encode_rejects_header_data_id_mismatch() {
-    let mut packet = decode_one(NETWORK_SETTINGS, McpePacketName::PacketNetworkSettings);
-    packet.header.id = McpePacketName::PacketStartGame;
+    let mut packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
+    packet.header.id = McpePacketName::StartGamePacket;
     let err = encode(&packet, &session()).expect_err("mismatched header ID");
     assert!(matches!(err, ProtocolError::HeaderIdMismatch { .. }));
 }
 
 #[test]
 fn encode_rejects_out_of_range_subclient_ids() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::PacketNetworkSettings);
+    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
 
     let mut invalid_sender = packet.clone();
     invalid_sender.header.from_subclient = 4;

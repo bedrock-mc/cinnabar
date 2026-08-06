@@ -4,7 +4,7 @@ use protocol::{
     MAX_FORM_JSON_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError,
     WorldEvent, decode_batch, into_world_event,
 };
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     BossEventPacket, BossEventPacketColor, BossEventPacketOverlay, BossEventPacketType,
     CommandOutputPacket, CommandOutputPacketOutputItem, LevelEventPacket, LevelEventPacketEvent,
     McpePacketName, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
@@ -198,7 +198,7 @@ fn oversized_text_scores_and_form_json_fail_closed() {
 #[test]
 fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::PacketModalFormRequest as u32);
+    wire::write_var_u32(&mut payload, McpePacketName::ModalFormRequestPacket as u32);
     wire::write_var_u32(&mut payload, 7);
     wire::write_var_u32(&mut payload, 1);
     payload.put_u8(0xff);
@@ -216,7 +216,7 @@ fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
 #[test]
 fn raw_score_strings_reject_invalid_utf8_before_owned_materialization() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::PacketSetScore as u32);
+    wire::write_var_u32(&mut payload, McpePacketName::SetScorePacket as u32);
     payload.put_u8(0);
     wire::write_var_u32(&mut payload, 1);
     wire::write_var_u64(&mut payload, 2);
@@ -240,7 +240,7 @@ fn raw_score_strings_reject_invalid_utf8_before_owned_materialization() {
 #[test]
 fn raw_text_parameter_count_is_bounded_before_parameter_allocation() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::PacketText as u32);
+    wire::write_var_u32(&mut payload, McpePacketName::TextPacket as u32);
     payload.put_u8(0);
     payload.put_u8(2);
     payload.put_u8(2);
@@ -261,7 +261,7 @@ fn raw_text_parameter_count_is_bounded_before_parameter_allocation() {
 #[test]
 fn raw_soft_enum_count_is_bounded_before_suggestion_allocation() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::PacketUpdateSoftEnum as u32);
+    wire::write_var_u32(&mut payload, McpePacketName::UpdateSoftEnumPacket as u32);
     wire::write_var_u32(&mut payload, 8);
     payload.extend_from_slice(b"commands");
     wire::write_var_u32(&mut payload, (MAX_CHAT_AUTOCOMPLETE + 1) as u32);

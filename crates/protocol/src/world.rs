@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     CorrectPlayerMovePredictionPacketPredictionType, GameRuleI32, GameRuleI32Type,
     GameRuleI32Value, GameRuleVarintType, GameRuleVarintValue, LevelEventPacketEvent,
     McpePacketData, MovePlayerPacketMode, StartGamePacketDimension,
@@ -539,103 +539,103 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
-        McpePacketData::PacketText(packet) => WorldEvent::Ui(normalize_text(*packet)?),
-        McpePacketData::PacketCommandOutput(packet) => {
+        McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
+        McpePacketData::CommandOutputPacket(packet) => {
             WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)
         }
-        McpePacketData::PacketSetTitle(packet) => WorldEvent::Ui(normalize_title(*packet)?),
-        McpePacketData::PacketToastRequest(packet) => WorldEvent::Ui(normalize_toast(packet)?),
-        McpePacketData::PacketSetDisplayObjective(packet) => {
+        McpePacketData::SetTitlePacket(packet) => WorldEvent::Ui(normalize_title(*packet)?),
+        McpePacketData::ToastRequestPacket(packet) => WorldEvent::Ui(normalize_toast(packet)?),
+        McpePacketData::SetDisplayObjectivePacket(packet) => {
             WorldEvent::Ui(normalize_display_objective(*packet)?)
         }
-        McpePacketData::PacketRemoveObjective(packet) => {
+        McpePacketData::RemoveObjectivePacket(packet) => {
             WorldEvent::Ui(normalize_remove_objective(packet)?)
         }
-        McpePacketData::PacketSetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
-        McpePacketData::PacketBossEvent(packet) => WorldEvent::Ui(normalize_boss(*packet)?),
-        McpePacketData::PacketModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
-        McpePacketData::PacketSetHealth(packet) => WorldEvent::Ui(normalize_health(packet)),
-        McpePacketData::PacketPlayStatus(packet) => {
+        McpePacketData::SetScorePacket(packet) => WorldEvent::Ui(normalize_score(packet)?),
+        McpePacketData::BossEventPacket(packet) => WorldEvent::Ui(normalize_boss(*packet)?),
+        McpePacketData::ModalFormRequestPacket(packet) => WorldEvent::Ui(normalize_form(packet)?),
+        McpePacketData::SetHealthPacket(packet) => WorldEvent::Ui(normalize_health(packet)),
+        McpePacketData::PlayStatusPacket(packet) => {
             WorldEvent::Ui(normalize_player_status(packet)?)
         }
-        McpePacketData::PacketUpdateSoftEnum(packet) => {
+        McpePacketData::UpdateSoftEnumPacket(packet) => {
             WorldEvent::Ui(normalize_soft_enum(packet)?)
         }
-        McpePacketData::PacketAddEntity(packet) => {
+        McpePacketData::AddActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?)
         }
-        McpePacketData::PacketAddPlayer(packet) => {
+        McpePacketData::AddPlayerPacket(packet) => {
             WorldEvent::Actor(normalize_add_player(*packet, current_dimension)?)
         }
-        McpePacketData::PacketRemoveEntity(packet) => {
+        McpePacketData::RemoveActorPacket(packet) => {
             WorldEvent::Actor(normalize_remove_entity(packet, current_dimension))
         }
         McpePacketData::PacketMoveEntity(packet) => {
             WorldEvent::Actor(normalize_move_entity(*packet, current_dimension)?)
         }
-        McpePacketData::PacketMoveEntityDelta(packet) => {
+        McpePacketData::MoveActorDeltaPacket(packet) => {
             WorldEvent::Actor(normalize_move_entity_delta(*packet, current_dimension)?)
         }
-        McpePacketData::PacketSetEntityData(packet) => {
+        McpePacketData::SetActorDataPacket(packet) => {
             WorldEvent::Actor(normalize_set_entity_data(*packet, current_dimension)?)
         }
-        McpePacketData::PacketUpdateAttributes(packet) => {
+        McpePacketData::UpdateAttributesPacket(packet) => {
             WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
         }
-        McpePacketData::PacketPlayerList(packet) => {
+        McpePacketData::PlayerListPacket(packet) => {
             WorldEvent::Actor(normalize_player_list(*packet)?)
         }
-        McpePacketData::PacketItemRegistry(packet) => {
+        McpePacketData::ItemRegistryPacket(packet) => {
             WorldEvent::ItemActor(normalize_item_registry(packet)?)
         }
-        McpePacketData::PacketMobEquipment(packet) => {
+        McpePacketData::MobEquipmentPacket(packet) => {
             WorldEvent::Equipment(normalize_equipment(*packet)?)
         }
-        McpePacketData::PacketMobArmorEquipment(packet) => {
+        McpePacketData::MobArmorEquipmentPacket(packet) => {
             WorldEvent::ArmorEquipment(Box::new(normalize_armor_equipment(*packet)?))
         }
-        McpePacketData::PacketMobEffect(packet) => {
+        McpePacketData::MobEffectPacket(packet) => {
             WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
         }
-        McpePacketData::PacketSetEntityLink(packet) => {
+        McpePacketData::SetActorLinkPacket(packet) => {
             WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))
         }
-        McpePacketData::PacketSetPlayerGameType(packet) => {
+        McpePacketData::SetPlayerGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_game_mode(packet.gamemode),
             }))
         }
-        McpePacketData::PacketSetDefaultGameType(packet) => {
+        McpePacketData::SetDefaultGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_game_mode(packet.gamemode),
             }))
         }
-        McpePacketData::PacketInventoryContent(packet) => {
+        McpePacketData::InventoryContentPacket(packet) => {
             WorldEvent::Inventory(normalize_content(*packet)?)
         }
-        McpePacketData::PacketInventorySlot(packet) => {
+        McpePacketData::InventorySlotPacket(packet) => {
             WorldEvent::Inventory(normalize_slot(*packet)?)
         }
-        McpePacketData::PacketPlayerHotbar(packet) => {
+        McpePacketData::PlayerHotbarPacket(packet) => {
             WorldEvent::Inventory(normalize_hotbar(packet)?)
         }
-        McpePacketData::PacketItemStackResponse(packet) => {
+        McpePacketData::ItemStackResponsePacket(packet) => {
             WorldEvent::Inventory(normalize_response(packet)?)
         }
-        McpePacketData::PacketContainerOpen(packet) => {
+        McpePacketData::ContainerOpenPacket(packet) => {
             WorldEvent::Inventory(normalize_container_open(*packet)?)
         }
-        McpePacketData::PacketContainerClose(packet) => {
+        McpePacketData::ContainerClosePacket(packet) => {
             WorldEvent::Inventory(normalize_container_close(packet)?)
         }
-        McpePacketData::PacketContainerSetData(packet) => {
+        McpePacketData::ContainerSetDataPacket(packet) => {
             WorldEvent::Inventory(normalize_container_data(packet)?)
         }
-        McpePacketData::PacketAnimate(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
-        McpePacketData::PacketAnimateEntity(packet) => {
+        McpePacketData::AnimatePacket(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
+        McpePacketData::AnimateEntityPacket(packet) => {
             WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
         }
-        McpePacketData::PacketBiomeDefinitionList(packet) => {
+        McpePacketData::BiomeDefinitionListPacket(packet) => {
             if packet.biome_definitions.len() > MAX_BIOME_DEFINITIONS {
                 return Err(WorldPacketError::TooManyBiomeDefinitions {
                     count: packet.biome_definitions.len(),
@@ -683,7 +683,7 @@ pub fn into_world_event(
                 definitions: Arc::from(definitions),
             })
         }
-        McpePacketData::PacketLevelChunk(packet) => {
+        McpePacketData::LevelChunkPacket(packet) => {
             if packet.blobs.is_some() {
                 return Err(WorldPacketError::CachedChunksUnsupported);
             }
@@ -718,7 +718,7 @@ pub fn into_world_event(
                 payload: packet.payload,
             })
         }
-        McpePacketData::PacketSubchunk(packet) => {
+        McpePacketData::SubChunkPacket(packet) => {
             let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = packet.entries else {
                 return Err(WorldPacketError::CachedChunksUnsupported);
             };
@@ -758,7 +758,7 @@ pub fn into_world_event(
                 entries: normalized,
             })
         }
-        McpePacketData::PacketUpdateBlock(packet) => {
+        McpePacketData::UpdateBlockPacket(packet) => {
             let layer = normalize_layer(packet.layer)?;
             WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
                 dimension: current_dimension,
@@ -767,7 +767,7 @@ pub fn into_world_event(
                 network_id: packet.block_runtime_id as u32,
             }])
         }
-        McpePacketData::PacketUpdateSubchunkBlocks(packet) => {
+        McpePacketData::UpdateSubChunkBlocksPacket(packet) => {
             let mut updates = Vec::with_capacity(packet.blocks.len() + packet.extra.len());
             updates.extend(packet.blocks.into_iter().map(|update| BlockUpdateEvent {
                 dimension: current_dimension,
@@ -783,17 +783,17 @@ pub fn into_world_event(
             }));
             WorldEvent::BlockUpdates(updates)
         }
-        McpePacketData::PacketBlockEntityData(packet) => {
+        McpePacketData::BlockActorDataPacket(packet) => {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
                 dimension: current_dimension,
                 position: [packet.position.x, packet.position.y, packet.position.z],
                 nbt: packet.nbt.0.to_vec(),
             })
         }
-        McpePacketData::PacketChunkRadiusUpdate(packet) => {
+        McpePacketData::ChunkRadiusUpdatedPacket(packet) => {
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
         }
-        McpePacketData::PacketNetworkChunkPublisherUpdate(packet) => {
+        McpePacketData::NetworkChunkPublisherUpdatePacket(packet) => {
             let radius_blocks = u32::try_from(packet.radius)
                 .map_err(|_| WorldPacketError::InvalidPublisherRadius(packet.radius))?;
             WorldEvent::PublisherUpdate(PublisherUpdateEvent {
@@ -805,18 +805,18 @@ pub fn into_world_event(
                 radius_blocks,
             })
         }
-        McpePacketData::PacketChangeDimension(packet) => {
+        McpePacketData::ChangeDimensionPacket(packet) => {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: packet.dimension,
                 position: [packet.position.x, packet.position.y, packet.position.z],
             })
         }
-        McpePacketData::PacketRespawn(packet) => WorldEvent::Respawn(RespawnEvent {
+        McpePacketData::RespawnPacket(packet) => WorldEvent::Respawn(RespawnEvent {
             position: [packet.position.x, packet.position.y, packet.position.z],
             state: packet.state,
             runtime_entity_id: packet.runtime_entity_id,
         }),
-        McpePacketData::PacketMovePlayer(packet) => {
+        McpePacketData::MovePlayerPacket(packet) => {
             let mode = MovePlayerMode::from(packet.mode);
             WorldEvent::MovePlayer(MovePlayerEvent {
                 runtime_id: packet.runtime_id,
@@ -830,7 +830,7 @@ pub fn into_world_event(
                 source_tick: packet.tick,
             })
         }
-        McpePacketData::PacketCorrectPlayerMovePrediction(packet) => {
+        McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {
             if packet.prediction_type != CorrectPlayerMovePredictionPacketPredictionType::Player {
                 return Ok(None);
             }
@@ -845,16 +845,16 @@ pub fn into_world_event(
                 tick,
             })
         }
-        McpePacketData::PacketSetTime(packet) => {
+        McpePacketData::SetTimePacket(packet) => {
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
-        McpePacketData::PacketGameRulesChanged(packet) => {
+        McpePacketData::GameRulesChangedPacket(packet) => {
             let Some(enabled) = daylight_cycle_rule_update(&packet.rules) else {
                 return Ok(None);
             };
             WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
         }
-        McpePacketData::PacketLevelEvent(packet) => {
+        McpePacketData::LevelEventPacket(packet) => {
             if matches!(
                 packet.event,
                 LevelEventPacketEvent::BlockStartBreak
@@ -906,6 +906,11 @@ fn canonical_biome_name(name: &str) -> Arc<str> {
     if name.contains(':') {
         return Arc::from(name);
     }
+    // Content registries stay on v1_26_30. The 1.26.40 crate is generated from
+    // the Endstone dump, which is wire-only and ships no biome/block/item/state
+    // tables; the prismarine-derived 1.26.30 crate remains the only source for
+    // this data. Biome string IDs are stable across the two versions, so this is
+    // a data pin, not a protocol dependency.
     let known_vanilla = valentine::bedrock::version::v1_26_30::biomes::ALL_BIOMES
         .iter()
         .any(|biome| biome.string_id.strip_prefix("minecraft:") == Some(name));

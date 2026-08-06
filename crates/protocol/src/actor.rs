@@ -4,11 +4,11 @@ use bytes::{Buf, Bytes, BytesMut};
 use thiserror::Error;
 use valentine::{
     bedrock::codec::{BedrockCodec, VarInt},
-    bedrock::version::v1_26_30::{
-        AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
+    bedrock::version::v1_26_40::{
+        AddActorPacket, AddPlayerPacket, DeltaMoveFlags, EntityAttributes, EntityProperties,
         MetadataDictionary, MetadataDictionaryItemKey, MetadataDictionaryItemValue,
         MetadataDictionaryItemValueDefault, MobEffectPacket, MobEffectPacketEventId,
-        MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributes, PlayerListPacket,
+        MoveActorDeltaPacket, MoveEntityPacket, PlayerAttributes, PlayerListPacket,
         PlayerRecordsRecordsItem, PlayerRecordsType, RemoveEntityPacket, SetEntityDataPacket,
         SetEntityLinkPacket, UpdateAttributesPacket,
     },
@@ -295,7 +295,7 @@ pub enum ActorPacketError {
 }
 
 pub(crate) fn normalize_add_entity(
-    packet: AddEntityPacket,
+    packet: AddActorPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
     if packet.entity_type.len() > MAX_ACTOR_IDENTIFIER_BYTES {
@@ -475,7 +475,7 @@ pub(crate) fn normalize_move_entity_body(
 }
 
 pub(crate) fn normalize_move_entity_delta(
-    packet: MoveEntityDeltaPacket,
+    packet: MoveActorDeltaPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
     for (field, value) in [
@@ -636,7 +636,7 @@ pub(crate) fn normalize_player_list(
 }
 
 fn normalize_player_skin(
-    skin: valentine::bedrock::version::v1_26_30::Skin,
+    skin: valentine::bedrock::version::v1_26_40::Skin,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {
     if skin.persona {

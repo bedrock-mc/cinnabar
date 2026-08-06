@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketOverlay,
     BossEventPacketType, CommandOrigin, CommandOutputPacket, CommandRequestPacket,
     LevelEventPacket, LevelEventPacketEvent, ModalFormRequestPacket, PlayStatusPacket,
@@ -847,7 +847,7 @@ pub(crate) fn validate_borrowed_ui_packet(
     packet: &BorrowedMcpePacketData,
 ) -> Result<(), UiPacketError> {
     match packet {
-        BorrowedMcpePacketData::PacketText(packet) => {
+        BorrowedMcpePacketData::TextPacket(packet) => {
             if let Some(content) = &packet.content {
                 match content {
                     TextPacketContentView::Announcement(value)
@@ -881,7 +881,7 @@ pub(crate) fn validate_borrowed_ui_packet(
             }
             Ok(())
         }
-        BorrowedMcpePacketData::PacketModalFormRequest(packet) => {
+        BorrowedMcpePacketData::ModalFormRequestPacket(packet) => {
             if packet.data.as_bytes().len() > MAX_FORM_JSON_BYTES {
                 return Err(UiPacketError::FormTooLarge {
                     bytes: packet.data.as_bytes().len(),
@@ -896,30 +896,30 @@ pub(crate) fn validate_borrowed_ui_packet(
                     field: "modal_form.data",
                 })
         }
-        BorrowedMcpePacketData::PacketSetTitle(packet) => {
+        BorrowedMcpePacketData::SetTitlePacket(packet) => {
             validate_utf8(&packet.text, "set_title.text")?;
             validate_utf8(&packet.xuid, "set_title.xuid")?;
             validate_utf8(&packet.platform_online_id, "set_title.platform_online_id")?;
             validate_utf8(&packet.filtered_message, "set_title.filtered_message")
         }
-        BorrowedMcpePacketData::PacketBossEvent(packet) => {
+        BorrowedMcpePacketData::BossEventPacket(packet) => {
             validate_utf8(&packet.title, "boss.title")?;
             validate_utf8(&packet.filtered_title, "boss.filtered_title")
         }
-        BorrowedMcpePacketData::PacketToastRequest(packet) => {
+        BorrowedMcpePacketData::ToastRequestPacket(packet) => {
             validate_utf8(&packet.title, "toast.title")?;
             validate_utf8(&packet.message, "toast.message")
         }
-        BorrowedMcpePacketData::PacketRemoveObjective(packet) => {
+        BorrowedMcpePacketData::RemoveObjectivePacket(packet) => {
             validate_utf8(&packet.objective_name, "objective.name")
         }
-        BorrowedMcpePacketData::PacketSetDisplayObjective(packet) => {
+        BorrowedMcpePacketData::SetDisplayObjectivePacket(packet) => {
             validate_utf8(&packet.display_slot, "objective.display_slot")?;
             validate_utf8(&packet.objective_name, "objective.name")?;
             validate_utf8(&packet.display_name, "objective.display_name")?;
             validate_utf8(&packet.criteria_name, "objective.criteria_name")
         }
-        BorrowedMcpePacketData::PacketUpdateSoftEnum(packet) => {
+        BorrowedMcpePacketData::UpdateSoftEnumPacket(packet) => {
             if packet.options.len() > MAX_CHAT_AUTOCOMPLETE {
                 return Err(UiPacketError::TooManyAutocompleteSuggestions {
                     count: packet.options.len(),

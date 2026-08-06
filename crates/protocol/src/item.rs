@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
-    version::v1_26_30::{
+    version::v1_26_40::{
         AnimateEntityPacket, AnimatePacket, AnimatePacketActionId, Item, ItemContentExtra,
         ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
         ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemRegistryPacket,
@@ -239,6 +239,8 @@ pub struct ItemRegistryEntry {
 /// the server packet over it.
 #[must_use]
 pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
+    // Content registries stay on v1_26_30: the Endstone-derived 1.26.40 crate is
+    // wire-only and generates no items.rs table. See the note in world.rs.
     const GENERATED_ITEMS: &str =
         include_str!("../vendor/valentine/bedrock_versions/v1_26_30/src/items.rs");
 
@@ -793,13 +795,13 @@ fn window_id(window: WindowId) -> (u8, Option<ActorHandedness>) {
 
 #[cfg(test)]
 mod hotbar_tests {
-    use valentine::bedrock::version::v1_26_30::{ItemNew, McpePacketData};
+    use valentine::bedrock::version::v1_26_40::{ItemNew, McpePacketData};
 
     use super::*;
 
     #[test]
     fn select_hotbar_slot_packet_builds_a_mob_equipment_selection() {
-        let McpePacketData::PacketMobEquipment(packet) = select_hotbar_slot_packet(4242, 3).data
+        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(4242, 3).data
         else {
             panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
         };
@@ -813,7 +815,7 @@ mod hotbar_tests {
 
     #[test]
     fn select_hotbar_slot_packet_clamps_out_of_range_slots() {
-        let McpePacketData::PacketMobEquipment(packet) = select_hotbar_slot_packet(1, 200).data
+        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(1, 200).data
         else {
             panic!("hotbar selection must build a MobEquipment packet");
         };

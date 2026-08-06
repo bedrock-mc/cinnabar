@@ -4,14 +4,14 @@ use protocol::{
     BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
     ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
 };
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     McpePacketData, McpePacketName, TextPacketCategory, TextPacketContent, TextPacketType,
 };
 
 #[test]
 fn outbound_chat_uses_exact_authored_text_shape() {
     let packet = chat_text_packet("RustMCBE", "1234", "hello server").unwrap();
-    let McpePacketData::PacketText(packet) = packet.data else {
+    let McpePacketData::TextPacket(packet) = packet.data else {
         panic!("expected text packet")
     };
     assert!(!packet.needs_translation);
@@ -148,9 +148,9 @@ fn ordinary_chat_input_remains_an_authored_text_packet() {
     let packet = chat_input_packet("RustMCBE", "1234", "hello server").unwrap();
     let text_packet = chat_text_packet("RustMCBE", "1234", "hello server").unwrap();
 
-    assert_eq!(packet.header.id, McpePacketName::PacketText);
+    assert_eq!(packet.header.id, McpePacketName::TextPacket);
     assert_eq!(packet, text_packet);
-    let McpePacketData::PacketText(packet) = packet.data else {
+    let McpePacketData::TextPacket(packet) = packet.data else {
         panic!("expected text packet")
     };
     let Some(TextPacketContent::Chat(content)) = packet.content else {

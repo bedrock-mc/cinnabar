@@ -182,7 +182,7 @@ impl BlobCacheResolver {
         raw_packet_bytes: Option<usize>,
     ) -> Result<BlobCacheStatus, BlobCacheError> {
         let (packet, hashes, packet_retained_bytes) = match packet.data {
-            McpePacketData::PacketLevelChunk(packet) => {
+            McpePacketData::LevelChunkPacket(packet) => {
                 let Some(blobs) = packet.blobs.as_ref() else {
                     return Err(BlobCacheError::NotCachedPacket);
                 };
@@ -212,7 +212,7 @@ impl BlobCacheResolver {
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
                 (PendingPacket::LevelChunk(packet), hashes, bytes)
             }
-            McpePacketData::PacketSubchunk(packet) => {
+            McpePacketData::SubChunkPacket(packet) => {
                 let SubchunkPacketEntries::SubChunkEntryWithCaching(entries) = &packet.entries
                 else {
                     return Err(BlobCacheError::NotCachedPacket);
@@ -221,7 +221,7 @@ impl BlobCacheResolver {
                 let mut bytes = entries
                     .capacity()
                     .checked_mul(size_of::<
-                        valentine::bedrock::version::v1_26_30::SubChunkEntryWithCachingItem,
+                        valentine::bedrock::version::v1_26_40::SubChunkEntryWithCachingItem,
                     >())
                     .and_then(|entries| entries.checked_add(size_of::<SubchunkPacket>()))
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
@@ -924,11 +924,11 @@ trait ReferencedBlobHashes {
 impl ReferencedBlobHashes for Packet {
     fn referenced_blob_hashes(&self) -> Vec<u64> {
         match &self.data {
-            McpePacketData::PacketLevelChunk(packet) => packet
+            McpePacketData::LevelChunkPacket(packet) => packet
                 .blobs
                 .as_ref()
                 .map_or_else(Vec::new, |blobs| blobs.hashes.clone()),
-            McpePacketData::PacketSubchunk(packet) => {
+            McpePacketData::SubChunkPacket(packet) => {
                 subchunk_referenced_blob_hashes(&packet.entries)
             }
             _ => Vec::new(),

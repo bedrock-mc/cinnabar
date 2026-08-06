@@ -8,7 +8,7 @@ use protocol::BedrockSession;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarInt},
     error::DecodeError,
-    version::v1_26_30::BiomeChunkGeneration,
+    version::v1_26_40::BiomeChunkGeneration,
 };
 
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
@@ -29,7 +29,7 @@ fn raw_fixture() -> RawPacket {
 }
 
 fn assert_fixture_fields(data: &McpePacketData) {
-    let McpePacketData::PacketBiomeDefinitionList(packet) = data else {
+    let McpePacketData::BiomeDefinitionListPacket(packet) = data else {
         panic!("expected BiomeDefinitionList, got {:?}", data.packet_id());
     };
     assert_eq!(packet.biome_definitions.len(), 1);
@@ -58,7 +58,7 @@ fn pinned_gophertunnel_biome_definition_list_owned_decodes_and_round_trips() {
         .expect("owned BiomeDefinitionList decode");
     assert_eq!(
         packet.data.packet_id(),
-        McpePacketName::PacketBiomeDefinitionList
+        McpePacketName::BiomeDefinitionListPacket
     );
     assert_fixture_fields(&packet.data);
     let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
@@ -72,8 +72,8 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_raw_materializes_and_round
         .expect("borrowed BiomeDefinitionList decode");
     assert!(matches!(
         &borrowed.data,
-        valentine::bedrock::version::v1_26_30::BorrowedMcpePacketData::Raw {
-            name: McpePacketName::PacketBiomeDefinitionList,
+        valentine::bedrock::version::v1_26_40::BorrowedMcpePacketData::Raw {
+            name: McpePacketName::BiomeDefinitionListPacket,
             ..
         }
     ));

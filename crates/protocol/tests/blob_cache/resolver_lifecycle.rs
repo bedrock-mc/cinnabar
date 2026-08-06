@@ -27,7 +27,7 @@ fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
         .expect("the original one-shot response still resolves the transaction");
     assert!(matches!(
         pop_packet(&mut resolver, "resolved cached transaction").data,
-        McpePacketData::PacketLevelChunk(_)
+        McpePacketData::LevelChunkPacket(_)
     ));
 }
 

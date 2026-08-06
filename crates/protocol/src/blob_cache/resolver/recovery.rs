@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
     match &packet.data {
-        McpePacketData::PacketLevelChunk(packet) => Some(ChunkResyncEvent {
+        McpePacketData::LevelChunkPacket(packet) => Some(ChunkResyncEvent {
             dimension: packet.dimension,
             x: packet.x,
             z: packet.z,
@@ -12,7 +12,7 @@ pub(super) fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
         // Cached SubChunk packets are responses to scheduler-owned requests. Discarding the
         // response deliberately leaves that request outstanding, so its existing deadline and
         // bounded retry path performs recovery without a duplicate full-column request.
-        McpePacketData::PacketSubchunk(_) => None,
+        McpePacketData::SubChunkPacket(_) => None,
         _ => None,
     }
 }
@@ -74,14 +74,14 @@ fn ready_value_recovery(value: &BlobCacheReady) -> Vec<ChunkResyncEvent> {
         return Vec::new();
     };
     match &packet.data {
-        McpePacketData::PacketLevelChunk(packet) => vec![ChunkResyncEvent {
+        McpePacketData::LevelChunkPacket(packet) => vec![ChunkResyncEvent {
             dimension: packet.dimension,
             x: packet.x,
             z: packet.z,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
-        McpePacketData::PacketSubchunk(packet) => match &packet.entries {
+        McpePacketData::SubChunkPacket(packet) => match &packet.entries {
             SubchunkPacketEntries::SubChunkEntryWithCaching(entries) => sub_chunk_recoveries(
                 packet.dimension,
                 [packet.origin.x, packet.origin.y, packet.origin.z],

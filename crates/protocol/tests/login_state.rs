@@ -421,7 +421,7 @@ impl ServerScript {
                         }
                         CachePlayScript::TruncatedMissResponse => {
                             self.enqueue_encrypted_raw_packet(
-                                McpePacketName::PacketClientCacheMissResponse,
+                                McpePacketName::ClientCacheMissResponsePacket,
                                 &[0x01],
                             );
                         }
@@ -776,7 +776,7 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     assert_eq!(session.world_skip_count(), 1);
 
     let mut invalid = Packet::from(ClientCacheStatusPacket { enabled: true });
-    invalid.header.id = McpePacketName::PacketPlayStatus;
+    invalid.header.id = McpePacketName::PlayStatusPacket;
     let error = session
         .send(invalid)
         .await

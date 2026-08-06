@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
     TextPacketType,
 };

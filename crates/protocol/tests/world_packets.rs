@@ -8,7 +8,7 @@ use protocol::{
     into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     BiomeDefinition, BiomeDefinitionListPacket, BlockCoordinates, BlockUpdate,
     BlockUpdateTransitionType, ChangeDimensionPacket, ChunkRadiusUpdatePacket,
     CorrectPlayerMovePredictionPacket, CorrectPlayerMovePredictionPacketPredictionType,
@@ -573,7 +573,7 @@ fn rejects_malformed_or_cached_level_chunks() {
         Err(WorldPacketError::MissingHighestSubChunk)
     );
 
-    use valentine::bedrock::version::v1_26_30::LevelChunkPacketBlobs;
+    use valentine::bedrock::version::v1_26_40::LevelChunkPacketBlobs;
     let cached = LevelChunkPacket {
         sub_chunk_count: 1,
         blobs: Some(LevelChunkPacketBlobs::default()),
@@ -947,7 +947,7 @@ fn ignores_level_events_without_normalized_world_state() {
 #[test]
 fn builds_bounded_column_sub_chunk_requests() {
     let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
-    let McpePacketData::PacketSubchunkRequest(request) = packet.data else {
+    let McpePacketData::SubChunkRequestPacket(request) = packet.data else {
         panic!("expected SubchunkRequest packet")
     };
     assert_eq!(request.dimension, 0);

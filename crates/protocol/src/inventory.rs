@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt, VarInt},
-    version::v1_26_30::{
+    version::v1_26_40::{
         ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, ContainerSlotType,
         FullContainerName, InventoryContentPacket, InventorySlotPacket,
         ItemExtraDataWithBlockingTick, ItemExtraDataWithoutBlockingTick,
@@ -471,7 +471,7 @@ pub(crate) fn validate_raw_inventory_packet(
 ) -> Result<(), InventoryPacketError> {
     let mut body = raw.body().clone();
     match raw.id {
-        McpePacketName::PacketInventoryContent => {
+        McpePacketName::InventoryContentPacket => {
             read_var_i32(&mut body)?;
             let count = read_count(&mut body)?;
             validate_slot_count(count)?;
@@ -481,7 +481,7 @@ pub(crate) fn validate_raw_inventory_packet(
             scan_full_container(&mut body)?;
             scan_item_v4(&mut body)?;
         }
-        McpePacketName::PacketInventorySlot => {
+        McpePacketName::InventorySlotPacket => {
             read_var_i32(&mut body)?;
             read_var_i32(&mut body)?;
             if read_presence(&mut body)? {
@@ -492,7 +492,7 @@ pub(crate) fn validate_raw_inventory_packet(
             }
             scan_item_new(&mut body)?;
         }
-        McpePacketName::PacketItemStackResponse => scan_stack_responses(&mut body)?,
+        McpePacketName::ItemStackResponsePacket => scan_stack_responses(&mut body)?,
         _ => {}
     }
     Ok(())

@@ -8,7 +8,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, ContainerSlotType,
     FullContainerName, InventoryContentPacket, InventorySlotPacket, InventorySlotPacketArgs,
     ItemExtraDataWithoutBlockingTick, ItemNew, ItemNewExtra, ItemStackResponsePacket,
@@ -43,7 +43,7 @@ fn item_new(network_id: i16, count: u16, stack_network_id: i32) -> ItemNew {
         network_id,
         count,
         metadata: 3,
-        stack_id: Some(valentine::bedrock::version::v1_26_30::ItemNewStackId {
+        stack_id: Some(valentine::bedrock::version::v1_26_40::ItemNewStackId {
             empty: 0,
             id: stack_network_id,
         }),
@@ -69,25 +69,25 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::Packet {
 #[test]
 fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
     let content = match decode_fixture(CONTENT_FIXTURE).data {
-        McpePacketData::PacketInventoryContent(packet) => normalize_content(*packet).unwrap(),
+        McpePacketData::InventoryContentPacket(packet) => normalize_content(*packet).unwrap(),
         other => panic!("expected InventoryContent, got {other:?}"),
     };
     assert!(matches!(content, InventoryEvent::Content(_)));
 
     let slot = match decode_fixture(SLOT_FIXTURE).data {
-        McpePacketData::PacketInventorySlot(packet) => normalize_slot(*packet).unwrap(),
+        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
         other => panic!("expected InventorySlot, got {other:?}"),
     };
     assert!(matches!(slot, InventoryEvent::Slot(_)));
 
     let hotbar = match decode_fixture(HOTBAR_FIXTURE).data {
-        McpePacketData::PacketPlayerHotbar(packet) => normalize_hotbar(packet).unwrap(),
+        McpePacketData::PlayerHotbarPacket(packet) => normalize_hotbar(packet).unwrap(),
         other => panic!("expected PlayerHotbar, got {other:?}"),
     };
     assert!(matches!(hotbar, InventoryEvent::SelectedSlot(_)));
 
     let response = match decode_fixture(RESPONSE_FIXTURE).data {
-        McpePacketData::PacketItemStackResponse(packet) => normalize_response(packet).unwrap(),
+        McpePacketData::ItemStackResponsePacket(packet) => normalize_response(packet).unwrap(),
         other => panic!("expected ItemStackResponse, got {other:?}"),
     };
     assert!(matches!(response, InventoryEvent::Response(_)));
@@ -191,7 +191,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     let open = ContainerOpenPacket {
         window_id: WindowId::First,
         window_type: WindowType::Container,
-        coordinates: valentine::bedrock::version::v1_26_30::BlockCoordinates { x: 1, y: 64, z: -2 },
+        coordinates: valentine::bedrock::version::v1_26_40::BlockCoordinates { x: 1, y: 64, z: -2 },
         runtime_entity_id: -77,
     };
     let InventoryEvent::Open(open) = normalize_container_open(open).unwrap() else {

@@ -2,11 +2,11 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
     PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_30::{
-    AddEntityPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
+use valentine::bedrock::version::v1_26_40::{
+    AddActorPacket, AddPlayerPacket, DeltaMoveFlags, EntityProperties, EntityPropertiesFloatsItem,
     EntityPropertiesIntsItem, MetadataDictionaryItem, MetadataDictionaryItemKey,
     MetadataDictionaryItemType, MetadataDictionaryItemValue, MetadataDictionaryItemValueDefault,
-    MoveEntityDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
+    MoveActorDeltaPacket, MoveEntityPacket, PlayerAttributesItem, PlayerListPacket, PlayerRecords,
     PlayerRecordsRecordsItem, PlayerRecordsRecordsItemAdd, PlayerRecordsRecordsItemRemove,
     PlayerRecordsType, RemoveEntityPacket, Rotation, SetEntityDataPacket, Skin, SkinImage,
     UpdateAttributesPacket, Vec3F,
@@ -14,7 +14,7 @@ use valentine::bedrock::version::v1_26_30::{
 
 #[test]
 fn add_entity_normalizes_to_a_vendor_neutral_actor_spawn() {
-    let packet = AddEntityPacket {
+    let packet = AddActorPacket {
         unique_id: -17,
         runtime_id: 42,
         entity_type: "minecraft:bee".to_owned(),
@@ -121,7 +121,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
         },
     }
     .into();
-    let delta = MoveEntityDeltaPacket {
+    let delta = MoveActorDeltaPacket {
         runtime_entity_id: 55,
         flags: DeltaMoveFlags::HAS_X
             | DeltaMoveFlags::HAS_Y
@@ -433,12 +433,12 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
 
 #[test]
 fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
-    let too_long = AddEntityPacket {
+    let too_long = AddActorPacket {
         entity_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1),
         ..Default::default()
     }
     .into();
-    let non_finite = AddEntityPacket {
+    let non_finite = AddActorPacket {
         entity_type: "minecraft:bee".to_owned(),
         yaw: f32::NAN,
         ..Default::default()

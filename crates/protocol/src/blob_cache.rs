@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket, LevelChunkPacket, McpePacketData,
     SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItem,
     SubChunkEntryWithoutCachingItemResult, SubchunkPacket, SubchunkPacketEntries,
@@ -399,7 +399,7 @@ pub struct BlobCacheResolver {
 fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCacheError> {
     match value {
         BlobCacheReady::Packet(Packet {
-            data: McpePacketData::PacketLevelChunk(packet),
+            data: McpePacketData::LevelChunkPacket(packet),
             ..
         }) => {
             let hash_bytes = packet.blobs.as_ref().map_or(Ok(0), |blobs| {
@@ -415,7 +415,7 @@ fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCach
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
         BlobCacheReady::Packet(Packet {
-            data: McpePacketData::PacketSubchunk(packet),
+            data: McpePacketData::SubChunkPacket(packet),
             ..
         }) => {
             let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = &packet.entries

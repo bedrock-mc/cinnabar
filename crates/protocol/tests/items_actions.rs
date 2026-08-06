@@ -7,8 +7,8 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
-use valentine::bedrock::version::v1_26_30::{
-    AddEntityPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket, AnimatePacketActionId,
+use valentine::bedrock::version::v1_26_40::{
+    AddActorPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket, AnimatePacketActionId,
     Item, ItemContent, ItemContentExtra, ItemExtraDataWithoutBlockingTick,
     ItemExtraDataWithoutBlockingTickNbt, ItemNew, ItemNewExtra, ItemNewStackId, ItemRegistryPacket,
     ItemstatesItem, MobEquipmentPacket, NetworkSettingsPacket, WindowId,
@@ -212,7 +212,7 @@ fn unrelated_packets_remain_ignored() {
 
 #[test]
 fn non_player_spawns_receive_the_canonical_empty_stack() {
-    let packet = AddEntityPacket {
+    let packet = AddActorPacket {
         runtime_id: 42,
         entity_type: "minecraft:bee".into(),
         ..Default::default()

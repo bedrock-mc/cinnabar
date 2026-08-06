@@ -17,7 +17,11 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
+# Wire format comes from bedrock_1_26_40 (Endstone-derived, wire-only). The
+# content registries (biomes/blocks/items/states/entities) have no 1.26.40
+# equivalent, so bedrock_1_26_30 stays enabled purely as the registry-data
+# source. The two version modules are additive and compile side by side.
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
 
 [dev-dependencies]

@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use valentine::bedrock::{
     codec::{BedrockCodec, U32LE, VarInt},
     error::DecodeError,
-    version::v1_26_30::{
+    version::v1_26_40::{
         BlockUpdate, DimensionDataPacket, DimensionDataPacketDefinitionsItem, LevelChunkPacket,
         LevelChunkPacketBlobs, NetworkChunkPublisherUpdatePacket,
         NetworkChunkPublisherUpdatePacketSavedChunksItem, SubChunkEntryWithCachingItem,

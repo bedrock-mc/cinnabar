@@ -1,7 +1,7 @@
 use std::ops::{BitOr, BitOrAssign};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     InputFlag, PlayerAuthInputPacket, PlayerAuthInputPacketInputMode,
     PlayerAuthInputPacketInteractionModel, PlayerAuthInputPacketPlayMode, Vec2F, Vec3F,
 };

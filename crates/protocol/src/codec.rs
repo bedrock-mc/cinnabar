@@ -3,7 +3,7 @@ use thiserror::Error;
 use valentine::bedrock::borrowed::{BorrowedStr, take_varint_prefixed_string};
 use valentine::bedrock::codec::{BedrockCodec, I32LE, VarInt, ZigZag64};
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_30::{BorrowedMcpePacket, McpePacketData, McpePacketName};
+use valentine::bedrock::version::v1_26_40::{BorrowedMcpePacket, McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::Packet;
@@ -122,17 +122,17 @@ pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> 
     let _declared = wire::read_var_u32(&mut probe)?;
     let header = wire::read_var_u32(&mut probe)?;
     let packet_id = header & 0x3ff;
-    if packet_id == McpePacketName::PacketUpdateSoftEnum as u32 {
+    if packet_id == McpePacketName::UpdateSoftEnumPacket as u32 {
         return validate_raw_soft_enum_packet(probe);
     }
     if !matches!(packet_id, 9 | 74 | 88 | 100 | 106 | 107 | 108 | 186) {
         return Ok(());
     }
 
-    if packet_id == McpePacketName::PacketSetScore as u32 {
+    if packet_id == McpePacketName::SetScorePacket as u32 {
         return validate_raw_score_packet(probe);
     }
-    if packet_id == McpePacketName::PacketText as u32 {
+    if packet_id == McpePacketName::TextPacket as u32 {
         return validate_raw_text_packet(probe);
     }
 

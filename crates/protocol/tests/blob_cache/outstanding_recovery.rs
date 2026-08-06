@@ -119,7 +119,7 @@ fn transaction_pressure_rotates_oldest_and_preserves_current_recovery_contracts(
     assert!(matches!(
         resolver.pop_ready(),
         Some(BlobCacheReady::Packet(packet))
-            if matches!(&packet.data, McpePacketData::PacketSubchunk(_))
+            if matches!(&packet.data, McpePacketData::SubChunkPacket(_))
     ));
 }
 

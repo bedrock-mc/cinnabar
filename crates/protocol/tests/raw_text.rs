@@ -6,7 +6,7 @@ use protocol::{
     TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
     parse_raw_text,
 };
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     SetTitlePacket, SetTitlePacketType, TextPacket, TextPacketCategory, TextPacketContent,
     TextPacketContentJson, TextPacketType,
 };

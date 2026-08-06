@@ -4,7 +4,7 @@ use protocol::{
     client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     Blob, ClientCacheMissResponsePacket, HeightMapDataType, LevelChunkPacket,
     LevelChunkPacketBlobs, McpePacketData, SetTimePacket, SubChunkEntryWithCachingItem,
     SubChunkEntryWithCachingItemResult, SubChunkEntryWithoutCachingItemResult, SubchunkPacket,
@@ -188,7 +188,7 @@ fn cache_miss_response_resolves_after_independent_world_events() {
         .expect("authorized miss response remains admissible under pressure");
 
     let resolved = pop_packet(&mut resolver, "resolved cached FIFO head");
-    assert!(matches!(resolved.data, McpePacketData::PacketLevelChunk(_)));
+    assert!(matches!(resolved.data, McpePacketData::LevelChunkPacket(_)));
     assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().skipped_world_events, 0);
 }
@@ -291,7 +291,7 @@ fn cached_inline_level_chunk_classifies_unique_hashes_and_reconstructs_wire_orde
         })
         .expect("resolve miss");
     let packet = pop_packet(&mut resolver, "resolved packet");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected level chunk")
     };
     assert!(packet.blobs.is_none());
@@ -330,7 +330,7 @@ fn request_mode_level_chunk_reconstructs_biome_before_uncached_tail() {
     let status = resolver.accept_cached_packet(packet).expect("cached biome");
     assert_eq!(status.have(), [hash]);
     let packet = pop_packet(&mut resolver, "hit resolves immediately");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected level chunk")
     };
     assert_eq!(packet.payload, [biome.as_slice(), &[0]].concat());
@@ -359,7 +359,7 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
         .expect("resolve subchunk");
 
     let packet = pop_packet(&mut resolver, "resolved subchunk");
-    let McpePacketData::PacketSubchunk(packet) = packet.data else {
+    let McpePacketData::SubChunkPacket(packet) = packet.data else {
         panic!("expected subchunk")
     };
     let SubchunkPacketEntries::SubChunkEntryWithoutCaching(entries) = packet.entries else {
@@ -404,9 +404,9 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
     let b_packet = pop_packet(&mut resolver, "later cached hit is ready");
     assert!(matches!(
         ordinary.data,
-        McpePacketData::PacketSetTime(SetTimePacket { time: 42 })
+        McpePacketData::SetTimePacket(SetTimePacket { time: 42 })
     ));
-    assert!(matches!(b_packet.data, McpePacketData::PacketLevelChunk(_)));
+    assert!(matches!(b_packet.data, McpePacketData::LevelChunkPacket(_)));
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -418,7 +418,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
         .expect("resolve A");
 
     let a_packet = pop_packet(&mut resolver, "A resolves last");
-    assert!(matches!(a_packet.data, McpePacketData::PacketLevelChunk(_)));
+    assert!(matches!(a_packet.data, McpePacketData::LevelChunkPacket(_)));
 }
 
 #[test]
@@ -652,7 +652,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
         .accept_cached_packet(packet)
         .expect("177 small Lunar-style blobs fit retained and reconstructed limits");
     let packet = pop_packet(&mut resolver, "many-small ready packet");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected level chunk")
     };
     expected.extend_from_slice(b"tail");
@@ -886,7 +886,7 @@ fn distinct_transactions_publish_out_of_order() {
             })
             .expect("out-of-order response remains authorized");
         let packet = pop_packet(&mut resolver, "out-of-order completed request column");
-        let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+        let McpePacketData::LevelChunkPacket(packet) = packet.data else {
             panic!("expected LevelChunk")
         };
         assert_eq!(packet.x, *expected_x);
@@ -901,7 +901,7 @@ fn distinct_transactions_publish_out_of_order() {
         })
         .expect("resolve remaining transaction");
     let packet = pop_packet(&mut resolver, "remaining request column");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected LevelChunk")
     };
     assert_eq!(packet.x, fixtures[0].0);
@@ -994,7 +994,7 @@ fn abandoning_a_hash_owner_promotes_waiter_and_keeps_late_response_authorized() 
         .expect("a late response remains authorized by the promoted waiter");
     assert_eq!(resolver.stats().pending_transactions, 0);
     let packet = pop_packet(&mut resolver, "promoted waiter column");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected the promoted waiter to reconstruct as a LevelChunk");
     };
     assert_eq!(packet.x, 22);

@@ -187,7 +187,7 @@ fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
         )))
     ));
     let packet = pop_packet(&mut resolver, "first retained output remains lossless");
-    let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
         panic!("expected reconstructed LevelChunk")
     };
     assert_eq!(packet.x, 51);
@@ -320,7 +320,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
         })
         .expect("later transaction resolves first");
     let second = pop_packet(&mut resolver, "later completed packet");
-    let McpePacketData::PacketLevelChunk(second) = second.data else {
+    let McpePacketData::LevelChunkPacket(second) = second.data else {
         panic!()
     };
     assert!(second.payload.ends_with(b"second"));
@@ -336,7 +336,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
         .expect("earlier transaction resolves");
 
     let first = pop_packet(&mut resolver, "first packet");
-    let McpePacketData::PacketLevelChunk(first) = first.data else {
+    let McpePacketData::LevelChunkPacket(first) = first.data else {
         panic!()
     };
     assert!(first.payload.ends_with(b"first"));
@@ -398,7 +398,7 @@ fn same_column_block_update_waits_for_cached_chunk_and_survives_replacement() {
     for _ in 0..2 {
         match resolver.pop_ready().expect("chunk and update become ready") {
             BlobCacheReady::Packet(packet) => {
-                let McpePacketData::PacketLevelChunk(packet) = packet.data else {
+                let McpePacketData::LevelChunkPacket(packet) = packet.data else {
                     panic!("expected cached LevelChunk")
                 };
                 assert_eq!(packet.x, 4);
@@ -636,7 +636,7 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         Some(BlobCacheReady::Packet(packet))
             if matches!(
                 &packet.data,
-                McpePacketData::PacketLevelChunk(packet) if packet.x == 0
+                McpePacketData::LevelChunkPacket(packet) if packet.x == 0
             )
     ));
 
@@ -700,7 +700,7 @@ fn pending_transition_to_pressure_releases_an_existing_cached_ready_packet() {
         Some(BlobCacheReady::Packet(packet))
             if matches!(
                 &packet.data,
-                McpePacketData::PacketLevelChunk(packet) if packet.x == 0
+                McpePacketData::LevelChunkPacket(packet) if packet.x == 0
             )
     ));
 }

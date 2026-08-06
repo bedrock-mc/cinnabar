@@ -4,7 +4,7 @@
 use protocol::{
     ActorEffectAction, ActorLinkType, PlayerGameMode, UiEvent, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_30::{
+use valentine::bedrock::version::v1_26_40::{
     GameMode, ItemV4, Link, MobArmorEquipmentPacket, MobEffectPacket, MobEffectPacketEventId,
     SetEntityLinkPacket, SetPlayerGameTypePacket,
 };
@@ -170,7 +170,7 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
 
 #[test]
 fn set_default_game_type_dispatches_as_a_default_mode_event() {
-    use valentine::bedrock::version::v1_26_30::SetDefaultGameTypePacket;
+    use valentine::bedrock::version::v1_26_40::SetDefaultGameTypePacket;
     let packet = SetDefaultGameTypePacket {
         gamemode: GameMode::Adventure,
     }
@@ -221,7 +221,7 @@ fn set_entity_link_normalizes_typed_rider_links() {
 #[test]
 fn item_stack_damage_reads_the_root_damage_tag_and_fails_closed_on_junk() {
     use valentine::bedrock::codec::{BedrockCodec, Nbt};
-    use valentine::bedrock::version::v1_26_30::{
+    use valentine::bedrock::version::v1_26_40::{
         ItemExtraDataWithoutBlockingTick, ItemExtraDataWithoutBlockingTickNbt,
     };
 

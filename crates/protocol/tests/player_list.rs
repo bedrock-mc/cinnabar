@@ -50,7 +50,7 @@ fn pinned_gophertunnel_player_list_add_uses_shared_count_for_verified_flags() {
     let packet = raw_player_list_fixture(GOPHERTUNNEL_PLAYER_LIST_ADD)
         .decode(&BedrockSession { shield_item_id: 0 })
         .expect("owned Add PlayerList decode");
-    let McpePacketData::PacketPlayerList(content) = &packet.data else {
+    let McpePacketData::PlayerListPacket(content) = &packet.data else {
         panic!("expected PlayerList");
     };
     assert_eq!(content.records.type_, PlayerRecordsType::Add);
@@ -66,7 +66,7 @@ fn pinned_gophertunnel_player_list_add_uses_shared_count_for_verified_flags() {
 }
 
 fn assert_remove_payload(data: &McpePacketData) {
-    let McpePacketData::PacketPlayerList(packet) = data else {
+    let McpePacketData::PlayerListPacket(packet) = data else {
         panic!("expected PlayerList, got {:?}", data.packet_id());
     };
     assert_eq!(packet.records.type_, PlayerRecordsType::Remove);

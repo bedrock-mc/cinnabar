@@ -1,6 +1,6 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use valentine::bedrock::version::v1_26_30::GameMode;
+use valentine::bedrock::version::v1_26_40::GameMode;
 
 use jolyne::GameData;
 
