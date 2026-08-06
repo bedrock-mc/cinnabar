@@ -47,18 +47,21 @@ async fn login_reaches_start_game_through_bds() {
         )
     });
 
-    assert_eq!(PROTOCOL_VERSION, 1001);
-    assert_eq!(GAME_VERSION, "1.26.30");
+    assert_eq!(PROTOCOL_VERSION, 2168);
+    assert_eq!(GAME_VERSION, "1.26.40");
+    // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
+    // the version string prismarine called `engine` is gophertunnel's
+    // `ServerVersion` (`server_version` in the generated crate).
     assert_ne!(
-        game_data.start_game.runtime_entity_id, 0,
+        game_data.start_game.runtime_id.actor_runtime_id, 0,
         "StartGame runtime entity ID must be non-zero"
     );
-    assert_eq!(game_data.start_game.engine, GAME_VERSION);
+    assert_eq!(game_data.start_game.server_version, GAME_VERSION);
 
     let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
         loop {
             let packet = session.recv().await?;
-            if matches!(packet.data, McpePacketData::PacketAvailableCommands(_)) {
+            if matches!(packet.data, McpePacketData::AvailableCommandsPacket(_)) {
                 return Ok::<_, protocol::ProtocolError>(packet);
             }
         }
@@ -76,7 +79,7 @@ async fn login_reaches_start_game_through_bds() {
             harness.output()
         )
     });
-    let McpePacketData::PacketAvailableCommands(commands) = available_commands.data else {
+    let McpePacketData::AvailableCommandsPacket(commands) = available_commands.data else {
         unreachable!("loop returns only AvailableCommands")
     };
     assert!(

@@ -40,14 +40,14 @@ pub(super) fn objective(event: ObjectiveEvent) -> ScoreboardEvent {
 
 pub(super) fn score(event: ScoreEvent) -> ScoreboardEvent {
     ScoreboardEvent::Scores {
-        action: match event.action {
-            ProtocolScoreAction::Change => ScoreAction::Change,
-            ProtocolScoreAction::Remove => ScoreAction::Remove,
-        },
         entries: event
             .entries
             .iter()
             .map(|entry| ScoreEntry {
+                action: match entry.action {
+                    ProtocolScoreAction::Change => ScoreAction::Change,
+                    ProtocolScoreAction::Remove => ScoreAction::Remove,
+                },
                 scoreboard_id: entry.scoreboard_id,
                 objective_name: entry.objective_name.clone(),
                 score: entry.score,

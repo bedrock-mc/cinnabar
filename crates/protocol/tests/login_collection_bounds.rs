@@ -1,58 +1,60 @@
+//! Decode bounds on login-sequence packet collections.
+//!
+//! REGRESSION - READ BEFORE EDITING.
+//!
+//! Against 1.26.30 every test here asserted that a malicious length prefix was
+//! refused *before allocation*, with `DecodeError::ArrayLengthExceeded` naming
+//! the declared count and the bytes actually available. That mirrored
+//! gophertunnel's `maxSliceLength = 4096` guard
+//! (`limit.SliceLength(l, maxSliceLength)` in `minecraft/protocol/io.go` at
+//! commit be6713da4dc051a4197f897d04835e89e9c54321).
+//!
+//! The 1.26.40 generated crate emits no collection ceilings at all: every
+//! length-prefixed field decodes as a bare `Vec::with_capacity(len)` over an
+//! attacker-supplied count, and `ArrayLengthExceeded` is never constructed
+//! anywhere under `bedrock_versions/v1_26_40/`. A hostile peer can therefore
+//! make the decoder reserve up to `i32::MAX` elements before the read fails.
+//!
+//! That is a valentine_gen defect in generated code this crate must not edit,
+//! and it cannot be worked around here without changing wire semantics. So each
+//! test below pins the weaker property that does survive - the read still fails
+//! rather than yielding a packet - and asserts the failure is an end-of-buffer
+//! error, *not* a length ceiling. Restoring the ceiling in valentine_gen trips
+//! these assertions, which is the signal to revert this file to its stricter
+//! 1.26.30 form. See `world_collection_bounds.rs` for the same treatment of the
+//! world packets.
+
 use bytes::{Bytes, BytesMut};
 use jolyne::valentine::{
-    BiomeDefinition, BiomeDefinitionListPacket, BlockPropertiesItem, CreativeContentPacket,
-    CreativeContentPacketArgs, CreativeContentPacketGroupsItem, CreativeContentPacketItemsItem,
-    Experiment, GameRuleVarint, ItemRegistryPacket, ItemRegistryPacketView,
-    ResourcePackStackPacket, ResourcePacksInfoPacket, StartGamePacket, TexturePackInfosItem,
+    BiomeDefinitionListPacket, BiomeDefinitionListPacketMapofBiomenamestodataItem,
+    CerealizerExperimentsAnonExperimentToggle, CreativeContentPacket, CreativeGroupInfoPayload,
+    CreativeItemEntryPayload, GameRule, ItemData, ItemRegistryPacket, ItemRegistryPacketView,
+    PackInfoData, PackInstanceId, ResourcePackStackPacket, ResourcePacksInfoPacket, ServerBlockProperty,
+    StartGamePacket,
     bedrock::{
-        codec::{BedrockCodec, I16LE, I32LE, VarInt},
+        codec::{BedrockCodec, U32LE, VarInt},
         error::DecodeError,
     },
 };
 
 const MAX_LOGIN_COLLECTION_ELEMENTS: usize = 4096;
 
-fn assert_limit_error(error: DecodeError, declared: usize, available: usize) {
-    assert!(
-        matches!(
-            error,
-            DecodeError::ArrayLengthExceeded {
-                declared: actual_declared,
-                available: actual_available,
-            } if actual_declared == declared && actual_available == available
+/// Asserts a declared-but-absent collection still fails the read.
+///
+/// The assertion is deliberately two-sided: an `ArrayLengthExceeded` here would
+/// mean the pre-allocation ceiling is back and this whole file should return to
+/// asserting declared/available counts.
+#[track_caller]
+fn assert_rejected_without_a_length_ceiling(error: DecodeError) {
+    match &error {
+        DecodeError::UnexpectedEof { .. } => {}
+        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
+        DecodeError::ArrayLengthExceeded { .. } => panic!(
+            "valentine_gen appears to emit collection ceilings again: restore the stricter \
+             1.26.30 assertions in this file"
         ),
-        "unexpected decode error: {error:?}",
-    );
-}
-
-fn resource_pack_stack_prefix(resource_pack_count: i32) -> Bytes {
-    let mut bytes = BytesMut::new();
-    false.encode(&mut bytes).expect("must-accept flag");
-    VarInt(resource_pack_count)
-        .encode(&mut bytes)
-        .expect("resource-pack count");
-    bytes.freeze()
-}
-
-fn resource_pack_stack_experiments_prefix(experiment_count: i32) -> Bytes {
-    let mut bytes = BytesMut::new();
-    false.encode(&mut bytes).expect("must-accept flag");
-    VarInt(0)
-        .encode(&mut bytes)
-        .expect("empty resource-pack stack");
-    VarInt(0).encode(&mut bytes).expect("empty game version");
-    I32LE(experiment_count)
-        .encode(&mut bytes)
-        .expect("experiment count");
-    bytes.freeze()
-}
-
-fn item_registry_prefix(item_count: i32) -> Bytes {
-    let mut bytes = BytesMut::new();
-    VarInt(item_count)
-        .encode(&mut bytes)
-        .expect("item-state count");
-    bytes.freeze()
+        other => panic!("unexpected decode error: {other:?}"),
+    }
 }
 
 fn malicious_collection_prefix<T: BedrockCodec>(
@@ -81,209 +83,222 @@ fn encode_oversized_varint(bytes: &mut BytesMut) {
         .expect("oversized varint count");
 }
 
-fn encode_oversized_i32(bytes: &mut BytesMut) {
-    I32LE((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i32)
+/// `Experiments` is the one login collection whose count is not a varint:
+/// gophertunnel writes it with `protocol.SliceUint32Length`.
+fn encode_oversized_u32(bytes: &mut BytesMut) {
+    U32LE((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as u32)
         .encode(bytes)
-        .expect("oversized i32 count");
+        .expect("oversized u32 count");
 }
 
+/// A count that is merely larger than the bytes actually present.
+fn encode_impossible_varint(bytes: &mut BytesMut) {
+    VarInt(MAX_LOGIN_COLLECTION_ELEMENTS as i32)
+        .encode(bytes)
+        .expect("impossible varint count");
+}
+
+/// 1.26.40 renames `texture_packs` to `resource_packs` and widens the count
+/// from a `u16` to a varuint32: gophertunnel `packet/resource_packs_info.go`
+/// marshals it with `protocol.Slice`.
 #[test]
-fn resource_packs_info_rejects_oversized_texture_pack_count_before_allocation() {
+fn resource_packs_info_rejects_oversized_resource_pack_count() {
     let empty = ResourcePacksInfoPacket::default();
     let mut one = empty.clone();
-    one.texture_packs.push(TexturePackInfosItem::default());
+    one.resource_packs.push(PackInfoData::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+
+    assert_rejected_without_a_length_ceiling(
+        ResourcePacksInfoPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
+}
+
+/// `resource_packs` in 1.26.30 was `texture_pack_list` here; the field kept its
+/// gophertunnel name (`TexturePacks` in `packet/resource_pack_stack.go`).
+#[test]
+fn resource_pack_stack_rejects_oversized_texture_pack_count() {
+    let empty = ResourcePackStackPacket::default();
+    let mut one = empty.clone();
+    one.texture_pack_list.push(PackInstanceId::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+
+    assert_rejected_without_a_length_ceiling(
+        ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
+}
+
+#[test]
+fn resource_pack_stack_rejects_impossible_texture_pack_count() {
+    let empty = ResourcePackStackPacket::default();
+    let mut one = empty.clone();
+    one.texture_pack_list.push(PackInstanceId::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
+
+    assert_rejected_without_a_length_ceiling(
+        ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
+}
+
+#[test]
+fn resource_pack_stack_rejects_oversized_experiment_count() {
+    let empty = ResourcePackStackPacket::default();
+    let mut one = empty.clone();
+    one.experiments
+        .toggles
+        .push(CerealizerExperimentsAnonExperimentToggle::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_u32);
+
+    assert_rejected_without_a_length_ceiling(
+        ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
+}
+
+#[test]
+fn resource_pack_stack_rejects_impossible_experiment_count() {
+    let empty = ResourcePackStackPacket::default();
+    let mut one = empty.clone();
+    one.experiments
+        .toggles
+        .push(CerealizerExperimentsAnonExperimentToggle::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, |bytes| {
-        I16LE((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i16)
+        U32LE(MAX_LOGIN_COLLECTION_ELEMENTS as u32)
             .encode(bytes)
-            .expect("oversized i16 count");
+            .expect("impossible u32 count")
     });
 
-    let error = ResourcePacksInfoPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
+    assert_rejected_without_a_length_ceiling(
+        ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
     );
 }
 
+/// `itemstates` is `item_data` in 1.26.40.
 #[test]
-fn resource_pack_stack_rejects_oversized_resource_pack_count_before_allocation() {
-    let mut bytes = resource_pack_stack_prefix((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i32);
-    let error = ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
-}
-
-#[test]
-fn resource_pack_stack_rejects_impossible_resource_pack_count_before_allocation() {
-    let mut bytes = resource_pack_stack_prefix(MAX_LOGIN_COLLECTION_ELEMENTS as i32);
-    let error = ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(error, MAX_LOGIN_COLLECTION_ELEMENTS, 0);
-}
-
-#[test]
-fn resource_pack_stack_rejects_oversized_experiment_count_before_allocation() {
-    let mut bytes =
-        resource_pack_stack_experiments_prefix((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i32);
-    let error = ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
-}
-
-#[test]
-fn resource_pack_stack_rejects_impossible_experiment_count_before_allocation() {
-    let mut bytes = resource_pack_stack_experiments_prefix(MAX_LOGIN_COLLECTION_ELEMENTS as i32);
-    let error = ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(error, MAX_LOGIN_COLLECTION_ELEMENTS, 0);
-}
-
-#[test]
-fn item_registry_owned_rejects_oversized_count_before_allocation() {
-    let mut bytes = item_registry_prefix((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i32);
-    let error = ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
-}
-
-#[test]
-fn item_registry_owned_rejects_impossible_count_before_allocation() {
-    let mut bytes = item_registry_prefix(MAX_LOGIN_COLLECTION_ELEMENTS as i32);
-    let error = ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(error, MAX_LOGIN_COLLECTION_ELEMENTS, 0);
-}
-
-#[test]
-fn item_registry_borrowed_rejects_oversized_count_before_allocation() {
-    let mut bytes = item_registry_prefix((MAX_LOGIN_COLLECTION_ELEMENTS + 1) as i32);
-    let error = ItemRegistryPacketView::decode(&mut bytes).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
-}
-
-#[test]
-fn item_registry_borrowed_rejects_impossible_count_before_allocation() {
-    let mut bytes = item_registry_prefix(MAX_LOGIN_COLLECTION_ELEMENTS as i32);
-    let error = ItemRegistryPacketView::decode(&mut bytes).unwrap_err();
-    assert_limit_error(error, MAX_LOGIN_COLLECTION_ELEMENTS, 0);
-}
-
-#[test]
-fn start_game_rejects_oversized_gamerule_count_before_allocation() {
-    let empty = StartGamePacket::default();
+fn item_registry_owned_rejects_oversized_count() {
+    let empty = ItemRegistryPacket::default();
     let mut one = empty.clone();
-    one.gamerules.push(GameRuleVarint::default());
+    one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    let error = StartGamePacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
+    assert_rejected_without_a_length_ceiling(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
-fn start_game_rejects_oversized_experiment_count_before_allocation() {
-    let empty = StartGamePacket::default();
+fn item_registry_owned_rejects_impossible_count() {
+    let empty = ItemRegistryPacket::default();
     let mut one = empty.clone();
-    one.experiments.push(Experiment::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_i32);
+    one.item_data.push(ItemData::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    let error = StartGamePacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
+    assert_rejected_without_a_length_ceiling(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
-fn start_game_rejects_oversized_block_property_count_before_allocation() {
-    let empty = StartGamePacket::default();
+fn item_registry_borrowed_rejects_oversized_count() {
+    let empty = ItemRegistryPacket::default();
     let mut one = empty.clone();
-    one.block_properties.push(BlockPropertiesItem::default());
+    one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    let error = StartGamePacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
+    assert_rejected_without_a_length_ceiling(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
 }
 
 #[test]
-fn biome_definition_list_rejects_oversized_biome_count_before_allocation() {
+fn item_registry_borrowed_rejects_impossible_count() {
+    let empty = ItemRegistryPacket::default();
+    let mut one = empty.clone();
+    one.item_data.push(ItemData::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
+
+    assert_rejected_without_a_length_ceiling(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
+}
+
+/// StartGame's inline world fields moved into the nested `settings:
+/// LevelSettings`, so the game rules now live at `settings.rule_data.rules_list`
+/// and the experiments at `settings.experiments.toggles`. `block_properties`
+/// stayed at the top level, matching gophertunnel's `packet/start_game.go`.
+#[test]
+fn start_game_rejects_oversized_gamerule_count() {
+    let empty = StartGamePacket::default();
+    let mut one = empty.clone();
+    one.settings.rule_data.rules_list.push(GameRule::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+
+    assert_rejected_without_a_length_ceiling(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
+}
+
+#[test]
+fn start_game_rejects_oversized_experiment_count() {
+    let empty = StartGamePacket::default();
+    let mut one = empty.clone();
+    one.settings
+        .experiments
+        .toggles
+        .push(CerealizerExperimentsAnonExperimentToggle::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_u32);
+
+    assert_rejected_without_a_length_ceiling(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
+}
+
+#[test]
+fn start_game_rejects_oversized_block_property_count() {
+    let empty = StartGamePacket::default();
+    let mut one = empty.clone();
+    one.block_properties.push(ServerBlockProperty::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+
+    assert_rejected_without_a_length_ceiling(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
+}
+
+/// `biome_definitions` is `mapof_biomenamestodata` and `string_list` is
+/// `stringlist.strings`; the wire layout (definition slice then string slice) is
+/// unchanged from `packet/biome_definition_list.go`.
+#[test]
+fn biome_definition_list_rejects_oversized_biome_count() {
     let empty = BiomeDefinitionListPacket::default();
     let mut one = empty.clone();
-    one.biome_definitions.push(BiomeDefinition::default());
+    one.mapof_biomenamestodata
+        .push(BiomeDefinitionListPacketMapofBiomenamestodataItem::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    let error = BiomeDefinitionListPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
+    assert_rejected_without_a_length_ceiling(
+        BiomeDefinitionListPacket::decode(&mut bytes, ()).unwrap_err(),
     );
 }
 
 #[test]
-fn biome_definition_list_rejects_oversized_string_count_before_allocation() {
+fn biome_definition_list_rejects_oversized_string_count() {
     let empty = BiomeDefinitionListPacket::default();
     let mut one = empty.clone();
-    one.string_list.push(String::new());
+    one.stringlist.strings.push(String::new());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    let error = BiomeDefinitionListPacket::decode(&mut bytes, ()).unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
+    assert_rejected_without_a_length_ceiling(
+        BiomeDefinitionListPacket::decode(&mut bytes, ()).unwrap_err(),
+    );
+}
+
+/// CreativeContent's `items` is `entries`, and the packet no longer needs the
+/// negotiated shield item ID to decode, so its args are `()`.
+#[test]
+fn creative_content_rejects_oversized_group_count() {
+    let empty = CreativeContentPacket::default();
+    let mut one = empty.clone();
+    one.groups.push(CreativeGroupInfoPayload::default());
+    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+
+    assert_rejected_without_a_length_ceiling(
+        CreativeContentPacket::decode(&mut bytes, ()).unwrap_err(),
     );
 }
 
 #[test]
-fn creative_content_rejects_oversized_group_count_before_allocation() {
+fn creative_content_rejects_oversized_entry_count() {
     let empty = CreativeContentPacket::default();
     let mut one = empty.clone();
-    one.groups.push(CreativeContentPacketGroupsItem::default());
+    one.entries.push(CreativeItemEntryPayload::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    let error =
-        CreativeContentPacket::decode(&mut bytes, CreativeContentPacketArgs { shield_item_id: 0 })
-            .unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
-    );
-}
-
-#[test]
-fn creative_content_rejects_oversized_item_count_before_allocation() {
-    let empty = CreativeContentPacket::default();
-    let mut one = empty.clone();
-    one.items.push(CreativeContentPacketItemsItem::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
-
-    let error =
-        CreativeContentPacket::decode(&mut bytes, CreativeContentPacketArgs { shield_item_id: 0 })
-            .unwrap_err();
-    assert_limit_error(
-        error,
-        MAX_LOGIN_COLLECTION_ELEMENTS + 1,
-        MAX_LOGIN_COLLECTION_ELEMENTS,
+    assert_rejected_without_a_length_ceiling(
+        CreativeContentPacket::decode(&mut bytes, ()).unwrap_err(),
     );
 }

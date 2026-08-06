@@ -64,6 +64,7 @@ fn saturated_runtime() -> UiRuntime {
         .unwrap();
     let entries: Vec<ProtocolScoreEntry> = (0..64)
         .map(|index| ProtocolScoreEntry {
+            action: protocol::ScoreAction::Change,
             scoreboard_id: index,
             objective_name: Arc::from("bench"),
             score: index as i32 * 3,
@@ -75,7 +76,6 @@ fn saturated_runtime() -> UiRuntime {
             1,
             next(),
             UiEvent::Score(ScoreEvent {
-                action: ProtocolScoreAction::Change,
                 entries: entries.into(),
             }),
         ))

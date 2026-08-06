@@ -13,7 +13,7 @@ fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Client)
     );
-    game_data.start_game.server_authoritative_inventory = true;
+    game_data.start_game.enable_item_stack_net_manager = true;
     assert_eq!(
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Server)

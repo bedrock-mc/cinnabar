@@ -19,10 +19,20 @@ fn display(slot: &str, objective: &str, sort_order: i32) -> ScoreboardEvent {
 
 fn score(objective: &str, id: i64, value: i32, owner: ScoreOwner) -> ScoreEntry {
     ScoreEntry {
+        action: ScoreAction::Change,
         scoreboard_id: id,
         objective_name: Arc::from(objective),
         score: value,
         owner,
+    }
+}
+
+/// A removal entry. 1.26.40 tags each entry with its own verb, so removals and
+/// changes are built the same way and may share one event.
+fn removed(objective: &str, id: i64) -> ScoreEntry {
+    ScoreEntry {
+        action: ScoreAction::Remove,
+        ..score(objective, id, 0, ScoreOwner::None)
     }
 }
 
@@ -35,7 +45,6 @@ fn objective_slots_scores_and_remove_lifecycle_are_atomic_and_deterministic() {
         .apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([
                     score("kills", 20, 4, ScoreOwner::FakePlayer(Arc::from("twenty"))),
                     score("kills", 10, 4, ScoreOwner::FakePlayer(Arc::from("ten"))),
@@ -63,7 +72,6 @@ fn objective_slots_scores_and_remove_lifecycle_are_atomic_and_deterministic() {
         .apply(
             4,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score("kills", 10, 12, ScoreOwner::Entity(99))]),
             },
         )
@@ -76,8 +84,7 @@ fn objective_slots_scores_and_remove_lifecycle_are_atomic_and_deterministic() {
         .apply(
             5,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Remove,
-                entries: Arc::from([score("kills", 20, -999, ScoreOwner::None)]),
+                entries: Arc::from([removed("kills", 20)]),
             },
         )
         .unwrap();
@@ -128,7 +135,6 @@ fn missing_score_identities_and_capacity_fail_without_mutation() {
         store.apply(
             1,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score("absent", 1, 3, ScoreOwner::None)]),
             }
         ),
@@ -166,7 +172,6 @@ fn oversized_incoming_score_batch_is_rejected_before_duplicate_key_staging() {
         .apply(
             2,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score("bounded", 1, 4, ScoreOwner::None)]),
             },
         )
@@ -181,7 +186,6 @@ fn oversized_incoming_score_batch_is_rejected_before_duplicate_key_staging() {
         store.apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: duplicate_entries,
             }
         ),
@@ -199,7 +203,6 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
         .apply(
             2,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score("atomic", 1, 5, ScoreOwner::None)]),
             },
         )
@@ -210,7 +213,6 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
         store.apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([
                     score("atomic", 2, 8, ScoreOwner::None),
                     score("absent", 3, 13, ScoreOwner::None),
@@ -225,11 +227,7 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
         store.apply(
             4,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Remove,
-                entries: Arc::from([
-                    score("atomic", 1, 0, ScoreOwner::None),
-                    score("atomic", 404, 0, ScoreOwner::None),
-                ]),
+                entries: Arc::from([removed("atomic", 1), removed("atomic", 404)]),
             }
         ),
         Ok(RetainedUiApply::Ignored)
@@ -241,7 +239,6 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
         store.apply(
             5,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([
                     score("atomic", 2, 8, ScoreOwner::None),
                     score("atomic", 3, 13, ScoreOwner::FakePlayer(oversized)),
@@ -286,7 +283,6 @@ fn score_item_limit_and_utf8_budget_updates_are_exact_and_atomic() {
         .apply(
             2,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries,
             },
         )
@@ -297,7 +293,6 @@ fn score_item_limit_and_utf8_budget_updates_are_exact_and_atomic() {
         store.apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score("scores", -1, -1, ScoreOwner::None)]),
             }
         ),
@@ -382,7 +377,6 @@ fn aggregate_scoreboard_text_budget_accepts_exact_limit_and_rejects_one_more_byt
         .apply(
             2,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: entries.into(),
             },
         )
@@ -397,7 +391,6 @@ fn aggregate_scoreboard_text_budget_accepts_exact_limit_and_rejects_one_more_byt
         store.apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from([score(
                     "x",
                     full_fields as i64,
@@ -553,7 +546,6 @@ fn below_name_and_list_owner_lookups_track_display_and_score_lifecycle() {
         .apply(
             3,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Change,
                 entries: Arc::from(vec![
                     score("health", 1, 18, player.clone()),
                     score("health", 2, 7, other.clone()),
@@ -575,8 +567,7 @@ fn below_name_and_list_owner_lookups_track_display_and_score_lifecycle() {
         .apply(
             4,
             ScoreboardEvent::Scores {
-                action: ScoreAction::Remove,
-                entries: Arc::from(vec![score("health", 1, 0, ScoreOwner::None)]),
+                entries: Arc::from(vec![removed("health", 1)]),
             },
         )
         .unwrap();

@@ -538,6 +538,7 @@ fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
         ))
         .unwrap();
     let entry = |scoreboard_id, score, identity| protocol::ScoreEntry {
+        action: protocol::ScoreAction::Change,
         scoreboard_id,
         objective_name: std::sync::Arc::from("coins"),
         score,
@@ -548,7 +549,6 @@ fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
             1,
             2,
             UiEvent::Score(protocol::ScoreEvent {
-                action: protocol::ScoreAction::Change,
                 entries: vec![
                     entry(1, 31, protocol::ScoreIdentity::Player(42)),
                     entry(2, 55, protocol::ScoreIdentity::Entity(7)),
@@ -742,8 +742,8 @@ fn player_list_overlay_rows_pair_names_with_resolved_list_scores() {
             1,
             2,
             UiEvent::Score(protocol::ScoreEvent {
-                action: protocol::ScoreAction::Change,
                 entries: vec![protocol::ScoreEntry {
+                    action: protocol::ScoreAction::Change,
                     scoreboard_id: 1,
                     objective_name: std::sync::Arc::from("deaths"),
                     score: 4,
