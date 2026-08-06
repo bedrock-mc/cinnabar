@@ -28,10 +28,14 @@ use crate::stream::{
 };
 use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
-    ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, LoginPacket,
-    PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponse,
-    ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, StartGamePacket,
+    ActorRuntimeId, ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket,
+    LoginPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
+    ResourcePackClientResponsePacket,
+    ResourcePackClientResponsePacketPayloadDownloadingFinished,
+    ResourcePackClientResponsePacketPayloadResourcePackStackFinished,
+    ResourcePackClientResponsePacketResponse, ServerboundLoadingScreenPacket,
+    ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
+    StartGamePacket,
 };
 use crate::valentine::{
     McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
@@ -259,6 +263,16 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
                             true,
                             BatchCompression::Snappy,
                             1,
+                            settings.compression_threshold,
+                        );
+                    }
+                    // 1.26.40 names the no-compression algorithm explicitly; older
+                    // generated code only surfaced it as the 0xFFFF unknown value.
+                    NetworkSettingsPacketCompressionAlgorithm::None => {
+                        self.transport.set_compression_algorithm(
+                            true,
+                            BatchCompression::None,
+                            0,
                             settings.compression_threshold,
                         );
                     }
@@ -803,7 +817,9 @@ mod tests {
 
     fn start_game_packet() -> McpePacket {
         McpePacket::from(StartGamePacket {
-            runtime_entity_id: 42,
+            runtime_id: ActorRuntimeId {
+                actor_runtime_id: 42,
+            },
             ..Default::default()
         })
     }
@@ -811,7 +827,7 @@ mod tests {
     fn spawn_completion_packets() -> [McpePacket; 3] {
         [
             McpePacket::from(ItemRegistryPacket::default()),
-            McpePacket::from(crate::valentine::ChunkRadiusUpdatePacket { chunk_radius: 16 }),
+            McpePacket::from(crate::valentine::ChunkRadiusUpdatedPacket { chunk_radius: 16 }),
             McpePacket::from(crate::valentine::PlayStatusPacket {
                 status: PlayStatusPacketStatus::PlayerSpawn,
             }),
@@ -857,7 +873,7 @@ mod tests {
             [McpePacket {
                 data: McpePacketData::ClientCacheStatusPacket(status),
                 ..
-            }] if !status.enabled
+            }] if !status.iscachesupported
         ));
     }
 
@@ -896,7 +912,7 @@ mod tests {
             [McpePacket {
                 data: McpePacketData::ClientCacheStatusPacket(status),
                 ..
-            }] if status.enabled
+            }] if status.iscachesupported
         ));
     }
 
@@ -920,7 +936,7 @@ mod tests {
         assert!(matches!(
             error,
             JolyneError::Protocol(ProtocolError::UnexpectedHandshake(ref message))
-                if message.contains("PacketSetTitle")
+                if message.contains("SetTitlePacket")
         ));
     }
 
@@ -930,7 +946,7 @@ mod tests {
             start_game_packet(),
             McpePacket::from(crate::valentine::SetTimePacket { time: 11 }),
             McpePacket::from(crate::valentine::BiomeDefinitionListPacket::default()),
-            McpePacket::from(crate::valentine::AvailableEntityIdentifiersPacket::default()),
+            McpePacket::from(crate::valentine::AvailableActorIdentifiersPacket::default()),
             McpePacket::from(crate::valentine::CreativeContentPacket::default()),
             McpePacket::from(crate::valentine::SetTimePacket { time: 22 }),
         ];
@@ -948,7 +964,7 @@ mod tests {
         let expected = [
             crate::valentine::McpePacketName::SetTimePacket,
             crate::valentine::McpePacketName::BiomeDefinitionListPacket,
-            crate::valentine::McpePacketName::AvailableEntityIdentifiersPacket,
+            crate::valentine::McpePacketName::AvailableActorIdentifiersPacket,
             crate::valentine::McpePacketName::CreativeContentPacket,
             crate::valentine::McpePacketName::SetTimePacket,
         ];
@@ -995,7 +1011,9 @@ mod tests {
         const HALF_LIMIT: usize = 8 * 1024 * 1024;
         let level_chunk = || {
             McpePacket::from(crate::valentine::LevelChunkPacket {
-                payload: vec![0; HALF_LIMIT],
+                // 1.26.40 models the chunk blob as a length-prefixed byte string;
+                // NUL bytes keep the encoded length at exactly HALF_LIMIT.
+                serialized_chunk_data: "\0".repeat(HALF_LIMIT),
                 ..Default::default()
             })
         };
@@ -1021,10 +1039,10 @@ mod tests {
     async fn non_empty_resource_pack_stack_is_rejected() {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
-            resource_packs: vec![crate::valentine::ResourcePackIdVersionsItem {
-                uuid: "pack-id".into(),
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: "pack-id".into(),
                 version: "1.0.0".into(),
-                name: "test pack".into(),
+                sub_pack_name: "test pack".into(),
             }],
             ..Default::default()
         });
@@ -1055,10 +1073,10 @@ mod tests {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let (uuid, version) = EXEMPTED_RESOURCE_PACKS[0];
         let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
-            resource_packs: vec![crate::valentine::ResourcePackIdVersionsItem {
-                uuid: uuid.into(),
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: uuid.into(),
                 version: version.into(),
-                name: "client built-in".into(),
+                sub_pack_name: "client built-in".into(),
             }],
             ..Default::default()
         });
@@ -1171,7 +1189,11 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 info.resource_packs.len()
             );
             for pack in &info.resource_packs {
-                tracing::debug!("  Pack: {} v{}", pack.uuid, pack.version);
+                tracing::debug!(
+                    "  Pack: {} v{}",
+                    pack.pack_id_version.pack_uuid,
+                    pack.pack_id_version.pack_version.version
+                );
             }
 
             if !info.resource_packs.is_empty() {
@@ -1186,12 +1208,18 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             );
         }
 
-        // For now, claim we have all packs (don't download any)
-        // This is equivalent to gophertunnel's "AllPacksDownloaded" response
-        tracing::debug!("Sending HaveAllPacks response...");
+        // For now, claim we have all packs (don't download any).
+        // 1.26.40 turns the response into a payload-carrying union whose body is
+        // the lowercase enum name; gophertunnel writes the same string via
+        // resourcePackResponseToString (packet/resource_pack_client_response.go),
+        // where this response is PackResponseAllPacksDownloaded.
+        tracing::debug!("Sending DownloadingFinished (all packs downloaded) response...");
         let resp = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponse::HaveAllPacks,
-            resourcepackids: vec![],
+            response: ResourcePackClientResponsePacketResponse::DownloadingFinished(
+                ResourcePackClientResponsePacketPayloadDownloadingFinished {
+                    response_type: "downloadingfinished".to_string(),
+                },
+            ),
         };
         self.transport.send_batch(&[McpePacket::from(resp)]).await?;
 
@@ -1228,22 +1256,22 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
 
         if let McpePacketData::ResourcePackStackPacket(ref stack) = stack_pkt.data {
             tracing::debug!(
-                "ResourcePackStack: must_accept={}, game_version={}, resource_packs={}",
-                stack.must_accept,
-                stack.game_version,
+                "ResourcePackStack: must_accept={}, game_version={}, texture_pack_list={}",
+                stack.texture_pack_required,
+                stack.base_game_version,
                 stack.texture_pack_list.len()
             );
             for pack in &stack.texture_pack_list {
-                tracing::debug!("  Stack pack: {} v{}", pack.uuid, pack.version);
+                tracing::debug!("  Stack pack: {} v{}", pack.pack_id, pack.version);
             }
             if let Some(pack) = stack
-                .resource_packs
+                .texture_pack_list
                 .iter()
-                .find(|pack| !is_exempted_resource_pack(&pack.uuid, &pack.version))
+                .find(|pack| !is_exempted_resource_pack(&pack.pack_id, &pack.version))
             {
                 return Err(ProtocolError::UnexpectedHandshake(format!(
                     "Resource pack downloads are not implemented for {}_{}",
-                    pack.uuid, pack.version
+                    pack.pack_id, pack.version
                 ))
                 .into());
             }
@@ -1255,11 +1283,15 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             .into());
         }
 
-        // Send Completed to finish resource pack negotiation
-        tracing::debug!("Sending Completed response...");
+        // Send the stack-finished response to complete resource pack negotiation.
+        // This is gophertunnel's PackResponseCompleted.
+        tracing::debug!("Sending ResourcePackStackFinished (completed) response...");
         let complete = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponse::Completed,
-            resourcepackids: vec![],
+            response: ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(
+                ResourcePackClientResponsePacketPayloadResourcePackStackFinished {
+                    response_type: "resourcepackstackfinished".to_string(),
+                },
+            ),
         };
         self.transport
             .send_batch(&[McpePacket::from(complete)])
@@ -1345,9 +1377,12 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                     if let Some(shield) = registry
                         .item_data
                         .iter()
-                        .find(|item| item.name == "minecraft:shield")
+                        .find(|item| item.item_name == "minecraft:shield")
                     {
-                        self.transport.session.shield_item_id = i32::from(shield.runtime_id);
+                        // `item_id` is the network runtime ID (gophertunnel's
+                        // protocol.ItemEntry.RuntimeID). The 1.26.40 decoder no
+                        // longer consumes this, but the session still tracks it.
+                        self.transport.session.shield_item_id = i32::from(shield.item_id);
                     }
                     item_registry = Some(registry);
                 }
@@ -1361,9 +1396,9 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         received_player_spawn = true;
                     }
                 }
-                McpePacketName::ChunkRadiusUpdatePacket => {
+                McpePacketName::ChunkRadiusUpdatedPacket => {
                     let packet = raw.clone().decode(&self.transport.session)?;
-                    let McpePacketData::ChunkRadiusUpdatePacket(update) = packet.data else {
+                    let McpePacketData::ChunkRadiusUpdatedPacket(update) = packet.data else {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     if update.chunk_radius < 1 {
@@ -1398,7 +1433,8 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                 self.transport
                     .send_batch(&[
                         McpePacket::from(ServerboundLoadingScreenPacket {
-                            type_: 1,
+                            loading_screen_packet_type:
+                                ServerboundLoadingScreenPacketLoadingScreenPacketType::StartLoadingScreen,
                             loading_screen_id: None,
                         }),
                         McpePacket::from(RequestChunkRadiusPacket {
@@ -1426,10 +1462,15 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
         self.transport
             .send_batch(&[
                 McpePacket::from(ServerboundLoadingScreenPacket {
-                    type_: 2,
+                    loading_screen_packet_type:
+                        ServerboundLoadingScreenPacketLoadingScreenPacketType::EndLoadingScreen,
                     loading_screen_id: None,
                 }),
-                McpePacket::from(SetLocalPlayerAsInitializedPacket { runtime_entity_id }),
+                McpePacket::from(SetLocalPlayerAsInitializedPacket {
+                    player_id: ActorRuntimeId {
+                        actor_runtime_id: runtime_entity_id,
+                    },
+                }),
             ])
             .await?;
 

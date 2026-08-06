@@ -56,7 +56,7 @@ impl RawPacket {
         let body_preview = self.body.iter().take(32).copied().collect::<Vec<_>>();
         let mut buf = self.inner_frame;
         let (header, data) =
-            McpePacketData::decode_inner(&mut buf, session.into()).map_err(|source| {
+            McpePacketData::decode_inner(&mut buf, crate::valentine::packet_args(session)).map_err(|source| {
                 JolyneError::PacketDecode {
                     packet_id,
                     body_len,
@@ -429,7 +429,7 @@ mod tests {
             other => panic!("expected packet-aware decode error, got {other:?}"),
         }
         let message = error.to_string();
-        assert!(message.contains("PacketText"));
+        assert!(message.contains("TextPacket"));
         assert!(message.contains("body_len=40"));
         assert!(message.contains("7f"));
     }
