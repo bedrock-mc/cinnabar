@@ -706,7 +706,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
         ));
     }
 
@@ -755,7 +755,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
         ));
     }
 
@@ -828,11 +828,11 @@ mod tests {
 
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
         ));
         assert!(matches!(
             decoded[1].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
         ));
     }
 
@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
         ));
     }
 
@@ -964,7 +964,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PacketPlayStatus(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
         ));
     }
 

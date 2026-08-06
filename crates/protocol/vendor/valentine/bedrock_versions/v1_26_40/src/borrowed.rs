@@ -23885,16 +23885,19 @@ impl From<WebSocketPacketDataView> for WebSocketPacketData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoginPacketView {
     pub client_network_version: i32,
-    pub connection_request: crate::bedrock::borrowed::BorrowedStr,
+    pub connection_request: Vec<u8>,
 }
 impl crate::bedrock::codec::BedrockSized for LoginPacketView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.client_network_version)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.connection_request).as_bytes().len()) as i32,
+                ((&self.connection_request).len()) as i32,
             ))
-            + (&self.connection_request).as_bytes().len()
+            + (&self.connection_request)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for LoginPacketView {
@@ -23906,7 +23909,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LoginPacketView {
         let _ = &buf;
         let _ = _args;
         let client_network_version = <i32 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let connection_request = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let connection_request = {
+            let len = {
+                let raw =
+                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as i64;
+                if raw < 0 {
+                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+                }
+                raw as usize
+            };
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?);
+            }
+            values
+        };
         Ok(Self {
             client_network_version,
             connection_request,
@@ -23920,9 +23944,10 @@ impl LoginPacketView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         (&self.client_network_version).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.connection_request).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.connection_request).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.connection_request).len()) as i32).encode(buf)?;
+        for item in &self.connection_request {
+            (item).encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -23931,7 +23956,10 @@ impl From<LoginPacketView> for LoginPacket {
         let _ = &value;
         Self {
             client_network_version: value.client_network_version,
-            connection_request: (value.connection_request).to_string_lossy().into_owned(),
+            connection_request: (value.connection_request)
+                .into_iter()
+                .map(|item| item)
+                .collect(),
         }
     }
 }

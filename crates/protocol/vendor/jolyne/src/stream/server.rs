@@ -74,7 +74,7 @@ impl<T: Transport> BedrockStream<Handshake, Server, T> {
         let packet = self.transport.recv_packet_borrowed().await?;
 
         match packet.data {
-            BorrowedMcpePacketData::PacketRequestNetworkSettings(req) => {
+            BorrowedMcpePacketData::RequestNetworkSettingsPacket(req) => {
                 let req: BorrowedRequestNetworkSettingsPacket = req;
                 let server_protocol = crate::valentine::PROTOCOL_VERSION;
 
@@ -230,7 +230,7 @@ impl<T: Transport> BedrockStream<Login, Server, T> {
         let packet = self.transport.recv_packet_borrowed().await?;
 
         match packet.data {
-            BorrowedMcpePacketData::PacketLogin(login) => Ok(login),
+            BorrowedMcpePacketData::LoginPacket(login) => Ok(login),
             _ => Err(ProtocolError::MissingLoginPacket.into()),
         }
     }
@@ -326,7 +326,7 @@ impl<T: Transport> BedrockStream<SecurePending, Server, T> {
         self.transport.enable_encryption(*key, iv);
 
         let packet = self.transport.recv_packet_raw().await?;
-        if packet.id != crate::valentine::McpePacketName::PacketClientToServerHandshake {
+        if packet.id != crate::valentine::McpePacketName::ClientToServerHandshakePacket {
             return Err(ProtocolError::UnexpectedHandshake(
                 "Expected ClientToServerHandshake".into(),
             )
@@ -378,7 +378,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Server, T> {
             loop {
                 let packets = self.transport.recv_batch().await?;
                 for pkt in packets {
-                    if let McpePacketData::PacketResourcePackClientResponse(resp) = pkt.data {
+                    if let McpePacketData::ResourcePackClientResponsePacket(resp) = pkt.data {
                         use crate::valentine::ResourcePackClientResponsePacketResponseStatus as Status;
                         match resp.response_status {
                             Status::Refused if required => {
@@ -451,7 +451,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
             loop {
                 let pkt = self.transport.recv_packet().await?;
 
-                if let McpePacketData::PacketRequestChunkRadius(req) = pkt.data {
+                if let McpePacketData::RequestChunkRadiusPacket(req) = pkt.data {
                     return Ok::<_, JolyneError>(req.chunk_radius);
                 }
                 // ignore all other packets. Maybe add a configable logging here?
@@ -494,7 +494,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
             loop {
                 let pkt = self.transport.recv_packet().await?;
 
-                if let McpePacketData::PacketServerboundLoadingScreen(pk) = pkt.data
+                if let McpePacketData::ServerboundLoadingScreenPacket(pk) = pkt.data
                     && pk.type_ == 1
                 {
                     return Ok::<_, JolyneError>(());
@@ -510,7 +510,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
             loop {
                 let pkt = self.transport.recv_packet().await?;
 
-                if let McpePacketData::PacketServerboundLoadingScreen(pk) = pkt.data
+                if let McpePacketData::ServerboundLoadingScreenPacket(pk) = pkt.data
                     && pk.type_ == 2
                 {
                     return Ok::<_, JolyneError>(());
@@ -538,7 +538,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
 
                 if matches!(
                     pkt.data,
-                    McpePacketData::PacketSetLocalPlayerAsInitialized(_)
+                    McpePacketData::SetLocalPlayerAsInitializedPacket(_)
                 ) {
                     return Ok::<_, JolyneError>(());
                 } else {
@@ -717,11 +717,11 @@ mod tests {
             decoded.as_slice(),
             [
                 McpePacket {
-                    data: McpePacketData::PacketResourcePacksInfo(_),
+                    data: McpePacketData::ResourcePacksInfoPacket(_),
                     ..
                 },
                 McpePacket {
-                    data: McpePacketData::PacketResourcePackStack(_),
+                    data: McpePacketData::ResourcePackStackPacket(_),
                     ..
                 }
             ]
