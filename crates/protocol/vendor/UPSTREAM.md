@@ -26,7 +26,7 @@ Copied paths:
 - `crates/valentine/bedrock_versions/v1_26_0`
 - `crates/valentine/bedrock_versions/v1_26_30`
 - `crates/valentine/bedrock_versions/v1_26_40` (from `axolotl-stack` main
-  `d075eb24063b2d3dadcbd8dbc3d0eea26e09b048`; see "Bedrock 1.26.40
+  `781dfcb0ab443476b62df3c983750c0c1527a95a`; see "Bedrock 1.26.40
   readiness" below)
 - `crates/valentine/Cargo.toml` and `README.md`
 - `crates/jolyne/src`
@@ -129,87 +129,82 @@ unmigrated `v1_26_30` patches above were reviewed against.
 
 ## Bedrock 1.26.40 readiness
 
-`crates/protocol/Cargo.toml` now selects `bedrock_1_26_40` for the wire format
-and keeps `bedrock_1_26_30` enabled alongside it purely as a content-registry
-data source. The two version modules are additive and compile side by side.
-Jolyne's client path is fully migrated and its suite passes. **The protocol
-crate itself is not migrated and this branch is not mergeable**: two generated
-wire defects have to be fixed upstream first, because both change generated
-field types and would invalidate any cinnabar code written against the current
-shapes.
+Cinnabar runs on Bedrock 1.26.40 / protocol 2168. `crates/protocol/Cargo.toml`
+selects `bedrock_1_26_40` for the wire format and keeps `bedrock_1_26_30`
+enabled alongside it purely as a content-registry data source; the two version
+modules are additive and compile side by side.
 
-`decode_inner_with_remaining` is no longer a local patch. `axolotl-stack`
-`d075eb2` generates it for borrowed packets, so the retained-remaining-bytes
-behaviour that `v1_26_30/src/borrowed.rs` hand-patched is now generator-emitted
-and survives regeneration.
+Three things that used to be local patches are now upstream and survive
+regeneration:
 
-### Blocking: length-prefixed binary buffers are typed `String`
+- `decode_inner_with_remaining` for borrowed packets (`axolotl-stack` `d075eb2`),
+  replacing the hand-patched `v1_26_30/src/borrowed.rs` behaviour.
+- Length-prefixed binary buffers are typed `Vec<u8>` instead of a lossily
+  decoded `String` (`781dfcb`). Chunk, sub-chunk, blob-cache and item user-data
+  payloads survive a decode/encode round trip; the framing is unchanged.
+- `GameRuleRuleValue`'s `Int32` and `Float` arms encode through `I32LE`/`F32LE`
+  rather than the big-endian bare primitive codecs (`781dfcb`). The root cause
+  was union-arm lowering in the generator, so `DataStoreUpdate` Double and
+  `ServerboundPackSettingChange` Float were corrected with them.
 
-The Endstone dumps declare these fields `string` because BDS uses C++
-`std::string`, which is a byte string with no encoding guarantee. The generator
-maps that to a Rust `String` and decodes it with `decode_utf8_lossy_owned`, so
-every byte sequence that is not valid UTF-8 becomes U+FFFD. Decode is not
-byte-preserving and re-encode changes the length:
+### Open: no allocation guards
 
-    sent  00 80 9f ff fe 41 c3 28
-    recv  00 efbfbd efbfbd efbfbd efbfbd 41 efbfbd 28
+**This remains deliberate debt.** `v1_26_40` contains none of the
+`MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
+`MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
+bounds that `v1_26_30` applied before every eager collection allocation:
+`grep -c ArrayLengthExceeded` over `bedrock_versions/v1_26_40/src/` returns 0
+where `v1_26_30` had 44 sites. Every length-prefixed field decodes as a bare
+`Vec::with_capacity(len)` over an attacker-controlled varint, so a peer can
+force a large reservation before the read fails. These are hostile-input
+protections no schema source emits, and they belong in the generator rather
+than in another hand-patch. `tests/world_collection_bounds.rs` and
+`tests/biome_definition_list.rs` are two-sided tripwires: they assert the read
+fails with EOF today and fail loudly if `ArrayLengthExceeded` reappears, which
+is the signal to restore the strict assertions.
 
-The framing is right and only the content is mangled, so nothing fails loudly;
-encode and decode corrupt symmetrically. Affected fields carrying binary:
+Cinnabar's own pre-decode gates in `crates/protocol/src/{codec,inventory}.rs`
+still bound counts and text before the owned decoder allocates, so the exposed
+surface is the packets those gates do not cover.
 
-- `LevelChunkPacket.serialized_chunk_data` (chunk blob)
-- `SubChunkPacketPayloadSubChunkPacketData.serialized_sub_chunk`
-- `MissingBlobData.blob_data` (client cache miss response)
-- `user_data_buffer` on both item stack descriptors (item NBT)
-- `ResourcePackChunkDataPacket.chunk_data`
+### Open: BedrockSafetyRedactableString has an extra presence byte
 
-gophertunnel types the same LevelChunk field `RawPayload []byte` and writes it
-with `io.ByteSlice` (`minecraft/protocol/packet/level_chunk.go`), which is the
-identical varint-prefixed framing. `v1_26_30` had this right as
-`payload: ByteArray`. This is the same defect `axolotl-stack` `d11ca37` fixed
-for `LoginPacket.connection_request` through the `overrides-endstone`
-correction layer; the rest of the class is still open. Chunk and sub-chunk
-payloads are cinnabar's primary world data, so this blocks rendering outright.
+`ItemStackResponseSlotInfo::custom_name` and `StructureEditorData::structure_name`
+are typed `BedrockSafetyRedactableString`, which encodes an `unredacted` string,
+a presence byte, and an optional `redacted` string. gophertunnel writes two
+plain adjacent strings in both places (`StackResponseSlotInfo.Marshal` in
+`minecraft/protocol/item_stack.go`), so the generated decoder reads the second
+string's length prefix as the presence flag and then reads a bogus length.
 
-### Blocking: GameRule integer values are written big-endian
+`fixtures/item_stack_response.bin` therefore cannot decode. It fails loudly
+rather than corrupting, and only those two fields use the type. The BDS type has
+an `std::optional` member but its serializer appears to write both halves
+unconditionally, so this is a generator artifact for the correction layer.
+`login::tests::item_stack_response_fixture_pins_the_redactable_string_divergence`
+asserts the failure and starts failing once it is fixed.
 
-`GameRuleRuleValue::Int32` encodes through the bare `i32` `BedrockCodec`, whose
-`encode` is `buf.put_i32` — big-endian. gophertunnel writes the same value with
-`w.Uint32` (`minecraft/protocol/writer.go`), which is little-endian in both the
-big- and little-endian writer variants; its only deliberately big-endian helper
-is `BEInt32`, used for fields such as PlayStatus. The values are therefore
-byte-swapped relative to BDS wherever a game rule carries an int, which covers
-`StartGamePacket`'s rule list and `GameRulesChangedPacket`, and so reaches the
-`start_game.bin` fixture.
+### Open: borrowed LevelChunk payloads are owned
 
-The bare `i32` codec being big-endian is not wrong by itself — PlayStatus
-genuinely is big-endian — but it is the wrong codec for this field.
+`LevelChunkPacketView::serialized_chunk_data` is an owned `Vec<u8>` rather than
+a zero-copy `BorrowedStr`, an allocation regression on the hottest packet.
+Acknowledged upstream as a generator follow-up (it could use
+`take_varint_prefixed_bytes` for `Array{VarInt,U8}`). Relatedly, there is no
+`TextPacketBodyView`, so the borrowed text path materialises the body strings
+before `validate_borrowed_ui_packet` runs; `codec::validate_raw_text_packet` is
+what actually enforces UTF-8 before allocation.
 
-### Still open from before
+### Open: varint strictness on actor IDs
 
-- **The generated crate carries no allocation guards.** `v1_26_40` contains
-  none of the `MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS`
-  / `MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
-  bounds that `v1_26_30` applies before every eager collection allocation, nor
-  the `ItemNew` air/empty-item handling. These are hostile-input protections no
-  schema source emits; regenerating drops them. They belong in the generator,
-  not in another hand-patch. **This caveat remains deliberate debt.**
-- **Type names and shapes differ.** Only 207 of 528 generated structs keep
-  their prismarine-era names, and many are reshaped rather than renamed: the
-  three item wire formats collapse into one descriptor with an opaque user-data
-  buffer, `TextPacket` becomes a three-arm body union, `SetScorePacket` moves
-  its action to a per-entry union, entity metadata loses its named key enum and
-  its bitflag types, `SubChunk` caching/non-caching entries merge behind an
-  `Option<u64>` blob id, `GameMode` and `LevelEventPacketEvent` lose their named
-  enums entirely, and `PlayerAuthInput` input flags become a list of set flag
-  ids instead of a bitset.
-- **The Go core has landed.** `core/go.mod` and `tools/fixturegen/go.mod` use
-  `hashimthearab/gophertunnel v1.25.3-0.20260806044231-be6713da4dc0`, and the
-  byte fixtures under `crates/protocol/fixtures` carry 1.26.40 bytes.
+`v1_26_30` decoded `MovePlayer` runtime and ridden IDs through
+`protocol::wire::read_var_u64`, which rejected overflow past 2^63 and overlong
+encodings. `ActorRuntimeId` now decodes through the shared `VarLong`, which only
+errors at shift >= 70, so a 10-byte varint decodes with its high bits dropped.
+`move_player_rejects_overlong_runtime_and_ridden_varint_ids` pins the surviving
+11-byte rejection.
 
-`v1_26_40` also has no `blocks`, `items`, `states`, `entities`, `biomes`, or
+`v1_26_40` has no `blocks`, `items`, `states`, `entities`, `biomes`, or
 `block_palette` modules: the BDS dumps describe the wire, not the content
 registries. `crates/protocol/src/world.rs` reads `v1_26_30::biomes::ALL_BIOMES`
-and `crates/protocol/src/item.rs` reads the generated `v1_26_30` items table,
-so that data keeps coming from the prismarine-derived crate. Both sites are
+and `crates/protocol/src/item.rs` reads the generated `v1_26_30` items table, so
+that data keeps coming from the prismarine-derived crate. Both sites are
 commented as deliberate data pins.

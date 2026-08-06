@@ -12,7 +12,7 @@ world model, and rendering, while the Go core will own upstream networking and i
 <img width="2534" height="1446" alt="image" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
 
 
-Phase 0 is pinned to Bedrock 1.26.30 (protocol 1001).
+Phase 0 is pinned to Bedrock 1.26.40 (protocol 2168).
 
 ## Workspace
 
