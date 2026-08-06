@@ -10,6 +10,7 @@ pub mod listener;
 pub mod raw;
 pub mod stream;
 pub mod valentine;
+#[cfg(feature = "server")]
 pub mod world;
 
 pub use config::BedrockListenerConfig;
@@ -41,6 +42,7 @@ pub use stream::{BedrockStream, Login, Play};
 #[cfg(feature = "raknet")]
 pub use tokio_raknet::protocol::reliability::Reliability;
 
+#[cfg(feature = "server")]
 pub use world::WorldTemplate;
 
 pub use raw::{RawPacket, decode_packet_raw};

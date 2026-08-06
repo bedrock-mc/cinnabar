@@ -17,8 +17,8 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
 
 [dev-dependencies]
 aes = "0.8"

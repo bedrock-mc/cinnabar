@@ -5,7 +5,7 @@
 //! the play queue so callers can decode them under their normal work budgets.
 
 use crate::valentine::{
-    AvailableEntityIdentifiersPacket, BiomeDefinitionListPacket, CreativeContentPacket,
+    AvailableActorIdentifiersPacket, BiomeDefinitionListPacket, CreativeContentPacket,
     ItemRegistryPacket, StartGamePacket,
 };
 
@@ -29,7 +29,7 @@ pub struct GameData {
     pub biome_definitions: Option<BiomeDefinitionListPacket>,
     /// Reserved for callers that choose to capture entity identifiers later.
     /// Client login leaves this unset and queues the packet for play.
-    pub entity_identifiers: Option<AvailableEntityIdentifiersPacket>,
+    pub entity_identifiers: Option<AvailableActorIdentifiersPacket>,
     /// Reserved for callers that choose to capture creative content later.
     /// Client login leaves this unset and queues the packet for play.
     pub creative_content: Option<CreativeContentPacket>,

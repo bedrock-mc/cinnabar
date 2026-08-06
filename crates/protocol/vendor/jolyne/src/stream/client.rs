@@ -30,7 +30,7 @@ use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
     ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket, LoginPacket,
     PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponseStatus,
+    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponse,
     ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, StartGamePacket,
 };
 use crate::valentine::{
@@ -1171,7 +1171,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         // This is equivalent to gophertunnel's "AllPacksDownloaded" response
         tracing::debug!("Sending HaveAllPacks response...");
         let resp = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponseStatus::HaveAllPacks,
+            response_status: ResourcePackClientResponsePacketResponse::HaveAllPacks,
             resourcepackids: vec![],
         };
         self.transport.send_batch(&[McpePacket::from(resp)]).await?;
@@ -1239,7 +1239,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         // Send Completed to finish resource pack negotiation
         tracing::debug!("Sending Completed response...");
         let complete = ResourcePackClientResponsePacket {
-            response_status: ResourcePackClientResponsePacketResponseStatus::Completed,
+            response_status: ResourcePackClientResponsePacketResponse::Completed,
             resourcepackids: vec![],
         };
         self.transport
