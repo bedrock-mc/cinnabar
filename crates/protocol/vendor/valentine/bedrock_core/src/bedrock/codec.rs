@@ -151,6 +151,18 @@ macro_rules! fixed_size_codec {
     };
 }
 
+// An explicitly corrected but still-untyped schema field is represented in the
+// shared IR as `Void`/`()`. It consumes no bytes; the frontend warns and records
+// the parity gap before reaching this fallback.
+impl BedrockCodec for () {
+    type Args = ();
+    fn encode<B: BufMut>(&self, _buf: &mut B) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+    fn decode<B: Buf>(_buf: &mut B, _args: Self::Args) -> Result<Self, DecodeError> {
+        Ok(())
+    }
+}
 impl BedrockCodec for bool {
     type Args = ();
     fn encode<B: BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {

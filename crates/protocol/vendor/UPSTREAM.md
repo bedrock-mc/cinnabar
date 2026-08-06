@@ -25,6 +25,8 @@ Copied paths:
 - `crates/valentine/bedrock_core`
 - `crates/valentine/bedrock_versions/v1_26_0`
 - `crates/valentine/bedrock_versions/v1_26_30`
+- `crates/valentine/bedrock_versions/v1_26_40` (from `axolotl-stack` main
+  `7028631`; see "Bedrock 1.26.40 readiness" below)
 - `crates/valentine/Cargo.toml` and `README.md`
 - `crates/jolyne/src`
 - `crates/jolyne/Cargo.toml` and `README.md`
@@ -72,7 +74,14 @@ Task 0.5 adds the following reviewed local patches:
   the client-feature suite builds independently.
 - `valentine/bedrock_core/src/bedrock/codec.rs`: add a fixed-width
   little-endian NBT scanner alongside the existing network-little-endian
-  scanner and cap compound/list nesting at 512 in both variants.
+  scanner and cap compound/list nesting at 512 in both variants. Also encode
+  `Uuid` as two little-endian `u64` halves rather than the raw 16 bytes, which
+  is what gophertunnel's `Writer.UUID` produces (it concatenates `x[8:]` and
+  `x[:8]` and reverses all 16 bytes, i.e. each half byte-reversed in place).
+  **This one is still not upstreamed** — `axolotl-stack` main writes
+  `uuid.as_bytes()` verbatim, so every UUID field there is byte-swapped
+  relative to BDS. It affects `v1_26_40` too, since `bedrock_core` is shared.
+  `uuid_uses_bedrock_little_endian_halves` pins the expected bytes.
 - `valentine/bedrock_versions/v1_26_30/src/borrowed.rs`: retain the exact number
   of unconsumed payload bytes from generated borrowed decoders so Jolyne can
   enforce declared-entry boundaries without materialising owned packets, and
@@ -112,3 +121,43 @@ Wire behaviour and byte fixtures use the exact project pin
 `hashimthearab/gophertunnel` commit
 `9948b1729395d2e819fce28e079d4a7bfc67716c`. It is the behavioural authority
 for these patches; an unrelated local checkout or later `lunar` head is not.
+
+## Bedrock 1.26.40 readiness
+
+`bedrock_versions/v1_26_40` is vendored and compiles, but **nothing selects it
+yet**. Cinnabar stays on `bedrock_1_26_30` / protocol 1001. The version is now
+chosen in one place per crate rather than hardcoded: `jolyne` gained
+`bedrock_1_26_30` (default) and `bedrock_1_26_40` features that forward to
+Valentine, and `jolyne/src/valentine.rs` re-exports whichever is enabled.
+Flipping both `crates/protocol/Cargo.toml` dependencies is the whole switch.
+
+Three things must land before that flip is correct:
+
+- **The generated crate carries no allocation guards.** `v1_26_40` was
+  regenerated from the EndstoneMC BDS dumps and contains none of the
+  `MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
+  `MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
+  bounds that `v1_26_30` applies before every eager collection allocation, nor
+  the `ItemNew` air/empty-item handling in `v1_26_30/src/types.rs`. These are
+  hostile-input protections no schema source emits; regenerating drops them.
+  They belong in the generator, not in another hand-patch.
+- **Type names differ.** The Endstone frontend uses BDS's own vocabulary, so
+  only 207 of 528 generated structs keep their prismarine-era names. `Vec3F` is
+  `Vec3`, `Vec2F` is `Vec2`, `BlockCoordinates` is `BlockPos`,
+  `AvailableEntityIdentifiersPacket` is `AvailableActorIdentifiersPacket`, and
+  `StartGamePacket`'s inline world fields moved into a nested `LevelSettings`
+  (`StartGamePacketChatRestrictionLevel` becomes
+  `LevelSettingsChatRestrictionLevel`, and so on). Jolyne needs about a dozen
+  renames; the protocol crate's own `ItemLegacy` / `Skin` /
+  `SubchunkPacketEntries` / `Blob` references need the same treatment.
+- **The Go core moves in lockstep or not at all.** `tools/fixturegen/main.go`
+  asserts `minecraft.DefaultProtocol` is exactly 1001 / `1.26.33`, so bumping
+  the `core/go.mod` gophertunnel replace to a 1.26.40 revision without
+  regenerating the byte fixtures fails by construction — which is the intended
+  behaviour, since the fixtures are what pin Rust decoding to real wire bytes.
+
+`v1_26_40` also has no `blocks`, `items`, `states`, `entities`, `biomes`, or
+`block_palette` modules: the BDS dumps describe the wire, not the content
+registries. `crates/protocol/src/world.rs` reads
+`v1_26_30::biomes::ALL_BIOMES`, so that data must keep coming from the
+prismarine-derived crate or from `tools/registrygen`.

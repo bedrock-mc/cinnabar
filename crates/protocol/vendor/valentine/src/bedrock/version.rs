@@ -39,3 +39,17 @@ pub mod v1_26_30 {
         release_type: RELEASE_TYPE,
     };
 }
+#[cfg(feature = "bedrock_1_26_40")]
+pub mod v1_26_40 {
+    pub use super::super::protocol::v1_26_40::*;
+    pub const GAME_VERSION: &str = "1.26.40";
+    pub const PROTOCOL_VERSION: i32 = 2168i32;
+    pub const MAJOR_VERSION: &str = "1.26";
+    pub const RELEASE_TYPE: &str = "release";
+    pub const INFO: super::BedrockVersionInfo = super::BedrockVersionInfo {
+        minecraft_version: GAME_VERSION,
+        protocol_version: PROTOCOL_VERSION,
+        major_version: MAJOR_VERSION,
+        release_type: RELEASE_TYPE,
+    };
+}
