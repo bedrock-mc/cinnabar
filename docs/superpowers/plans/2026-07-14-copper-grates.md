@@ -20,7 +20,7 @@ visualcoverage.
 
 - Follow `docs/superpowers/specs/2026-07-14-copper-grates-design.md`.
 - Admit exactly eight stateless primary Cube-family grate records.
-- Slime and every other glass/copper/legacy/invisible record stay excluded.
+- Admit only the exact eight-name retail allowlist above.
 - Add no pipeline, bind group, texture page, Bevy object, or flat block array.
 - Never track Mojang assets or the compiled blob.
 - Pinned pack: `$ProjectRoot/.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack`,

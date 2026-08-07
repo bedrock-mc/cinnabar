@@ -1,7 +1,7 @@
 # Cinnabar blob-cache open defects
 
 This document records Cinnabar implementation defects, not vanilla behavior.
-Vanilla observations and deliberate Cinnabar divergences remain in
+Public references and the implementation's safety boundaries remain in
 [vanilla-blob-cache-1.26.30.md](vanilla-blob-cache-1.26.30.md). The findings
 below were checked against the named commits so that they remain available if
 the implementation is resumed or discarded.

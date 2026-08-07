@@ -25,8 +25,6 @@ chunk meshing, Bevy/wgpu transparent model phase, visualcoverage.
 - Admit only the 16 ordinary `minecraft:<colour>_stained_glass` records with
   canonical state `{}`, `ModelFamily::Cube`, and contributor role
   `Primary`.
-- Education hard glass, panes, copper grates, slime, invisible bedrock, and
-  legacy flags-zero records remain diagnostic.
 - Use the existing one-bind-group transparent model phase; add no Bevy
   `Mesh`, material object, render phase, texture page, or per-subchunk object.
 - Preserve paletted runtime data and compact model/draw records.

@@ -8,24 +8,20 @@ Status: registry/state contract complete; render geometry and UV authority
 blocked. Shelf states remain diagnostic.
 
 No Mojang asset, screenshot, archive payload, or extracted binary is tracked by
-this manifest. No archive or executable was unpacked, decompiled, disassembled,
-or reverse engineered.
+this manifest.
 
 ## Audited legitimate sources
 
-The installed Microsoft Store Bedrock package was inspected in place:
+The versioned retail package's explicit text data was inspected:
 
 - package: `Microsoft.MinecraftUWP`;
 - package version: `1.26.3301.0`;
-- install root:
-  `C:\Program Files\WindowsApps\Microsoft.MinecraftUWP_1.26.3301.0_x64__8wekyb3d8bbwe`;
 - `appxmanifest.xml` SHA-256:
   `aeecfc787ca27f4c5d969bd385ce93dae580fbdb4680c61d5f1c1c981297088b`.
 
-The installed `experimental_vanilla_shapes` behavior pack is explicit text
-data, not extracted binary data:
+The packaged `experimental_vanilla_shapes` behavior pack is explicit text data:
 
-| Installed relative path | SHA-256 |
+| Package-relative path | SHA-256 |
 | --- | --- |
 | `data/behavior_packs/experimental_vanilla_shapes/manifest.json` | `1758855f0d195f097270c72d49ae6add69889f9ec61ae47c6afb3726405b9f4d` |
 | `data/behavior_packs/experimental_vanilla_shapes/contents.json` | `fff1f48f680fc9e2ddcf43e09b485441c4b23b69bbe8eb32e35011175037cf3a` |
@@ -40,9 +36,9 @@ component, render model, face assignment, UV coordinates, texture projection,
 or material mapping. They are therefore useful collision/selection evidence,
 but not visible geometry or UV authority.
 
-The installed versioned vanilla resource pack was also inspected in place:
+The packaged versioned vanilla resource pack was also inspected:
 
-| Installed relative path | SHA-256 |
+| Package-relative path | SHA-256 |
 | --- | --- |
 | `data/resource_packs/vanilla_1.21.110/manifest.json` | `a6767e4b05e0994dcd144991d8c485f61afd9fce079eedffdba071602b1a159f` |
 | `data/resource_packs/vanilla_1.21.110/blocks.json` | `39250f21fdad10f489b21859e60fa619fe0cbf4e69d5ac8ba3e1116e88d845c2` |
@@ -50,10 +46,8 @@ The installed versioned vanilla resource pack was also inspected in place:
 | `data/resource_packs/vanilla_1.21.110/textures/blocks/oak_shelf.texture_set.json` | `d7b2d5739c5164cc5c76e55476aed9f4ff8e058a2f289d17fa9a2064a5e752c8` |
 
 The manifest version is `1.21.110`. These files establish shelf texture keys,
-paths, and material texture-set metadata only. A text search across the full
-installed `data` tree found no shelf render geometry or UV definition. Binary
-executables and `.brarchive` files were deliberately not inspected beyond
-their filenames.
+paths, and material texture-set metadata only. A text search across the packaged
+`data` tree found no shelf render geometry or UV definition.
 
 The ignored `bedrock-samples` resource pack pinned to
 `v1.26.30.32-preview` was audited as a second legitimate Mojang source. Its

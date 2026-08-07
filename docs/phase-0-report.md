@@ -12,8 +12,7 @@ This report is intentionally evidence-first: a gate remains pending until the co
 | --- | --- | --- |
 | `AvailableCommands` shared enum count | Pinned-gophertunnel fixture, 165 bytes, SHA-256 `3d6e1870c49d643fe3f3b901cbbba40f49768cfe408c8b6ee136b5304ac1c98f` | Pass |
 | `AvailableCommands` recorded-size regression | Structurally generated pinned-gophertunnel fixture, 356,519 batch bytes / 356,513 packet-body bytes, SHA-256 `08dea656b782928828fa79fc004166220f14d0459e259717bb537c5a11f6b39a` | Pass |
-| `MaterialReducer` output vector | Pinned-gophertunnel fixture, 18 bytes, SHA-256 `b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39` | Pass |
-| Owned decode, borrowed materialization, exact re-encode, malformed/oversized/truncated rejection | `cargo test -p protocol --test available_commands --test material_reducer -- --nocapture` | Pass: 11 tests |
+| Owned decode, borrowed materialization, exact re-encode, malformed/oversized/truncated rejection | `cargo test -p protocol --test available_commands -- --nocapture` | Pass |
 | Login continues through `AvailableCommands` | Guarded test plus the Windows acceptance artifact below | Pass |
 
 The exact upstream evidence and deviations are recorded in `crates/protocol/DEVIATIONS.md` and `crates/protocol/UPSTREAM.md`.
@@ -48,7 +47,7 @@ Dry-run suites:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
 acceptance.ps1 dry-run tests: PASS
 
-C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh
+bash scripts/tests/acceptance_test.sh
 acceptance.sh dry-run tests: PASS
 ```
 

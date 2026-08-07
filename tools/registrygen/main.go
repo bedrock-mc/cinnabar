@@ -2120,7 +2120,7 @@ func isAquaticName(name string) bool {
 }
 
 func isTorchName(name string) bool {
-	return name == "torch" || name == "copper_torch" || name == "soul_torch" || name == "redstone_torch" || name == "unlit_redstone_torch" || name == "underwater_torch" || strings.HasPrefix(name, "colored_torch_")
+	return name == "torch" || name == "copper_torch" || name == "soul_torch" || name == "redstone_torch" || name == "unlit_redstone_torch"
 }
 
 func isGlazedTerracottaName(name string) bool {

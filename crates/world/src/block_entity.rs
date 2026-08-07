@@ -187,19 +187,19 @@ pub struct DecodedBlockEntities {
 }
 
 impl DecodedBlockEntities {
-    /// Decodes the one-byte LevelChunk border-block count followed by zero or
+    /// Decodes the one-byte LevelChunk reserved-entry count followed by zero or
     /// more concatenated NetworkLittleEndian compounds.
     pub fn decode_level_chunk_tail(
         chunk: ChunkKey,
         payload: &[u8],
     ) -> Result<Self, BlockEntityError> {
         ensure_tail_size(payload)?;
-        let (&border_count, entities) = payload
+        let (&reserved_entry_count, entities) = payload
             .split_first()
-            .ok_or(BlockEntityError::MissingBorderBlockCount)?;
-        if border_count != 0 {
-            return Err(BlockEntityError::UnsupportedBorderBlocks {
-                count: border_count,
+            .ok_or(BlockEntityError::MissingReservedEntryCount)?;
+        if reserved_entry_count != 0 {
+            return Err(BlockEntityError::UnsupportedReservedEntries {
+                count: reserved_entry_count,
             });
         }
         let mut decoded = decode_scoped_entities(
@@ -380,10 +380,10 @@ fn decode_scoped_entities(
 pub enum BlockEntityError {
     #[error(transparent)]
     Nbt(#[from] BlockEntityNbtError),
-    #[error("LevelChunk block-entity tail is missing the border-block count")]
-    MissingBorderBlockCount,
-    #[error("LevelChunk uses {count} unsupported border blocks")]
-    UnsupportedBorderBlocks { count: u8 },
+    #[error("LevelChunk block-entity tail is missing the reserved-entry count")]
+    MissingReservedEntryCount,
+    #[error("LevelChunk uses {count} unsupported reserved entries")]
+    UnsupportedReservedEntries { count: u8 },
     #[error("block-entity tail has {len} bytes, exceeding {max}")]
     TailTooLarge { len: usize, max: usize },
     #[error("block-entity tail exceeds {max} sparse records")]

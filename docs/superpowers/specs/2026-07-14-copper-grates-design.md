@@ -38,10 +38,6 @@ share the corresponding unwaxed texture. Compile one exact six-quad unit cube
 and clear runtime `AIR | CUBE_GEOMETRY | OCCLUDES_FULL_FACE | LEAF_MODEL`.
 Registry collision facts remain untouched.
 
-Slime, stained/hard glass, panes, copper bars/bulbs/doors/trapdoors, unrelated
-`*grate*` names, legacy flags-zero records, and invisible bedrock remain
-excluded.
-
 ## Meshing
 
 Internal-face suppression for the checked transparent-cube semantic must use
