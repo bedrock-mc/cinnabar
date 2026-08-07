@@ -141,7 +141,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 			if entry.SHA256 != "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4" {
 				t.Fatalf("biome definition fixture sha256 = %s", entry.SHA256)
 			}
-			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "be6713da4dc051a4197f897d04835e89e9c54321" {
+			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "56a0f77dbbb2fb006b081ec38bb4bedf9cb95088" {
 				t.Fatalf("biome definition fixture provenance = (%q, %q)", entry.WireAuthority, entry.WireCommit)
 			}
 		}
