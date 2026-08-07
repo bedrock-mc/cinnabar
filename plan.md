@@ -18,7 +18,7 @@ carrying plain Bedrock packets pinned to ONE protocol version, plus a small cont
 Local worlds run dragonfly behind the same core, over the same client path.
 
 **Tech Stack:**
-- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.30)
+- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.40)
 - Core: Go, `lunar` gophertunnel + go-raknet fork; upstream `df-mc/go-nethernet` and `df-mc/go-xsapi/v2`; dragonfly
 - Boundary: socket-file transport already implemented in `bedrock-mc/plugin` (reference impl)
 - Assets: Mojang/bedrock-samples (full vanilla resource pack); `refs/pocketmine/bds-data`
@@ -26,7 +26,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Global Constraints
 
-- Pinned loopback protocol version: **1.26.30** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
+- Pinned loopback wire target: **Bedrock 1.26.40 / protocol 2168** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
 - The Rust side NEVER implements auth, encryption-to-upstream, RakNet-to-upstream, or NetherNet. If a task seems to need one of those in Rust, the task is wrong.
 - The loopback game channel is Bedrock packets with length-prefixed framing; no RakNet on this leg. Encryption on this leg: whatever gophertunnel's Listener does by default — do not fork to remove it; AES on loopback is negligible.
 - Single source of truth for protocol/data lives in the Go estate: packet truth = gophertunnel (validated against Mojang bedrock-protocol-docs via `cmd/protocoldrift`); block/item/biome registries = generated exports from dragonfly; client packet defs = valentine (docs-generated), conformance-tested against gophertunnel bytes.
@@ -45,7 +45,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 ## Repos and Layout
 
 - **`bedrock-mc/client`** (new greenfield repo; do not reuse `bedrock-mc/Rust-LCE` code, assets, renderer, or world model because it targets the Legacy Console Edition rather than current Bedrock/BDS data):
-  - `crates/protocol/` — vendored/generated valentine 1.26.30 defs + login-sequence state machine
+  - `crates/protocol/` — vendored/generated Valentine 1.26.40 defs + login-sequence state machine
   - `crates/world/` — chunk store, sub-chunk decode, block registry, light engine
   - `crates/render/` — meshing, atlas, chunk/entity/sky rendering (Bevy plugins)
   - `crates/sim/` — movement physics (bedsim-parity port)
@@ -73,10 +73,58 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
-## Current integration snapshot (2026-07-16)
+## Current integration snapshot (2026-08-07)
 
-This ledger is the authoritative hand-off for the current branch audit. The audit base is
-clean `render-integration` commit `1ac547b`, published exactly as
+This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
+below without deleting their historical evidence. The code audit compares the Bedrock
+1.26.40 migration at `e7901ae` with the fork-repin closure at `a5c327d`.
+
+The mandatory public fork and repin are closed deterministically. The core and fixture
+generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
+`56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` through module pseudo-version
+`v1.25.3-0.20260807205305-56a0f77dbbb2`. Fork CI succeeded. Cinnabar commits `a7679c0`
+and `a5c327d` repinned the two Go consumers and synchronized checked-in provenance; all 21
+checked-in fixture `.bin` files remained byte-for-byte unchanged. The Go and protocol test
+suites passed, and the closure received independent approval. This establishes the pinned
+wire/tooling baseline; it is not live gameplay, native visual, or performance evidence.
+
+Current implementation state:
+
+- Protocol, world, movement, gameplay-HUD, and launcher foundations have landed. Production
+  physics is enabled by default.
+- Actor CPU/GPU rig foundations have landed, but non-player families, held items, dropped
+  items, and live actor acceptance remain open.
+- Server resource-pack application and resource-pack JSON UI are absent. Forms have bounded
+  ingress only; response UX and routing are not implemented.
+- Combat, block interaction transactions, and container inventory are absent.
+- First-run authentication UX is absent. Local worlds, audio, and packaging are absent.
+- Live, native-comparison, and performance gates remain open. Do not infer their completion
+  from deterministic tests or checked-in fixtures.
+- Content assets intentionally remain on the older pinned inputs until a coherent
+  protocol-2168 content migration is verified; packet migration alone does not authorize a
+  piecemeal asset bump.
+
+Immediate execution order:
+
+1. **Protocol-2168 debt closure:** restore bounded pre-allocation guards in generated decode
+   paths; resolve the `ItemStackResponse` wire-shape divergence; replace the borrowed
+   `LevelChunk` payload with an owned bounded payload; and enforce strict actor-ID varint
+   decoding. Re-run conformance and adversarial decode coverage after each bounded fix.
+2. **Connectivity and authentication:** close real-server connectivity, session lifecycle,
+   device-code authentication, and first-run auth UX with explicit live evidence.
+3. **Resource packs:** negotiate, cache, validate, and apply server packs, including their
+   resource-pack-driven UI contracts.
+4. **Interactions:** implement combat, breaking/placement/use transactions, item-stack
+   reconciliation, hotbar contents, and container inventory.
+5. **Actors and UI:** complete non-player/held/dropped rendering and actor live gates, then
+   interactive forms and the remaining HUD/menu/UI acceptance work.
+6. **Product phases:** proceed through online product surfaces, local worlds, audio, polish,
+   packaging, and their native/performance acceptance gates.
+
+## Historical integration snapshot (2026-07-16)
+
+This preserved ledger was the authoritative hand-off for its 2026-07-16 branch audit. Its
+audit base is clean `render-integration` commit `1ac547b`, published exactly as
 `github/phase2-textures`; the last functional implementation commit before the workflow
 documentation is `efa5400`. The agent runtime does not expose exact model/version or effort
 selectors, so reviews use the configured runtime default rather than claiming a particular
@@ -116,7 +164,7 @@ audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-eviden
 `atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
 three integration candidates above.
 
-## Current execution order (2026-07-16)
+## Historical execution order (2026-07-16)
 
 The exact leaf-litter route and any other residual family that lacks sufficient
 state-to-visual authority are deferred until further authoritative data is available. Keep
@@ -149,7 +197,7 @@ order:
    layer, tint, animation, and occlusion data are available. Re-review, verify, integrate, and
    measure the production diagnostic ratchet family-by-family; do not infer ambiguous mappings.
 
-### PR 6 cache-enabled live-validation handoff (2026-08-01)
+### Historical PR 6 cache-enabled live-validation handoff (2026-08-01)
 
 The local `agent/track-phase3-movement` implementation through `7d89ff5` is ahead
 of its pushed remote (`d8637a2`), independently approved, and ready to push for
