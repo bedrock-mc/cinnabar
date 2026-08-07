@@ -2244,12 +2244,15 @@ impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableStringView {
                 ((&self.unredacted).as_bytes().len()) as i32,
             ))
             + (&self.unredacted).as_bytes().len()
-            + 1usize
-            + (&self.redacted).as_ref().map_or(0usize, |_value| {
+            + {
+                let _value = self
+                    .redacted
+                    .as_ref()
+                    .map_or(&[][..], |value| value.as_bytes());
                 crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    ((_value).as_bytes().len()) as i32,
-                )) + (_value).as_bytes().len()
-            })
+                    _value.len() as i32,
+                )) + _value.len()
+            }
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for BedrockSafetyRedactableStringView {
@@ -2261,11 +2264,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BedrockSafetyRedactableSt
         let _ = &buf;
         let _ = _args;
         let unredacted = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let redacted = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?)
-        } else {
-            None
-        };
+        let redacted = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let redacted = (!redacted.as_bytes().is_empty()).then_some(redacted);
         Ok(Self {
             unredacted,
             redacted,
@@ -2280,11 +2280,12 @@ impl BedrockSafetyRedactableStringView {
         let _ = buf;
         crate::bedrock::codec::VarInt(((&self.unredacted).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.unredacted).as_bytes());
-        (&self.redacted).is_some().encode(buf)?;
-        if let Some(value) = &self.redacted {
-            crate::bedrock::codec::VarInt(((value).as_bytes().len()) as i32).encode(buf)?;
-            buf.put_slice((value).as_bytes());
-        }
+        let bytes = self
+            .redacted
+            .as_ref()
+            .map_or(&[][..], |value| value.as_bytes());
+        crate::bedrock::codec::VarInt(bytes.len() as i32).encode(buf)?;
+        buf.put_slice(bytes);
         Ok(())
     }
 }
@@ -24770,11 +24771,9 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MovePlayerPacketView {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let player_runtime_id =
-            <ActorRuntimeIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
+        let player_runtime_id = ActorRuntimeIdView {
+            actor_runtime_id: decode_strict_actor_runtime_id(buf)?,
+        };
         let position =
             <Vec3View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())?;
         let rotation =
@@ -24785,11 +24784,9 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MovePlayerPacketView {
         let position_mode =
             <MovePlayerPacketPositionMode as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let on_ground = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let riding_runtime_id =
-            <ActorRuntimeIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
+        let riding_runtime_id = ActorRuntimeIdView {
+            actor_runtime_id: decode_strict_actor_runtime_id(buf)?,
+        };
         let teleport_data = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
             Some(
                 <MovePlayerTeleportDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(

@@ -167,21 +167,22 @@ Cinnabar's own pre-decode gates in `crates/protocol/src/{codec,inventory}.rs`
 still bound counts and text before the owned decoder allocates, so the exposed
 surface is the packets those gates do not cover.
 
-### Open: BedrockSafetyRedactableString has an extra presence byte
+### Resolved: BedrockSafetyRedactableString uses two adjacent strings
 
 `ItemStackResponseSlotInfo::custom_name` and `StructureEditorData::structure_name`
-are typed `BedrockSafetyRedactableString`, which encodes an `unredacted` string,
-a presence byte, and an optional `redacted` string. gophertunnel writes two
-plain adjacent strings in both places (`StackResponseSlotInfo.Marshal` in
-`minecraft/protocol/item_stack.go`), so the generated decoder reads the second
-string's length prefix as the presence flag and then reads a bogus length.
+are typed `BedrockSafetyRedactableString`. The generated correction keeps the
+optional `redacted` value in memory but encodes and decodes the `unredacted` and
+`redacted` halves as two unconditional adjacent VarInt-length-prefixed strings,
+matching gophertunnel's `StackResponseSlotInfo.Marshal` and structure-editor
+path (`packet/structure_block_update.go`). An absent or empty redacted value
+uses the required zero-length second string and decodes as `None`; there is no
+presence byte.
 
-`fixtures/item_stack_response.bin` therefore cannot decode. It fails loudly
-rather than corrupting, and only those two fields use the type. The BDS type has
-an `std::optional` member but its serializer appears to write both halves
-unconditionally, so this is a generator artifact for the correction layer.
-`login::tests::item_stack_response_fixture_pins_the_redactable_string_divergence`
-asserts the failure and starts failing once it is fixed.
+The existing response-name pre-decode scanner now walks and bounds both strings.
+`fixtures/item_stack_response.bin` decodes, normalizes through the public world
+event path, and re-encodes byte-for-byte. Direct owned and borrowed
+`StructureEditorData` coverage pins the same shape and empty boundary; the
+owned decoder also pins the truncated-second-string boundary.
 
 ### Open: borrowed LevelChunk payloads are owned
 
@@ -193,14 +194,13 @@ Acknowledged upstream as a generator follow-up (it could use
 before `validate_borrowed_ui_packet` runs; `codec::validate_raw_text_packet` is
 what actually enforces UTF-8 before allocation.
 
-### Open: varint strictness on actor IDs
+### Resolved: strict MovePlayer actor ID varints
 
-`v1_26_30` decoded `MovePlayer` runtime and ridden IDs through
-`protocol::wire::read_var_u64`, which rejected overflow past 2^63 and overlong
-encodings. `ActorRuntimeId` now decodes through the shared `VarLong`, which only
-errors at shift >= 70, so a 10-byte varint decodes with its high bits dropped.
-`move_player_rejects_overlong_runtime_and_ridden_varint_ids` pins the surviving
-11-byte rejection.
+The owned and borrowed `MovePlayer` runtime and ridden ID call sites now decode
+through the reusable strict unsigned-64 wire helper. Canonical values through
+`u64::MAX` are accepted and retain their exact bytes; overflowing tenth-byte
+payloads and non-canonical ten-byte overlong encodings are rejected. Unrelated
+generated `VarLong` fields are unchanged.
 
 `v1_26_40` has no `blocks`, `items`, `states`, `entities`, `biomes`, or
 `block_palette` modules: the BDS dumps describe the wire, not the content

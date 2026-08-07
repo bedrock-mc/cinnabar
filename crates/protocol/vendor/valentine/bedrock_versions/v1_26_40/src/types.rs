@@ -9,6 +9,13 @@
 #![allow(clippy::all)]
 use ::bitflags::bitflags;
 use bytes::Buf;
+
+pub(crate) fn decode_strict_actor_runtime_id<B: bytes::Buf>(
+    buf: &mut B,
+) -> Result<i64, crate::bedrock::error::DecodeError> {
+    Ok(crate::protocol::wire::read_var_u64(buf)? as i64)
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ActorDataBoundingBoxComponent {
     pub actor_data_bounding_box: [f32; 3],
@@ -3758,16 +3765,11 @@ impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableString {
             )) + _len
         };
         size += {
-            1usize
-                + match &self.redacted {
-                    Some(_v) => {
-                        let _len = (_v).as_bytes().len();
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarInt(_len as i32),
-                        ) + _len
-                    }
-                    None => 0usize,
-                }
+            let _value = self.redacted.as_deref().unwrap_or_default();
+            let _len = _value.as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+                _len as i32,
+            )) + _len
         };
         size
     }
@@ -3780,16 +3782,10 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        match &self.redacted {
-            Some(v) => {
-                buf.put_u8(1);
-                let bytes = (v).as_bytes();
-                let len = bytes.len();
-                crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-                buf.put_slice(bytes);
-            }
-            None => buf.put_u8(0),
-        }
+        let bytes = self.redacted.as_deref().unwrap_or_default().as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
+        buf.put_slice(bytes);
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -3819,33 +3815,26 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let redacted = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some({
-                    let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                    if len_raw < 0 {
-                        return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                            value: len_raw,
-                        });
-                    }
-                    let len = len_raw as usize;
-                    if buf.remaining() < len {
-                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                            declared: len,
-                            available: buf.remaining(),
-                        });
-                    }
-                    let mut bytes = vec![0u8; len];
-                    buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-                })
-            } else {
-                None
+            let len_raw =
+                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as i64;
+            if len_raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
+            let len = len_raw as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            let value = crate::bedrock::codec::decode_utf8_lossy_owned(bytes);
+            (!value.is_empty()).then_some(value)
         };
         Ok(Self {
             unredacted,

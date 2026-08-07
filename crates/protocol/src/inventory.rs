@@ -510,11 +510,12 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
         });
     }
     for _ in 0..response_count {
-        let status = take_u8(body)?;
+        take_u8(body)?;
         read_var_i32(body)?;
-        // The container list is a double optional now: a presence byte gates the
-        // whole list, and it may be absent even on a successful response.
-        if status != 0 || !read_presence(body)? {
+        // The generated DoubleOptionalFunc shape carries its constant outer
+        // flag and then the actual optional-list presence byte.
+        read_presence(body)?;
+        if !read_presence(body)? {
             continue;
         }
         let container_count = read_count(body)?;
@@ -536,16 +537,16 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
             for _ in 0..slot_count {
                 // requested_slot, slot, amount
                 take_bytes(body, 3)?;
-                // The stack net ID is a double optional in 1.26.40.
+                // The stack net ID is another DoubleOptionalFunc: consume its
+                // constant outer flag before the actual optional presence.
+                read_presence(body)?;
                 if read_presence(body)? {
                     read_var_i32(body)?;
                 }
-                // The two custom names are one redactable string: the unredacted
-                // value, then an optional redacted one.
+                // The two custom names are one redactable string, but both halves
+                // are unconditional adjacent strings on the wire.
                 scan_response_name(body)?;
-                if read_presence(body)? {
-                    scan_response_name(body)?;
-                }
+                scan_response_name(body)?;
                 read_var_i32(body)?;
             }
         }

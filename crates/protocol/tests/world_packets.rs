@@ -1,4 +1,4 @@
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
@@ -14,7 +14,7 @@ use valentine::bedrock::version::v1_26_40::{
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
     CorrectPlayerMovePredictionPacketPredictionType, DimensionType, GameRule, GameRuleRuleValue,
     GameRulesChangedPacket, GameRulesChangedPacketData, LevelChunkPacket, LevelEventPacket,
-    McpePacketData, MovePlayerPacket, MovePlayerPacketPositionMode,
+    McpePacketData, MovePlayerPacket, MovePlayerPacketPositionMode, MovePlayerPacketView,
     NetworkChunkPublisherUpdatePacket, PlayerInputTick, RespawnPacket, RespawnPacketState,
     SetTimePacket, SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
@@ -545,36 +545,65 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     );
 }
 
-/// Runtime and ridden ids must still refuse an over-long varint.
-///
-/// NOTE — decode strictness regressed with the generator. 1.26.30 decoded both
-/// ids with `protocol::wire::read_var_u64`, which rejected any tenth byte
-/// carrying bits above 2^63 *and* rejected overlong encodings. 1.26.40 models
-/// them as `ActorRuntimeId`, which decodes through the shared `VarLong` and only
-/// fails once the shift passes 70 bits — so a ten-byte varint is accepted with
-/// its high bits silently dropped. That is a valentine_gen/codec issue, not
-/// something this crate can fix without changing wire semantics, so this test
-/// asserts the guard that does survive rather than pretending the old one does.
 #[test]
 fn move_player_rejects_overlong_runtime_and_ridden_varint_ids() {
     let packet = MovePlayerPacket::default();
     let mut valid = BytesMut::new();
     packet.encode(&mut valid).unwrap();
-    let overflow = [
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02,
-    ];
-
-    let mut malformed_runtime = BytesMut::new();
-    malformed_runtime.extend_from_slice(&overflow);
-    malformed_runtime.extend_from_slice(&valid[1..]);
-    assert!(MovePlayerPacket::decode(&mut malformed_runtime.freeze(), ()).is_err());
-
     let ridden_offset = 1 + 12 + 8 + 4 + 1 + 1;
-    let mut malformed_ridden = BytesMut::new();
-    malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
-    malformed_ridden.extend_from_slice(&overflow);
-    malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
-    assert!(MovePlayerPacket::decode(&mut malformed_ridden.freeze(), ()).is_err());
+    for malformed_id in [
+        [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02],
+        [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00],
+    ] {
+        let mut malformed_runtime = BytesMut::new();
+        malformed_runtime.extend_from_slice(&malformed_id);
+        malformed_runtime.extend_from_slice(&valid[1..]);
+        let malformed_runtime = malformed_runtime.freeze();
+        assert!(MovePlayerPacket::decode(&mut malformed_runtime.clone(), ()).is_err());
+        assert!(MovePlayerPacketView::decode(&mut malformed_runtime.clone()).is_err());
+
+        let mut malformed_ridden = BytesMut::new();
+        malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
+        malformed_ridden.extend_from_slice(&malformed_id);
+        malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
+        let malformed_ridden = malformed_ridden.freeze();
+        assert!(MovePlayerPacket::decode(&mut malformed_ridden.clone(), ()).is_err());
+        assert!(MovePlayerPacketView::decode(&mut malformed_ridden.clone()).is_err());
+    }
+}
+
+#[test]
+fn move_player_accepts_canonical_u64_max_runtime_and_ridden_ids_exactly() {
+    let packet = MovePlayerPacket {
+        player_runtime_id: ActorRuntimeId {
+            actor_runtime_id: -1,
+        },
+        riding_runtime_id: ActorRuntimeId {
+            actor_runtime_id: -1,
+        },
+        ..Default::default()
+    };
+    let mut encoded = BytesMut::new();
+    packet.encode(&mut encoded).unwrap();
+    let canonical_max = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+    assert_eq!(&encoded[..10], &canonical_max);
+    let ridden_offset = 10 + 12 + 8 + 4 + 1 + 1;
+    assert_eq!(&encoded[ridden_offset..ridden_offset + 10], &canonical_max);
+
+    let wire = encoded.freeze();
+    let mut owned_body = wire.clone();
+    let decoded = MovePlayerPacket::decode(&mut owned_body, ()).unwrap();
+    assert_eq!(decoded, packet);
+    assert!(!owned_body.has_remaining());
+    let mut reencoded = BytesMut::new();
+    decoded.encode(&mut reencoded).unwrap();
+    assert_eq!(reencoded.as_ref(), wire.as_ref());
+
+    let mut borrowed_body = Bytes::copy_from_slice(&wire);
+    let borrowed = MovePlayerPacketView::decode(&mut borrowed_body).unwrap();
+    assert_eq!(borrowed.player_runtime_id.actor_runtime_id, -1);
+    assert_eq!(borrowed.riding_runtime_id.actor_runtime_id, -1);
+    assert!(!borrowed_body.has_remaining());
 }
 
 #[test]

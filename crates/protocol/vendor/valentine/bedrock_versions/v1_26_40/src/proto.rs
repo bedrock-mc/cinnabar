@@ -1656,8 +1656,9 @@ impl crate::bedrock::codec::BedrockCodec for MovePlayerPacket {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let player_runtime_id =
-            <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let player_runtime_id = ActorRuntimeId {
+            actor_runtime_id: decode_strict_actor_runtime_id(buf)?,
+        };
         let position = <Vec3 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let rotation = <Vec2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let y_head_rotation =
@@ -1666,8 +1667,9 @@ impl crate::bedrock::codec::BedrockCodec for MovePlayerPacket {
         let position_mode =
             <MovePlayerPacketPositionMode as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let on_ground = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let riding_runtime_id =
-            <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let riding_runtime_id = ActorRuntimeId {
+            actor_runtime_id: decode_strict_actor_runtime_id(buf)?,
+        };
         let teleport_data = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
