@@ -120,10 +120,10 @@ The upstream commit records these generator-input gitlinks:
 
 Wire behaviour and byte fixtures use the exact project pin
 `hashimthearab/gophertunnel` commit
-`be6713da4dc051a4197f897d04835e89e9c54321` (`lunar`, module pseudo-version
-`v1.25.3-0.20260806044231-be6713da4dc0`, Minecraft `1.26.40` / protocol 2168).
+`56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` (`cinnabar`, module pseudo-version
+`v1.25.3-0.20260807205305-56a0f77dbbb2`, Minecraft `1.26.40` / protocol 2168).
 It is the behavioural authority for these patches; an unrelated local checkout
-or later `lunar` head is not. The protocol-1001 fixtures were generated against
+or later branch head is not. The protocol-1001 fixtures were generated against
 commit `9948b1729395d2e819fce28e079d4a7bfc67716c`, which is what the still
 unmigrated `v1_26_30` patches above were reviewed against.
 
