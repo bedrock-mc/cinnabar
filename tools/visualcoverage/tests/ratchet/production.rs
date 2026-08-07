@@ -18,17 +18,20 @@ fn production_ratchet_separates_zero_diagnostics_from_provisional_fallbacks() {
     let current = analyze_bytes(&registry_bytes, &assets_bytes).unwrap();
 
     assert_eq!(current.states.len(), 16_913);
-    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_398);
-    assert!(current.diagnostic_states.is_empty());
-    assert_eq!(current.fallback_states.len(), 2_397);
-    assert_eq!(current.fallbacks_by_name.len(), 487);
+    assert_eq!(baseline.diagnostic_sequential_ids.len(), 2_415);
+    assert_eq!(current.diagnostic_states.len(), 383);
+    assert_eq!(current.fallback_states.len(), 2_031);
+    assert_eq!(current.fallbacks_by_name.len(), 335);
     assert!(current.fallback_states.iter().all(|state| !state.is_air));
 
     let expected_fallback_ids = baseline
         .diagnostic_sequential_ids
         .iter()
         .copied()
-        .filter(|&id| !baseline.states[id as usize].is_air)
+        .filter(|&id| {
+            !baseline.states[id as usize].is_air
+                && baseline.states[id as usize].name != "cinnabar:reserved"
+        })
         .collect::<Vec<_>>();
     let actual_fallback_ids = current
         .fallback_states
@@ -37,10 +40,9 @@ fn production_ratchet_separates_zero_diagnostics_from_provisional_fallbacks() {
         .collect::<Vec<_>>();
     assert_eq!(actual_fallback_ids, expected_fallback_ids);
 
-    let report =
-        ratchet_protocol_1001(current, &baseline).expect("run zero-diagnostic production ratchet");
+    let report = ratchet_protocol_1001(current, &baseline).expect("run production ratchet");
     assert!(report.added_diagnostics.is_empty());
-    assert_eq!(report.removed_diagnostics.len(), 2_398);
-    assert_eq!(report.fallback_states.len(), 2_397);
-    assert_eq!(report.fallbacks_by_name.len(), 487);
+    assert_eq!(report.removed_diagnostics.len(), 2_032);
+    assert_eq!(report.fallback_states.len(), 2_031);
+    assert_eq!(report.fallbacks_by_name.len(), 335);
 }

@@ -131,7 +131,7 @@ fn registry_reader_rejects_false_valentine_name_overlap_metadata() {
 }
 
 #[test]
-fn registry_reader_decodes_checked_in_full_source_bijection() {
+fn registry_reader_decodes_checked_in_canonical_projection() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/data/block-registry-v1001.bin");
     let bytes = fs::read(path).expect("read checked-in BREG1003");
@@ -141,7 +141,7 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
         .iter()
         .map(|record| &record.name)
         .collect::<std::collections::HashSet<_>>();
-    assert_eq!(names.len(), 1_356);
+    assert_eq!(names.len(), 1_188);
     assert_eq!(
         records
             .iter()
@@ -156,6 +156,25 @@ fn registry_reader_decodes_checked_in_full_source_bijection() {
             .iter()
             .all(|record| record.provenance.contains(canonical))
     );
+    let reserved = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "cinnabar:reserved")
+        .collect::<Vec<_>>();
+    assert_eq!(reserved.len(), 383);
+    assert!(reserved.iter().all(|record| {
+        record.canonical_state.as_ref()
+            == format!(
+                "{{\"reserved_id\":{{\"type\":\"int\",\"value\":{}}}}}",
+                record.sequential_id
+            )
+            .as_str()
+            && record.flags.is_empty()
+            && record.model_family == ModelFamily::Unknown
+            && record.contributor_role == ContributorRole::Primary
+            && record.model_state == Default::default()
+            && record.face_coverage == 0
+            && record.collision_seed == Default::default()
+    }));
 
     let family = |name: &str| {
         records

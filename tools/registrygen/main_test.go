@@ -48,7 +48,7 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 	}
 	records := []bregLightIdentity{{SequentialID: 0, Name: "minecraft:air", StateJSON: []byte("{}")}, {SequentialID: 1, Name: "minecraft:test_block", StateJSON: state}}
 	breg := []byte("reviewed BREG bytes")
-	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg)
+	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg, nil)
 	if err != nil {
 		t.Fatalf("generate routes: %v", err)
 	}
@@ -63,13 +63,13 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 func TestGenerateBlockItemRoutesRejectsDuplicateMissingAndAmbiguousStates(t *testing.T) {
 	item := fixtureBlockItem{itemName: "minecraft:test_item", blockName: "minecraft:test_block"}
 	record := bregLightIdentity{SequentialID: 0, Name: "minecraft:test_block", StateJSON: []byte("{}")}
-	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg"), nil); err == nil {
 		t.Fatal("duplicate route accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg"), nil); err == nil {
 		t.Fatal("missing state accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg"), nil); err == nil {
 		t.Fatal("ambiguous state accepted")
 	}
 }
@@ -83,7 +83,7 @@ func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +618,7 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 		"minecraft:redstone_lamp":     {Brightness: 0, Opacity: 0},
 		"minecraft:lit_redstone_lamp": {Brightness: 15, Opacity: 0},
 		// An exact PMMP entry cannot widen the audited fallback allowlist.
-		"minecraft:hard_pink_stained_glass": {Brightness: 15, Opacity: 0},
+		"example:unlisted_block": {Brightness: 15, Opacity: 0},
 	}
 	properties, report, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp)
 	if err != nil {
@@ -655,7 +655,7 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 }
 
 func TestAuthoritativeLightGenerationRejectsMissingPMMP(t *testing.T) {
-	if _, _, err := encodeAuthoritativeLightRegistry(nil, nil, world.DefaultBlockRegistry, ""); err == nil || !strings.Contains(err.Error(), "PMMP") {
+	if _, _, err := encodeAuthoritativeLightRegistry(nil, nil, nil, world.DefaultBlockRegistry, ""); err == nil || !strings.Contains(err.Error(), "PMMP") {
 		t.Fatalf("missing PMMP source error = %v", err)
 	}
 }
@@ -825,7 +825,6 @@ func TestCollectRegisteredDragonflyBiomesUsesStableNetworkIDs(t *testing.T) {
 		{ID: 0, Name: "minecraft:ocean"},
 		{ID: 1, Name: "minecraft:plains"},
 		{ID: 48, Name: "minecraft:bamboo_jungle"},
-		{ID: 194, Name: "minecraft:sulfur_caves"},
 	} {
 		found := false
 		for _, record := range records {

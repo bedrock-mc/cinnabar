@@ -27,11 +27,11 @@ pub(super) fn player_status(status: PlayerStatus) -> HudPlayerStatus {
         PlayerStatus::FailedClient => HudPlayerStatus::FailedClient,
         PlayerStatus::FailedSpawn => HudPlayerStatus::FailedSpawn,
         PlayerStatus::PlayerSpawn => HudPlayerStatus::PlayerSpawn,
-        PlayerStatus::FailedInvalidTenant => HudPlayerStatus::FailedInvalidTenant,
         PlayerStatus::FailedServerFull => HudPlayerStatus::FailedServerFull,
         PlayerStatus::FailedEditorVanillaMismatch => HudPlayerStatus::FailedEditorVanillaMismatch,
         PlayerStatus::FailedVanillaEditorMismatch => HudPlayerStatus::FailedVanillaEditorMismatch,
         _ => match ordinal {
+            4 => HudPlayerStatus::Reserved4,
             5 => HudPlayerStatus::Reserved5,
             6 => HudPlayerStatus::Reserved6,
             _ => unreachable!("all public player-status variants are matched"),

@@ -60,7 +60,75 @@ pub(super) fn validate_protocol_states(states: &[StateIdentity]) -> Result<(), C
             "air cardinality",
         ));
     }
+    let mut reserved = 0;
+    for state in states {
+        let selected = is_reserved_sequential_id(state.sequential_id);
+        if selected {
+            reserved += 1;
+            if state.name != "cinnabar:reserved"
+                || state.canonical_state
+                    != format!(
+                        "{{\"reserved_id\":{{\"type\":\"int\",\"value\":{}}}}}",
+                        state.sequential_id
+                    )
+                || state.model_family != "unknown"
+                || state.is_air
+            {
+                return Err(CoverageError::NonCanonicalProtocolInventory(
+                    "reserved state identity",
+                ));
+            }
+        } else if state.name == "cinnabar:reserved" {
+            return Err(CoverageError::NonCanonicalProtocolInventory(
+                "reserved state selection",
+            ));
+        }
+    }
+    if reserved != 383 {
+        return Err(CoverageError::NonCanonicalProtocolInventory(
+            "reserved state cardinality",
+        ));
+    }
     Ok(())
+}
+
+pub(super) fn validate_protocol_records(records: &[RegistryRecord]) -> Result<(), CoverageError> {
+    let states = records
+        .iter()
+        .map(StateIdentity::from_record)
+        .collect::<Vec<_>>();
+    validate_protocol_states(&states)?;
+    for record in records {
+        if !is_reserved_sequential_id(record.sequential_id) {
+            continue;
+        }
+        if !record.flags.is_empty()
+            || record.model_family != ModelFamily::Unknown
+            || record.contributor_role != ContributorRole::Primary
+            || record.model_state != Default::default()
+            || record.face_coverage != 0
+            || record.collision_seed.shape_id != 0
+            || record.collision_seed.confidence != CollisionConfidence::None
+            || !record.collision_seed.boxes.is_empty()
+        {
+            return Err(CoverageError::NonCanonicalProtocolInventory(
+                "reserved state semantics",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn is_reserved_sequential_id(id: u32) -> bool {
+    matches!(id,
+        1 | 382 | 1258 | 1266 | 1273 | 1528 | 2712 | 3339..=3340 | 3778 | 3784 |
+        4152..=4157 | 5373..=5388 | 5526..=5529 | 6105 | 6316 | 6416 |
+        6770..=6775 | 6847 | 6858..=6859 | 7295 | 7300..=7303 | 7306 | 7332 |
+        7362..=7365 | 7989 | 8713..=8874 | 9257 | 10018..=10036 | 10394 | 11699 |
+        12519 | 12726 | 12827 | 12891 | 12944 | 12953..=12958 | 13526 | 13819 |
+        13839 | 13967 | 14573 | 14586 | 14637..=14646 | 14648 | 15027 | 15115 |
+        15231..=15320 | 15374..=15379 | 15867 | 16121..=16124 | 16834..=16839 |
+        16842)
 }
 
 pub(super) fn is_strictly_sorted_by_id(values: &[StateIdentity]) -> bool {

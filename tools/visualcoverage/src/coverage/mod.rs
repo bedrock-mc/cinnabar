@@ -7,11 +7,12 @@ use std::{
 };
 
 use assets::{
-    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord,
-    RuntimeAssets, TextureRef, VisualKind, VisualSupport, read_registry,
+    BlockFace, BlockFlags, CollisionConfidence, ContributorRole, DIAGNOSTIC_MATERIAL,
+    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT,
+    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR,
+    ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureRef,
+    VisualKind, VisualSupport, read_registry,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -31,11 +32,12 @@ pub use types::{
     AllowlistEntry, BASELINE_SCHEMA, Baseline, Counts, CoverageError, CoverageSnapshot,
     GALLERY_INVENTORY_SCHEMA, GALLERY_PAGE_CAPACITY, GalleryInventory, GalleryPage, GalleryTarget,
     GalleryTargetStatus, InvisibleDecision, MAX_BASELINE_BYTES, PROTOCOL, PROTOCOL_1001_COUNTS,
-    REPORT_SCHEMA, RatchetReport, RenderStream, STRICT_REPORT_SCHEMA, StateIdentity, StrictReport,
-    StrictStateRoute,
+    PUBLIC_TARGET_COUNT, REPORT_SCHEMA, RatchetReport, RenderStream, STRICT_REPORT_SCHEMA,
+    StateIdentity, StrictReport, StrictStateRoute,
 };
 
 use validation::{
-    model_family_name, sha256, validate_baseline, validate_protocol_baseline,
-    validate_protocol_snapshot, visual_kind_name,
+    is_reserved_sequential_id, model_family_name, sha256, validate_baseline,
+    validate_protocol_baseline, validate_protocol_records, validate_protocol_snapshot,
+    visual_kind_name,
 };

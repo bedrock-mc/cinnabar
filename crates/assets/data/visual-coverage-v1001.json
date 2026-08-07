@@ -1,9 +1,9 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "922d287a9a195543644542e84f0d948264bff6cd48b8430024107245fa2e1b73",
+  "registry_sha256": "2247b37058ac42a65a601dbc246da6f215caf80b79b4aaf439cc3361911d2f1b",
   "counts": {
-    "names": 1356,
+    "names": 1188,
     "states": 16913,
     "air": 1
   },
@@ -19,8 +19,8 @@
     {
       "sequential_id": 1,
       "network_hash": 4264272530,
-      "name": "minecraft:hard_pink_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":1}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -3067,9 +3067,9 @@
     {
       "sequential_id": 382,
       "network_hash": 2023929374,
-      "name": "minecraft:hard_green_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":382}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -10075,9 +10075,9 @@
     {
       "sequential_id": 1258,
       "network_hash": 1865088894,
-      "name": "minecraft:hard_orange_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":1258}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -10139,8 +10139,8 @@
     {
       "sequential_id": 1266,
       "network_hash": 519198519,
-      "name": "minecraft:hard_brown_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":1266}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -10195,9 +10195,9 @@
     {
       "sequential_id": 1273,
       "network_hash": 1229353622,
-      "name": "minecraft:hard_black_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":1273}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -12235,8 +12235,8 @@
     {
       "sequential_id": 1528,
       "network_hash": 2905671975,
-      "name": "minecraft:hard_gray_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":1528}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -21707,9 +21707,9 @@
     {
       "sequential_id": 2712,
       "network_hash": 320610735,
-      "name": "minecraft:hard_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":2712}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -26723,16 +26723,16 @@
     {
       "sequential_id": 3339,
       "network_hash": 3529064734,
-      "name": "minecraft:underwater_tnt",
-      "canonical_state": "{\"explode_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":3339}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 3340,
       "network_hash": 289404009,
-      "name": "minecraft:underwater_tnt",
-      "canonical_state": "{\"explode_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":3340}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -30235,9 +30235,9 @@
     {
       "sequential_id": 3778,
       "network_hash": 1035330785,
-      "name": "minecraft:hard_brown_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":3778}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -30283,8 +30283,8 @@
     {
       "sequential_id": 3784,
       "network_hash": 1936065603,
-      "name": "minecraft:hard_light_blue_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":3784}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -33227,49 +33227,49 @@
     {
       "sequential_id": 4152,
       "network_hash": 3816711773,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"unknown\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4152}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 4153,
       "network_hash": 2995373697,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"west\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4153}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 4154,
       "network_hash": 410179955,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"east\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4154}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 4155,
       "network_hash": 3794757418,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"north\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4155}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 4156,
       "network_hash": 1938573548,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"south\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4156}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 4157,
       "network_hash": 2838823732,
-      "name": "minecraft:underwater_torch",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"top\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":4157}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -42995,128 +42995,128 @@
     {
       "sequential_id": 5373,
       "network_hash": 74718425,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5373}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5374,
       "network_hash": 136193248,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5374}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5375,
       "network_hash": 4246736075,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5375}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5376,
       "network_hash": 13243602,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5376}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5377,
       "network_hash": 4123786429,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":4}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5377}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5378,
       "network_hash": 4185261252,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":5}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5378}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5379,
       "network_hash": 4000836783,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":6}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5379}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5380,
       "network_hash": 4062311606,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":7}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5380}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5381,
       "network_hash": 3877887137,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":8}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5381}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5382,
       "network_hash": 3939361960,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":9}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5382}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5383,
       "network_hash": 3754937491,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":10}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5383}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5384,
       "network_hash": 3816412314,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":11}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5384}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5385,
       "network_hash": 3631987845,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":12}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5385}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5386,
       "network_hash": 3693462668,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":13}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5386}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5387,
       "network_hash": 3509038199,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":14}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5387}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5388,
       "network_hash": 3570513022,
-      "name": "minecraft:chalkboard",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":15}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5388}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -44219,32 +44219,32 @@
     {
       "sequential_id": 5526,
       "network_hash": 869977194,
-      "name": "minecraft:compound_creator",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5526}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5527,
       "network_hash": 808502371,
-      "name": "minecraft:compound_creator",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5527}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5528,
       "network_hash": 992926840,
-      "name": "minecraft:compound_creator",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5528}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 5529,
       "network_hash": 931452017,
-      "name": "minecraft:compound_creator",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":5529}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -48851,8 +48851,8 @@
     {
       "sequential_id": 6105,
       "network_hash": 987127908,
-      "name": "minecraft:hard_white_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6105}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -50539,8 +50539,8 @@
     {
       "sequential_id": 6316,
       "network_hash": 2429088388,
-      "name": "minecraft:hard_magenta_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6316}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -51339,9 +51339,9 @@
     {
       "sequential_id": 6416,
       "network_hash": 2050640488,
-      "name": "minecraft:hard_yellow_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6416}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -54171,49 +54171,49 @@
     {
       "sequential_id": 6770,
       "network_hash": 2557377635,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"unknown\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6770}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6771,
       "network_hash": 1340294207,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"west\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6771}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6772,
       "network_hash": 3545849861,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"east\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6772}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6773,
       "network_hash": 1578666424,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"north\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6773}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6774,
       "network_hash": 683867630,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"south\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6774}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6775,
       "network_hash": 140798654,
-      "name": "minecraft:colored_torch_blue",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"top\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6775}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -54787,8 +54787,8 @@
     {
       "sequential_id": 6847,
       "network_hash": 2832548143,
-      "name": "minecraft:hard_cyan_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6847}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -54875,16 +54875,16 @@
     {
       "sequential_id": 6858,
       "network_hash": 2940554290,
-      "name": "minecraft:hard_blue_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6858}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 6859,
       "network_hash": 3172656462,
-      "name": "minecraft:hard_purple_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":6859}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -58371,9 +58371,9 @@
     {
       "sequential_id": 7295,
       "network_hash": 4051970779,
-      "name": "minecraft:hard_lime_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7295}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -58411,32 +58411,32 @@
     {
       "sequential_id": 7300,
       "network_hash": 2422841464,
-      "name": "minecraft:element_constructor",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7300}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7301,
       "network_hash": 2361366641,
-      "name": "minecraft:element_constructor",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7301}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7302,
       "network_hash": 2299891818,
-      "name": "minecraft:element_constructor",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7302}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7303,
       "network_hash": 2238416995,
-      "name": "minecraft:element_constructor",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7303}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -58459,9 +58459,9 @@
     {
       "sequential_id": 7306,
       "network_hash": 1085672342,
-      "name": "minecraft:hard_light_gray_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7306}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -58667,8 +58667,8 @@
     {
       "sequential_id": 7332,
       "network_hash": 3305933056,
-      "name": "minecraft:hard_yellow_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7332}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -58907,32 +58907,32 @@
     {
       "sequential_id": 7362,
       "network_hash": 1694901163,
-      "name": "minecraft:lab_table",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7362}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7363,
       "network_hash": 1756375986,
-      "name": "minecraft:lab_table",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7363}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7364,
       "network_hash": 1817850809,
-      "name": "minecraft:lab_table",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7364}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 7365,
       "network_hash": 1879325632,
-      "name": "minecraft:lab_table",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7365}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -63923,8 +63923,8 @@
     {
       "sequential_id": 7989,
       "network_hash": 3520074809,
-      "name": "minecraft:hard_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":7989}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -69715,1296 +69715,1296 @@
     {
       "sequential_id": 8713,
       "network_hash": 907925328,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8713}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8714,
       "network_hash": 1963231899,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8714}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8715,
       "network_hash": 1591973151,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8715}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8716,
       "network_hash": 536666580,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8716}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8717,
       "network_hash": 3966869705,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8717}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8718,
       "network_hash": 2911563134,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8718}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8719,
       "network_hash": 3245124549,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8719}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8720,
       "network_hash": 2189817978,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8720}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8721,
       "network_hash": 3784458980,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8721}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8722,
       "network_hash": 544798255,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8722}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8723,
       "network_hash": 2689569468,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8723}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8724,
       "network_hash": 3744876039,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8724}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8725,
       "network_hash": 3360506339,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8725}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8726,
       "network_hash": 2305199768,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8726}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8727,
       "network_hash": 3187117390,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8727}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8728,
       "network_hash": 4242423961,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8728}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8729,
       "network_hash": 3174997790,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8729}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8730,
       "network_hash": 4230304361,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8730}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8731,
       "network_hash": 2706461113,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8731}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8732,
       "network_hash": 1651154542,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8732}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8733,
       "network_hash": 1044634956,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8733}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8734,
       "network_hash": 2099941527,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8734}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8735,
       "network_hash": 709748074,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8735}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8736,
       "network_hash": 1765054645,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8736}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8737,
       "network_hash": 4120380062,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8737}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8738,
       "network_hash": 880719337,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8738}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8739,
       "network_hash": 1356387637,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8739}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8740,
       "network_hash": 301081066,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8740}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8741,
       "network_hash": 1828007053,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8741}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8742,
       "network_hash": 772700482,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8742}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8743,
       "network_hash": 4261114936,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8743}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8744,
       "network_hash": 1021454211,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8744}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8745,
       "network_hash": 1938199299,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8745}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8746,
       "network_hash": 882892728,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8746}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8747,
       "network_hash": 907253971,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8747}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8748,
       "network_hash": 4146914696,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8748}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8749,
       "network_hash": 3251005291,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8749}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8750,
       "network_hash": 2195698720,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8750}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8751,
       "network_hash": 2617754612,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8751}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8752,
       "network_hash": 3673061183,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8752}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8753,
       "network_hash": 3912544138,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8753}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8754,
       "network_hash": 672883413,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8754}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8755,
       "network_hash": 1779476958,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8755}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8756,
       "network_hash": 2834783529,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8756}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8757,
       "network_hash": 3610827575,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8757}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8758,
       "network_hash": 2555521004,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8758}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8759,
       "network_hash": 669943295,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8759}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8760,
       "network_hash": 3909604020,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8760}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8761,
       "network_hash": 1073949760,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8761}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8762,
       "network_hash": 2129256331,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8762}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8763,
       "network_hash": 1305467469,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8763}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8764,
       "network_hash": 250160898,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8764}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8765,
       "network_hash": 2228955005,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8765}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8766,
       "network_hash": 1173648434,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"none\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8766}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8767,
       "network_hash": 4153177195,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8767}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8768,
       "network_hash": 3097870624,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8768}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8769,
       "network_hash": 4246032522,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8769}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8770,
       "network_hash": 1006371797,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8770}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8771,
       "network_hash": 3978534888,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8771}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8772,
       "network_hash": 738874163,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8772}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8773,
       "network_hash": 1793185948,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8773}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8774,
       "network_hash": 2848492519,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8774}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8775,
       "network_hash": 1948117351,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8775}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8776,
       "network_hash": 892810780,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8776}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8777,
       "network_hash": 1382990239,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8777}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8778,
       "network_hash": 327683668,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8778}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8779,
       "network_hash": 246167558,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8779}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8780,
       "network_hash": 1301474129,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8780}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8781,
       "network_hash": 1292308317,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8781}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8782,
       "network_hash": 237001746,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8782}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8783,
       "network_hash": 2522498669,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8783}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8784,
       "network_hash": 1467192098,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8784}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8785,
       "network_hash": 2158493784,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8785}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8786,
       "network_hash": 3213800355,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8786}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8787,
       "network_hash": 3135983151,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8787}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8788,
       "network_hash": 2080676580,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8788}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8789,
       "network_hash": 1105462129,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8789}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8790,
       "network_hash": 50155558,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8790}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8791,
       "network_hash": 3406948589,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8791}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8792,
       "network_hash": 2351642018,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8792}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8793,
       "network_hash": 2285797260,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8793}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8794,
       "network_hash": 3341103831,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8794}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8795,
       "network_hash": 256287716,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8795}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8796,
       "network_hash": 1311594287,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8796}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8797,
       "network_hash": 2608386195,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8797}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8798,
       "network_hash": 1553079624,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8798}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8799,
       "network_hash": 1744090278,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8799}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8800,
       "network_hash": 2799396849,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8800}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8801,
       "network_hash": 3821349878,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8801}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8802,
       "network_hash": 581689153,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8802}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8803,
       "network_hash": 1656423118,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8803}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8804,
       "network_hash": 2711729689,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8804}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8805,
       "network_hash": 2519135159,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8805}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8806,
       "network_hash": 1463828588,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8806}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8807,
       "network_hash": 483173777,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8807}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8808,
       "network_hash": 3722834502,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8808}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8809,
       "network_hash": 3190895405,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8809}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8810,
       "network_hash": 2135588834,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8810}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8811,
       "network_hash": 4241200482,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8811}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8812,
       "network_hash": 1001539757,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8812}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8813,
       "network_hash": 1043054698,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8813}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8814,
       "network_hash": 2098361269,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8814}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8815,
       "network_hash": 453957083,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8815}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8816,
       "network_hash": 3693617808,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8816}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8817,
       "network_hash": 3153385636,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8817}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8818,
       "network_hash": 4208692207,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8818}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8819,
       "network_hash": 3558503444,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8819}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8820,
       "network_hash": 318842719,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"short\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8820}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8821,
       "network_hash": 4056405507,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8821}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8822,
       "network_hash": 3001098936,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8822}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8823,
       "network_hash": 1053766268,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8823}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8824,
       "network_hash": 2109072839,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8824}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8825,
       "network_hash": 895218874,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8825}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8826,
       "network_hash": 1950525445,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8826}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8827,
       "network_hash": 3779312126,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8827}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8828,
       "network_hash": 539651401,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8828}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8829,
       "network_hash": 3340753983,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8829}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8830,
       "network_hash": 2285447412,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8830}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8831,
       "network_hash": 2476174599,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8831}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8832,
       "network_hash": 1420868028,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8832}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8833,
       "network_hash": 1989645048,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8833}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8834,
       "network_hash": 3044951619,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8834}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8835,
       "network_hash": 1340972461,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8835}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8836,
       "network_hash": 285665890,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8836}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8837,
       "network_hash": 2897202525,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8837}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8838,
       "network_hash": 1841895954,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8838}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8839,
       "network_hash": 658925834,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8839}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8840,
       "network_hash": 1714232405,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8840}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8841,
       "network_hash": 84918519,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8841}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8842,
       "network_hash": 3324579244,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8842}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8843,
       "network_hash": 1180099153,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8843}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8844,
       "network_hash": 124792582,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8844}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8845,
       "network_hash": 3842584797,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8845}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8846,
       "network_hash": 2787278226,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8846}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8847,
       "network_hash": 3442872270,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8847}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8848,
       "network_hash": 203211545,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8848}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8849,
       "network_hash": 501534358,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8849}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8850,
       "network_hash": 1556840929,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8850}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8851,
       "network_hash": 3152928187,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8851}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8852,
       "network_hash": 2097621616,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8852}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8853,
       "network_hash": 319400216,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8853}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8854,
       "network_hash": 1374706787,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8854}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8855,
       "network_hash": 2530257608,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8855}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8856,
       "network_hash": 3585564179,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8856}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8857,
       "network_hash": 2516538576,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8857}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8858,
       "network_hash": 3571845147,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8858}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8859,
       "network_hash": 2683631407,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8859}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8860,
       "network_hash": 1628324836,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8860}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8861,
       "network_hash": 4220996337,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8861}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8862,
       "network_hash": 3165689766,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8862}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8863,
       "network_hash": 3355864861,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8863}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8864,
       "network_hash": 2300558290,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8864}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8865,
       "network_hash": 2191656772,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8865}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8866,
       "network_hash": 3246963343,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8866}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8867,
       "network_hash": 3006825948,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8867}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8868,
       "network_hash": 4062132519,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8868}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8869,
       "network_hash": 1448515027,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8869}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8870,
       "network_hash": 393208456,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"none\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8870}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8871,
       "network_hash": 2937710422,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8871}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8872,
       "network_hash": 3993016993,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"short\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8872}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8873,
       "network_hash": 1295197862,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8873}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 8874,
       "network_hash": 2350504433,
-      "name": "minecraft:border_block",
-      "canonical_state": "{\"wall_connection_type_east\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_north\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_south\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_connection_type_west\":{\"type\":\"string\",\"value\":\"tall\"},\"wall_post_bit\":{\"type\":\"byte\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":8874}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -74067,9 +74067,9 @@
     {
       "sequential_id": 9257,
       "network_hash": 3130768529,
-      "name": "minecraft:hard_light_blue_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":9257}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -80155,152 +80155,152 @@
     {
       "sequential_id": 10018,
       "network_hash": 622617172,
-      "name": "minecraft:element_100",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10018}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10019,
       "network_hash": 1693955217,
-      "name": "minecraft:element_101",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10019}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10020,
       "network_hash": 3453856610,
-      "name": "minecraft:element_102",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10020}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10021,
       "network_hash": 820201823,
-      "name": "minecraft:element_103",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10021}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10022,
       "network_hash": 850784344,
-      "name": "minecraft:element_104",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10022}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10023,
       "network_hash": 1313797989,
-      "name": "minecraft:element_105",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10023}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10024,
       "network_hash": 2625416966,
-      "name": "minecraft:element_106",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10024}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10025,
       "network_hash": 1103040387,
-      "name": "minecraft:element_107",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10025}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10026,
       "network_hash": 1592286908,
-      "name": "minecraft:element_108",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10026}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10027,
       "network_hash": 2241043289,
-      "name": "minecraft:element_109",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10027}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10028,
       "network_hash": 4183164104,
-      "name": "minecraft:element_113",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10028}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10029,
       "network_hash": 1093541077,
-      "name": "minecraft:element_112",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10029}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10030,
       "network_hash": 2077129334,
-      "name": "minecraft:element_111",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10030}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10031,
       "network_hash": 1107502899,
-      "name": "minecraft:element_110",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10031}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10032,
       "network_hash": 826817732,
-      "name": "minecraft:element_117",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10032}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10033,
       "network_hash": 4008835777,
-      "name": "minecraft:element_116",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10033}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10034,
       "network_hash": 2024432850,
-      "name": "minecraft:element_115",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10034}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10035,
       "network_hash": 3820742863,
-      "name": "minecraft:element_114",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10035}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 10036,
       "network_hash": 1604450779,
-      "name": "minecraft:element_118",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10036}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -83163,8 +83163,8 @@
     {
       "sequential_id": 10394,
       "network_hash": 2775363607,
-      "name": "minecraft:deny",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":10394}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -93603,8 +93603,8 @@
     {
       "sequential_id": 11699,
       "network_hash": 2681905594,
-      "name": "minecraft:hard_black_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":11699}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -100163,8 +100163,8 @@
     {
       "sequential_id": 12519,
       "network_hash": 3352664546,
-      "name": "minecraft:hard_orange_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12519}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -101819,9 +101819,9 @@
     {
       "sequential_id": 12726,
       "network_hash": 3421365584,
-      "name": "minecraft:hard_magenta_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12726}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -102627,8 +102627,8 @@
     {
       "sequential_id": 12827,
       "network_hash": 826766177,
-      "name": "minecraft:hard_lime_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12827}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -103139,9 +103139,9 @@
     {
       "sequential_id": 12891,
       "network_hash": 1368117733,
-      "name": "minecraft:hard_gray_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12891}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -103563,8 +103563,8 @@
     {
       "sequential_id": 12944,
       "network_hash": 1756571402,
-      "name": "minecraft:hard_green_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12944}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -103635,49 +103635,49 @@
     {
       "sequential_id": 12953,
       "network_hash": 1145635041,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"unknown\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12953}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 12954,
       "network_hash": 1857156533,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"west\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12954}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 12955,
       "network_hash": 3946568175,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"east\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12955}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 12956,
       "network_hash": 2433204006,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"north\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12956}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 12957,
       "network_hash": 2415066376,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"south\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12957}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 12958,
       "network_hash": 1681614896,
-      "name": "minecraft:colored_torch_green",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"top\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":12958}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -108219,8 +108219,8 @@
     {
       "sequential_id": 13526,
       "network_hash": 28161960,
-      "name": "minecraft:hard_red_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":13526}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -110563,9 +110563,9 @@
     {
       "sequential_id": 13819,
       "network_hash": 2840809540,
-      "name": "minecraft:hard_red_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":13819}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -110723,9 +110723,9 @@
     {
       "sequential_id": 13839,
       "network_hash": 1382147006,
-      "name": "minecraft:hard_purple_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":13839}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -111747,8 +111747,8 @@
     {
       "sequential_id": 13967,
       "network_hash": 846081725,
-      "name": "minecraft:allow",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":13967}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -116595,9 +116595,9 @@
     {
       "sequential_id": 14573,
       "network_hash": 1121602628,
-      "name": "minecraft:hard_white_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14573}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -116699,9 +116699,9 @@
     {
       "sequential_id": 14586,
       "network_hash": 2082203733,
-      "name": "minecraft:hard_cyan_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14586}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -117107,80 +117107,80 @@
     {
       "sequential_id": 14637,
       "network_hash": 3325647182,
-      "name": "minecraft:element_1",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14637}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14638,
       "network_hash": 3635775147,
-      "name": "minecraft:element_0",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14638}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14639,
       "network_hash": 1203580896,
-      "name": "minecraft:element_3",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14639}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14640,
       "network_hash": 3637608557,
-      "name": "minecraft:element_2",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14640}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14641,
       "network_hash": 1399079434,
-      "name": "minecraft:element_5",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14641}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14642,
       "network_hash": 2112469767,
-      "name": "minecraft:element_4",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14642}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14643,
       "network_hash": 1653682108,
-      "name": "minecraft:element_7",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14643}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14644,
       "network_hash": 2302438489,
-      "name": "minecraft:element_6",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14644}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14645,
       "network_hash": 2686812166,
-      "name": "minecraft:element_9",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14645}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 14646,
       "network_hash": 1164435587,
-      "name": "minecraft:element_8",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14646}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -117195,8 +117195,8 @@
     {
       "sequential_id": 14648,
       "network_hash": 2407351418,
-      "name": "minecraft:camera",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":14648}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -120227,8 +120227,8 @@
     {
       "sequential_id": 15027,
       "network_hash": 640009779,
-      "name": "minecraft:chemical_heat",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15027}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -120931,9 +120931,9 @@
     {
       "sequential_id": 15115,
       "network_hash": 3626192550,
-      "name": "minecraft:hard_pink_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15115}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -121859,720 +121859,720 @@
     {
       "sequential_id": 15231,
       "network_hash": 3031526251,
-      "name": "minecraft:element_10",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15231}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15232,
       "network_hash": 3411224590,
-      "name": "minecraft:element_11",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15232}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15233,
       "network_hash": 3924653357,
-      "name": "minecraft:element_12",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15233}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15234,
       "network_hash": 1536780448,
-      "name": "minecraft:element_13",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15234}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15235,
       "network_hash": 3831671495,
-      "name": "minecraft:element_14",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15235}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15236,
       "network_hash": 4139914186,
-      "name": "minecraft:element_15",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15236}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15237,
       "network_hash": 748305945,
-      "name": "minecraft:element_16",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15237}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15238,
       "network_hash": 1940726908,
-      "name": "minecraft:element_17",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15238}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15239,
       "network_hash": 2939949635,
-      "name": "minecraft:element_18",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15239}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15240,
       "network_hash": 1754532550,
-      "name": "minecraft:element_19",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15240}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15241,
       "network_hash": 680572879,
-      "name": "minecraft:element_36",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15241}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15242,
       "network_hash": 3179230162,
-      "name": "minecraft:element_37",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15242}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15243,
       "network_hash": 868665793,
-      "name": "minecraft:element_34",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15243}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15244,
       "network_hash": 1981615044,
-      "name": "minecraft:element_35",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15244}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15245,
       "network_hash": 2262300211,
-      "name": "minecraft:element_32",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15245}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15246,
       "network_hash": 3231926646,
-      "name": "minecraft:element_33",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15246}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15247,
       "network_hash": 2248338389,
-      "name": "minecraft:element_30",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15247}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15248,
       "network_hash": 1042994120,
-      "name": "minecraft:element_31",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15248}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15249,
       "network_hash": 3022284509,
-      "name": "minecraft:element_38",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15249}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15250,
       "network_hash": 2437376016,
-      "name": "minecraft:element_39",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15250}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15251,
       "network_hash": 434209963,
-      "name": "minecraft:element_29",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15251}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15252,
       "network_hash": 124081998,
-      "name": "minecraft:element_28",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15252}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15253,
       "network_hash": 2257837699,
-      "name": "minecraft:element_21",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15253}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15254,
       "network_hash": 3780214278,
-      "name": "minecraft:element_20",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15254}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15255,
       "network_hash": 2468595301,
-      "name": "minecraft:element_23",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15255}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15256,
       "network_hash": 2005581656,
-      "name": "minecraft:element_22",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15256}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15257,
       "network_hash": 1974999135,
-      "name": "minecraft:element_25",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15257}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15258,
       "network_hash": 313686626,
-      "name": "minecraft:element_24",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15258}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15259,
       "network_hash": 2848752529,
-      "name": "minecraft:element_27",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15259}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15260,
       "network_hash": 1777414484,
-      "name": "minecraft:element_26",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15260}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15261,
       "network_hash": 3971073559,
-      "name": "minecraft:element_58",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15261}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15262,
       "network_hash": 2825052954,
-      "name": "minecraft:element_59",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15262}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15263,
       "network_hash": 3765012179,
-      "name": "minecraft:element_54",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15263}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15264,
       "network_hash": 2624316438,
-      "name": "minecraft:element_55",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15264}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15265,
       "network_hash": 2376709237,
-      "name": "minecraft:element_56",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15265}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15266,
       "network_hash": 1913695592,
-      "name": "minecraft:element_57",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15266}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15267,
       "network_hash": 394643823,
-      "name": "minecraft:element_50",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15267}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15268,
       "network_hash": 2020599154,
-      "name": "minecraft:element_51",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15268}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15269,
       "network_hash": 1007194209,
-      "name": "minecraft:element_52",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15269}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15270,
       "network_hash": 2109985892,
-      "name": "minecraft:element_53",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15270}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15271,
       "network_hash": 1482682373,
-      "name": "minecraft:element_49",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15271}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15272,
       "network_hash": 1719652600,
-      "name": "minecraft:element_48",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15272}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15273,
       "network_hash": 1902085799,
-      "name": "minecraft:element_47",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15273}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15274,
       "network_hash": 2631009962,
-      "name": "minecraft:element_46",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15274}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15275,
       "network_hash": 4266542073,
-      "name": "minecraft:element_45",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15275}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15276,
       "network_hash": 1397143388,
-      "name": "minecraft:element_44",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15276}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15277,
       "network_hash": 1936921931,
-      "name": "minecraft:element_43",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15277}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15278,
       "network_hash": 262610414,
-      "name": "minecraft:element_42",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15278}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15279,
       "network_hash": 3381069837,
-      "name": "minecraft:element_41",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15279}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15280,
       "network_hash": 993196928,
-      "name": "minecraft:element_40",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15280}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15281,
       "network_hash": 478856759,
-      "name": "minecraft:element_72",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15281}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15282,
       "network_hash": 1569721658,
-      "name": "minecraft:element_73",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15282}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15283,
       "network_hash": 3576061257,
-      "name": "minecraft:element_70",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15283}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15284,
       "network_hash": 3367072556,
-      "name": "minecraft:element_71",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15284}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15285,
       "network_hash": 2996471195,
-      "name": "minecraft:element_76",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15285}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15286,
       "network_hash": 58409854,
-      "name": "minecraft:element_77",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15286}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15287,
       "network_hash": 2319781533,
-      "name": "minecraft:element_74",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15287}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15288,
       "network_hash": 3427087312,
-      "name": "minecraft:element_75",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15288}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15289,
       "network_hash": 1116046465,
-      "name": "minecraft:element_78",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15289}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15290,
       "network_hash": 579128196,
-      "name": "minecraft:element_79",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15290}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15291,
       "network_hash": 1423921259,
-      "name": "minecraft:element_65",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15291}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15292,
       "network_hash": 1803619598,
-      "name": "minecraft:element_64",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15292}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15293,
       "network_hash": 2317048365,
-      "name": "minecraft:element_67",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15293}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15294,
       "network_hash": 4224142752,
-      "name": "minecraft:element_66",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15294}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15295,
       "network_hash": 2224066503,
-      "name": "minecraft:element_61",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15295}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15296,
       "network_hash": 2532309194,
-      "name": "minecraft:element_60",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15296}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15297,
       "network_hash": 3435668249,
-      "name": "minecraft:element_63",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15297}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15298,
       "network_hash": 333121916,
-      "name": "minecraft:element_62",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15298}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15299,
       "network_hash": 2954552863,
-      "name": "minecraft:element_69",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15299}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15300,
       "network_hash": 1727855394,
-      "name": "minecraft:element_68",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15300}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15301,
       "network_hash": 1916713883,
-      "name": "minecraft:element_98",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15301}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15302,
       "network_hash": 3273619838,
-      "name": "minecraft:element_99",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15302}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15303,
       "network_hash": 200737523,
-      "name": "minecraft:element_90",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15303}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15304,
       "network_hash": 3141880630,
-      "name": "minecraft:element_91",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15304}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15305,
       "network_hash": 4061061525,
-      "name": "minecraft:element_92",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15305}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15306,
       "network_hash": 3064456,
-      "name": "minecraft:element_93",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15306}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15307,
       "network_hash": 1336665487,
-      "name": "minecraft:element_94",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15307}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15308,
       "network_hash": 2538163346,
-      "name": "minecraft:element_95",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15308}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15309,
       "network_hash": 36289153,
-      "name": "minecraft:element_96",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15309}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15310,
       "network_hash": 3794338180,
-      "name": "minecraft:element_97",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15310}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15311,
       "network_hash": 2355910937,
-      "name": "minecraft:element_89",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15311}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15312,
       "network_hash": 3548331900,
-      "name": "minecraft:element_88",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15312}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15313,
       "network_hash": 1874795551,
-      "name": "minecraft:element_83",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15313}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15314,
       "network_hash": 648098082,
-      "name": "minecraft:element_82",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15314}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15315,
       "network_hash": 1575675217,
-      "name": "minecraft:element_81",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15315}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15316,
       "network_hash": 3590137620,
-      "name": "minecraft:element_80",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15316}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15317,
       "network_hash": 252587331,
-      "name": "minecraft:element_87",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15317}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15318,
       "network_hash": 3362137542,
-      "name": "minecraft:element_86",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15318}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15319,
       "network_hash": 2424704037,
-      "name": "minecraft:element_85",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15319}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15320,
       "network_hash": 4093831192,
-      "name": "minecraft:element_84",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15320}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -123003,49 +123003,49 @@
     {
       "sequential_id": 15374,
       "network_hash": 1767787211,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"unknown\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15374}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15375,
       "network_hash": 3351628135,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"west\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15375}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15376,
       "network_hash": 1488720269,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"east\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15376}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15377,
       "network_hash": 747730144,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"north\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15377}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15378,
       "network_hash": 3019403142,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"south\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15378}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 15379,
       "network_hash": 4057005894,
-      "name": "minecraft:colored_torch_purple",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"top\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15379}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -126947,8 +126947,8 @@
     {
       "sequential_id": 15867,
       "network_hash": 3425680954,
-      "name": "minecraft:hard_light_gray_stained_glass",
-      "canonical_state": "{}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":15867}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -128979,32 +128979,32 @@
     {
       "sequential_id": 16121,
       "network_hash": 2866719478,
-      "name": "minecraft:material_reducer",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16121}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16122,
       "network_hash": 2805244655,
-      "name": "minecraft:material_reducer",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16122}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16123,
       "network_hash": 2989669124,
-      "name": "minecraft:material_reducer",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16123}}",
       "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16124,
       "network_hash": 2928194301,
-      "name": "minecraft:material_reducer",
-      "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3}}",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16124}}",
       "model_family": "unknown",
       "is_air": false
     },
@@ -134683,49 +134683,49 @@
     {
       "sequential_id": 16834,
       "network_hash": 1779733491,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"unknown\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16834}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16835,
       "network_hash": 629038031,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"west\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16835}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16836,
       "network_hash": 1034026677,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"east\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16836}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16837,
       "network_hash": 2564145992,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"north\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16837}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16838,
       "network_hash": 427827166,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"south\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16838}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
       "sequential_id": 16839,
       "network_hash": 30523022,
-      "name": "minecraft:colored_torch_red",
-      "canonical_state": "{\"torch_facing_direction\":{\"type\":\"string\",\"value\":\"top\"}}",
-      "model_family": "torch",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16839}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -134747,9 +134747,9 @@
     {
       "sequential_id": 16842,
       "network_hash": 2086232422,
-      "name": "minecraft:hard_blue_stained_glass_pane",
-      "canonical_state": "{}",
-      "model_family": "pane",
+      "name": "cinnabar:reserved",
+      "canonical_state": "{\"reserved_id\":{\"type\":\"int\",\"value\":16842}}",
+      "model_family": "unknown",
       "is_air": false
     },
     {
@@ -135408,6 +135408,7 @@
     333,
     334,
     357,
+    382,
     383,
     384,
     385,
@@ -135499,6 +135500,7 @@
     1249,
     1250,
     1251,
+    1258,
     1259,
     1260,
     1264,
@@ -135508,6 +135510,7 @@
     1268,
     1269,
     1270,
+    1273,
     1277,
     1299,
     1300,
@@ -135621,6 +135624,7 @@
     2660,
     2661,
     2705,
+    2712,
     2877,
     2886,
     2887,
@@ -135688,6 +135692,7 @@
     3597,
     3601,
     3773,
+    3778,
     3780,
     3784,
     3786,
@@ -136048,6 +136053,7 @@
     6401,
     6402,
     6403,
+    6416,
     6422,
     6423,
     6424,
@@ -136264,10 +136270,12 @@
     7292,
     7293,
     7294,
+    7295,
     7300,
     7301,
     7302,
     7303,
+    7306,
     7326,
     7328,
     7329,
@@ -136594,6 +136602,7 @@
     9236,
     9237,
     9238,
+    9257,
     9274,
     9295,
     9296,
@@ -136913,6 +136922,7 @@
     12671,
     12672,
     12673,
+    12726,
     12727,
     12728,
     12729,
@@ -136961,6 +136971,7 @@
     12882,
     12883,
     12884,
+    12891,
     12898,
     12899,
     12900,
@@ -137141,6 +137152,7 @@
     13625,
     13799,
     13818,
+    13819,
     13828,
     13829,
     13830,
@@ -137152,6 +137164,7 @@
     13836,
     13837,
     13838,
+    13839,
     13841,
     13842,
     13843,
@@ -137259,6 +137272,8 @@
     14568,
     14569,
     14570,
+    14573,
+    14586,
     14607,
     14637,
     14638,
@@ -137383,6 +137398,7 @@
     15094,
     15095,
     15096,
+    15115,
     15128,
     15129,
     15130,
@@ -137699,6 +137715,7 @@
     16838,
     16839,
     16840,
+    16842,
     16847,
     16848,
     16849,

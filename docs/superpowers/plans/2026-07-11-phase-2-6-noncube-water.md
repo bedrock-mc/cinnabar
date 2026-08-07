@@ -166,8 +166,7 @@ go test ./...
 go run . -out ../../crates/assets/data/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 Pop-Location
 cargo test -p assets --test pack registry_reader -- --nocapture
 ```

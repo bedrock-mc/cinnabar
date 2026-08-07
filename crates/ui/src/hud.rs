@@ -128,7 +128,7 @@ pub enum HudPlayerStatus {
     FailedClient,
     FailedSpawn,
     PlayerSpawn,
-    FailedInvalidTenant,
+    Reserved4,
     Reserved5,
     Reserved6,
     FailedServerFull,

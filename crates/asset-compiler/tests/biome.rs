@@ -446,3 +446,42 @@ fn compiler_ignores_legacy_biomes_client_but_rejects_identifier_mismatches() {
     );
     assert!(compile_biome_assets(&resource_pack, &behavior_pack, &plains_registry()).is_err());
 }
+
+#[test]
+fn compiler_default_denies_source_biomes_outside_the_registry() {
+    let directory = tempfile::tempdir().expect("create projected biome fixture");
+    write_biome_sources(directory.path(), "{}", "minecraft:plains");
+    write_file(
+        directory
+            .path()
+            .join("resource_pack/biomes/unlisted.client_biome.json"),
+        r#"{
+            "format_version":"1.21.0",
+            "minecraft:client_biome":{
+                "description":{"identifier":"example:unlisted_biome"},
+                "components":{}
+            }
+        }"#,
+    );
+    write_file(
+        directory
+            .path()
+            .join("behavior_pack/biomes/unlisted.biome.json"),
+        r#"{
+            "format_version":"1.21.0",
+            "minecraft:biome":{
+                "description":{"identifier":"example:unlisted_biome"},
+                "components":{"minecraft:climate":{"temperature":0.8,"downfall":0.4}}
+            }
+        }"#,
+    );
+
+    let compiled = compile_biome_assets(
+        &directory.path().join("resource_pack"),
+        &directory.path().join("behavior_pack"),
+        &plains_registry(),
+    )
+    .expect("compile projected biome registry");
+    assert_eq!(compiled.rules.len(), 1);
+    assert_eq!(compiled.rules[0].name.as_ref(), "minecraft:plains");
+}

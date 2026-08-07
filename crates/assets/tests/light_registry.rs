@@ -1,4 +1,4 @@
-use assets::{LightProperties, read_light_registry};
+use assets::{LightProperties, read_light_registry, read_registry};
 use sha2::{Digest, Sha256};
 
 fn lreg(breg: &[u8], properties: &[LightProperties]) -> Vec<u8> {
@@ -61,4 +61,25 @@ fn lreg1001_rejects_malformed_codec_and_integrity() {
 fn light_properties_rejects_malformed_runtime_accessor_values() {
     assert!(LightProperties::new(16, 0).is_err());
     assert!(LightProperties::new(0, 16).is_err());
+}
+
+#[test]
+fn checked_in_reserved_states_have_neutral_light() {
+    let breg = include_bytes!("../data/block-registry-v1001.bin");
+    let records = read_registry(breg).unwrap();
+    let lights = read_light_registry(
+        include_bytes!("../data/block-light-registry-v1001.bin"),
+        breg,
+        records.len(),
+    )
+    .unwrap();
+    let reserved = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "cinnabar:reserved")
+        .collect::<Vec<_>>();
+    assert_eq!(reserved.len(), 383);
+    assert!(reserved.iter().all(|record| {
+        let light = lights[record.sequential_id as usize];
+        light.emission() == 0 && light.filter() == 0
+    }));
 }

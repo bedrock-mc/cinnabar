@@ -201,7 +201,7 @@
 **Files:**
 - Create: `crates/protocol/vendor/UPSTREAM.md`
 - Create: `crates/protocol/vendor/LICENSE`
-- Vendor: `crates/protocol/vendor/valentine/`
+- Vendor: reviewed protocol implementation files.
 - Vendor: `crates/protocol/vendor/jolyne/`
 - Create: `crates/protocol/src/codec.rs`
 - Create: `crates/protocol/src/packet.rs`

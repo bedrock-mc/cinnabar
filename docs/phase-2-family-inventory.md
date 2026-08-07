@@ -23,10 +23,10 @@ The audit used these pinned inputs:
 - the locally acquired, ignored Mojang 1.26.30 sample resource pack described
   by `assets/vanilla-source.json`.
 
-The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`.
-It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
-Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
+The current audited `BREG1003` export is 4,647,994 bytes with SHA-256
+`2247b37058ac42a65a601dbc246da6f215caf80b79b4aaf439cc3361911d2f1b`.
+It decoded exactly to EOF and reported 1,188 names, 16,913 states, 1,153
+overlap names, 15,845 overlap states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
 `redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
 records. The 2026-07-14 regenerations additionally assign the dedicated
@@ -54,8 +54,7 @@ go test ./...
 go run . -out ../../.local/task2/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 Pop-Location
 
 Get-FileHash -Algorithm SHA256 `
