@@ -105,13 +105,6 @@
     "sha256": "08dea656b782928828fa79fc004166220f14d0459e259717bb537c5a11f6b39a"
   },
   {
-    "name": "CraftingDataMaterialReducer",
-    "file": "material_reducer.bin",
-    "id": 52,
-    "byte_length": 25,
-    "sha256": "8cd3a434027ab0f0506762baed0928daa7707ccaa92e5964612f0ae1b81ee16c"
-  },
-  {
     "name": "BiomeDefinitionListChunkGeneration",
     "file": "biome_definition_list_chunk_generation.bin",
     "id": 122,

@@ -182,7 +182,7 @@ pub enum InventoryPacketError {
     UnsupportedItemNbtVersion(u8),
     #[error("item NBT is malformed")]
     InvalidItemNbt,
-    #[error("verified item extra data cannot be decoded for protocol 1001")]
+    #[error("verified item extra data is malformed or unsupported")]
     InvalidItemExtra,
     #[error("item extra string has {bytes} bytes, exceeding {max}")]
     ItemExtraStringTooLarge { bytes: usize, max: usize },

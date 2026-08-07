@@ -1,4 +1,4 @@
-//! Bedrock 1.26.30 (protocol 1001) packet definitions and codec.
+//! Bedrock 1.26.40 (protocol 2168) packet definitions and codec.
 
 mod actor;
 mod blob_cache;

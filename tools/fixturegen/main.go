@@ -311,22 +311,6 @@ func fixtures() []fixture {
 			pk:   availableCommandsLiveRegression(),
 		},
 		{
-			name: "CraftingDataMaterialReducer",
-			file: "material_reducer.bin",
-			pk: &packet.CraftingData{
-				MaterialReducers: []protocol.MaterialReducer{
-					{
-						InputItem: protocol.ItemType{NetworkID: 42, MetadataValue: 3},
-						Outputs: []protocol.MaterialReducerOutput{
-							{NetworkID: 7, Count: 2},
-							{NetworkID: -9, Count: 4},
-						},
-					},
-				},
-				ClearRecipes: true,
-			},
-		},
-		{
 			name: "BiomeDefinitionListChunkGeneration",
 			file: "biome_definition_list_chunk_generation.bin",
 			pk: &packet.BiomeDefinitionList{

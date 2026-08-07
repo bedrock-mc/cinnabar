@@ -703,15 +703,11 @@ fn canonical_biome_name(name: &str) -> Arc<str> {
     if name.contains(':') {
         return Arc::from(name);
     }
-    // Content registries stay on v1_26_30. The 1.26.40 crate is generated from
-    // the Endstone dump, which is wire-only and ships no biome/block/item/state
-    // tables; the prismarine-derived 1.26.30 crate remains the only source for
-    // this data. Biome string IDs are stable across the two versions, so this is
-    // a data pin, not a protocol dependency.
-    let known_vanilla = valentine::bedrock::version::v1_26_30::biomes::ALL_BIOMES
-        .iter()
-        .any(|biome| biome.string_id.strip_prefix("minecraft:") == Some(name));
-    if known_vanilla {
+    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_40.txt");
+    let known_retail = RETAIL_BIOMES
+        .lines()
+        .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));
+    if known_retail {
         Arc::from(format!("minecraft:{name}"))
     } else {
         Arc::from(name)

@@ -12,9 +12,7 @@ pinned encoder/decoder and live bytes agreed exactly.
 The Go core and `crates/protocol/fixtures` have since moved to gophertunnel
 `56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` (Bedrock 1.26.40 / protocol 2168).
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
-generation of those fixtures; `material_reducer.bin` is the one cited fixture
-whose bytes changed, because 1.26.40 splits `CraftingData.Recipes` into eight
-typed recipe vectors. `available_commands.bin` and
+generation of those fixtures. `available_commands.bin` and
 `available_commands_live_356513.bin` are byte-identical across the bump.
 
 ## Task 0.4 baseline
@@ -144,21 +142,6 @@ Tests cover owned decode, borrowed materialisation, exact byte re-encoding,
 malformed and oversized shared counts, encoding bounds, and the recorded live
 body-length regression. The guarded BDS login test now continues after
 StartGame until packet 76 is decoded and then asserts zero decode errors.
-
-### MaterialReducer in CraftingData (packet 52)
-
-Pinned gophertunnel defines `Outputs []MaterialReducerOutput` and writes one
-VarUInt count followed by every ZigZag `(network_id, count)` pair. Valentine
-previously modelled and consumed one uncounted pair in both owned and borrowed
-forms.
-
-Task 0.8 replaces that singular field with a bounded output vector in both
-forms, applies the same 4,096-element limit and fallible preallocation, and
-encodes every output after one count. `material_reducer.bin` is an 18-byte
-pinned-gophertunnel raw CraftingData batch with one reducer and two outputs,
-SHA-256 `b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39`.
-Owned decode, borrowed materialisation, the direct borrowed reducer view, exact
-byte round-trip, oversized counts, and truncated vectors are covered.
 
 ## Protocol-2168 wire corrections
 

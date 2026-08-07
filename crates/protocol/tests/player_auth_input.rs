@@ -26,7 +26,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
 }
 
 #[test]
-fn vendor_neutral_snapshot_maps_to_protocol_1001_player_auth_input() {
+fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     let packet = player_auth_input(snapshot()).expect("valid player input");
     assert_eq!(packet.header.id, McpePacketName::PlayerAuthInputPacket);
     assert_eq!(

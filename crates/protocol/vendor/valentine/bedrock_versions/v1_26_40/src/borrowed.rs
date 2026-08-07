@@ -328,59 +328,6 @@ impl From<AdventureSettingsView> for AdventureSettings {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct AgentCapabilitiesView {
-    pub can_modify_blocks: Option<bool>,
-}
-impl crate::bedrock::codec::BedrockSized for AgentCapabilitiesView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + 1usize
-            + (&self.can_modify_blocks).as_ref().map_or(0usize, |_value| {
-                crate::bedrock::codec::BedrockSized::encoded_size(_value)
-            })
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for AgentCapabilitiesView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let can_modify_blocks = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(<bool as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?)
-        } else {
-            None
-        };
-        Ok(Self { can_modify_blocks })
-    }
-}
-impl AgentCapabilitiesView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.can_modify_blocks).is_some().encode(buf)?;
-        if let Some(value) = &self.can_modify_blocks {
-            (value).encode(buf)?;
-        }
-        Ok(())
-    }
-}
-impl From<AgentCapabilitiesView> for AgentCapabilities {
-    fn from(value: AgentCapabilitiesView) -> Self {
-        let _ = &value;
-        Self {
-            can_modify_blocks: (value.can_modify_blocks).map(|value| value),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct SkinImageView {
     pub width: u32,
     pub height: u32,
@@ -5347,7 +5294,7 @@ impl From<BlockPosView> for BlockPos {
 pub struct BookEditActionAddPageView {
     pub page_index: i32,
     pub page_text: crate::bedrock::borrowed::BorrowedStr,
-    pub photo_name: crate::bedrock::borrowed::BorrowedStr,
+    pub reserved_2: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized for BookEditActionAddPageView {
     fn encoded_size(&self) -> usize {
@@ -5360,9 +5307,9 @@ impl crate::bedrock::codec::BedrockSized for BookEditActionAddPageView {
             ))
             + (&self.page_text).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_name).as_bytes().len()) as i32,
+                ((&self.reserved_2).as_bytes().len()) as i32,
             ))
-            + (&self.photo_name).as_bytes().len()
+            + (&self.reserved_2).as_bytes().len()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for BookEditActionAddPageView {
@@ -5380,11 +5327,11 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BookEditActionAddPageView
             )?
             .0;
         let page_text = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let reserved_2 = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
         Ok(Self {
             page_index,
             page_text,
-            photo_name,
+            reserved_2,
         })
     }
 }
@@ -5397,8 +5344,8 @@ impl BookEditActionAddPageView {
         crate::bedrock::codec::ZigZag32(*&self.page_index).encode(buf)?;
         crate::bedrock::codec::VarInt(((&self.page_text).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.page_text).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.photo_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.photo_name).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.reserved_2).as_bytes().len()) as i32).encode(buf)?;
+        buf.put_slice((&self.reserved_2).as_bytes());
         Ok(())
     }
 }
@@ -5408,7 +5355,7 @@ impl From<BookEditActionAddPageView> for BookEditActionAddPage {
         Self {
             page_index: value.page_index,
             page_text: (value.page_text).to_string_lossy().into_owned(),
-            photo_name: (value.photo_name).to_string_lossy().into_owned(),
+            reserved_2: (value.reserved_2).to_string_lossy().into_owned(),
         }
     }
 }
@@ -5529,7 +5476,7 @@ impl From<BookEditActionFinalizeView> for BookEditActionFinalize {
 pub struct BookEditActionReplacePageView {
     pub page_index: i32,
     pub page_text: crate::bedrock::borrowed::BorrowedStr,
-    pub photo_name: crate::bedrock::borrowed::BorrowedStr,
+    pub reserved_2: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized for BookEditActionReplacePageView {
     fn encoded_size(&self) -> usize {
@@ -5542,9 +5489,9 @@ impl crate::bedrock::codec::BedrockSized for BookEditActionReplacePageView {
             ))
             + (&self.page_text).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_name).as_bytes().len()) as i32,
+                ((&self.reserved_2).as_bytes().len()) as i32,
             ))
-            + (&self.photo_name).as_bytes().len()
+            + (&self.reserved_2).as_bytes().len()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for BookEditActionReplacePageView {
@@ -5562,11 +5509,11 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BookEditActionReplacePage
             )?
             .0;
         let page_text = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
+        let reserved_2 = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
         Ok(Self {
             page_index,
             page_text,
-            photo_name,
+            reserved_2,
         })
     }
 }
@@ -5579,8 +5526,8 @@ impl BookEditActionReplacePageView {
         crate::bedrock::codec::ZigZag32(*&self.page_index).encode(buf)?;
         crate::bedrock::codec::VarInt(((&self.page_text).as_bytes().len()) as i32).encode(buf)?;
         buf.put_slice((&self.page_text).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.photo_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.photo_name).as_bytes());
+        crate::bedrock::codec::VarInt(((&self.reserved_2).as_bytes().len()) as i32).encode(buf)?;
+        buf.put_slice((&self.reserved_2).as_bytes());
         Ok(())
     }
 }
@@ -5590,7 +5537,7 @@ impl From<BookEditActionReplacePageView> for BookEditActionReplacePage {
         Self {
             page_index: value.page_index,
             page_text: (value.page_text).to_string_lossy().into_owned(),
-            photo_name: (value.photo_name).to_string_lossy().into_owned(),
+            reserved_2: (value.reserved_2).to_string_lossy().into_owned(),
         }
     }
 }
@@ -10338,121 +10285,6 @@ impl From<EcsProfilingDiagnosticsSystemDiagnosticTimingInfoView>
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct EduSharedUriResourceView {
-    pub button_name: crate::bedrock::borrowed::BorrowedStr,
-    pub link_uri: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for EduSharedUriResourceView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.button_name).as_bytes().len()) as i32,
-            ))
-            + (&self.button_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.link_uri).as_bytes().len()) as i32,
-            ))
-            + (&self.link_uri).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EduSharedUriResourceView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let button_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let link_uri = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            button_name,
-            link_uri,
-        })
-    }
-}
-impl EduSharedUriResourceView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.button_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.button_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.link_uri).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.link_uri).as_bytes());
-        Ok(())
-    }
-}
-impl From<EduSharedUriResourceView> for EduSharedUriResource {
-    fn from(value: EduSharedUriResourceView) -> Self {
-        let _ = &value;
-        Self {
-            button_name: (value.button_name).to_string_lossy().into_owned(),
-            link_uri: (value.link_uri).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct EducationLocalLevelSettingsView {
-    pub code_builder_override_uri: Option<crate::bedrock::borrowed::BorrowedStr>,
-}
-impl crate::bedrock::codec::BedrockSized for EducationLocalLevelSettingsView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + 1usize
-            + (&self.code_builder_override_uri)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(
-                        &crate::bedrock::codec::VarInt(((_value).as_bytes().len()) as i32),
-                    ) + (_value).as_bytes().len()
-                })
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EducationLocalLevelSettingsView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let code_builder_override_uri =
-            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                Some(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?)
-            } else {
-                None
-            };
-        Ok(Self {
-            code_builder_override_uri,
-        })
-    }
-}
-impl EducationLocalLevelSettingsView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.code_builder_override_uri).is_some().encode(buf)?;
-        if let Some(value) = &self.code_builder_override_uri {
-            crate::bedrock::codec::VarInt(((value).as_bytes().len()) as i32).encode(buf)?;
-            buf.put_slice((value).as_bytes());
-        }
-        Ok(())
-    }
-}
-impl From<EducationLocalLevelSettingsView> for EducationLocalLevelSettings {
-    fn from(value: EducationLocalLevelSettingsView) -> Self {
-        let _ = &value;
-        Self {
-            code_builder_override_uri: (value.code_builder_override_uri)
-                .map(|value| (value).to_string_lossy().into_owned()),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct ExternalLinkSettingsView {
     pub url: crate::bedrock::borrowed::BorrowedStr,
     pub display_name: crate::bedrock::borrowed::BorrowedStr,
@@ -10503,172 +10335,6 @@ impl From<ExternalLinkSettingsView> for ExternalLinkSettings {
         Self {
             url: (value.url).to_string_lossy().into_owned(),
             display_name: (value.display_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct EducationLevelSettingsView {
-    pub code_builder_default_uri: crate::bedrock::borrowed::BorrowedStr,
-    pub code_builder_title: crate::bedrock::borrowed::BorrowedStr,
-    pub canresize_code_builder: bool,
-    pub disablelegacytitlebar: bool,
-    pub post_process_filter: crate::bedrock::borrowed::BorrowedStr,
-    pub screenshot_border_resource_path: crate::bedrock::borrowed::BorrowedStr,
-    pub agent_capabilities: Option<AgentCapabilitiesView>,
-    pub local_settings: EducationLocalLevelSettingsView,
-    pub deprecated_always_false: bool,
-    pub external_link_settings: Option<ExternalLinkSettingsView>,
-}
-impl crate::bedrock::codec::BedrockSized for EducationLevelSettingsView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.code_builder_default_uri).as_bytes().len()) as i32,
-            ))
-            + (&self.code_builder_default_uri).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.code_builder_title).as_bytes().len()) as i32,
-            ))
-            + (&self.code_builder_title).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.canresize_code_builder)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.disablelegacytitlebar)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.post_process_filter).as_bytes().len()) as i32,
-            ))
-            + (&self.post_process_filter).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.screenshot_border_resource_path).as_bytes().len()) as i32,
-            ))
-            + (&self.screenshot_border_resource_path).as_bytes().len()
-            + 1usize
-            + (&self.agent_capabilities)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                })
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.local_settings)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.deprecated_always_false)
-            + 1usize
-            + (&self.external_link_settings)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                })
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EducationLevelSettingsView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let code_builder_default_uri = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let code_builder_title = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let canresize_code_builder =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let disablelegacytitlebar = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let post_process_filter = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let screenshot_border_resource_path =
-            crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let agent_capabilities = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-        {
-            Some(
-                <AgentCapabilitiesView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                    buf,
-                    (),
-                )?,
-            )
-        } else {
-            None
-        };
-        let local_settings = <EducationLocalLevelSettingsView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-            buf,
-            (),
-        )?;
-        let deprecated_always_false =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let external_link_settings = if <bool as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )? {
-            Some(
-                <ExternalLinkSettingsView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                    buf,
-                    (),
-                )?,
-            )
-        } else {
-            None
-        };
-        Ok(Self {
-            code_builder_default_uri,
-            code_builder_title,
-            canresize_code_builder,
-            disablelegacytitlebar,
-            post_process_filter,
-            screenshot_border_resource_path,
-            agent_capabilities,
-            local_settings,
-            deprecated_always_false,
-            external_link_settings,
-        })
-    }
-}
-impl EducationLevelSettingsView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.code_builder_default_uri).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.code_builder_default_uri).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.code_builder_title).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.code_builder_title).as_bytes());
-        (&self.canresize_code_builder).encode(buf)?;
-        (&self.disablelegacytitlebar).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.post_process_filter).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.post_process_filter).as_bytes());
-        crate::bedrock::codec::VarInt(
-            ((&self.screenshot_border_resource_path).as_bytes().len()) as i32,
-        )
-        .encode(buf)?;
-        buf.put_slice((&self.screenshot_border_resource_path).as_bytes());
-        (&self.agent_capabilities).is_some().encode(buf)?;
-        if let Some(value) = &self.agent_capabilities {
-            (value).encode(buf)?;
-        }
-        (&self.local_settings).encode(buf)?;
-        (&self.deprecated_always_false).encode(buf)?;
-        (&self.external_link_settings).is_some().encode(buf)?;
-        if let Some(value) = &self.external_link_settings {
-            (value).encode(buf)?;
-        }
-        Ok(())
-    }
-}
-impl From<EducationLevelSettingsView> for EducationLevelSettings {
-    fn from(value: EducationLevelSettingsView) -> Self {
-        let _ = &value;
-        Self {
-            code_builder_default_uri: (value.code_builder_default_uri)
-                .to_string_lossy()
-                .into_owned(),
-            code_builder_title: (value.code_builder_title).to_string_lossy().into_owned(),
-            canresize_code_builder: value.canresize_code_builder,
-            disablelegacytitlebar: value.disablelegacytitlebar,
-            post_process_filter: (value.post_process_filter).to_string_lossy().into_owned(),
-            screenshot_border_resource_path: (value.screenshot_border_resource_path)
-                .to_string_lossy()
-                .into_owned(),
-            agent_capabilities: (value.agent_capabilities).map(|value| (value).into()),
-            local_settings: (value.local_settings).into(),
-            deprecated_always_false: value.deprecated_always_false,
-            external_link_settings: (value.external_link_settings).map(|value| (value).into()),
         }
     }
 }
@@ -12760,49 +12426,38 @@ impl From<ItemStackRequestCerealItemTagDescriptorDataView>
         }
     }
 }
-#[derive(Debug, Clone, PartialEq)]
-pub struct ItemStackRequestCerealLabTableCombineActionDataView {
-    pub actiontype: ItemStackRequestCerealLabTableCombineActionDataActiontype,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemStackRequestReserved7ActionDataView {
+    pub reserved_0: u8,
 }
-impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealLabTableCombineActionDataView {
+impl crate::bedrock::codec::BedrockSized for ItemStackRequestReserved7ActionDataView {
     fn encoded_size(&self) -> usize {
-        0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.actiontype)
+        1usize
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ItemStackRequestCerealLabTableCombineActionDataView
-{
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackRequestReserved7ActionDataView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let actiontype = <ItemStackRequestCerealLabTableCombineActionDataActiontype as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        Ok(Self { actiontype })
+        Ok(Self {
+            reserved_0: <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+        })
     }
 }
-impl ItemStackRequestCerealLabTableCombineActionDataView {
+impl ItemStackRequestReserved7ActionDataView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.actiontype).encode(buf)?;
-        Ok(())
+        self.reserved_0.encode(buf)
     }
 }
-impl From<ItemStackRequestCerealLabTableCombineActionDataView>
-    for ItemStackRequestCerealLabTableCombineActionData
-{
-    fn from(value: ItemStackRequestCerealLabTableCombineActionDataView) -> Self {
-        let _ = &value;
+impl From<ItemStackRequestReserved7ActionDataView> for ItemStackRequestReserved7ActionData {
+    fn from(value: ItemStackRequestReserved7ActionDataView) -> Self {
         Self {
-            actiontype: value.actiontype,
+            reserved_0: value.reserved_0,
         }
     }
 }
@@ -13882,1467 +13537,6 @@ impl From<LegacySetSlotView> for LegacySetSlot {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadAchievementView {
-    pub achievement_id: LegacyTelemetryEventPacketPayloadAchievementAchievementId,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadAchievementView {
-    fn encoded_size(&self) -> usize {
-        0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.achievement_id)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadAchievementView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let achievement_id = <LegacyTelemetryEventPacketPayloadAchievementAchievementId as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        Ok(Self { achievement_id })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadAchievementView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.achievement_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadAchievementView>
-    for LegacyTelemetryEventPacketPayloadAchievement
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadAchievementView) -> Self {
-        let _ = &value;
-        Self {
-            achievement_id: value.achievement_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadActorDefinitionView {
-    pub event_name: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadActorDefinitionView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.event_name).as_bytes().len()) as i32,
-            ))
-            + (&self.event_name).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadActorDefinitionView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let event_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self { event_name })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadActorDefinitionView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.event_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.event_name).as_bytes());
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadActorDefinitionView>
-    for LegacyTelemetryEventPacketPayloadActorDefinition
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadActorDefinitionView) -> Self {
-        let _ = &value;
-        Self {
-            event_name: (value.event_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadBellUsedView {
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadBellUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadBellUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { item_id })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadBellUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.item_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadBellUsedView>
-    for LegacyTelemetryEventPacketPayloadBellUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadBellUsedView) -> Self {
-        let _ = &value;
-        Self {
-            item_id: value.item_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadBossKilledView {
-    pub boss_actor_id: i64,
-    pub party_size: i32,
-    pub boss_type: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadBossKilledView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag64(
-                *&self.boss_actor_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.party_size,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.boss_type,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadBossKilledView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let boss_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let party_size =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let boss_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            boss_actor_id,
-            party_size,
-            boss_type,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadBossKilledView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(*&self.boss_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.party_size).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.boss_type).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadBossKilledView>
-    for LegacyTelemetryEventPacketPayloadBossKilled
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadBossKilledView) -> Self {
-        let _ = &value;
-        Self {
-            boss_actor_id: value.boss_actor_id,
-            party_size: value.party_size,
-            boss_type: value.boss_type,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadCauldronUsedView {
-    pub contents_color: i32,
-    pub contents_type: i32,
-    pub fill_level: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadCauldronUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                *&self.contents_color,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.contents_type,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.fill_level,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadCauldronUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let contents_color =
-            <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let contents_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let fill_level =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            contents_color,
-            contents_type,
-            fill_level,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadCauldronUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(*&self.contents_color).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.contents_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.fill_level).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadCauldronUsedView>
-    for LegacyTelemetryEventPacketPayloadCauldronUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadCauldronUsedView) -> Self {
-        let _ = &value;
-        Self {
-            contents_color: value.contents_color,
-            contents_type: value.contents_type,
-            fill_level: value.fill_level,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView {
-    pub code_builder_runtime_action: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.code_builder_runtime_action).as_bytes().len()) as i32,
-            ))
-            + (&self.code_builder_runtime_action).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let code_builder_runtime_action =
-            crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            code_builder_runtime_action,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(
-            ((&self.code_builder_runtime_action).as_bytes().len()) as i32,
-        )
-        .encode(buf)?;
-        buf.put_slice((&self.code_builder_runtime_action).as_bytes());
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView>
-    for LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeActionView) -> Self {
-        let _ = &value;
-        Self {
-            code_builder_runtime_action: (value.code_builder_runtime_action)
-                .to_string_lossy()
-                .into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView {
-    pub objective_name: crate::bedrock::borrowed::BorrowedStr,
-    pub score: i32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.objective_name).as_bytes().len()) as i32,
-            ))
-            + (&self.objective_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.score,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let objective_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let score =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            objective_name,
-            score,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.objective_name).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.objective_name).as_bytes());
-        crate::bedrock::codec::ZigZag32(*&self.score).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView>
-    for LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadCodeBuilderScoreboardView) -> Self {
-        let _ = &value;
-        Self {
-            objective_name: (value.objective_name).to_string_lossy().into_owned(),
-            score: value.score,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadComposterUsedView {
-    pub block_interaction_type: LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType,
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadComposterUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.block_interaction_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadComposterUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let block_interaction_type = <LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            block_interaction_type,
-            item_id,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadComposterUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.block_interaction_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.item_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadComposterUsedView>
-    for LegacyTelemetryEventPacketPayloadComposterUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadComposterUsedView) -> Self {
-        let _ = &value;
-        Self {
-            block_interaction_type: value.block_interaction_type,
-            item_id: value.item_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadEmptyView {}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadEmptyView {
-    fn encoded_size(&self) -> usize {
-        0usize
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for LegacyTelemetryEventPacketPayloadEmptyView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        Ok(Self {})
-    }
-}
-impl LegacyTelemetryEventPacketPayloadEmptyView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadEmptyView> for LegacyTelemetryEventPacketPayloadEmpty {
-    fn from(value: LegacyTelemetryEventPacketPayloadEmptyView) -> Self {
-        let _ = &value;
-        Self {}
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadInteractionView {
-    pub interacted_entity_id: i64,
-    pub interaction_type: LegacyTelemetryEventPacketPayloadInteractionInteractionType,
-    pub interaction_actor_type: i32,
-    pub interaction_actor_variant: i32,
-    pub interaction_actor_color: u8,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadInteractionView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag64(
-                *&self.interacted_entity_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.interaction_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.interaction_actor_type,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.interaction_actor_variant,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.interaction_actor_color)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadInteractionView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let interacted_entity_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_type = <LegacyTelemetryEventPacketPayloadInteractionInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let interaction_actor_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_actor_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_actor_color = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            interacted_entity_id,
-            interaction_type,
-            interaction_actor_type,
-            interaction_actor_variant,
-            interaction_actor_color,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadInteractionView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(*&self.interacted_entity_id).encode(buf)?;
-        (&self.interaction_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.interaction_actor_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.interaction_actor_variant).encode(buf)?;
-        (&self.interaction_actor_color).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadInteractionView>
-    for LegacyTelemetryEventPacketPayloadInteraction
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadInteractionView) -> Self {
-        let _ = &value;
-        Self {
-            interacted_entity_id: value.interacted_entity_id,
-            interaction_type: value.interaction_type,
-            interaction_actor_type: value.interaction_actor_type,
-            interaction_actor_variant: value.interaction_actor_variant,
-            interaction_actor_color: value.interaction_actor_color,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadItemUsedView {
-    pub item_id: i16,
-    pub item_aux: i32,
-    pub use_method: i32,
-    pub count: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadItemUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize + 2usize + 4usize + 4usize + 4usize
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadItemUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let item_id =
-            <crate::bedrock::codec::I16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let item_aux =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let use_method =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let count =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self {
-            item_id,
-            item_aux,
-            use_method,
-            count,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadItemUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::I16LE(*&self.item_id).encode(buf)?;
-        crate::bedrock::codec::I32LE(*&self.item_aux).encode(buf)?;
-        crate::bedrock::codec::I32LE(*&self.use_method).encode(buf)?;
-        crate::bedrock::codec::I32LE(*&self.count).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadItemUsedView>
-    for LegacyTelemetryEventPacketPayloadItemUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadItemUsedView) -> Self {
-        let _ = &value;
-        Self {
-            item_id: value.item_id,
-            item_aux: value.item_aux,
-            use_method: value.use_method,
-            count: value.count,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadMobBornView {
-    pub born_baby_entity_type: i32,
-    pub born_baby_entity_variant: i32,
-    pub born_baby_color: u8,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadMobBornView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.born_baby_entity_type,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.born_baby_entity_variant,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.born_baby_color)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadMobBornView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let born_baby_entity_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let born_baby_entity_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let born_baby_color = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            born_baby_entity_type,
-            born_baby_entity_variant,
-            born_baby_color,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadMobBornView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.born_baby_entity_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.born_baby_entity_variant).encode(buf)?;
-        (&self.born_baby_color).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadMobBornView>
-    for LegacyTelemetryEventPacketPayloadMobBorn
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadMobBornView) -> Self {
-        let _ = &value;
-        Self {
-            born_baby_entity_type: value.born_baby_entity_type,
-            born_baby_entity_variant: value.born_baby_entity_variant,
-            born_baby_color: value.born_baby_color,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadMobKilledView {
-    pub instigator_actor_id: i64,
-    pub target_actor_id: i64,
-    pub instigators_child_actor_type:
-        LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType,
-    pub damage_source: i32,
-    pub trade_tier: i32,
-    pub trader_name: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadMobKilledView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag64(
-                *&self.instigator_actor_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag64(
-                *&self.target_actor_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.instigators_child_actor_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.damage_source,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.trade_tier,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.trader_name).as_bytes().len()) as i32,
-            ))
-            + (&self.trader_name).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadMobKilledView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let instigator_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let target_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let instigators_child_actor_type = <LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let damage_source =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let trade_tier =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let trader_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            instigator_actor_id,
-            target_actor_id,
-            instigators_child_actor_type,
-            damage_source,
-            trade_tier,
-            trader_name,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadMobKilledView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(*&self.instigator_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag64(*&self.target_actor_id).encode(buf)?;
-        (&self.instigators_child_actor_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.damage_source).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.trade_tier).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.trader_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.trader_name).as_bytes());
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadMobKilledView>
-    for LegacyTelemetryEventPacketPayloadMobKilled
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadMobKilledView) -> Self {
-        let _ = &value;
-        Self {
-            instigator_actor_id: value.instigator_actor_id,
-            target_actor_id: value.target_actor_id,
-            instigators_child_actor_type: value.instigators_child_actor_type,
-            damage_source: value.damage_source,
-            trade_tier: value.trade_tier,
-            trader_name: (value.trader_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPoiCauldronUsedView {
-    pub block_interaction_type:
-        LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType,
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPoiCauldronUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.block_interaction_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPoiCauldronUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let block_interaction_type = <LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            block_interaction_type,
-            item_id,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPoiCauldronUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.block_interaction_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.item_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPoiCauldronUsedView>
-    for LegacyTelemetryEventPacketPayloadPoiCauldronUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPoiCauldronUsedView) -> Self {
-        let _ = &value;
-        Self {
-            block_interaction_type: value.block_interaction_type,
-            item_id: value.item_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPiglinBarterView {
-    pub item_id: i32,
-    pub was_targeting_bartering_player: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPiglinBarterView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(
-                &self.was_targeting_bartering_player,
-            )
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPiglinBarterView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let was_targeting_bartering_player =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            item_id,
-            was_targeting_bartering_player,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPiglinBarterView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.item_id).encode(buf)?;
-        (&self.was_targeting_bartering_player).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPiglinBarterView>
-    for LegacyTelemetryEventPacketPayloadPiglinBarter
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPiglinBarterView) -> Self {
-        let _ = &value;
-        Self {
-            item_id: value.item_id,
-            was_targeting_bartering_player: value.was_targeting_bartering_player,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPlayerDiedView {
-    pub instigator_actor_id: i32,
-    pub instigator_mob_variant: i32,
-    pub damage_source: i32,
-    pub diedin_raid: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPlayerDiedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.instigator_actor_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.instigator_mob_variant,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.damage_source,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.diedin_raid)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPlayerDiedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let instigator_actor_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let instigator_mob_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let damage_source =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let diedin_raid = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            instigator_actor_id,
-            instigator_mob_variant,
-            damage_source,
-            diedin_raid,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPlayerDiedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.instigator_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.instigator_mob_variant).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.damage_source).encode(buf)?;
-        (&self.diedin_raid).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPlayerDiedView>
-    for LegacyTelemetryEventPacketPayloadPlayerDied
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPlayerDiedView) -> Self {
-        let _ = &value;
-        Self {
-            instigator_actor_id: value.instigator_actor_id,
-            instigator_mob_variant: value.instigator_mob_variant,
-            damage_source: value.damage_source,
-            diedin_raid: value.diedin_raid,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView {
-    pub player_waxedor_unwaxed_copper_block_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.player_waxedor_unwaxed_copper_block_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let player_waxedor_unwaxed_copper_block_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            player_waxedor_unwaxed_copper_block_id,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.player_waxedor_unwaxed_copper_block_id)
-            .encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView>
-    for LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopperView) -> Self {
-        let _ = &value;
-        Self {
-            player_waxedor_unwaxed_copper_block_id: value.player_waxedor_unwaxed_copper_block_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPortalCreatedView {
-    pub dimension_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPortalCreatedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.dimension_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPortalCreatedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { dimension_id })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPortalCreatedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.dimension_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPortalCreatedView>
-    for LegacyTelemetryEventPacketPayloadPortalCreated
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPortalCreatedView) -> Self {
-        let _ = &value;
-        Self {
-            dimension_id: value.dimension_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadPortalUsedView {
-    pub source_dimension_id: i32,
-    pub target_dimension_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPortalUsedView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.source_dimension_id,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.target_dimension_id,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadPortalUsedView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let source_dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let target_dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            source_dimension_id,
-            target_dimension_id,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadPortalUsedView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.source_dimension_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.target_dimension_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadPortalUsedView>
-    for LegacyTelemetryEventPacketPayloadPortalUsed
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadPortalUsedView) -> Self {
-        let _ = &value;
-        Self {
-            source_dimension_id: value.source_dimension_id,
-            target_dimension_id: value.target_dimension_id,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadRaidUpdateView {
-    pub current_wave: i32,
-    pub total_waves: i32,
-    pub success: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadRaidUpdateView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.current_wave,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.total_waves,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.success)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadRaidUpdateView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let current_wave =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let total_waves =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let success = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            current_wave,
-            total_waves,
-            success,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadRaidUpdateView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.current_wave).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.total_waves).encode(buf)?;
-        (&self.success).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadRaidUpdateView>
-    for LegacyTelemetryEventPacketPayloadRaidUpdate
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadRaidUpdateView) -> Self {
-        let _ = &value;
-        Self {
-            current_wave: value.current_wave,
-            total_waves: value.total_waves,
-            success: value.success,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadSlashCommandView {
-    pub success_count: i32,
-    pub error_count: i32,
-    pub command_name: crate::bedrock::borrowed::BorrowedStr,
-    pub error_list: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadSlashCommandView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.success_count,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.error_count,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.command_name).as_bytes().len()) as i32,
-            ))
-            + (&self.command_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.error_list).as_bytes().len()) as i32,
-            ))
-            + (&self.error_list).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadSlashCommandView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let success_count =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let error_count =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let command_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let error_list = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            success_count,
-            error_count,
-            command_name,
-            error_list,
-        })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadSlashCommandView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.success_count).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.error_count).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.command_name).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.command_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.error_list).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.error_list).as_bytes());
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadSlashCommandView>
-    for LegacyTelemetryEventPacketPayloadSlashCommand
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadSlashCommandView) -> Self {
-        let _ = &value;
-        Self {
-            success_count: value.success_count,
-            error_count: value.error_count,
-            command_name: (value.command_name).to_string_lossy().into_owned(),
-            error_list: (value.error_list).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LegacyTelemetryEventPacketPayloadTargetBlockHitView {
-    pub redstone_level: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadTargetBlockHitView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.redstone_level,
-            ))
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for LegacyTelemetryEventPacketPayloadTargetBlockHitView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let redstone_level =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { redstone_level })
-    }
-}
-impl LegacyTelemetryEventPacketPayloadTargetBlockHitView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.redstone_level).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LegacyTelemetryEventPacketPayloadTargetBlockHitView>
-    for LegacyTelemetryEventPacketPayloadTargetBlockHit
-{
-    fn from(value: LegacyTelemetryEventPacketPayloadTargetBlockHitView) -> Self {
-        let _ = &value;
-        Self {
-            redstone_level: value.redstone_level,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct LevelChunkPacketPayloadSubChunkMetadataView {
     pub blob_id: u64,
 }
@@ -15985,22 +14179,22 @@ impl From<MapItemTrackedActorUniqueIdView> for MapItemTrackedActorUniqueId {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct MaterialReducerEntryOutputView {
-    pub item_id: i32,
-    pub item_count: i32,
+pub struct CraftingDataReservedEntryOutputView {
+    pub reserved_0: i32,
+    pub reserved_1: i32,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerEntryOutputView {
+impl crate::bedrock::codec::BedrockSized for CraftingDataReservedEntryOutputView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_id,
+                *&self.reserved_0,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.item_count,
+                *&self.reserved_1,
             ))
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerEntryOutputView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataReservedEntryOutputView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -16008,65 +14202,65 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerEntryOutpu
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let item_id =
+        let reserved_0 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let item_count =
+        let reserved_1 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
         Ok(Self {
-            item_id,
-            item_count,
+            reserved_0,
+            reserved_1,
         })
     }
 }
-impl MaterialReducerEntryOutputView {
+impl CraftingDataReservedEntryOutputView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.item_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.item_count).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(*&self.reserved_0).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(*&self.reserved_1).encode(buf)?;
         Ok(())
     }
 }
-impl From<MaterialReducerEntryOutputView> for MaterialReducerEntryOutput {
-    fn from(value: MaterialReducerEntryOutputView) -> Self {
+impl From<CraftingDataReservedEntryOutputView> for CraftingDataReservedEntryOutput {
+    fn from(value: CraftingDataReservedEntryOutputView) -> Self {
         let _ = &value;
         Self {
-            item_id: value.item_id,
-            item_count: value.item_count,
+            reserved_0: value.reserved_0,
+            reserved_1: value.reserved_1,
         }
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct MaterialReducerDataEntryView {
-    pub from_item_key: i32,
-    pub item_idsand_counts: Vec<MaterialReducerEntryOutputView>,
+pub struct CraftingDataReservedEntryView {
+    pub reserved_0: i32,
+    pub reserved_1: Vec<CraftingDataReservedEntryOutputView>,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerDataEntryView {
+impl crate::bedrock::codec::BedrockSized for CraftingDataReservedEntryView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.from_item_key,
+                *&self.reserved_0,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.item_idsand_counts).len()) as i32,
+                ((&self.reserved_1).len()) as i32,
             ))
-            + (&self.item_idsand_counts)
+            + (&self.reserved_1)
                 .iter()
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerDataEntryView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataReservedEntryView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -16074,13 +14268,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerDataEntryV
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let from_item_key =
+        let reserved_0 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let item_idsand_counts = {
+        let reserved_1 = {
             let len = {
                 let raw =
                     <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -16097,7 +14291,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerDataEntryV
             for _ in 0..len {
                 values
                     .push(
-                        <MaterialReducerEntryOutputView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        <CraftingDataReservedEntryOutputView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                             buf,
                             (),
                         )?,
@@ -16106,31 +14300,31 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MaterialReducerDataEntryV
             values
         };
         Ok(Self {
-            from_item_key,
-            item_idsand_counts,
+            reserved_0,
+            reserved_1,
         })
     }
 }
-impl MaterialReducerDataEntryView {
+impl CraftingDataReservedEntryView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.from_item_key).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.item_idsand_counts).len()) as i32).encode(buf)?;
-        for item in &self.item_idsand_counts {
+        crate::bedrock::codec::ZigZag32(*&self.reserved_0).encode(buf)?;
+        crate::bedrock::codec::VarInt(((&self.reserved_1).len()) as i32).encode(buf)?;
+        for item in &self.reserved_1 {
             (item).encode(buf)?;
         }
         Ok(())
     }
 }
-impl From<MaterialReducerDataEntryView> for MaterialReducerDataEntry {
-    fn from(value: MaterialReducerDataEntryView) -> Self {
+impl From<CraftingDataReservedEntryView> for CraftingDataReservedEntry {
+    fn from(value: CraftingDataReservedEntryView) -> Self {
         let _ = &value;
         Self {
-            from_item_key: value.from_item_key,
-            item_idsand_counts: (value.item_idsand_counts)
+            reserved_0: value.reserved_0,
+            reserved_1: (value.reserved_1)
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
@@ -26813,13 +25007,13 @@ pub struct CraftingDataPacketView {
     pub shapeless_recipes: Vec<ShapelessRecipePayloadView>,
     pub multi_recipes: Vec<MultiRecipePayloadView>,
     pub user_data_shapeless_recipes: Vec<ShapelessRecipePayloadView>,
-    pub shapeless_chemistry_recipes: Vec<ShapelessRecipePayloadView>,
-    pub shaped_chemistry_recipes: Vec<ShapedRecipePayloadView>,
+    pub reserved_recipes_4: Vec<ShapelessRecipePayloadView>,
+    pub reserved_recipes_5: Vec<ShapedRecipePayloadView>,
     pub smithing_transform_recipes: Vec<SmithingTransformRecipePayloadView>,
     pub smithing_trim_recipes: Vec<SmithingTrimRecipePayloadView>,
     pub potion_mixes: Vec<PotionMixDataEntryView>,
     pub container_mixes: Vec<ContainerMixDataEntryView>,
-    pub material_reducers: Vec<MaterialReducerDataEntryView>,
+    pub reserved_entries_10: Vec<CraftingDataReservedEntryView>,
     pub clear_recipes: bool,
 }
 impl crate::bedrock::codec::BedrockSized for CraftingDataPacketView {
@@ -26854,16 +25048,16 @@ impl crate::bedrock::codec::BedrockSized for CraftingDataPacketView {
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.shapeless_chemistry_recipes).len()) as i32,
+                ((&self.reserved_recipes_4).len()) as i32,
             ))
-            + (&self.shapeless_chemistry_recipes)
+            + (&self.reserved_recipes_4)
                 .iter()
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.shaped_chemistry_recipes).len()) as i32,
+                ((&self.reserved_recipes_5).len()) as i32,
             ))
-            + (&self.shaped_chemistry_recipes)
+            + (&self.reserved_recipes_5)
                 .iter()
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
@@ -26896,9 +25090,9 @@ impl crate::bedrock::codec::BedrockSized for CraftingDataPacketView {
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.material_reducers).len()) as i32,
+                ((&self.reserved_entries_10).len()) as i32,
             ))
-            + (&self.material_reducers)
+            + (&self.reserved_entries_10)
                 .iter()
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
@@ -27013,7 +25207,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
             }
             values
         };
-        let shapeless_chemistry_recipes = {
+        let reserved_recipes_4 = {
             let len = {
                 let raw =
                     <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -27038,7 +25232,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
             }
             values
         };
-        let shaped_chemistry_recipes = {
+        let reserved_recipes_5 = {
             let len = {
                 let raw =
                     <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -27163,7 +25357,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
             }
             values
         };
-        let material_reducers = {
+        let reserved_entries_10 = {
             let len = {
                 let raw =
                     <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -27180,7 +25374,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
             for _ in 0..len {
                 values
                     .push(
-                        <MaterialReducerDataEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        <CraftingDataReservedEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                             buf,
                             (),
                         )?,
@@ -27194,13 +25388,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
             shapeless_recipes,
             multi_recipes,
             user_data_shapeless_recipes,
-            shapeless_chemistry_recipes,
-            shaped_chemistry_recipes,
+            reserved_recipes_4,
+            reserved_recipes_5,
             smithing_transform_recipes,
             smithing_trim_recipes,
             potion_mixes,
             container_mixes,
-            material_reducers,
+            reserved_entries_10,
             clear_recipes,
         })
     }
@@ -27228,14 +25422,12 @@ impl CraftingDataPacketView {
         for item in &self.user_data_shapeless_recipes {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarInt(((&self.shapeless_chemistry_recipes).len()) as i32)
-            .encode(buf)?;
-        for item in &self.shapeless_chemistry_recipes {
+        crate::bedrock::codec::VarInt(((&self.reserved_recipes_4).len()) as i32).encode(buf)?;
+        for item in &self.reserved_recipes_4 {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarInt(((&self.shaped_chemistry_recipes).len()) as i32)
-            .encode(buf)?;
-        for item in &self.shaped_chemistry_recipes {
+        crate::bedrock::codec::VarInt(((&self.reserved_recipes_5).len()) as i32).encode(buf)?;
+        for item in &self.reserved_recipes_5 {
             (item).encode(buf)?;
         }
         crate::bedrock::codec::VarInt(((&self.smithing_transform_recipes).len()) as i32)
@@ -27255,8 +25447,8 @@ impl CraftingDataPacketView {
         for item in &self.container_mixes {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarInt(((&self.material_reducers).len()) as i32).encode(buf)?;
-        for item in &self.material_reducers {
+        crate::bedrock::codec::VarInt(((&self.reserved_entries_10).len()) as i32).encode(buf)?;
+        for item in &self.reserved_entries_10 {
             (item).encode(buf)?;
         }
         (&self.clear_recipes).encode(buf)?;
@@ -27283,11 +25475,11 @@ impl From<CraftingDataPacketView> for CraftingDataPacket {
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
-            shapeless_chemistry_recipes: (value.shapeless_chemistry_recipes)
+            reserved_recipes_4: (value.reserved_recipes_4)
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
-            shaped_chemistry_recipes: (value.shaped_chemistry_recipes)
+            reserved_recipes_5: (value.reserved_recipes_5)
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
@@ -27307,7 +25499,7 @@ impl From<CraftingDataPacketView> for CraftingDataPacket {
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
-            material_reducers: (value.material_reducers)
+            reserved_entries_10: (value.reserved_entries_10)
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
@@ -30421,256 +28613,6 @@ impl From<AutomationClientConnectPacketView> for AutomationClientConnectPacket {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct SetLastHurtByPacketView {
-    pub last_hurt_by: SetLastHurtByPacketLastHurtBy,
-}
-impl crate::bedrock::codec::BedrockSized for SetLastHurtByPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.last_hurt_by)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for SetLastHurtByPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let last_hurt_by =
-            <SetLastHurtByPacketLastHurtBy as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        Ok(Self { last_hurt_by })
-    }
-}
-impl SetLastHurtByPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.last_hurt_by).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<SetLastHurtByPacketView> for SetLastHurtByPacket {
-    fn from(value: SetLastHurtByPacketView) -> Self {
-        let _ = &value;
-        Self {
-            last_hurt_by: value.last_hurt_by,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct NpcRequestPacketView {
-    pub npc_runtime_id: ActorRuntimeIdView,
-    pub request_type: NpcRequestPacketRequestType,
-    pub actions: crate::bedrock::borrowed::BorrowedStr,
-    pub action_index: u8,
-    pub scene_name: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for NpcRequestPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.npc_runtime_id)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.request_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.actions).as_bytes().len()) as i32,
-            ))
-            + (&self.actions).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.action_index)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.scene_name).as_bytes().len()) as i32,
-            ))
-            + (&self.scene_name).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for NpcRequestPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let npc_runtime_id =
-            <ActorRuntimeIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
-        let request_type =
-            <NpcRequestPacketRequestType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let actions = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let action_index = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let scene_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            npc_runtime_id,
-            request_type,
-            actions,
-            action_index,
-            scene_name,
-        })
-    }
-}
-impl NpcRequestPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.npc_runtime_id).encode(buf)?;
-        (&self.request_type).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.actions).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.actions).as_bytes());
-        (&self.action_index).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.scene_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.scene_name).as_bytes());
-        Ok(())
-    }
-}
-impl From<NpcRequestPacketView> for NpcRequestPacket {
-    fn from(value: NpcRequestPacketView) -> Self {
-        let _ = &value;
-        Self {
-            npc_runtime_id: (value.npc_runtime_id).into(),
-            request_type: value.request_type,
-            actions: (value.actions).to_string_lossy().into_owned(),
-            action_index: value.action_index,
-            scene_name: (value.scene_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PhotoTransferPacketView {
-    pub photo_name: crate::bedrock::borrowed::BorrowedStr,
-    pub photo_data: Vec<u8>,
-    pub book_id: crate::bedrock::borrowed::BorrowedStr,
-    pub type_: PhotoTransferPacketType,
-    pub source_type: PhotoTransferPacketSourceType,
-    pub owner_id: i64,
-    pub new_photo_name: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for PhotoTransferPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_name).as_bytes().len()) as i32,
-            ))
-            + (&self.photo_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_data).len()) as i32,
-            ))
-            + (&self.photo_data)
-                .iter()
-                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                .sum::<usize>()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.book_id).as_bytes().len()) as i32,
-            ))
-            + (&self.book_id).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.type_)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.source_type)
-            + 8usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.new_photo_name).as_bytes().len()) as i32,
-            ))
-            + (&self.new_photo_name).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for PhotoTransferPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let photo_data = {
-            let len = {
-                let raw =
-                    <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
-                    .0 as i64;
-                if raw < 0 {
-                    return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
-                }
-                raw as usize
-            };
-            let mut values = Vec::with_capacity(len);
-            for _ in 0..len {
-                values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?);
-            }
-            values
-        };
-        let book_id = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let type_ =
-            <PhotoTransferPacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let source_type =
-            <PhotoTransferPacketSourceType as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let owner_id =
-            <crate::bedrock::codec::I64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let new_photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            photo_name,
-            photo_data,
-            book_id,
-            type_,
-            source_type,
-            owner_id,
-            new_photo_name,
-        })
-    }
-}
-impl PhotoTransferPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.photo_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.photo_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.photo_data).len()) as i32).encode(buf)?;
-        for item in &self.photo_data {
-            (item).encode(buf)?;
-        }
-        crate::bedrock::codec::VarInt(((&self.book_id).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.book_id).as_bytes());
-        (&self.type_).encode(buf)?;
-        (&self.source_type).encode(buf)?;
-        crate::bedrock::codec::I64LE(*&self.owner_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.new_photo_name).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.new_photo_name).as_bytes());
-        Ok(())
-    }
-}
-impl From<PhotoTransferPacketView> for PhotoTransferPacket {
-    fn from(value: PhotoTransferPacketView) -> Self {
-        let _ = &value;
-        Self {
-            photo_name: (value.photo_name).to_string_lossy().into_owned(),
-            photo_data: (value.photo_data).into_iter().map(|item| item).collect(),
-            book_id: (value.book_id).to_string_lossy().into_owned(),
-            type_: value.type_,
-            source_type: value.source_type,
-            owner_id: value.owner_id,
-            new_photo_name: (value.new_photo_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct ModalFormRequestPacketView {
     pub form_id: i32,
     pub form_uijson: crate::bedrock::borrowed::BorrowedStr,
@@ -31137,65 +29079,6 @@ impl From<SetDisplayObjectivePacketView> for SetDisplayObjectivePacket {
                 .into_owned(),
             criteria_name: (value.criteria_name).to_string_lossy().into_owned(),
             sort_order: value.sort_order,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LabTablePacketView {
-    pub type_: LabTablePacketType,
-    pub position: BlockPosView,
-    pub reaction: LabTablePacketReaction,
-}
-impl crate::bedrock::codec::BedrockSized for LabTablePacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.type_)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.position)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.reaction)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for LabTablePacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let type_ = <LabTablePacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let position =
-            <BlockPosView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
-        let reaction =
-            <LabTablePacketReaction as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            type_,
-            position,
-            reaction,
-        })
-    }
-}
-impl LabTablePacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.type_).encode(buf)?;
-        (&self.position).encode(buf)?;
-        (&self.reaction).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<LabTablePacketView> for LabTablePacket {
-    fn from(value: LabTablePacketView) -> Self {
-        let _ = &value;
-        Self {
-            type_: value.type_,
-            position: (value.position).into(),
-            reaction: value.reaction,
         }
     }
 }
@@ -32682,50 +30565,6 @@ impl From<ClientCacheMissResponsePacketView> for ClientCacheMissResponsePacket {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct EducationSettingsPacketView {
-    pub education_level_settings: EducationLevelSettingsView,
-}
-impl crate::bedrock::codec::BedrockSized for EducationSettingsPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.education_level_settings)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EducationSettingsPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let education_level_settings = <EducationLevelSettingsView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-            buf,
-            (),
-        )?;
-        Ok(Self {
-            education_level_settings,
-        })
-    }
-}
-impl EducationSettingsPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.education_level_settings).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<EducationSettingsPacketView> for EducationSettingsPacket {
-    fn from(value: EducationSettingsPacketView) -> Self {
-        let _ = &value;
-        Self {
-            education_level_settings: (value.education_level_settings).into(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct EmotePacketView {
     pub actor_runtime_id: ActorRuntimeIdView,
     pub emote_id: crate::bedrock::borrowed::BorrowedStr,
@@ -33352,58 +31191,6 @@ impl From<PlayerArmorDamagePacketView> for PlayerArmorDamagePacket {
                 .into_iter()
                 .map(|item| (item).into())
                 .collect(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct CodeBuilderPacketView {
-    pub url: crate::bedrock::borrowed::BorrowedStr,
-    pub shouldopencodebuilder: bool,
-}
-impl crate::bedrock::codec::BedrockSized for CodeBuilderPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.url).as_bytes().len()) as i32,
-            ))
-            + (&self.url).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.shouldopencodebuilder)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for CodeBuilderPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let url = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let shouldopencodebuilder = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            url,
-            shouldopencodebuilder,
-        })
-    }
-}
-impl CodeBuilderPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.url).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.url).as_bytes());
-        (&self.shouldopencodebuilder).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<CodeBuilderPacketView> for CodeBuilderPacket {
-    fn from(value: CodeBuilderPacketView) -> Self {
-        let _ = &value;
-        Self {
-            url: (value.url).to_string_lossy().into_owned(),
-            shouldopencodebuilder: value.shouldopencodebuilder,
         }
     }
 }
@@ -34660,208 +32447,6 @@ impl From<SimulationTypePacketView> for SimulationTypePacket {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct NpcDialoguePacketView {
-    pub npc_id_raw_id: u64,
-    pub npc_dialogue_action_type: NpcDialoguePacketNpcDialogueActionType,
-    pub dialogue: crate::bedrock::borrowed::BorrowedStr,
-    pub scene_name: crate::bedrock::borrowed::BorrowedStr,
-    pub npc_name: crate::bedrock::borrowed::BorrowedStr,
-    pub action_json: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for NpcDialoguePacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + 8usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.npc_dialogue_action_type)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.dialogue).as_bytes().len()) as i32,
-            ))
-            + (&self.dialogue).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.scene_name).as_bytes().len()) as i32,
-            ))
-            + (&self.scene_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.npc_name).as_bytes().len()) as i32,
-            ))
-            + (&self.npc_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.action_json).as_bytes().len()) as i32,
-            ))
-            + (&self.action_json).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for NpcDialoguePacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let npc_id_raw_id =
-            <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let npc_dialogue_action_type = <NpcDialoguePacketNpcDialogueActionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let dialogue = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let scene_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let npc_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let action_json = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            npc_id_raw_id,
-            npc_dialogue_action_type,
-            dialogue,
-            scene_name,
-            npc_name,
-            action_json,
-        })
-    }
-}
-impl NpcDialoguePacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::U64LE(*&self.npc_id_raw_id).encode(buf)?;
-        (&self.npc_dialogue_action_type).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.dialogue).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.dialogue).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.scene_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.scene_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.npc_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.npc_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.action_json).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.action_json).as_bytes());
-        Ok(())
-    }
-}
-impl From<NpcDialoguePacketView> for NpcDialoguePacket {
-    fn from(value: NpcDialoguePacketView) -> Self {
-        let _ = &value;
-        Self {
-            npc_id_raw_id: value.npc_id_raw_id,
-            npc_dialogue_action_type: value.npc_dialogue_action_type,
-            dialogue: (value.dialogue).to_string_lossy().into_owned(),
-            scene_name: (value.scene_name).to_string_lossy().into_owned(),
-            npc_name: (value.npc_name).to_string_lossy().into_owned(),
-            action_json: (value.action_json).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct EduUriResourcePacketView {
-    pub edu_shared_uri_resource: EduSharedUriResourceView,
-}
-impl crate::bedrock::codec::BedrockSized for EduUriResourcePacketView {
-    fn encoded_size(&self) -> usize {
-        0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.edu_shared_uri_resource)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EduUriResourcePacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let edu_shared_uri_resource = <EduSharedUriResourceView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-            buf,
-            (),
-        )?;
-        Ok(Self {
-            edu_shared_uri_resource,
-        })
-    }
-}
-impl EduUriResourcePacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.edu_shared_uri_resource).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<EduUriResourcePacketView> for EduUriResourcePacket {
-    fn from(value: EduUriResourcePacketView) -> Self {
-        let _ = &value;
-        Self {
-            edu_shared_uri_resource: (value.edu_shared_uri_resource).into(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct CreatePhotoPacketView {
-    pub raw_id: u64,
-    pub photo_name: crate::bedrock::borrowed::BorrowedStr,
-    pub photo_item_name: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for CreatePhotoPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + 8usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_name).as_bytes().len()) as i32,
-            ))
-            + (&self.photo_name).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.photo_item_name).as_bytes().len()) as i32,
-            ))
-            + (&self.photo_item_name).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for CreatePhotoPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let raw_id =
-            <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let photo_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let photo_item_name = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            raw_id,
-            photo_name,
-            photo_item_name,
-        })
-    }
-}
-impl CreatePhotoPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::U64LE(*&self.raw_id).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.photo_name).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.photo_name).as_bytes());
-        crate::bedrock::codec::VarInt(((&self.photo_item_name).as_bytes().len()) as i32)
-            .encode(buf)?;
-        buf.put_slice((&self.photo_item_name).as_bytes());
-        Ok(())
-    }
-}
-impl From<CreatePhotoPacketView> for CreatePhotoPacket {
-    fn from(value: CreatePhotoPacketView) -> Self {
-        let _ = &value;
-        Self {
-            raw_id: value.raw_id,
-            photo_name: (value.photo_name).to_string_lossy().into_owned(),
-            photo_item_name: (value.photo_item_name).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct UpdateSubChunkBlocksPacketView {
     pub sub_chunk_block_position: BlockPosView,
     pub blocks_changed: UpdateSubChunkBlocksChangedInfoView,
@@ -35158,72 +32743,6 @@ impl From<ScriptMessagePacketView> for ScriptMessagePacket {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct CodeBuilderSourcePacketView {
-    pub operation: CodeBuilderSourcePacketOperation,
-    pub category: CodeBuilderSourcePacketCategory,
-    pub code_status: CodeBuilderSourcePacketCodeStatus,
-}
-impl crate::bedrock::codec::BedrockSized for CodeBuilderSourcePacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.operation)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.category)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.code_status)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for CodeBuilderSourcePacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let operation =
-            <CodeBuilderSourcePacketOperation as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let category =
-            <CodeBuilderSourcePacketCategory as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let code_status =
-            <CodeBuilderSourcePacketCodeStatus as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        Ok(Self {
-            operation,
-            category,
-            code_status,
-        })
-    }
-}
-impl CodeBuilderSourcePacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.operation).encode(buf)?;
-        (&self.category).encode(buf)?;
-        (&self.code_status).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<CodeBuilderSourcePacketView> for CodeBuilderSourcePacket {
-    fn from(value: CodeBuilderSourcePacketView) -> Self {
-        let _ = &value;
-        Self {
-            operation: value.operation,
-            category: value.category,
-            code_status: value.code_status,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct TickingAreasLoadStatusPacketView {
     pub waiting_for_preload: bool,
 }
@@ -35393,69 +32912,6 @@ impl From<DimensionDataPacketView> for DimensionDataPacket {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct AgentActionEventPacketView {
-    pub request_id: crate::bedrock::borrowed::BorrowedStr,
-    pub action: AgentActionEventPacketAction,
-    pub response: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for AgentActionEventPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.request_id).as_bytes().len()) as i32,
-            ))
-            + (&self.request_id).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.action)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.response).as_bytes().len()) as i32,
-            ))
-            + (&self.response).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for AgentActionEventPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let request_id = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        let action =
-            <AgentActionEventPacketAction as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let response = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            request_id,
-            action,
-            response,
-        })
-    }
-}
-impl AgentActionEventPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(((&self.request_id).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.request_id).as_bytes());
-        (&self.action).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.response).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.response).as_bytes());
-        Ok(())
-    }
-}
-impl From<AgentActionEventPacketView> for AgentActionEventPacket {
-    fn from(value: AgentActionEventPacketView) -> Self {
-        let _ = &value;
-        Self {
-            request_id: (value.request_id).to_string_lossy().into_owned(),
-            action: value.action,
-            response: (value.response).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
 pub struct ChangeMobPropertyPacketView {
     pub actor_id: ActorUniqueIdView,
     pub property_name: crate::bedrock::borrowed::BorrowedStr,
@@ -35549,78 +33005,6 @@ impl From<ChangeMobPropertyPacketView> for ChangeMobPropertyPacket {
                 .into_owned(),
             int_component_value: value.int_component_value,
             float_component_value: value.float_component_value,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct LessonProgressPacketView {
-    pub lesson_action: i32,
-    pub score: i32,
-    pub activity_id: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized for LessonProgressPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.lesson_action,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.score,
-            ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                ((&self.activity_id).as_bytes().len()) as i32,
-            ))
-            + (&self.activity_id).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for LessonProgressPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let lesson_action =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let score =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let activity_id = crate::bedrock::borrowed::take_varint_prefixed_string(buf)?;
-        Ok(Self {
-            lesson_action,
-            score,
-            activity_id,
-        })
-    }
-}
-impl LessonProgressPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.lesson_action).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.score).encode(buf)?;
-        crate::bedrock::codec::VarInt(((&self.activity_id).as_bytes().len()) as i32).encode(buf)?;
-        buf.put_slice((&self.activity_id).as_bytes());
-        Ok(())
-    }
-}
-impl From<LessonProgressPacketView> for LessonProgressPacket {
-    fn from(value: LessonProgressPacketView) -> Self {
-        let _ = &value;
-        Self {
-            lesson_action: value.lesson_action,
-            score: value.score,
-            activity_id: (value.activity_id).to_string_lossy().into_owned(),
         }
     }
 }
@@ -36808,62 +34192,6 @@ impl From<OpenSignPacketView> for OpenSignPacket {
         Self {
             pos: (value.pos).into(),
             is_front_side: value.is_front_side,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentAnimationPacketView {
-    pub agent_animation: AgentAnimationPacketAgentAnimation,
-    pub runtime_id: ActorRuntimeIdView,
-}
-impl crate::bedrock::codec::BedrockSized for AgentAnimationPacketView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.agent_animation)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.runtime_id)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for AgentAnimationPacketView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let agent_animation =
-            <AgentAnimationPacketAgentAnimation as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let runtime_id =
-            <ActorRuntimeIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
-        Ok(Self {
-            agent_animation,
-            runtime_id,
-        })
-    }
-}
-impl AgentAnimationPacketView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.agent_animation).encode(buf)?;
-        (&self.runtime_id).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<AgentAnimationPacketView> for AgentAnimationPacket {
-    fn from(value: AgentAnimationPacketView) -> Self {
-        let _ = &value;
-        Self {
-            agent_animation: value.agent_animation,
-            runtime_id: (value.runtime_id).into(),
         }
     }
 }
@@ -39619,9 +36947,6 @@ pub enum BorrowedMcpePacketData {
     PurchaseReceiptPacket(PurchaseReceiptPacketView),
     SubClientLoginPacket(SubClientLoginPacketView),
     AutomationClientConnectPacket(AutomationClientConnectPacketView),
-    SetLastHurtByPacket(SetLastHurtByPacketView),
-    NpcRequestPacket(NpcRequestPacketView),
-    PhotoTransferPacket(PhotoTransferPacketView),
     ModalFormRequestPacket(ModalFormRequestPacketView),
     ModalFormResponsePacket(ModalFormResponsePacketView),
     ServerSettingsRequestPacket(ServerSettingsRequestPacketView),
@@ -39630,7 +36955,6 @@ pub enum BorrowedMcpePacketData {
     SetDefaultGameTypePacket(SetDefaultGameTypePacketView),
     RemoveObjectivePacket(RemoveObjectivePacketView),
     SetDisplayObjectivePacket(SetDisplayObjectivePacketView),
-    LabTablePacket(LabTablePacketView),
     UpdateBlockSyncedPacket(UpdateBlockSyncedPacketView),
     MoveActorDeltaPacket(MoveActorDeltaPacketView),
     SetScoreboardIdentityPacket(SetScoreboardIdentityPacketView),
@@ -39651,7 +36975,6 @@ pub enum BorrowedMcpePacketData {
     StructureTemplateDataResponsePacket(StructureTemplateDataResponsePacketView),
     ClientCacheBlobStatusPacket(ClientCacheBlobStatusPacketView),
     ClientCacheMissResponsePacket(ClientCacheMissResponsePacketView),
-    EducationSettingsPacket(EducationSettingsPacketView),
     EmotePacket(EmotePacketView),
     MultiplayerSettingsPacket(MultiplayerSettingsPacketView),
     SettingsCommandPacket(SettingsCommandPacketView),
@@ -39661,7 +36984,6 @@ pub enum BorrowedMcpePacketData {
     CreativeContentPacket(CreativeContentPacketView),
     ItemStackResponsePacket(ItemStackResponsePacketView),
     PlayerArmorDamagePacket(PlayerArmorDamagePacketView),
-    CodeBuilderPacket(CodeBuilderPacketView),
     UpdatePlayerGameTypePacket(UpdatePlayerGameTypePacketView),
     EmoteListPacket(EmoteListPacketView),
     PositionTrackingDbServerBroadcastPacket(PositionTrackingDbServerBroadcastPacketView),
@@ -39679,19 +37001,13 @@ pub enum BorrowedMcpePacketData {
     AddVolumeEntityPacket(AddVolumeEntityPacketView),
     RemoveVolumeEntityPacket(RemoveVolumeEntityPacketView),
     SimulationTypePacket(SimulationTypePacketView),
-    NpcDialoguePacket(NpcDialoguePacketView),
-    EduUriResourcePacket(EduUriResourcePacketView),
-    CreatePhotoPacket(CreatePhotoPacketView),
     UpdateSubChunkBlocksPacket(UpdateSubChunkBlocksPacketView),
     SubChunkRequestPacket(SubChunkRequestPacketView),
     PlayerStartItemCooldownPacket(PlayerStartItemCooldownPacketView),
     ScriptMessagePacket(ScriptMessagePacketView),
-    CodeBuilderSourcePacket(CodeBuilderSourcePacketView),
     TickingAreasLoadStatusPacket(TickingAreasLoadStatusPacketView),
     DimensionDataPacket(DimensionDataPacketView),
-    AgentActionEventPacket(AgentActionEventPacketView),
     ChangeMobPropertyPacket(ChangeMobPropertyPacketView),
-    LessonProgressPacket(LessonProgressPacketView),
     RequestAbilityPacket(RequestAbilityPacketView),
     RequestPermissionsPacket(RequestPermissionsPacketView),
     ToastRequestPacket(ToastRequestPacketView),
@@ -39710,7 +37026,6 @@ pub enum BorrowedMcpePacketData {
     CameraInstructionPacket(CameraInstructionPacketView),
     TrimDataPacket(TrimDataPacketView),
     OpenSignPacket(OpenSignPacketView),
-    AgentAnimationPacket(AgentAnimationPacketView),
     RefreshEntitlementsPacket(RefreshEntitlementsPacketView),
     PlayerToggleCrafterSlotRequestPacket(PlayerToggleCrafterSlotRequestPacketView),
     SetPlayerInventoryOptionsPacket(SetPlayerInventoryOptionsPacketView),
@@ -39844,9 +37159,6 @@ impl BorrowedMcpePacketData {
             Self::AutomationClientConnectPacket(_) => {
                 crate::McpePacketName::AutomationClientConnectPacket
             }
-            Self::SetLastHurtByPacket(_) => crate::McpePacketName::SetLastHurtByPacket,
-            Self::NpcRequestPacket(_) => crate::McpePacketName::NpcRequestPacket,
-            Self::PhotoTransferPacket(_) => crate::McpePacketName::PhotoTransferPacket,
             Self::ModalFormRequestPacket(_) => crate::McpePacketName::ModalFormRequestPacket,
             Self::ModalFormResponsePacket(_) => crate::McpePacketName::ModalFormResponsePacket,
             Self::ServerSettingsRequestPacket(_) => {
@@ -39859,7 +37171,6 @@ impl BorrowedMcpePacketData {
             Self::SetDefaultGameTypePacket(_) => crate::McpePacketName::SetDefaultGameTypePacket,
             Self::RemoveObjectivePacket(_) => crate::McpePacketName::RemoveObjectivePacket,
             Self::SetDisplayObjectivePacket(_) => crate::McpePacketName::SetDisplayObjectivePacket,
-            Self::LabTablePacket(_) => crate::McpePacketName::LabTablePacket,
             Self::UpdateBlockSyncedPacket(_) => crate::McpePacketName::UpdateBlockSyncedPacket,
             Self::MoveActorDeltaPacket(_) => crate::McpePacketName::MoveActorDeltaPacket,
             Self::SetScoreboardIdentityPacket(_) => {
@@ -39898,7 +37209,6 @@ impl BorrowedMcpePacketData {
             Self::ClientCacheMissResponsePacket(_) => {
                 crate::McpePacketName::ClientCacheMissResponsePacket
             }
-            Self::EducationSettingsPacket(_) => crate::McpePacketName::EducationSettingsPacket,
             Self::EmotePacket(_) => crate::McpePacketName::EmotePacket,
             Self::MultiplayerSettingsPacket(_) => crate::McpePacketName::MultiplayerSettingsPacket,
             Self::SettingsCommandPacket(_) => crate::McpePacketName::SettingsCommandPacket,
@@ -39908,7 +37218,6 @@ impl BorrowedMcpePacketData {
             Self::CreativeContentPacket(_) => crate::McpePacketName::CreativeContentPacket,
             Self::ItemStackResponsePacket(_) => crate::McpePacketName::ItemStackResponsePacket,
             Self::PlayerArmorDamagePacket(_) => crate::McpePacketName::PlayerArmorDamagePacket,
-            Self::CodeBuilderPacket(_) => crate::McpePacketName::CodeBuilderPacket,
             Self::UpdatePlayerGameTypePacket(_) => {
                 crate::McpePacketName::UpdatePlayerGameTypePacket
             }
@@ -39940,9 +37249,6 @@ impl BorrowedMcpePacketData {
             Self::AddVolumeEntityPacket(_) => crate::McpePacketName::AddVolumeEntityPacket,
             Self::RemoveVolumeEntityPacket(_) => crate::McpePacketName::RemoveVolumeEntityPacket,
             Self::SimulationTypePacket(_) => crate::McpePacketName::SimulationTypePacket,
-            Self::NpcDialoguePacket(_) => crate::McpePacketName::NpcDialoguePacket,
-            Self::EduUriResourcePacket(_) => crate::McpePacketName::EduUriResourcePacket,
-            Self::CreatePhotoPacket(_) => crate::McpePacketName::CreatePhotoPacket,
             Self::UpdateSubChunkBlocksPacket(_) => {
                 crate::McpePacketName::UpdateSubChunkBlocksPacket
             }
@@ -39951,14 +37257,11 @@ impl BorrowedMcpePacketData {
                 crate::McpePacketName::PlayerStartItemCooldownPacket
             }
             Self::ScriptMessagePacket(_) => crate::McpePacketName::ScriptMessagePacket,
-            Self::CodeBuilderSourcePacket(_) => crate::McpePacketName::CodeBuilderSourcePacket,
             Self::TickingAreasLoadStatusPacket(_) => {
                 crate::McpePacketName::TickingAreasLoadStatusPacket
             }
             Self::DimensionDataPacket(_) => crate::McpePacketName::DimensionDataPacket,
-            Self::AgentActionEventPacket(_) => crate::McpePacketName::AgentActionEventPacket,
             Self::ChangeMobPropertyPacket(_) => crate::McpePacketName::ChangeMobPropertyPacket,
-            Self::LessonProgressPacket(_) => crate::McpePacketName::LessonProgressPacket,
             Self::RequestAbilityPacket(_) => crate::McpePacketName::RequestAbilityPacket,
             Self::RequestPermissionsPacket(_) => crate::McpePacketName::RequestPermissionsPacket,
             Self::ToastRequestPacket(_) => crate::McpePacketName::ToastRequestPacket,
@@ -39983,7 +37286,6 @@ impl BorrowedMcpePacketData {
             Self::CameraInstructionPacket(_) => crate::McpePacketName::CameraInstructionPacket,
             Self::TrimDataPacket(_) => crate::McpePacketName::TrimDataPacket,
             Self::OpenSignPacket(_) => crate::McpePacketName::OpenSignPacket,
-            Self::AgentAnimationPacket(_) => crate::McpePacketName::AgentAnimationPacket,
             Self::RefreshEntitlementsPacket(_) => crate::McpePacketName::RefreshEntitlementsPacket,
             Self::PlayerToggleCrafterSlotRequestPacket(_) => {
                 crate::McpePacketName::PlayerToggleCrafterSlotRequestPacket
@@ -40275,15 +37577,6 @@ impl BorrowedMcpePacketData {
             Self::AutomationClientConnectPacket(view) => Ok(
                 crate::McpePacketData::AutomationClientConnectPacket(view.into()),
             ),
-            Self::SetLastHurtByPacket(view) => {
-                Ok(crate::McpePacketData::SetLastHurtByPacket(view.into()))
-            }
-            Self::NpcRequestPacket(view) => Ok(crate::McpePacketData::NpcRequestPacket(Box::new(
-                view.into(),
-            ))),
-            Self::PhotoTransferPacket(view) => Ok(crate::McpePacketData::PhotoTransferPacket(
-                Box::new(view.into()),
-            )),
             Self::ModalFormRequestPacket(view) => {
                 Ok(crate::McpePacketData::ModalFormRequestPacket(view.into()))
             }
@@ -40308,7 +37601,6 @@ impl BorrowedMcpePacketData {
             Self::SetDisplayObjectivePacket(view) => Ok(
                 crate::McpePacketData::SetDisplayObjectivePacket(Box::new(view.into())),
             ),
-            Self::LabTablePacket(view) => Ok(crate::McpePacketData::LabTablePacket(view.into())),
             Self::UpdateBlockSyncedPacket(view) => Ok(
                 crate::McpePacketData::UpdateBlockSyncedPacket(Box::new(view.into())),
             ),
@@ -40369,9 +37661,6 @@ impl BorrowedMcpePacketData {
             Self::ClientCacheMissResponsePacket(view) => Ok(
                 crate::McpePacketData::ClientCacheMissResponsePacket(view.into()),
             ),
-            Self::EducationSettingsPacket(view) => Ok(
-                crate::McpePacketData::EducationSettingsPacket(Box::new(view.into())),
-            ),
             Self::EmotePacket(view) => {
                 Ok(crate::McpePacketData::EmotePacket(Box::new(view.into())))
             }
@@ -40398,9 +37687,6 @@ impl BorrowedMcpePacketData {
             }
             Self::PlayerArmorDamagePacket(view) => {
                 Ok(crate::McpePacketData::PlayerArmorDamagePacket(view.into()))
-            }
-            Self::CodeBuilderPacket(view) => {
-                Ok(crate::McpePacketData::CodeBuilderPacket(view.into()))
             }
             Self::UpdatePlayerGameTypePacket(view) => Ok(
                 crate::McpePacketData::UpdatePlayerGameTypePacket(view.into()),
@@ -40447,15 +37733,6 @@ impl BorrowedMcpePacketData {
             Self::SimulationTypePacket(view) => {
                 Ok(crate::McpePacketData::SimulationTypePacket(view.into()))
             }
-            Self::NpcDialoguePacket(view) => Ok(crate::McpePacketData::NpcDialoguePacket(
-                Box::new(view.into()),
-            )),
-            Self::EduUriResourcePacket(view) => {
-                Ok(crate::McpePacketData::EduUriResourcePacket(view.into()))
-            }
-            Self::CreatePhotoPacket(view) => {
-                Ok(crate::McpePacketData::CreatePhotoPacket(view.into()))
-            }
             Self::UpdateSubChunkBlocksPacket(view) => Ok(
                 crate::McpePacketData::UpdateSubChunkBlocksPacket(view.into()),
             ),
@@ -40468,24 +37745,15 @@ impl BorrowedMcpePacketData {
             Self::ScriptMessagePacket(view) => {
                 Ok(crate::McpePacketData::ScriptMessagePacket(view.into()))
             }
-            Self::CodeBuilderSourcePacket(view) => {
-                Ok(crate::McpePacketData::CodeBuilderSourcePacket(view.into()))
-            }
             Self::TickingAreasLoadStatusPacket(view) => Ok(
                 crate::McpePacketData::TickingAreasLoadStatusPacket(view.into()),
             ),
             Self::DimensionDataPacket(view) => {
                 Ok(crate::McpePacketData::DimensionDataPacket(view.into()))
             }
-            Self::AgentActionEventPacket(view) => {
-                Ok(crate::McpePacketData::AgentActionEventPacket(view.into()))
-            }
             Self::ChangeMobPropertyPacket(view) => Ok(
                 crate::McpePacketData::ChangeMobPropertyPacket(Box::new(view.into())),
             ),
-            Self::LessonProgressPacket(view) => {
-                Ok(crate::McpePacketData::LessonProgressPacket(view.into()))
-            }
             Self::RequestAbilityPacket(view) => Ok(crate::McpePacketData::RequestAbilityPacket(
                 Box::new(view.into()),
             )),
@@ -40534,9 +37802,6 @@ impl BorrowedMcpePacketData {
             ),
             Self::TrimDataPacket(view) => Ok(crate::McpePacketData::TrimDataPacket(view.into())),
             Self::OpenSignPacket(view) => Ok(crate::McpePacketData::OpenSignPacket(view.into())),
-            Self::AgentAnimationPacket(view) => {
-                Ok(crate::McpePacketData::AgentAnimationPacket(view.into()))
-            }
             Self::RefreshEntitlementsPacket(view) => Ok(
                 crate::McpePacketData::RefreshEntitlementsPacket(view.into()),
             ),
@@ -40635,6 +37900,12 @@ impl BorrowedMcpePacketData {
                 crate::McpePacketData::PartyDestinationCookieResponsePacket(view.into()),
             ),
             Self::Raw { name, payload } => {
+                if name.is_opaque() {
+                    return Ok(crate::McpePacketData::OpaquePacket(crate::OpaquePacket {
+                        id: name,
+                        payload,
+                    }));
+                }
                 let mut payload = payload;
                 let owned = match name {
                     crate::McpePacketName::LoginPacket => {
@@ -41151,16 +38422,6 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::LegacyTelemetryEventPacket => {
-                        crate::McpePacketData::LegacyTelemetryEventPacket(
-                            Box::new(
-                                <LegacyTelemetryEventPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                    &mut payload,
-                                    (),
-                                )?,
-                            ),
-                        )
-                    }
                     crate::McpePacketName::SpawnExperienceOrbPacket => {
                         crate::McpePacketData::SpawnExperienceOrbPacket(
                             <SpawnExperienceOrbPacket as crate::bedrock::codec::BedrockCodec>::decode(
@@ -41423,38 +38684,10 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::SetLastHurtByPacket => {
-                        crate::McpePacketData::SetLastHurtByPacket(
-                            <SetLastHurtByPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
                     crate::McpePacketName::BookEditPacket => {
                         crate::McpePacketData::BookEditPacket(
                             Box::new(
                                 <BookEditPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                    &mut payload,
-                                    (),
-                                )?,
-                            ),
-                        )
-                    }
-                    crate::McpePacketName::NpcRequestPacket => {
-                        crate::McpePacketData::NpcRequestPacket(
-                            Box::new(
-                                <NpcRequestPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                    &mut payload,
-                                    (),
-                                )?,
-                            ),
-                        )
-                    }
-                    crate::McpePacketName::PhotoTransferPacket => {
-                        crate::McpePacketData::PhotoTransferPacket(
-                            Box::new(
-                                <PhotoTransferPacket as crate::bedrock::codec::BedrockCodec>::decode(
                                     &mut payload,
                                     (),
                                 )?,
@@ -41530,14 +38763,6 @@ impl BorrowedMcpePacketData {
                     crate::McpePacketName::SetScorePacket => {
                         crate::McpePacketData::SetScorePacket(
                             <SetScorePacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
-                    crate::McpePacketName::LabTablePacket => {
-                        crate::McpePacketData::LabTablePacket(
-                            <LabTablePacket as crate::bedrock::codec::BedrockCodec>::decode(
                                 &mut payload,
                                 (),
                             )?,
@@ -41713,16 +38938,6 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::EducationSettingsPacket => {
-                        crate::McpePacketData::EducationSettingsPacket(
-                            Box::new(
-                                <EducationSettingsPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                    &mut payload,
-                                    (),
-                                )?,
-                            ),
-                        )
-                    }
                     crate::McpePacketName::EmotePacket => {
                         crate::McpePacketData::EmotePacket(
                             Box::new(
@@ -41820,14 +39035,6 @@ impl BorrowedMcpePacketData {
                     crate::McpePacketName::PlayerArmorDamagePacket => {
                         crate::McpePacketData::PlayerArmorDamagePacket(
                             <PlayerArmorDamagePacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
-                    crate::McpePacketName::CodeBuilderPacket => {
-                        crate::McpePacketData::CodeBuilderPacket(
-                            <CodeBuilderPacket as crate::bedrock::codec::BedrockCodec>::decode(
                                 &mut payload,
                                 (),
                             )?,
@@ -41981,32 +39188,6 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::NpcDialoguePacket => {
-                        crate::McpePacketData::NpcDialoguePacket(
-                            Box::new(
-                                <NpcDialoguePacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                    &mut payload,
-                                    (),
-                                )?,
-                            ),
-                        )
-                    }
-                    crate::McpePacketName::EduUriResourcePacket => {
-                        crate::McpePacketData::EduUriResourcePacket(
-                            <EduUriResourcePacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
-                    crate::McpePacketName::CreatePhotoPacket => {
-                        crate::McpePacketData::CreatePhotoPacket(
-                            <CreatePhotoPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
                     crate::McpePacketName::UpdateSubChunkBlocksPacket => {
                         crate::McpePacketData::UpdateSubChunkBlocksPacket(
                             <UpdateSubChunkBlocksPacket as crate::bedrock::codec::BedrockCodec>::decode(
@@ -42049,14 +39230,6 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::CodeBuilderSourcePacket => {
-                        crate::McpePacketData::CodeBuilderSourcePacket(
-                            <CodeBuilderSourcePacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
                     crate::McpePacketName::TickingAreasLoadStatusPacket => {
                         crate::McpePacketData::TickingAreasLoadStatusPacket(
                             <TickingAreasLoadStatusPacket as crate::bedrock::codec::BedrockCodec>::decode(
@@ -42073,14 +39246,6 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
-                    crate::McpePacketName::AgentActionEventPacket => {
-                        crate::McpePacketData::AgentActionEventPacket(
-                            <AgentActionEventPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
                     crate::McpePacketName::ChangeMobPropertyPacket => {
                         crate::McpePacketData::ChangeMobPropertyPacket(
                             Box::new(
@@ -42089,14 +39254,6 @@ impl BorrowedMcpePacketData {
                                     (),
                                 )?,
                             ),
-                        )
-                    }
-                    crate::McpePacketName::LessonProgressPacket => {
-                        crate::McpePacketData::LessonProgressPacket(
-                            <LessonProgressPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
                         )
                     }
                     crate::McpePacketName::RequestAbilityPacket => {
@@ -42248,14 +39405,6 @@ impl BorrowedMcpePacketData {
                     crate::McpePacketName::OpenSignPacket => {
                         crate::McpePacketData::OpenSignPacket(
                             <OpenSignPacket as crate::bedrock::codec::BedrockCodec>::decode(
-                                &mut payload,
-                                (),
-                            )?,
-                        )
-                    }
-                    crate::McpePacketName::AgentAnimationPacket => {
-                        crate::McpePacketData::AgentAnimationPacket(
-                            <AgentAnimationPacket as crate::bedrock::codec::BedrockCodec>::decode(
                                 &mut payload,
                                 (),
                             )?,
@@ -42645,6 +39794,7 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
+                    _ => unreachable!("opaque packet handled before typed dispatch"),
                 };
                 Ok(owned)
             }
@@ -42661,6 +39811,9 @@ impl BorrowedMcpePacketData {
         name: crate::McpePacketName,
         payload: bytes::Bytes,
     ) -> Result<(Self, usize), crate::bedrock::error::DecodeError> {
+        if name.is_opaque() {
+            return Ok((Self::Raw { name, payload }, 0));
+        }
         let mut payload = payload;
         let data = match name {
             crate::McpePacketName::LoginPacket => {
@@ -43255,30 +40408,6 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
-            crate::McpePacketName::SetLastHurtByPacket => {
-                Self::SetLastHurtByPacket(
-                    <SetLastHurtByPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::NpcRequestPacket => {
-                Self::NpcRequestPacket(
-                    <NpcRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::PhotoTransferPacket => {
-                Self::PhotoTransferPacket(
-                    <PhotoTransferPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
             crate::McpePacketName::ModalFormRequestPacket => {
                 Self::ModalFormRequestPacket(
                     <ModalFormRequestPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -43338,14 +40467,6 @@ impl BorrowedMcpePacketData {
             crate::McpePacketName::SetDisplayObjectivePacket => {
                 Self::SetDisplayObjectivePacket(
                     <SetDisplayObjectivePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::LabTablePacket => {
-                Self::LabTablePacket(
-                    <LabTablePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         &mut payload,
                         (),
                     )?,
@@ -43511,14 +40632,6 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
-            crate::McpePacketName::EducationSettingsPacket => {
-                Self::EducationSettingsPacket(
-                    <EducationSettingsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
             crate::McpePacketName::EmotePacket => {
                 Self::EmotePacket(
                     <EmotePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -43586,14 +40699,6 @@ impl BorrowedMcpePacketData {
             crate::McpePacketName::PlayerArmorDamagePacket => {
                 Self::PlayerArmorDamagePacket(
                     <PlayerArmorDamagePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::CodeBuilderPacket => {
-                Self::CodeBuilderPacket(
-                    <CodeBuilderPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         &mut payload,
                         (),
                     )?,
@@ -43735,30 +40840,6 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
-            crate::McpePacketName::NpcDialoguePacket => {
-                Self::NpcDialoguePacket(
-                    <NpcDialoguePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::EduUriResourcePacket => {
-                Self::EduUriResourcePacket(
-                    <EduUriResourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::CreatePhotoPacket => {
-                Self::CreatePhotoPacket(
-                    <CreatePhotoPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
             crate::McpePacketName::UpdateSubChunkBlocksPacket => {
                 Self::UpdateSubChunkBlocksPacket(
                     <UpdateSubChunkBlocksPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -43791,14 +40872,6 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
-            crate::McpePacketName::CodeBuilderSourcePacket => {
-                Self::CodeBuilderSourcePacket(
-                    <CodeBuilderSourcePacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
             crate::McpePacketName::TickingAreasLoadStatusPacket => {
                 Self::TickingAreasLoadStatusPacket(
                     <TickingAreasLoadStatusPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -43815,25 +40888,9 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
-            crate::McpePacketName::AgentActionEventPacket => {
-                Self::AgentActionEventPacket(
-                    <AgentActionEventPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
             crate::McpePacketName::ChangeMobPropertyPacket => {
                 Self::ChangeMobPropertyPacket(
                     <ChangeMobPropertyPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::LessonProgressPacket => {
-                Self::LessonProgressPacket(
-                    <LessonProgressPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         &mut payload,
                         (),
                     )?,
@@ -43978,14 +41035,6 @@ impl BorrowedMcpePacketData {
             crate::McpePacketName::OpenSignPacket => {
                 Self::OpenSignPacket(
                     <OpenSignPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                        &mut payload,
-                        (),
-                    )?,
-                )
-            }
-            crate::McpePacketName::AgentAnimationPacket => {
-                Self::AgentAnimationPacket(
-                    <AgentAnimationPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         &mut payload,
                         (),
                     )?,
@@ -44365,7 +41414,7 @@ impl BorrowedMcpePacket {
             62u32 => crate::McpePacketName::SetPlayerGameTypePacket,
             63u32 => crate::McpePacketName::PlayerListPacket,
             64u32 => crate::McpePacketName::SimpleEventPacket,
-            65u32 => crate::McpePacketName::LegacyTelemetryEventPacket,
+            65u32 => crate::McpePacketName::Opaque65Packet,
             66u32 => crate::McpePacketName::SpawnExperienceOrbPacket,
             67u32 => crate::McpePacketName::ClientboundMapItemDataPacket,
             68u32 => crate::McpePacketName::MapInfoRequestPacket,
@@ -44395,10 +41444,10 @@ impl BorrowedMcpePacket {
             93u32 => crate::McpePacketName::PlayerSkinPacket,
             94u32 => crate::McpePacketName::SubClientLoginPacket,
             95u32 => crate::McpePacketName::AutomationClientConnectPacket,
-            96u32 => crate::McpePacketName::SetLastHurtByPacket,
+            96u32 => crate::McpePacketName::Opaque96Packet,
             97u32 => crate::McpePacketName::BookEditPacket,
-            98u32 => crate::McpePacketName::NpcRequestPacket,
-            99u32 => crate::McpePacketName::PhotoTransferPacket,
+            98u32 => crate::McpePacketName::Unavailable98Packet,
+            99u32 => crate::McpePacketName::Unavailable99Packet,
             100u32 => crate::McpePacketName::ModalFormRequestPacket,
             101u32 => crate::McpePacketName::ModalFormResponsePacket,
             102u32 => crate::McpePacketName::ServerSettingsRequestPacket,
@@ -44408,7 +41457,7 @@ impl BorrowedMcpePacket {
             106u32 => crate::McpePacketName::RemoveObjectivePacket,
             107u32 => crate::McpePacketName::SetDisplayObjectivePacket,
             108u32 => crate::McpePacketName::SetScorePacket,
-            109u32 => crate::McpePacketName::LabTablePacket,
+            109u32 => crate::McpePacketName::Unavailable109Packet,
             110u32 => crate::McpePacketName::UpdateBlockSyncedPacket,
             111u32 => crate::McpePacketName::MoveActorDeltaPacket,
             112u32 => crate::McpePacketName::SetScoreboardIdentityPacket,
@@ -44429,7 +41478,7 @@ impl BorrowedMcpePacket {
             133u32 => crate::McpePacketName::StructureTemplateDataResponsePacket,
             135u32 => crate::McpePacketName::ClientCacheBlobStatusPacket,
             136u32 => crate::McpePacketName::ClientCacheMissResponsePacket,
-            137u32 => crate::McpePacketName::EducationSettingsPacket,
+            137u32 => crate::McpePacketName::Unavailable137Packet,
             138u32 => crate::McpePacketName::EmotePacket,
             139u32 => crate::McpePacketName::MultiplayerSettingsPacket,
             140u32 => crate::McpePacketName::SettingsCommandPacket,
@@ -44442,7 +41491,7 @@ impl BorrowedMcpePacket {
             147u32 => crate::McpePacketName::ItemStackRequestPacket,
             148u32 => crate::McpePacketName::ItemStackResponsePacket,
             149u32 => crate::McpePacketName::PlayerArmorDamagePacket,
-            150u32 => crate::McpePacketName::CodeBuilderPacket,
+            150u32 => crate::McpePacketName::Unavailable150Packet,
             151u32 => crate::McpePacketName::UpdatePlayerGameTypePacket,
             152u32 => crate::McpePacketName::EmoteListPacket,
             153u32 => crate::McpePacketName::PositionTrackingDbServerBroadcastPacket,
@@ -44460,20 +41509,21 @@ impl BorrowedMcpePacket {
             166u32 => crate::McpePacketName::AddVolumeEntityPacket,
             167u32 => crate::McpePacketName::RemoveVolumeEntityPacket,
             168u32 => crate::McpePacketName::SimulationTypePacket,
-            169u32 => crate::McpePacketName::NpcDialoguePacket,
-            170u32 => crate::McpePacketName::EduUriResourcePacket,
-            171u32 => crate::McpePacketName::CreatePhotoPacket,
+            169u32 => crate::McpePacketName::Unavailable169Packet,
+            170u32 => crate::McpePacketName::Unavailable170Packet,
+            171u32 => crate::McpePacketName::Unavailable171Packet,
             172u32 => crate::McpePacketName::UpdateSubChunkBlocksPacket,
+            173u32 => crate::McpePacketName::Unavailable173Packet,
             174u32 => crate::McpePacketName::SubChunkPacket,
             175u32 => crate::McpePacketName::SubChunkRequestPacket,
             176u32 => crate::McpePacketName::PlayerStartItemCooldownPacket,
             177u32 => crate::McpePacketName::ScriptMessagePacket,
-            178u32 => crate::McpePacketName::CodeBuilderSourcePacket,
+            178u32 => crate::McpePacketName::Unavailable178Packet,
             179u32 => crate::McpePacketName::TickingAreasLoadStatusPacket,
             180u32 => crate::McpePacketName::DimensionDataPacket,
-            181u32 => crate::McpePacketName::AgentActionEventPacket,
+            181u32 => crate::McpePacketName::Unavailable181Packet,
             182u32 => crate::McpePacketName::ChangeMobPropertyPacket,
-            183u32 => crate::McpePacketName::LessonProgressPacket,
+            183u32 => crate::McpePacketName::Unavailable183Packet,
             184u32 => crate::McpePacketName::RequestAbilityPacket,
             185u32 => crate::McpePacketName::RequestPermissionsPacket,
             186u32 => crate::McpePacketName::ToastRequestPacket,
@@ -44492,7 +41542,7 @@ impl BorrowedMcpePacket {
             300u32 => crate::McpePacketName::CameraInstructionPacket,
             302u32 => crate::McpePacketName::TrimDataPacket,
             303u32 => crate::McpePacketName::OpenSignPacket,
-            304u32 => crate::McpePacketName::AgentAnimationPacket,
+            304u32 => crate::McpePacketName::Unavailable304Packet,
             305u32 => crate::McpePacketName::RefreshEntitlementsPacket,
             306u32 => crate::McpePacketName::PlayerToggleCrafterSlotRequestPacket,
             307u32 => crate::McpePacketName::SetPlayerInventoryOptionsPacket,
@@ -44642,9 +41692,6 @@ pub type BorrowedShowStoreOfferPacket = ShowStoreOfferPacketView;
 pub type BorrowedPurchaseReceiptPacket = PurchaseReceiptPacketView;
 pub type BorrowedSubClientLoginPacket = SubClientLoginPacketView;
 pub type BorrowedAutomationClientConnectPacket = AutomationClientConnectPacketView;
-pub type BorrowedSetLastHurtByPacket = SetLastHurtByPacketView;
-pub type BorrowedNpcRequestPacket = NpcRequestPacketView;
-pub type BorrowedPhotoTransferPacket = PhotoTransferPacketView;
 pub type BorrowedModalFormRequestPacket = ModalFormRequestPacketView;
 pub type BorrowedModalFormResponsePacket = ModalFormResponsePacketView;
 pub type BorrowedServerSettingsRequestPacket = ServerSettingsRequestPacketView;
@@ -44653,7 +41700,6 @@ pub type BorrowedShowProfilePacket = ShowProfilePacketView;
 pub type BorrowedSetDefaultGameTypePacket = SetDefaultGameTypePacketView;
 pub type BorrowedRemoveObjectivePacket = RemoveObjectivePacketView;
 pub type BorrowedSetDisplayObjectivePacket = SetDisplayObjectivePacketView;
-pub type BorrowedLabTablePacket = LabTablePacketView;
 pub type BorrowedUpdateBlockSyncedPacket = UpdateBlockSyncedPacketView;
 pub type BorrowedMoveActorDeltaPacket = MoveActorDeltaPacketView;
 pub type BorrowedSetScoreboardIdentityPacket = SetScoreboardIdentityPacketView;
@@ -44674,7 +41720,6 @@ pub type BorrowedStructureTemplateDataRequestPacket = StructureTemplateDataReque
 pub type BorrowedStructureTemplateDataResponsePacket = StructureTemplateDataResponsePacketView;
 pub type BorrowedClientCacheBlobStatusPacket = ClientCacheBlobStatusPacketView;
 pub type BorrowedClientCacheMissResponsePacket = ClientCacheMissResponsePacketView;
-pub type BorrowedEducationSettingsPacket = EducationSettingsPacketView;
 pub type BorrowedEmotePacket = EmotePacketView;
 pub type BorrowedMultiplayerSettingsPacket = MultiplayerSettingsPacketView;
 pub type BorrowedSettingsCommandPacket = SettingsCommandPacketView;
@@ -44684,7 +41729,6 @@ pub type BorrowedNetworkSettingsPacket = NetworkSettingsPacketView;
 pub type BorrowedCreativeContentPacket = CreativeContentPacketView;
 pub type BorrowedItemStackResponsePacket = ItemStackResponsePacketView;
 pub type BorrowedPlayerArmorDamagePacket = PlayerArmorDamagePacketView;
-pub type BorrowedCodeBuilderPacket = CodeBuilderPacketView;
 pub type BorrowedUpdatePlayerGameTypePacket = UpdatePlayerGameTypePacketView;
 pub type BorrowedEmoteListPacket = EmoteListPacketView;
 pub type BorrowedPositionTrackingDbServerBroadcastPacket =
@@ -44703,19 +41747,13 @@ pub type BorrowedSyncActorPropertyPacket = SyncActorPropertyPacketView;
 pub type BorrowedAddVolumeEntityPacket = AddVolumeEntityPacketView;
 pub type BorrowedRemoveVolumeEntityPacket = RemoveVolumeEntityPacketView;
 pub type BorrowedSimulationTypePacket = SimulationTypePacketView;
-pub type BorrowedNpcDialoguePacket = NpcDialoguePacketView;
-pub type BorrowedEduUriResourcePacket = EduUriResourcePacketView;
-pub type BorrowedCreatePhotoPacket = CreatePhotoPacketView;
 pub type BorrowedUpdateSubChunkBlocksPacket = UpdateSubChunkBlocksPacketView;
 pub type BorrowedSubChunkRequestPacket = SubChunkRequestPacketView;
 pub type BorrowedPlayerStartItemCooldownPacket = PlayerStartItemCooldownPacketView;
 pub type BorrowedScriptMessagePacket = ScriptMessagePacketView;
-pub type BorrowedCodeBuilderSourcePacket = CodeBuilderSourcePacketView;
 pub type BorrowedTickingAreasLoadStatusPacket = TickingAreasLoadStatusPacketView;
 pub type BorrowedDimensionDataPacket = DimensionDataPacketView;
-pub type BorrowedAgentActionEventPacket = AgentActionEventPacketView;
 pub type BorrowedChangeMobPropertyPacket = ChangeMobPropertyPacketView;
-pub type BorrowedLessonProgressPacket = LessonProgressPacketView;
 pub type BorrowedRequestAbilityPacket = RequestAbilityPacketView;
 pub type BorrowedRequestPermissionsPacket = RequestPermissionsPacketView;
 pub type BorrowedToastRequestPacket = ToastRequestPacketView;
@@ -44734,7 +41772,6 @@ pub type BorrowedUnlockedRecipesPacket = UnlockedRecipesPacketView;
 pub type BorrowedCameraInstructionPacket = CameraInstructionPacketView;
 pub type BorrowedTrimDataPacket = TrimDataPacketView;
 pub type BorrowedOpenSignPacket = OpenSignPacketView;
-pub type BorrowedAgentAnimationPacket = AgentAnimationPacketView;
 pub type BorrowedRefreshEntitlementsPacket = RefreshEntitlementsPacketView;
 pub type BorrowedPlayerToggleCrafterSlotRequestPacket = PlayerToggleCrafterSlotRequestPacketView;
 pub type BorrowedSetPlayerInventoryOptionsPacket = SetPlayerInventoryOptionsPacketView;

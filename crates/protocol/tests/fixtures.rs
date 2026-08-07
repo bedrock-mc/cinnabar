@@ -13,8 +13,8 @@ use protocol::{
 };
 use valentine::bedrock::version::v1_26_40::{
     ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType,
-    LevelSettingsEducationEditionOffer, LevelSettingsPlayerPermissions, McpePacketData,
-    McpePacketName, MovePlayerPacketPositionMode, NetworkSettingsPacketCompressionAlgorithm,
+    LevelSettingsPlayerPermissions, LevelSettingsReserved12, McpePacketData, McpePacketName,
+    MovePlayerPacketPositionMode, NetworkSettingsPacketCompressionAlgorithm,
     PlayerAuthInputPacketInputDataItem, PlayerAuthInputPacketInputMode,
     PlayerAuthInputPacketNewInteractionModel, PlayerInputTick, StartGamePacketGameType, Vec2, Vec3,
 };
@@ -36,12 +36,9 @@ const MAX_BATCH_PACKETS: usize = 1_600;
 /// instead of a Rust variant.
 const TELEPORT_CAUSE_COMMAND: i32 = 3;
 
-/// `LegacyEntityType::EnderPearl` — wire value 87.
-///
 /// `MovePlayerTeleportData::source_actor_type` is likewise a bare `i32` in
-/// 1.26.40. 87 is the same discriminant the generated `LegacyEntityType` table
-/// still carries in `vendor/valentine/bedrock_versions/v1_26_0/src/types.rs`.
-const SOURCE_ACTOR_TYPE_ENDER_PEARL: i32 = 87;
+/// 1.26.40, so the fixture retains its numeric value directly.
+const SOURCE_ACTOR_TYPE: i32 = 87;
 
 fn session() -> BedrockSession {
     BedrockSession { shield_item_id: 0 }
@@ -138,15 +135,8 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
 
             // 1.26.40 wire changes carried by this fixture.
             //
-            // EducationEditionOffer moved from a zigzag varint to an unsigned
-            // varint: gophertunnel packet/start_game.go writes
-            // `io.Varuint32(&pk.EducationEditionOffer)`, and the generated
-            // `LevelSettingsEducationEditionOffer` codec now uses `VarInt`
-            // (Valentine's unsigned varint) rather than `ZigZag32`.
-            assert_eq!(
-                settings.education_edition_offer,
-                LevelSettingsEducationEditionOffer::None
-            );
+            // Reserved field 12 is an unsigned varint at this fixed position.
+            assert_eq!(settings.reserved_12, LevelSettingsReserved12::Reserved0);
             // PlayerPermissions moved from a varint to a single byte:
             // `io.Uint8(&pk.PlayerPermissions)` in the same file; the generated
             // enum encodes/decodes one `i8`.
@@ -259,7 +249,7 @@ fn move_player_fixture_decodes_and_round_trips_exactly() {
             // The fixture sets it, so the payload must still be present.
             let teleport = movement.teleport_data.as_ref().expect("teleport data");
             assert_eq!(teleport.teleportation_cause, TELEPORT_CAUSE_COMMAND);
-            assert_eq!(teleport.source_actor_type, SOURCE_ACTOR_TYPE_ENDER_PEARL);
+            assert_eq!(teleport.source_actor_type, SOURCE_ACTOR_TYPE);
             // `tick: u64` -> `tick: PlayerInputTick`.
             assert_eq!(movement.tick, PlayerInputTick { inputtick: 1_234 });
         }

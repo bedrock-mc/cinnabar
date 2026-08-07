@@ -22,9 +22,5 @@ pub mod version;
 ///
 /// Prefer `bedrock::version::vX_Y_Z` in new code when you want the
 /// canonical, version-pinned protocol surface.
-#[cfg(feature = "bedrock_1_26_0")]
-pub use self::version::v1_26_0;
-#[cfg(feature = "bedrock_1_26_30")]
-pub use self::version::v1_26_30;
 #[cfg(feature = "bedrock_1_26_40")]
 pub use self::version::v1_26_40;
