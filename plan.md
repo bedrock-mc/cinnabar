@@ -96,7 +96,8 @@ Current implementation state:
   items, and live actor acceptance remain open.
 - Server resource-pack application and resource-pack JSON UI are absent. Forms have bounded
   ingress only; response UX and routing are not implemented.
-- Combat, block interaction transactions, and container inventory are absent.
+- Outbound combat and block-use/break/place transactions plus interactive container inventory
+  are absent; receive-side crack presentation and read-only inventory state have landed.
 - First-run authentication UX is absent. Local worlds, audio, and packaging are absent.
 - Live, native-comparison, and performance gates remain open. Do not infer their completion
   from deterministic tests or checked-in fixtures.
@@ -107,9 +108,9 @@ Current implementation state:
 Immediate execution order:
 
 1. **Protocol-2168 debt closure:** restore bounded pre-allocation guards in generated decode
-   paths; resolve the `ItemStackResponse` wire-shape divergence; replace the borrowed
-   `LevelChunk` payload with an owned bounded payload; and enforce strict actor-ID varint
-   decoding. Re-run conformance and adversarial decode coverage after each bounded fix.
+   paths; resolve the `ItemStackResponse` wire-shape divergence; replace the owned/copied
+   `LevelChunk` packet view with a bounded borrowed zero-copy view; and enforce strict actor-ID
+   varint decoding. Re-run conformance and adversarial decode coverage after each bounded fix.
 2. **Connectivity and authentication:** close real-server connectivity, session lifecycle,
    device-code authentication, and first-run auth UX with explicit live evidence.
 3. **Resource packs:** negotiate, cache, validate, and apply server packs, including their
@@ -204,28 +205,18 @@ of its pushed remote (`d8637a2`), independently approved, and ready to push for
 CI/merge; it is not yet pushed or integrated. Cache-enabled BDS load exposed and
 fixed a self-sustaining blob-recovery loop, unbounded publication-authority scans,
 repeated per-frame cohort hashing, scheduler starvation, intra-transaction relight
-cascades, and the requested-cohort boundary stall. Optimized-dev BDS run
-`.local/acceptance/phase3-018ae154de9b40cb8f12aea378c48752` reached zero
+cascades, and the requested-cohort boundary stall. Optimized-dev BDS acceptance run
+`phase3-018ae154de9b40cb8f12aea378c48752` reached zero
 pending/in-flight light and mesh work across a stable 939/939-column cohort:
 8,130 resident meshes, 5,416 submitted/GPU-completed meshes, 33,205 accepted
 light jobs, and zero stale light jobs. The inspected Windows scene was complete.
-After the final visibility-cache optimizations, run
-`.local/acceptance/phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
+After the final visibility-cache optimizations, acceptance run
+`phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
 frames at 10.272 ms median (the 100 FPS VSync ceiling), zero-byte publication at
 23.061 ms median, and payload publication at 29.836 ms median. Active chunk
 publication still causes visible frame drops and remains explicit follow-up work.
 This closes the blank-window and visible-radius convergence regressions; it does
 **not** close release-performance or vanilla-lighting-parity gates.
-
-An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
-this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
-1.16.201 recovery notes are a potentially authoritative native Bedrock reference,
-but the repository declares no license and targets protocol 422. Do not copy its
-source or redistribute it; obtain the author's explicit permission, cite the exact
-reference revision/address evidence, verify version stability, and independently
-implement any adopted contract. Its recovered original-lighting path uses a
-retained 3x3-column transaction and one priority-32 center-column task rather than
-the current provisional per-subchunk scheduler.
 
 The current column transaction solves contiguous vertical work against retained
 3x3 subchunk snapshots, retains immutable generations, and admits requested

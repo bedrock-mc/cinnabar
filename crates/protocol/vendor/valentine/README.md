@@ -13,7 +13,7 @@ The checked-in workspace currently exposes:
 - `valentine::bedrock::version::v1_26_30::*`
 - `valentine::bedrock::v1_26_30::*` (compatibility alias)
 
-`bedrock_1_26_30` is also the default feature in [Cargo.toml](/C:/Users/jvigu/OneDrive/Documents/rust/jyuggers/axolotl-stack/crates/valentine/Cargo.toml).
+`bedrock_1_26_30` is also the default feature in [Cargo.toml](Cargo.toml).
 
 ## Layout
 

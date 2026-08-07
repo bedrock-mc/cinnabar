@@ -95,10 +95,10 @@ roadmap changes.
 Run:
 
 ```powershell
-Get-Content -Raw C:\Users\Hashim\.codex\plugins\cache\openai-curated-remote\superpowers\6.1.1\skills\using-git-worktrees\SKILL.md
+Get-Content -Raw docs/agents/multi-agent-workflow.md
 ```
 
-Expected: the complete worktree workflow prints before any branch or worktree
+Expected: the repository worktree workflow prints before any branch or worktree
 mutation.
 
 - [ ] **Step 2: Verify the immutable base and archival state**
