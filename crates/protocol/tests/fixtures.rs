@@ -1,7 +1,7 @@
 //! Wire-truth harness for the pinned `.bin` fixtures.
 //!
 //! Every fixture under `crates/protocol/fixtures/` is produced by gophertunnel
-//! at commit `56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` (Bedrock 1.26.40 /
+//! at commit `0f3bd7e6f748ca972da664130af63244d625a6b8` (Bedrock 1.26.40 /
 //! protocol 2168). The bytes are the authority: this file only asserts that the
 //! generated Valentine shapes decode to the values those bytes carry and
 //! re-encode to the identical bytes.

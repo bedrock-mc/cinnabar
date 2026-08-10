@@ -80,12 +80,12 @@ below without deleting their historical evidence. The code audit compares the Be
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
-`56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` through module pseudo-version
-`v1.25.3-0.20260807205305-56a0f77dbbb2`. Fork CI succeeded. Cinnabar commits `a7679c0`
-and `a5c327d` repinned the two Go consumers and synchronized checked-in provenance; all 21
-checked-in fixture `.bin` files remained byte-for-byte unchanged. The Go and protocol test
-suites passed, and the closure received independent approval. This establishes the pinned
-wire/tooling baseline; it is not live gameplay, native visual, or performance evidence.
+`0f3bd7e6f748ca972da664130af63244d625a6b8` through module pseudo-version
+`v1.25.3-0.20260810160123-0f3bd7e6f748`. The two Go consumers and their checked-in
+provenance are synchronized to that public revision; all 20 checked-in fixture `.bin` files
+remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
+pinned wire/tooling baseline only: it does not enable runtime resource-pack application and
+is not live gameplay, native visual, or performance evidence.
 
 The pushed `dev` integration now also contains the independently reviewed protocol-2168
 wire projection, retail-safe transitional registry projection, exact 87-entry biome

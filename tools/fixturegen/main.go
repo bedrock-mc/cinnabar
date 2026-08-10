@@ -321,7 +321,7 @@ func fixtures() []fixture {
 				},
 			},
 			wireAuthority: "hashimthearab/gophertunnel",
-			wireCommit:    "56a0f77dbbb2fb006b081ec38bb4bedf9cb95088",
+			wireCommit:    "0f3bd7e6f748ca972da664130af63244d625a6b8",
 		},
 		{
 			name: "InventoryContent",
