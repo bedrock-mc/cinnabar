@@ -37,7 +37,7 @@ use crate::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
-    movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
+    movement::{LocalPhysicsController, MovementSource, MovementTicker, PhysicsAuthorityGate},
     presentation::actors::{
         actor_rig_presentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
@@ -66,8 +66,30 @@ pub(crate) use session::{
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const ACTOR_TICK_NANOS: u128 = 50_000_000;
+/// Provisional local pre-first-input anchor: public protocol documentation does
+/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
+/// separate clock domain.
+const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+
+pub(crate) fn reset_start_game_prediction(
+    movement: &mut MovementTicker,
+    local_physics: &mut LocalPhysicsController,
+    session_generation: u64,
+    initial_position: [f32; 3],
+) {
+    movement.reset(
+        session_generation,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        initial_position,
+    );
+    local_physics.reanchor_network_position_before_advance(
+        initial_position,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        false,
+    );
+}
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {
@@ -376,12 +398,11 @@ pub(crate) fn receive_network_events(
                     &mut avatar,
                 );
                 movement.set_source(MovementSource::FreeCamera);
-                let initial_tick = u64::try_from(environment.initial_time).unwrap_or(0);
-                movement.reset(clock.session_generation(), initial_tick, resolved.position);
-                local_physics.reanchor_network_position_before_advance(
+                reset_start_game_prediction(
+                    &mut movement,
+                    &mut local_physics,
+                    clock.session_generation(),
                     resolved.position,
-                    initial_tick,
-                    false,
                 );
                 if let Err(fault) = physics_authority.apply_start_game(
                     auto_fly.enabled(),
