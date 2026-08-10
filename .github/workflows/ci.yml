@@ -16,6 +16,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
       - name: Test hermetic vanilla asset acquisition on Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\vanilla-assets.ps1
@@ -35,9 +38,6 @@ jobs:
           key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-rust-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 1.26.x
       - name: Test Rust workspace on Windows
         run: cargo test --workspace --locked
       - name: Lint Rust workspace on Windows
