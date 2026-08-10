@@ -12,6 +12,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  desktop-compile-readiness:
+    name: Desktop compile readiness (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: clippy
+      - name: Cache Rust dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Install Wayland development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev
+      - name: Build release desktop client
+        run: cargo build --release -p bedrock-client --locked
+      - name: Build release Go core on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: go build -trimpath -o "$env:RUNNER_TEMP\bedrock-core.exe" ./core/cmd/bedrock-core
+      - name: Build release Go core on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
+      - name: Test Rust bridge
+        run: cargo test -p bridge --locked
+      - name: Test Go local transport and credential storage
+        run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
+      - name: Test Rust workspace on macOS
+        if: runner.os == 'macOS'
+        run: cargo test --workspace --locked
+      - name: Lint Rust workspace on macOS
+        if: runner.os == 'macOS'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Go core on macOS
+        if: runner.os == 'macOS'
+        run: go test ./core/...
+      - name: Vet Go core on macOS
+        if: runner.os == 'macOS'
+        run: go vet ./core/...
+
   windows-acceptance:
     runs-on: windows-latest
     steps:
