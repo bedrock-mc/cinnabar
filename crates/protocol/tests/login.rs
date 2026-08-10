@@ -18,13 +18,14 @@ const GO_BUILD_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_reaches_start_game_through_bds() {
-    if std::env::var_os("BEDROCK_BDS_DIR").is_none() {
+    let Some(bds_configuration) = live_bds_configuration().expect("validate live BDS paths") else {
         eprintln!("skipping live login: BEDROCK_BDS_DIR is not set");
         return;
-    }
+    };
 
     let socket_dir = TestSocketDir::new().expect("create test socket directory");
-    let mut harness = GoHarness::spawn(socket_dir.path()).expect("start Go live harness");
+    let mut harness =
+        GoHarness::spawn(socket_dir.path(), &bds_configuration).expect("start Go live harness");
     wait_for_endpoint(&mut harness, socket_dir.path())
         .await
         .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
@@ -147,8 +148,62 @@ struct GoHarness {
     completed: bool,
 }
 
+#[derive(Debug)]
+struct LiveBdsConfiguration {
+    source_directory: PathBuf,
+    // The Rust launcher never creates, locks, or mutates this path. The Go
+    // harness canonicalizes it once before deriving the lease and runtime.
+    runtime_directory: PathBuf,
+}
+
+fn live_bds_configuration() -> io::Result<Option<LiveBdsConfiguration>> {
+    validate_live_bds_configuration(
+        std::env::var_os("BEDROCK_BDS_DIR").as_deref(),
+        std::env::var_os("BEDROCK_BDS_RUNTIME_DIR").as_deref(),
+    )
+}
+
+fn validate_live_bds_configuration(
+    source_directory: Option<&OsStr>,
+    runtime_directory: Option<&OsStr>,
+) -> io::Result<Option<LiveBdsConfiguration>> {
+    let Some(source_directory) = source_directory else {
+        return Ok(None);
+    };
+    let source_directory = PathBuf::from(source_directory);
+    if !source_directory.is_absolute() || !source_directory.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "BEDROCK_BDS_DIR must be an existing absolute directory: {}",
+                source_directory.display()
+            ),
+        ));
+    }
+    let runtime_directory = runtime_directory.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "BEDROCK_BDS_RUNTIME_DIR is required when BEDROCK_BDS_DIR is set",
+        )
+    })?;
+    let runtime_directory = PathBuf::from(runtime_directory);
+    if !runtime_directory.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "BEDROCK_BDS_RUNTIME_DIR must be absolute: {}",
+                runtime_directory.display()
+            ),
+        ));
+    }
+    Ok(Some(LiveBdsConfiguration {
+        source_directory,
+        runtime_directory,
+    }))
+}
+
 impl GoHarness {
-    fn spawn(socket_dir: &Path) -> io::Result<Self> {
+    fn spawn(socket_dir: &Path, bds_configuration: &LiveBdsConfiguration) -> io::Result<Self> {
         let core_dir = project_root().join("core");
         #[cfg(windows)]
         let executable = socket_dir.join("proxy-live-harness.test.exe");
@@ -167,6 +222,11 @@ impl GoHarness {
             ])
             .env("RUST_MCBE_EXTERNAL_RUST_CLIENT", "1")
             .env("RUST_MCBE_PROXY_SOCKET_DIR", socket_dir)
+            .env("BEDROCK_BDS_DIR", &bds_configuration.source_directory)
+            .env(
+                "BEDROCK_BDS_RUNTIME_DIR",
+                &bds_configuration.runtime_directory,
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -241,6 +301,32 @@ impl GoHarness {
             let _ = reader.join();
         }
     }
+}
+
+#[test]
+fn live_bds_configuration_requires_explicit_absolute_runtime_and_defers_identity_to_go() {
+    let socket_dir = TestSocketDir::new().expect("create test directory");
+    let source = socket_dir.path().join("source");
+    std::fs::create_dir(&source).expect("create source directory");
+
+    let missing = validate_live_bds_configuration(Some(source.as_os_str()), None)
+        .expect_err("missing runtime override must fail");
+    assert_eq!(missing.kind(), io::ErrorKind::InvalidInput);
+
+    let relative = validate_live_bds_configuration(
+        Some(source.as_os_str()),
+        Some(OsStr::new("relative/runtime")),
+    )
+    .expect_err("relative runtime override must fail");
+    assert_eq!(relative.kind(), io::ErrorKind::InvalidInput);
+
+    let runtime = socket_dir.path().join("stable-runtime");
+    let configuration =
+        validate_live_bds_configuration(Some(source.as_os_str()), Some(runtime.as_os_str()))
+            .expect("absolute runtime override must validate")
+            .expect("source directory enables the live harness");
+    assert_eq!(configuration.source_directory, source);
+    assert_eq!(configuration.runtime_directory, runtime);
 }
 
 fn build_go_harness(core_dir: &Path, executable: &Path) -> io::Result<()> {

@@ -393,7 +393,8 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'bbe6cfdeed39713c2b20103a1294e609d5841615'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'56a0f77dbbb2fb006b081ec38bb4bedf9cb95088'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'6cd8087fc3f0b500e41708a8afc94a0fa3291525'")) 'Valentine metadata omitted the reviewed fork revision'
     Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata omitted the upstream snapshot revision'
     Assert-True ($source.Contains("'62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'")) 'Valentine metadata omitted the retained license identity'
@@ -416,13 +417,11 @@
     Assert-True ($source.Contains('ConvertFrom-MovePlayerIngressMarker')) 'live harness does not parse binding MovePlayer ingress evidence'
     Assert-True ($source.Contains('-PassThruEvidence')) 'binding marker waits do not retain stdout positions'
     Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
-    Assert-True `
-        ([regex]::IsMatch(
-            $source,
-            'if \(\$isLeafEvidence\) \{\s*\$sourceWorldIdentity = Get-BdsSourceWorldIdentity',
-            [Text.RegularExpressions.RegexOptions]::CultureInvariant
-        )) `
-        'generic live smoke runs still require a pre-created source world identity'
+    Assert-True ($source.Contains('$sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld')) `
+        'live BDS source-world behavior is not manifested for every acceptance run'
+    Assert-True ($source.Contains("'e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'")) `
+        'acceptance does not pin the exact BDS executable identity'
+    Assert-True ($source.Contains("'1.26.40.8'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'

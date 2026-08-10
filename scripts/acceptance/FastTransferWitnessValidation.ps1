@@ -284,7 +284,7 @@ function Assert-FastTransferWitnessEvidence {
         [string]$identity.run_id -cne $ExpectedRunId) {
         throw 'FastTransferWitness production identity attribution is not exact'
     }
-    Assert-FastTransferInteger $identity.protocol 'identity.protocol' 1001 1001
+    Assert-FastTransferInteger $identity.protocol 'identity.protocol' 2168 2168
     Assert-FastTransferInteger $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
     Assert-FastTransferInteger $identity.core_process_id 'identity.core_process_id' 1 ([decimal][int]::MaxValue)
     Assert-FastTransferInteger $identity.app_process_id 'identity.app_process_id' 1 ([decimal][int]::MaxValue)
@@ -485,7 +485,7 @@ function Assert-FastTransferWitnessEvidence {
     }
 
     $resetEvidence = Get-Phase2LocalResetSequenceEvidence -ClientLogPath $LogPath `
-        -ExpectedPresentMode $ExpectedPresentMode -ExpectedBuildProfile debug `
+        -ExpectedPresentMode $ExpectedPresentMode -ExpectedBuildProfile release `
         -WorldReadyObserved:$true -Server Lbsg
     if ([uint64]$resetEvidence.FinalPublication.publication.session_generation -ne
         [uint64]$identity.session_generation) {

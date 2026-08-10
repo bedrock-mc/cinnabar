@@ -760,7 +760,7 @@
         'client-side-chunk-generation-enabled=false',
         'server-name=fixture',
         'level-name=Bedrock level',
-        'level-seed=unchanged-seed'
+        'level-seed=2168'
     )) {
         Assert-True ($serverProperties -contains $expectedProperty) "missing rewritten property: $expectedProperty"
     }
@@ -773,6 +773,19 @@
     Assert-ThrowsLike {
         Set-ServerProperties -Path $duplicateAcceptancePropertyPath -Port 20002 -PortV6 20003
     } 'server.properties must contain exactly one client-side-chunk-generation-enabled entry' 'duplicate client-side terrain generation setting was silently accepted'
+
+    Assert-Equal '[INFO] Version: 1.26.40.8' `
+        (Assert-BdsReleaseMarker -Line '[INFO] Version: 1.26.40.8' -ExpectedRelease '1.26.40.8') `
+        'exact BDS release marker was rejected'
+    Assert-ThrowsLike {
+        Assert-BdsReleaseMarker -Line '[INFO] Version: 1.26.40.80' -ExpectedRelease '1.26.40.8'
+    } '*exact release*' 'BDS release marker accepted a longer version'
+
+    $fixtureBdsPath = Join-Path $TempRoot 'bds-identity-fixture.exe'
+    Set-Content -LiteralPath $fixtureBdsPath -NoNewline -Value 'fixture BDS identity'
+    $fixtureBdsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $fixtureBdsPath).Hash.ToLowerInvariant()
+    Assert-Equal $fixtureBdsPath (Assert-BdsExecutableSha256 -Path $fixtureBdsPath -ExpectedSha256 $fixtureBdsSha256) 'exact BDS executable identity was rejected'
+    Assert-ThrowsLike { Assert-BdsExecutableSha256 -Path $fixtureBdsPath -ExpectedSha256 ('0' * 64) } '*SHA-256*want*' 'BDS executable identity accepted a different digest'
 
     $worldIdentitySource = Join-Path $TempRoot 'world identity source'
     $worldIdentitySourceReverse = Join-Path $TempRoot 'world identity source reverse'

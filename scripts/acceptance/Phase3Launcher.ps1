@@ -63,8 +63,9 @@ $plan = New-Phase3LaunchPlan -Target $Target -Endpoint $endpoint -RunId $runId `
 
 $isWindowsPlatform = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $executableSuffix = if ($isWindowsPlatform) { '.exe' } else { '' }
-$coreExecutable = Join-Path $projectRoot "target\debug\bedrock-core$executableSuffix"
-$appExecutable = Join-Path $projectRoot "target\debug\bedrock-client$executableSuffix"
+$buildProfile = if ($Scenario -ceq 'FastTransferWitness') { 'release' } else { 'debug' }
+$coreExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-core$executableSuffix"
+$appExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-client$executableSuffix"
 $pregPath = Join-Path $projectRoot '.local\assets\block-physics-v1001.bin'
 $bregPath = Join-Path $projectRoot 'crates\assets\data\block-registry-v1001.bin'
 $assetsSha256 = if ($null -eq $assetsFull) { $null } else {
@@ -77,6 +78,7 @@ if ($DryRun) {
     Write-Output "CORE_COMMAND=$(Format-ResolvedCommand $coreExecutable $plan.CoreArguments)"
     Write-Output "APP_COMMAND=$(Format-ResolvedCommand $appExecutable $plan.AppArguments)"
     Write-Output "PHASE3_SCENARIO=$Scenario"
+    Write-Output "BUILD_PROFILE=$buildProfile"
     Write-Output "PHASE3_CANDIDATE_PHYSICS=$($Scenario -ceq 'CandidatePhysics')"
     Write-Output 'PRODUCTION_PHYSICS_DEFAULT_ENABLED=false'
     return
@@ -192,8 +194,10 @@ try {
     Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
     $env:RUST_MCBE_BUILD_COMMIT = $buildCommit
     $env:RUST_MCBE_SOURCE_DIRTY = 'false'
+    $appBuildArguments = @('build', '--locked', '-p', 'bedrock-client')
+    if ($buildProfile -ceq 'release') { $appBuildArguments += '--release' }
     Invoke-CheckedBuild -Executable 'cargo' `
-        -Arguments @('build', '--locked', '-p', 'bedrock-client') `
+        -Arguments $appBuildArguments `
         -LogPath (Join-Path $runDirectory 'build-app.log') -WorkingDirectory $projectRoot
 }
 finally {

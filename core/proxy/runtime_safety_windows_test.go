@@ -47,6 +47,18 @@ func canonicalExistingPath(path string) (string, error) {
 	}
 }
 
+func createDirectoryAlias(t *testing.T, alias, target string) {
+	t.Helper()
+	if output, err := exec.Command("cmd.exe", "/c", "mklink", "/J", alias, target).CombinedOutput(); err != nil {
+		t.Skipf("directory junction unavailable: %v: %s", err, output)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(alias); err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove directory junction: %v", err)
+		}
+	})
+}
+
 func TestValidateRuntimeSeparationResolvesJunctionParent(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
@@ -54,14 +66,7 @@ func TestValidateRuntimeSeparationResolvesJunctionParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := filepath.Join(root, "source-junction")
-	if output, err := exec.Command("cmd.exe", "/c", "mklink", "/J", alias, source).CombinedOutput(); err != nil {
-		t.Skipf("directory junction unavailable: %v: %s", err, output)
-	}
-	t.Cleanup(func() {
-		if err := os.Remove(alias); err != nil && !os.IsNotExist(err) {
-			t.Errorf("remove junction: %v", err)
-		}
-	})
+	createDirectoryAlias(t, alias, source)
 
 	runtimeDir := filepath.Join(alias, "not-yet-created")
 	if _, _, err := validateRuntimeSeparation(source, runtimeDir); err == nil {

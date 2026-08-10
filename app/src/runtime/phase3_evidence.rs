@@ -134,7 +134,7 @@ impl Phase3EvidenceIdentity {
                 "schema": "rust-mcbe-phase3-identity-v1",
                 "build_commit": self.build_commit,
                 "target": self.target.as_str(),
-                "protocol": 1001,
+                "protocol": protocol::PROTOCOL_VERSION,
                 "session_generation": self.session_generation,
                 "preg_sha256": digest_hex(self.preg_sha256),
                 "breg_sha256": digest_hex(self.breg_sha256),

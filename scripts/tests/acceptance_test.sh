@@ -69,8 +69,8 @@ jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine
 jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
 text = path.read_text(encoding="utf-8")
 text = text.replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40"] }',
     1,
 )
 text = text.replace(
@@ -80,7 +80,7 @@ text = text.replace(
 )
 decoys = '''description = """
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
@@ -95,7 +95,7 @@ cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/proto
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
@@ -224,7 +224,8 @@ grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
 grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
 grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
-grep -Fq "pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'" "$script"
+grep -Fq "expected_gophertunnel_commit='56a0f77dbbb2fb006b081ec38bb4bedf9cb95088'" "$script"
+grep -Fq 'resolve_pinned_gophertunnel_commit' "$script"
 grep -Fq "pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'" "$script"
 grep -Fq "pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'" "$script"
 grep -Fq "pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
