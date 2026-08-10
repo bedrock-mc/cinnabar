@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
+    ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
+    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -15,6 +16,7 @@ use crate::{
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
+pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
@@ -270,6 +272,8 @@ pub(crate) struct ActorStore {
     retained_player_skin_bytes: usize,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
+    rider_to_ridden: HashMap<i64, i64>,
+    max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
@@ -298,5 +302,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
     }
 }
 
+#[cfg(test)]
+mod riding_tests;
 #[cfg(test)]
 mod tests;

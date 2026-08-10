@@ -4,11 +4,12 @@ use bytes::{Buf, Bytes};
 use thiserror::Error;
 use valentine::{
     bedrock::version::v1_26_40::{
-        ActorLinkType as VendorActorLinkType, AddActorPacket, AddPlayerPacket, AttributeData,
-        DataItemEntryPayload, MobEffectPacket, MobEffectPacketEventId, MoveActorAbsolutePacket,
-        MoveActorDeltaPacket, PlayerListPacket, PlayerListPacketEntriesItem, PropertySyncData,
-        RemoveActorPacket, SerializedSkinRef, SetActorDataPacket, SetActorLinkPacket,
-        SyncedAttribute, SynchedActorDataCopyableDataList, UpdateAttributesPacket,
+        ActorLink as VendorActorLink, ActorLinkType as VendorActorLinkType, AddActorPacket,
+        AddPlayerPacket, AttributeData, DataItemEntryPayload, MobEffectPacket,
+        MobEffectPacketEventId, MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
+        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SerializedSkinRef,
+        SetActorDataPacket, SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
+        UpdateAttributesPacket,
     },
     protocol::wire,
 };
@@ -20,6 +21,8 @@ pub const MAX_ACTOR_NAME_BYTES: usize = 256;
 pub const MAX_ACTOR_METADATA_ENTRIES: usize = 256;
 pub const MAX_ACTOR_ATTRIBUTES: usize = 128;
 pub const MAX_ACTOR_PROPERTIES: usize = 256;
+/// Local normalization ceiling for the links retained from one spawn packet.
+pub const MAX_ACTOR_LINKS_PER_SPAWN: usize = 256;
 pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
 pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
 pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
@@ -111,6 +114,7 @@ pub struct ActorSpawnEvent {
     pub metadata: Arc<[ActorMetadata]>,
     pub attributes: Arc<[ActorAttribute]>,
     pub properties: Arc<[ActorProperty]>,
+    pub links: Arc<[ActorLinkEvent]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,6 +334,7 @@ pub(crate) fn normalize_add_entity(
     let metadata = normalize_metadata(packet.actor_data)?;
     let attributes = normalize_synced_attributes(packet.attributes_list)?;
     let properties = normalize_properties(packet.synched_properties)?;
+    let links = normalize_actor_links(packet.actor_links, dimension)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         unique_id: packet.target_actor_id.actor_unique_id,
@@ -347,6 +352,7 @@ pub(crate) fn normalize_add_entity(
         metadata,
         attributes,
         properties,
+        links,
     }))
 }
 
@@ -375,6 +381,7 @@ pub(crate) fn normalize_add_player(
     let metadata = normalize_metadata(packet.entity_data)?;
     let properties = normalize_properties(packet.synched_properties)?;
     let held_item = normalize_item(packet.carried_item)?;
+    let links = normalize_actor_links(packet.actor_links, dimension)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         // AddPlayer carries no standalone unique ID; the spawned player's unique
@@ -399,6 +406,7 @@ pub(crate) fn normalize_add_player(
         metadata,
         attributes: Arc::from([]),
         properties,
+        links,
     }))
 }
 
@@ -597,22 +605,37 @@ pub(crate) fn normalize_set_entity_link(
     packet: SetActorLinkPacket,
     dimension: i32,
 ) -> ActorLinkEvent {
+    normalize_actor_link(packet.link, dimension)
+}
+
+fn normalize_actor_links(
+    links: Vec<VendorActorLink>,
+    dimension: i32,
+) -> Result<Arc<[ActorLinkEvent]>, ActorPacketError> {
+    check_count("actor_links", links.len(), MAX_ACTOR_LINKS_PER_SPAWN)?;
+    Ok(links
+        .into_iter()
+        .map(|link| normalize_actor_link(link, dimension))
+        .collect())
+}
+
+fn normalize_actor_link(link: VendorActorLink, dimension: i32) -> ActorLinkEvent {
     ActorLinkEvent {
         dimension,
         // `target_a` is the ridden actor and `target_b` the rider. gophertunnel
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/entity_link.go`: `ActorUniqueID(&x.RiddenEntityUniqueID)`
         // then `ActorUniqueID(&x.RiderEntityUniqueID)`.
-        ridden_unique_id: packet.link.target_a.actor_unique_id,
-        rider_unique_id: packet.link.target_b.actor_unique_id,
-        link_type: match packet.link.type_ {
+        ridden_unique_id: link.target_a.actor_unique_id,
+        rider_unique_id: link.target_b.actor_unique_id,
+        link_type: match link.type_ {
             VendorActorLinkType::None => ActorLinkType::Remove,
             VendorActorLinkType::Riding => ActorLinkType::Rider,
             VendorActorLinkType::Passenger => ActorLinkType::Passenger,
             VendorActorLinkType::Unknown(value) => ActorLinkType::Unknown(value),
         },
-        immediate: packet.link.immediate,
-        rider_initiated: packet.link.passenger_initiated,
+        immediate: link.immediate,
+        rider_initiated: link.passenger_initiated,
     }
 }
 

@@ -319,6 +319,7 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "query.is_on_ground ? query.anim_time : query.life_time",
         "-query.modified_move_speed + query.ground_speed",
         "query.is_on_ground && query.is_moving || query.is_sprinting",
+        "query.is_riding",
         "query.is_sneaking == query.is_sleeping",
         "query.body_y_rotation != query.head_y_rotation",
         "query.target_x_rotation < 1",

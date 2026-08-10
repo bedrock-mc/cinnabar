@@ -119,7 +119,6 @@ impl WorldStream {
             current_dimension: bootstrap.dimension,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
-            local_mount_unique_id: None,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),

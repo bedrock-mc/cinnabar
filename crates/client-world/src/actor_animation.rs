@@ -105,6 +105,7 @@ struct ActorTickInput {
     body_yaw: f32,
     head_yaw: f32,
     pitch: f32,
+    is_riding: bool,
 }
 
 struct EvaluatedState {
@@ -221,7 +222,11 @@ impl ActorAnimationStore {
         }
     }
 
-    pub(crate) fn advance_tick(&mut self, actors: &HashMap<u64, ActorSnapshot>) {
+    pub(crate) fn advance_tick(
+        &mut self,
+        actors: &HashMap<u64, ActorSnapshot>,
+        rider_to_ridden: &HashMap<i64, i64>,
+    ) {
         self.completed_tick = self.completed_tick.saturating_add(1);
         let Some(assets) = self.assets.clone() else {
             return;
@@ -260,7 +265,14 @@ impl ActorAnimationStore {
                 transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
                 used: 0,
             };
-            let result = evaluate_state(&assets, state, actor, self.completed_tick, &mut budget);
+            let result = evaluate_state(
+                &assets,
+                state,
+                actor,
+                rider_to_ridden.contains_key(&actor.unique_id),
+                self.completed_tick,
+                &mut budget,
+            );
             self.stats.evaluated_molang_ops = self
                 .stats
                 .evaluated_molang_ops
@@ -522,6 +534,7 @@ fn evaluate_state(
     assets: &RuntimeEntityAssets,
     state: &ActorRigState,
     actor: &ActorSnapshot,
+    is_riding: bool,
     tick: u64,
     budget: &mut EvalBudget<'_>,
 ) -> Result<EvaluatedState, EvalError> {
@@ -545,6 +558,7 @@ fn evaluate_state(
         body_yaw: actor.body_yaw,
         head_yaw: actor.head_yaw,
         pitch: actor.pitch,
+        is_riding,
     });
     let mut controllers = state.controllers.clone();
     if state.reset_pending {

@@ -494,17 +494,12 @@ impl WorldStream {
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 let _ =
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
-                // A dimension change always dismounts; the mount actor does not follow.
-                if self.local_mount_unique_id.take().is_some() {
-                    self.push_committed_ui(CommittedUiEvent::LocalMount {
-                        sequence,
-                        ridden_unique_id: None,
-                    });
-                }
+                self.publish_local_mount_change(sequence, previous_mount);
                 let resolved = resolve_server_position(
                     change.position,
                     self.resolved_server_position.position,
@@ -623,6 +618,7 @@ impl WorldStream {
             }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -644,6 +640,7 @@ impl WorldStream {
                     });
                 }
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                self.publish_local_mount_change(sequence, previous_mount);
             }
             WorldEvent::ActorEffect(event) => {
                 let sequence = sequence.expect("sequenced effect events commit through submit");
@@ -668,32 +665,11 @@ impl WorldStream {
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
-                if event.rider_unique_id == self.local_player_unique_id {
-                    let next = match event.link_type {
-                        protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger => {
-                            Some(event.ridden_unique_id)
-                        }
-                        protocol::ActorLinkType::Remove => {
-                            // Only a removal of the current pair dismounts; a
-                            // stale removal for another actor is ignored.
-                            if self.local_mount_unique_id == Some(event.ridden_unique_id) {
-                                None
-                            } else {
-                                self.local_mount_unique_id
-                            }
-                        }
-                        // An unknown link verb is skipped rather than guessed.
-                        protocol::ActorLinkType::Unknown(_) => self.local_mount_unique_id,
-                    };
-                    if next != self.local_mount_unique_id {
-                        self.local_mount_unique_id = next;
-                        self.push_committed_ui(CommittedUiEvent::LocalMount {
-                            sequence,
-                            ridden_unique_id: next,
-                        });
-                    }
-                }
-                // Links between remote actors are not modeled yet; commit and drop.
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let _ = self
+                    .actors
+                    .apply_link(self.actor_session_id, sequence, event);
+                self.publish_local_mount_change(sequence, previous_mount);
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
@@ -825,5 +801,15 @@ impl WorldStream {
             "UI admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_ui.push_back(event);
+    }
+
+    fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {
+        let current = self.actors.ridden_unique_id(self.local_player_unique_id);
+        if current != previous {
+            self.push_committed_ui(CommittedUiEvent::LocalMount {
+                sequence,
+                ridden_unique_id: current,
+            });
+        }
     }
 }

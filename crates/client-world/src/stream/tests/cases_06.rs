@@ -1,5 +1,115 @@
 use super::*;
 
+fn riding_stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+const fn actor_link(
+    rider_unique_id: i64,
+    ridden_unique_id: i64,
+    link_type: ActorLinkType,
+) -> ActorLinkEvent {
+    ActorLinkEvent {
+        dimension: 0,
+        ridden_unique_id,
+        rider_unique_id,
+        link_type,
+        immediate: false,
+        rider_initiated: false,
+    }
+}
+
+fn linked_spawn(unique_id: i64, runtime_id: u64, links: Arc<[ActorLinkEvent]>) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension: 0,
+        unique_id,
+        runtime_id,
+        kind: ActorKind::Entity {
+            identifier: "minecraft:boat".into(),
+        },
+        position: [0.0; 3],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links,
+    }))
+}
+
+#[test]
+fn world_stream_retains_remote_link_before_spawn_without_local_ui() {
+    let mut stream = riding_stream();
+    stream
+        .submit(
+            1,
+            WorldEvent::ActorLink(actor_link(7, 8, ActorLinkType::Rider)),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(7), Some(8));
+    assert!(stream.take_committed_ui().is_empty());
+
+    stream.submit(2, linked_spawn(7, 7, Arc::from([]))).unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(7), Some(8));
+}
+
+#[test]
+fn embedded_links_publish_one_final_local_mount_and_actor_removal_dismounts() {
+    let mut stream = riding_stream();
+    stream
+        .submit(
+            1,
+            linked_spawn(
+                50,
+                50,
+                Arc::from([
+                    actor_link(1, 40, ActorLinkType::Rider),
+                    actor_link(1, 50, ActorLinkType::Passenger),
+                    actor_link(1, 60, ActorLinkType::Unknown(9)),
+                ]),
+            ),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(1), Some(50));
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 1,
+            ridden_unique_id: Some(50),
+        }]
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Remove(ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 50,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(1), None);
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 2,
+            ridden_unique_id: None,
+        }]
+    );
+}
+
 #[test]
 fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
     let mut stream = WorldStream::new(WorldBootstrap {
@@ -723,6 +833,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
+                links: Arc::from([]),
             })),
         )
         .unwrap();
@@ -767,6 +878,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
+                links: Arc::from([]),
             })),
         )
         .unwrap();

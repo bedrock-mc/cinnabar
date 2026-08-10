@@ -17,9 +17,9 @@ use client_world::{
     WorldStream,
 };
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
-    ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent, WorldBootstrap,
-    WorldEvent,
+    ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent,
+    WorldBootstrap, WorldEvent,
 };
 
 fn scalar(value: f32) -> EntityGeometryScalar {
@@ -294,6 +294,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         metadata: Arc::from([]),
         attributes: Arc::from([]),
         properties: Arc::from([]),
+        links: Arc::from([]),
     }))
 }
 
@@ -448,6 +449,32 @@ fn animation_time_is_lifetime_relative_and_looped() {
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         0.0
+    );
+}
+
+#[test]
+fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    compiled.molang_symbols[2].identifier = "query.is_riding".into();
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::ActorLink(ActorLinkEvent {
+                dimension: 0,
+                ridden_unique_id: -8,
+                rider_unique_id: -7,
+                link_type: ActorLinkType::Rider,
+                immediate: false,
+                rider_initiated: false,
+            }),
+        )
+        .unwrap();
+    stream.advance_actor_interpolation_ticks(1);
+    assert_eq!(
+        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        1.0
     );
 }
 

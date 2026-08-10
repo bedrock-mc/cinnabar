@@ -132,6 +132,7 @@ pub(super) fn query(
         body_yaw: actor.body_yaw,
         head_yaw: actor.head_yaw,
         pitch: actor.pitch,
+        is_riding: false,
     });
     let ground_speed = input.velocity[0].hypot(input.velocity[2]);
     match identifier {
@@ -144,6 +145,7 @@ pub(super) fn query(
             .map_or(ground_speed, |attribute| attribute.current),
         "ground_speed" => ground_speed,
         "is_on_ground" => bool_value(input.on_ground),
+        "is_riding" => bool_value(input.is_riding),
         "is_moving" => bool_value(
             input
                 .velocity

@@ -77,6 +77,8 @@ impl ActorStore {
             retained_player_skin_bytes: 0,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
+            rider_to_ridden: HashMap::new(),
+            max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
@@ -99,6 +101,7 @@ impl ActorStore {
         self.latest_sequence = 0;
         self.actors.clear();
         self.unique_to_runtime.clear();
+        self.rider_to_ridden.clear();
         self.players.clear();
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
@@ -118,6 +121,7 @@ impl ActorStore {
         self.dimension = dimension;
         self.actors.clear();
         self.unique_to_runtime.clear();
+        self.rider_to_ridden.clear();
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
@@ -326,6 +330,22 @@ impl ActorStore {
             }
         }
     }
+
+    pub(crate) fn apply_link(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: ActorLinkEvent,
+    ) -> ActorApplyResult {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return guard;
+        }
+        if event.dimension != self.dimension {
+            return ActorApplyResult::StaleDimension;
+        }
+        self.apply_link_inner(event)
+    }
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         for _ in 0..ticks {
             for actor in self.actors.values_mut() {
@@ -345,7 +365,8 @@ impl ActorStore {
                 }
                 actor.set_current_pose(next);
             }
-            self.animation.advance_tick(&self.actors);
+            self.animation
+                .advance_tick(&self.actors, &self.rider_to_ridden);
             self.actions.advance_tick();
         }
     }
@@ -390,7 +411,15 @@ impl ActorStore {
         if self.actors.len() >= self.max_actors && !replaces_runtime && !replaces_unique {
             return ActorApplyResult::CapacityRejected;
         }
+        if spawn
+            .links
+            .iter()
+            .any(|link| link.dimension != self.dimension)
+        {
+            return ActorApplyResult::StaleDimension;
+        }
 
+        let links = std::sync::Arc::clone(&spawn.links);
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
             let lifetime = self.lifetime_for(&previous);
@@ -398,6 +427,7 @@ impl ActorStore {
             self.animation.remove_runtime(previous.runtime_id);
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
+            self.remove_links_for(previous.unique_id);
             replaced = true;
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
@@ -405,6 +435,7 @@ impl ActorStore {
                 let lifetime = self.lifetime_for(&previous);
                 self.items.remove(lifetime);
                 self.actions.remove(lifetime);
+                self.remove_links_for(previous.unique_id);
             }
             self.animation.remove_runtime(previous_runtime);
             replaced = true;
@@ -423,6 +454,11 @@ impl ActorStore {
                     .insert_spawn(self.lifetime_for(actor), sequence, held_item);
             }
         }
+        for link in links.iter().copied() {
+            if self.apply_link_inner(link) == ActorApplyResult::CapacityRejected {
+                return ActorApplyResult::CapacityRejected;
+            }
+        }
         if replaced {
             ActorApplyResult::Replaced
         } else {
@@ -431,6 +467,7 @@ impl ActorStore {
     }
     fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
         let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
+            self.remove_links_for(unique_id);
             return ActorApplyResult::MissingActor;
         };
         if let Some(actor) = self.actors.remove(&runtime_id) {
@@ -438,8 +475,44 @@ impl ActorStore {
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
         }
+        self.remove_links_for(unique_id);
         self.animation.remove_runtime(runtime_id);
         ActorApplyResult::Removed
+    }
+
+    fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
+        Self::apply_link_to(&mut self.rider_to_ridden, self.max_actor_links, event)
+    }
+
+    fn apply_link_to(
+        rider_to_ridden: &mut HashMap<i64, i64>,
+        max_actor_links: usize,
+        event: ActorLinkEvent,
+    ) -> ActorApplyResult {
+        match event.link_type {
+            ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
+            ActorLinkType::Remove => {
+                if rider_to_ridden.get(&event.rider_unique_id) == Some(&event.ridden_unique_id) {
+                    rider_to_ridden.remove(&event.rider_unique_id);
+                }
+                ActorApplyResult::Updated
+            }
+            ActorLinkType::Rider | ActorLinkType::Passenger => {
+                if !rider_to_ridden.contains_key(&event.rider_unique_id)
+                    && rider_to_ridden.len() >= max_actor_links
+                {
+                    return ActorApplyResult::CapacityRejected;
+                }
+                rider_to_ridden.insert(event.rider_unique_id, event.ridden_unique_id);
+                ActorApplyResult::Updated
+            }
+        }
+    }
+
+    fn remove_links_for(&mut self, unique_id: i64) {
+        self.rider_to_ridden.remove(&unique_id);
+        self.rider_to_ridden
+            .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
     }
 
     pub(crate) fn apply_equipment(
