@@ -94,7 +94,8 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     ui_runtime::{
-        UiRuntime, drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
+        UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+        drive_inventory_ui_actions, flush_chat_network, flush_inventory_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
@@ -161,6 +162,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (
                 drive_menu_input,
                 drive_chat_ui_actions,
+                drain_inventory_authority,
+                drive_inventory_ui_actions,
                 drive_chat_keyboard_input,
                 drive_menu_connection,
                 synchronize_semantic_input_authority,
@@ -174,11 +177,14 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (
-                receive_network_events,
-                reconcile_world_stream_before_physics,
-            )
-                .chain()
+            receive_network_events
+                .before(drain_inventory_authority)
+                .before(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            reconcile_world_stream_before_physics
+                .after(receive_network_events)
                 .before(ClientFrameSet::Physics),
         )
         .add_systems(
@@ -225,7 +231,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (emit_phase3_evidence, send_player_auth_inputs)
+            (
+                flush_inventory_network,
+                emit_phase3_evidence,
+                send_player_auth_inputs,
+            )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
         );

@@ -34,6 +34,7 @@ use crate::{
 mod chat;
 mod dynamic_textures;
 mod hud_layout;
+mod inventory_pointer;
 mod item_viewmodel;
 mod menu;
 mod menu_artwork;

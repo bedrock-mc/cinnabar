@@ -102,7 +102,6 @@ pub(crate) fn publish_ui_runtime(
             Some("Loading terrain...")
         });
     }
-    runtime.drain_pending_inventory();
     runtime.expire_gameplay_effects(now_millis);
     runtime.observe_selected_item_identity(now_millis);
     let skin = client_world.stream.as_ref().and_then(|stream| {
@@ -230,12 +229,17 @@ pub(crate) fn refresh_hud_frame(
     let mut hotbar_icons = [None; 9];
     let mut inventory_icons = super::hud_layout::InventoryIcons::default();
     for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = runtime.gameplay_hud().inventory_stack(slot) {
+        if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
             *icon = resolve_identifier(stack)
                 .as_deref()
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
         }
     }
+    let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
+        resolve_identifier(stack)
+            .as_deref()
+            .and_then(|id| presentation.item_icon(id, stack.metadata))
+    });
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
         if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
             let identifier = resolve_identifier(stack);
@@ -296,6 +300,7 @@ pub(crate) fn refresh_hud_frame(
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
     frame.inventory_icons = inventory_icons;
+    frame.cursor_icon = cursor_icon;
     frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
     frame.offhand_viewmodel_icon = offhand_viewmodel_icon;

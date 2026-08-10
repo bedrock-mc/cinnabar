@@ -20,6 +20,48 @@ use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
 use super::{PlatformClipboard, UiRuntime, presentation};
 
+pub fn flush_inventory_send<E>(
+    runtime: &mut UiRuntime,
+    now_millis: u64,
+    mut send: impl FnMut(Packet) -> Result<(), E>,
+) -> Result<bool, E> {
+    runtime.inventory_ledger_mut().poll_timeout(now_millis);
+    let Some(packet) = runtime
+        .inventory_ledger()
+        .pending_packet()
+        .expect("the ledger retains only validated protocol requests")
+    else {
+        return Ok(false);
+    };
+    if let Err(error) = send(packet) {
+        runtime
+            .inventory_ledger_mut()
+            .note_transport_pressure(now_millis);
+        return Err(error);
+    }
+    let admitted = runtime
+        .inventory_ledger_mut()
+        .mark_transport_enqueued(now_millis);
+    debug_assert!(admitted, "only an awaiting request can be transported");
+    Ok(true)
+}
+
+pub(crate) fn flush_inventory_network(
+    time: Res<Time<Real>>,
+    mut runtime: ResMut<UiRuntime>,
+    network: Res<crate::runtime::network::NetworkHandle>,
+) {
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match flush_inventory_send(&mut runtime, now_millis, |packet| {
+        network.send_inventory_packet(packet)
+    }) {
+        Ok(_) | Err(crate::runtime::network::PacketSendError::Full(_)) => {}
+        Err(crate::runtime::network::PacketSendError::Closed(_)) => {
+            runtime.inventory_ledger_mut().transport_closed();
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ChatFlushError<E> {
     Packet(ChatPacketError),
@@ -200,6 +242,40 @@ pub(crate) fn drive_chat_ui_actions(
                 );
             }
         }
+    }
+}
+
+pub(crate) fn drive_inventory_ui_actions(
+    window: Single<&Window, With<PrimaryWindow>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    presentation: Res<presentation::UiPresentationRuntime>,
+    mut runtime: ResMut<UiRuntime>,
+) {
+    if menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || !runtime.inventory_open()
+        || !window.focused
+    {
+        runtime.set_inventory_pointer_gui(None);
+        return;
+    }
+    let Some(position) = window.cursor_position() else {
+        runtime.set_inventory_pointer_gui(None);
+        return;
+    };
+    let Ok(point) = UiPoint::new(position.x, position.y) else {
+        runtime.set_inventory_pointer_gui(None);
+        return;
+    };
+    let physical_size = [window.physical_width(), window.physical_height()];
+    let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
+    runtime.set_inventory_pointer_gui(gui);
+    let hit = gui
+        .and_then(|gui| presentation.inventory_slot_hit(gui, physical_size, window.scale_factor()));
+    if mouse_buttons.just_pressed(MouseButton::Left)
+        && let Some(slot) = hit
+    {
+        let _ = runtime.inventory_ledger_mut().begin_click(slot);
     }
 }
 

@@ -6,6 +6,7 @@ pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
+pub mod inventory_ledger;
 pub mod inventory_router;
 pub(crate) mod item_facts;
 mod platform_clipboard;
@@ -14,15 +15,17 @@ mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
 
+pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
-pub use interaction::{ChatFlushError, flush_chat_sends};
+pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 #[cfg(test)]
 use interaction::{
     dispatch_chat_ui_action, gamepad_chat_action, paste_chat_shortcut,
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
 };
 pub(crate) use interaction::{
-    drive_chat_keyboard_input, drive_chat_ui_actions, flush_chat_network,
+    drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
+    flush_chat_network, flush_inventory_network,
 };
 
 use std::{collections::VecDeque, sync::Arc};
@@ -44,6 +47,7 @@ use ui::{
 };
 
 use self::gameplay_hud::GameplayHudState;
+use self::inventory_ledger::PlayerInventoryLedger;
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
 
 pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
@@ -172,6 +176,8 @@ pub struct UiRuntime {
     local_selected_slot: Option<u8>,
     server_selected_slot: Option<u8>,
     gameplay_hud: GameplayHudState,
+    inventory_ledger: PlayerInventoryLedger,
+    inventory_pointer_gui: Option<[f32; 2]>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -235,6 +241,8 @@ impl UiRuntime {
             local_selected_slot: None,
             server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
+            inventory_ledger: PlayerInventoryLedger::default(),
+            inventory_pointer_gui: None,
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
@@ -257,6 +265,8 @@ impl UiRuntime {
 
     pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
         self.inventory_authority = Some(authority);
+        self.inventory_ledger
+            .apply(&InventoryEvent::Authority(authority));
     }
 
     /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
@@ -367,6 +377,22 @@ impl UiRuntime {
 
     pub const fn inventory_open(&self) -> bool {
         self.inventory_open
+    }
+
+    pub const fn inventory_ledger(&self) -> &PlayerInventoryLedger {
+        &self.inventory_ledger
+    }
+
+    pub fn inventory_ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
+        &mut self.inventory_ledger
+    }
+
+    pub const fn inventory_pointer_gui(&self) -> Option<[f32; 2]> {
+        self.inventory_pointer_gui
+    }
+
+    pub(crate) fn set_inventory_pointer_gui(&mut self, position: Option<[f32; 2]>) {
+        self.inventory_pointer_gui = position;
     }
 
     pub const fn ui_focused(&self) -> bool {
@@ -639,6 +665,8 @@ impl UiRuntime {
         self.local_selected_slot = None;
         self.server_selected_slot = None;
         self.gameplay_hud.clear();
+        self.inventory_ledger = PlayerInventoryLedger::default();
+        self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

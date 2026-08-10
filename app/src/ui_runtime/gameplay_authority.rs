@@ -238,6 +238,7 @@ impl UiRuntime {
     /// container store takes over this drain.
     pub(crate) fn drain_pending_inventory(&mut self) {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
+            self.inventory_ledger.apply(&sequenced.event);
             if let InventoryEvent::SelectedSlot(selected) = &sequenced.event
                 && selected.select_slot
                 && selected.slot < protocol::HOTBAR_SLOT_COUNT
@@ -398,6 +399,10 @@ impl UiRuntime {
         }
         Ok(())
     }
+}
+
+pub(crate) fn drain_inventory_authority(mut runtime: bevy::prelude::ResMut<UiRuntime>) {
+    runtime.drain_pending_inventory();
 }
 
 impl UiRuntime {
