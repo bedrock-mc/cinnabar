@@ -224,7 +224,7 @@ pub(crate) struct MenuRuntime {
     launcher: bool,
     servers: Vec<SavedServer>,
     config_path: PathBuf,
-    pending_connect: Option<String>,
+    pending_connect: Option<PendingConnect>,
     connecting: bool,
     disconnect_requested: bool,
     exit_requested: bool,
@@ -240,6 +240,12 @@ pub(crate) struct MenuRuntime {
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
+}
+
+#[derive(Debug)]
+struct PendingConnect {
+    address: String,
+    auth_cache: Option<PathBuf>,
 }
 
 impl MenuRuntime {
@@ -356,7 +362,14 @@ impl MenuRuntime {
         self.visible = true;
     }
 
-    pub(crate) fn take_pending_connect(&mut self) -> Option<String> {
+    fn take_pending_connect(&mut self) -> Option<PendingConnect> {
+        if self
+            .auth_process
+            .as_ref()
+            .is_some_and(|process| !process.cleanup_complete())
+        {
+            return None;
+        }
         self.pending_connect.take()
     }
 
@@ -762,7 +775,13 @@ impl MenuRuntime {
             return;
         }
         self.stop_catalog();
-        self.pending_connect = Some(address);
+        let auth_cache =
+            account::validated_auth_cache(self.auth_process.as_ref().map(AuthSupervisor::state));
+        self.stop_sign_in();
+        self.pending_connect = Some(PendingConnect {
+            address,
+            auth_cache,
+        });
         self.mark_connecting();
     }
 }
@@ -800,14 +819,31 @@ impl Drop for CoreProcessGuard {
     }
 }
 
-pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result<Child> {
+pub(crate) fn spawn_core_for_address(
+    socket_dir: &Path,
+    address: &str,
+    auth_cache: Option<&Path>,
+) -> Result<Child> {
     let executable = core_executable().ok_or_else(|| {
         anyhow::anyhow!(
             "bedrock-core executable was not found beside the client or in target/debug/target/release"
         )
     })?;
     clear_stale_bridge_endpoint(socket_dir)?;
-    let mut command = Command::new(&executable);
+    let mut command = core_command_for_address(&executable, socket_dir, address, auth_cache);
+    let child = command
+        .spawn()
+        .with_context(|| format!("spawn {} for {address}", executable.display()))?;
+    Ok(child)
+}
+
+fn core_command_for_address(
+    executable: &Path,
+    socket_dir: &Path,
+    address: &str,
+    auth_cache: Option<&Path>,
+) -> Command {
+    let mut command = Command::new(executable);
     command
         .arg("-socket-dir")
         .arg(socket_dir)
@@ -816,14 +852,10 @@ pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let auth_cache = auth_cache_path();
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
     }
-    let child = command
-        .spawn()
-        .with_context(|| format!("spawn {} for {address}", executable.display()))?;
-    Ok(child)
+    command
 }
 
 /// Drops any endpoint publication left behind by an earlier core.

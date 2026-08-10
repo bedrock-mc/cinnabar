@@ -279,6 +279,10 @@ impl AuthSupervisor {
         self.child.is_none() && self.reader.is_none()
     }
 
+    pub(crate) fn cleanup_complete(&self) -> bool {
+        self.reaped.load(Ordering::Acquire)
+    }
+
     fn handoff_reap(&mut self) {
         let Some(mut child) = self.child.take() else {
             return;
