@@ -1,0 +1,34 @@
+{
+  "schema": "cinnabar.registry-foundation.v1",
+  "status": "blocked",
+  "game_version": "1.26.40",
+  "protocol": 2168,
+  "formats": {
+    "block": "BREG1003",
+    "light": "LREG1001",
+    "biome": "BIOREG01"
+  },
+  "outputs": {
+    "block": "crates/assets/data/block-registry-v2168.bin",
+    "light": "crates/assets/data/block-light-registry-v2168.bin",
+    "biome": "crates/assets/data/biome-registry-v2168.bin"
+  },
+  "sources": {
+    "dragonfly": {
+      "commit": "0c2c404540fc651873c24a020b0a48778bd56295",
+      "blob": "7006d9d46217425aab8e7d998f70c370b6b9c4eb",
+      "sha256": "1dc6d7ea26b48b5b5e4702762e463b95e59eb109f26c0c3b74115d12cb1941a7",
+      "size": 2436125
+    },
+    "bds": {
+      "archive_sha256": "7b649671e1d88f8bd1499c580910f099e27533efc213f9faf5a5c68dd41a77c9",
+      "executable_sha256": "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372",
+      "overlay_sha256": "c52bbdfa8c92679595b5e342bee556a891a8aab91d5173f8670ff15e47e3efbb"
+    }
+  },
+  "missing": [
+    "retail_block_projection",
+    "numeric_biome_projection",
+    "authoritative_light_projection"
+  ]
+}
