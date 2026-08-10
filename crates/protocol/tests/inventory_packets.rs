@@ -1,4 +1,7 @@
-use protocol::{BedrockSession, NetworkItemStack, WorldEvent, decode_batch, into_world_event};
+use bytes::Bytes;
+use protocol::{
+    BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
+};
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
     MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
@@ -9,15 +12,17 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_40::{
-    ActorUniqueId, BedrockSafetyRedactableString, BlockPos,
+    ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
     FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
     ItemStackResponseContainerInfo, ItemStackResponseInfo, ItemStackResponseInfoResult,
     ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData, PlayerHotbarPacket,
+    StructureEditorData, StructureEditorDataView,
     TypedClientNetIdStructItemStackRequestIdTagInt32T0,
     TypedServerNetIdStructItemStackNetIdTagInt32T0,
 };
+use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
 const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin");
 const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
@@ -148,15 +153,21 @@ fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
     };
     assert!(matches!(hotbar, InventoryEvent::SelectedSlot(_)));
 
-    // item_stack_response.bin is excluded here and covered by
-    // `item_stack_response_fixture_pins_the_redactable_string_divergence`
-    // below: the generated decoder cannot read it.
+    let response = match decode_fixture(RESPONSE_FIXTURE).data {
+        McpePacketData::ItemStackResponsePacket(packet) => normalize_response(packet).unwrap(),
+        other => panic!("expected ItemStackResponse, got {other:?}"),
+    };
+    assert!(matches!(response, InventoryEvent::Response(_)));
 }
 
 #[test]
 fn inventory_packets_dispatch_through_the_public_world_event_surface() {
-    // RESPONSE_FIXTURE is excluded: see the divergence test below.
-    for bytes in [CONTENT_FIXTURE, SLOT_FIXTURE, HOTBAR_FIXTURE] {
+    for bytes in [
+        CONTENT_FIXTURE,
+        SLOT_FIXTURE,
+        HOTBAR_FIXTURE,
+        RESPONSE_FIXTURE,
+    ] {
         let event = into_world_event(decode_fixture(bytes), 0)
             .expect("normalize inventory world event")
             .expect("inventory packet must be allowlisted");
@@ -164,29 +175,89 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
     }
 }
 
-/// Pins the `BedrockSafetyRedactableString` divergence on `ItemStackResponse`.
+/// Pins gophertunnel's two adjacent strings for the generated redactable type.
 ///
 /// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ be6713da4dc051a4197f897d04835e89e9c54321)
-/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent
-/// strings. The generated type models them as one redactable string, which puts
-/// an optional-presence byte between them, so the decoder reads the second
-/// string's length prefix as that flag. Only this field and one
-/// `StructureEditorData::structure_name` use the type.
-///
-/// The assertion is deliberately inverted: it starts failing once upstream
-/// fixes the shape, which is the signal to fold the fixture back into the two
-/// tests above.
+/// (`minecraft/protocol/item_stack.go` @ 56a0f77dbbb2fb006b081ec38bb4bedf9cb95088)
+/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent strings.
 #[test]
-fn item_stack_response_fixture_pins_the_redactable_string_divergence() {
-    let result = decode_batch(
-        RESPONSE_FIXTURE.into(),
-        &BedrockSession { shield_item_id: 0 },
+fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
+    let packet = decode_fixture(RESPONSE_FIXTURE);
+    let McpePacketData::ItemStackResponsePacket(response) = &packet.data else {
+        panic!("expected ItemStackResponse")
+    };
+    let slot = &response.responses[0].containers.as_ref().unwrap()[0].slots[0];
+    assert_eq!(slot.custom_name.unredacted, "Fixture item");
+    assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
+
+    let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
+    assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
+}
+
+/// The only other generated use must carry the same two-string wire shape, and
+/// a malicious declared length must fail before allocating or reading past the
+/// available bytes.
+#[test]
+fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
+    let structure = StructureEditorData {
+        structure_name: BedrockSafetyRedactableString {
+            unredacted: "structure".into(),
+            redacted: Some("filtered".into()),
+        },
+        data_field: "payload".into(),
+        ..Default::default()
+    };
+    let mut encoded = Vec::new();
+    structure.encode(&mut encoded).unwrap();
+    assert_eq!(&encoded[..20], b"\x09structure\x08filtered\x07");
+
+    let mut body = Bytes::from(encoded.clone());
+    let decoded = StructureEditorData::decode(&mut body, ()).unwrap();
+    assert_eq!(decoded, structure);
+    assert!(body.is_empty());
+    let mut reencoded = Vec::new();
+    decoded.encode(&mut reencoded).unwrap();
+    assert_eq!(reencoded, encoded);
+
+    let mut borrowed_body = Bytes::from(encoded);
+    let borrowed = StructureEditorDataView::decode(&mut borrowed_body).unwrap();
+    assert_eq!(borrowed.structure_name.unredacted.as_bytes(), b"structure");
+    assert_eq!(
+        borrowed
+            .structure_name
+            .redacted
+            .as_ref()
+            .unwrap()
+            .as_bytes(),
+        b"filtered"
     );
-    assert!(
-        result.is_err(),
-        "the generated ItemStackResponse decoder now reads the gophertunnel          fixture: restore RESPONSE_FIXTURE to the canonical decode tests"
+    assert!(borrowed_body.is_empty());
+
+    let empty = BedrockSafetyRedactableString {
+        unredacted: String::new(),
+        redacted: None,
+    };
+    let mut empty_wire = Vec::new();
+    empty.encode(&mut empty_wire).unwrap();
+    assert_eq!(empty_wire, [0, 0]);
+    let mut empty_wire = Bytes::from(empty_wire);
+    assert_eq!(
+        BedrockSafetyRedactableString::decode(&mut empty_wire, ()).unwrap(),
+        empty
     );
+    let mut borrowed_empty_wire = Bytes::from_static(&[0, 0]);
+    let borrowed_empty =
+        BedrockSafetyRedactableStringView::decode(&mut borrowed_empty_wire).unwrap();
+    assert!(borrowed_empty.redacted.is_none());
+
+    let mut malformed = Bytes::from_static(&[0, 5, b'x']);
+    assert!(matches!(
+        BedrockSafetyRedactableString::decode(&mut malformed, ()),
+        Err(DecodeError::StringLengthExceeded {
+            declared: 5,
+            available: 1
+        })
+    ));
 }
 
 #[test]

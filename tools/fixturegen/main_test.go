@@ -62,14 +62,13 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ModalFormRequest",
 		"AvailableCommands",
 		"AvailableCommandsLive356513",
-		"CraftingDataMaterialReducer",
 		"BiomeDefinitionListChunkGeneration",
 		"InventoryContent",
 		"InventorySlot",
 		"PlayerHotBar",
 		"ItemStackResponse",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 52, 122, 49, 50, 48, 148}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -86,7 +85,6 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0xe4, 0x48},
 		{0xcc, 0x48},
 		{0xcc, 0x48},
-		{0xb4, 0x48},
 		{0xfa, 0x48},
 		{0xb1, 0x48},
 		{0xb2, 0x48},

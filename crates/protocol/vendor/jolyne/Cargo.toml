@@ -9,8 +9,7 @@ doctest = false
 
 [features]
 default = ["bedrock_1_26_40"]
-# The pinned Bedrock version. Exactly one of these selects `jolyne::valentine`.
-bedrock_1_26_30 = ["valentine/bedrock_1_26_30"]
+# The pinned Bedrock version selected by `jolyne::valentine`.
 bedrock_1_26_40 = ["valentine/bedrock_1_26_40"]
 client = ["dep:jsonwebtoken", "dep:reqwest"]
 server = ["dep:reqwest", "dep:jsonwebtoken"]

@@ -9,6 +9,13 @@
 #![allow(clippy::all)]
 use ::bitflags::bitflags;
 use bytes::Buf;
+
+pub(crate) fn decode_strict_actor_runtime_id<B: bytes::Buf>(
+    buf: &mut B,
+) -> Result<i64, crate::bedrock::error::DecodeError> {
+    Ok(crate::protocol::wire::read_var_u64(buf)? as i64)
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ActorDataBoundingBoxComponent {
     pub actor_data_bounding_box: [f32; 3],
@@ -336,55 +343,6 @@ impl crate::bedrock::codec::BedrockCodec for AdventureSettings {
             show_name_tags,
             auto_jump,
         })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct AgentCapabilities {
-    pub can_modify_blocks: Option<bool>,
-}
-impl crate::bedrock::codec::BedrockSized for AgentCapabilities {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            1usize
-                + match &self.can_modify_blocks {
-                    Some(_v) => 1usize,
-                    None => 0usize,
-                }
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for AgentCapabilities {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        match &self.can_modify_blocks {
-            Some(v) => {
-                buf.put_u8(1);
-                (*v).encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let can_modify_blocks = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(<bool as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?)
-            } else {
-                None
-            }
-        };
-        Ok(Self { can_modify_blocks })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -3758,16 +3716,11 @@ impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableString {
             )) + _len
         };
         size += {
-            1usize
-                + match &self.redacted {
-                    Some(_v) => {
-                        let _len = (_v).as_bytes().len();
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarInt(_len as i32),
-                        ) + _len
-                    }
-                    None => 0usize,
-                }
+            let _value = self.redacted.as_deref().unwrap_or_default();
+            let _len = _value.as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+                _len as i32,
+            )) + _len
         };
         size
     }
@@ -3780,16 +3733,10 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        match &self.redacted {
-            Some(v) => {
-                buf.put_u8(1);
-                let bytes = (v).as_bytes();
-                let len = bytes.len();
-                crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-                buf.put_slice(bytes);
-            }
-            None => buf.put_u8(0),
-        }
+        let bytes = self.redacted.as_deref().unwrap_or_default().as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
+        buf.put_slice(bytes);
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -3819,33 +3766,26 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let redacted = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some({
-                    let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                    if len_raw < 0 {
-                        return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                            value: len_raw,
-                        });
-                    }
-                    let len = len_raw as usize;
-                    if buf.remaining() < len {
-                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                            declared: len,
-                            available: buf.remaining(),
-                        });
-                    }
-                    let mut bytes = vec![0u8; len];
-                    buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-                })
-            } else {
-                None
+            let len_raw =
+                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as i64;
+            if len_raw < 0 {
+                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
+            let len = len_raw as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            let value = crate::bedrock::codec::decode_utf8_lossy_owned(bytes);
+            (!value.is_empty()).then_some(value)
         };
         Ok(Self {
             unredacted,
@@ -6781,7 +6721,7 @@ impl crate::bedrock::codec::BedrockCodec for BlockPos {
 pub struct BookEditActionAddPage {
     pub page_index: i32,
     pub page_text: String,
-    pub photo_name: String,
+    pub reserved_2: String,
 }
 impl crate::bedrock::codec::BedrockSized for BookEditActionAddPage {
     fn encoded_size(&self) -> usize {
@@ -6796,7 +6736,7 @@ impl crate::bedrock::codec::BedrockSized for BookEditActionAddPage {
             )) + _len
         };
         size += {
-            let _len = (&self.photo_name).as_bytes().len();
+            let _len = (&self.reserved_2).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
             )) + _len
@@ -6813,7 +6753,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionAddPage {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.photo_name).as_bytes();
+        let bytes = (&self.reserved_2).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
@@ -6851,7 +6791,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionAddPage {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        let photo_name = {
+        let reserved_2 = {
             let len_raw =
                 (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -6875,7 +6815,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionAddPage {
         Ok(Self {
             page_index,
             page_text,
-            photo_name,
+            reserved_2,
         })
     }
 }
@@ -7040,7 +6980,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionFinalize {
 pub struct BookEditActionReplacePage {
     pub page_index: i32,
     pub page_text: String,
-    pub photo_name: String,
+    pub reserved_2: String,
 }
 impl crate::bedrock::codec::BedrockSized for BookEditActionReplacePage {
     fn encoded_size(&self) -> usize {
@@ -7055,7 +6995,7 @@ impl crate::bedrock::codec::BedrockSized for BookEditActionReplacePage {
             )) + _len
         };
         size += {
-            let _len = (&self.photo_name).as_bytes().len();
+            let _len = (&self.reserved_2).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
             )) + _len
@@ -7072,7 +7012,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionReplacePage {
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.photo_name).as_bytes();
+        let bytes = (&self.reserved_2).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
@@ -7110,7 +7050,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionReplacePage {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        let photo_name = {
+        let reserved_2 = {
             let len_raw =
                 (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -7134,7 +7074,7 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionReplacePage {
         Ok(Self {
             page_index,
             page_text,
-            photo_name,
+            reserved_2,
         })
     }
 }
@@ -12919,21 +12859,21 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsSystemDiagno
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct EduSharedUriResource {
-    pub button_name: String,
-    pub link_uri: String,
+pub struct LevelSettingsReserved44 {
+    pub reserved_0: String,
+    pub reserved_1: String,
 }
-impl crate::bedrock::codec::BedrockSized for EduSharedUriResource {
+impl crate::bedrock::codec::BedrockSized for LevelSettingsReserved44 {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
-            let _len = (&self.button_name).as_bytes().len();
+            let _len = (&self.reserved_0).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
             )) + _len
         };
         size += {
-            let _len = (&self.link_uri).as_bytes().len();
+            let _len = (&self.reserved_1).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
             )) + _len
@@ -12941,15 +12881,15 @@ impl crate::bedrock::codec::BedrockSized for EduSharedUriResource {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for EduSharedUriResource {
+impl crate::bedrock::codec::BedrockCodec for LevelSettingsReserved44 {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        let bytes = (&self.button_name).as_bytes();
+        let bytes = (&self.reserved_0).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.link_uri).as_bytes();
+        let bytes = (&self.reserved_1).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
@@ -12960,7 +12900,7 @@ impl crate::bedrock::codec::BedrockCodec for EduSharedUriResource {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let button_name = {
+        let reserved_0 = {
             let len_raw =
                 (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -12981,7 +12921,7 @@ impl crate::bedrock::codec::BedrockCodec for EduSharedUriResource {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        let link_uri = {
+        let reserved_1 = {
             let len_raw =
                 (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -13003,85 +12943,8 @@ impl crate::bedrock::codec::BedrockCodec for EduSharedUriResource {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         Ok(Self {
-            button_name,
-            link_uri,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct EducationLocalLevelSettings {
-    pub code_builder_override_uri: Option<String>,
-}
-impl crate::bedrock::codec::BedrockSized for EducationLocalLevelSettings {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            1usize
-                + match &self.code_builder_override_uri {
-                    Some(_v) => {
-                        let _len = (_v).as_bytes().len();
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarInt(_len as i32),
-                        ) + _len
-                    }
-                    None => 0usize,
-                }
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for EducationLocalLevelSettings {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        match &self.code_builder_override_uri {
-            Some(v) => {
-                buf.put_u8(1);
-                let bytes = (v).as_bytes();
-                let len = bytes.len();
-                crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-                buf.put_slice(bytes);
-            }
-            None => buf.put_u8(0),
-        }
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let code_builder_override_uri = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some({
-                    let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as i64;
-                    if len_raw < 0 {
-                        return Err(crate::bedrock::error::DecodeError::NegativeLength {
-                            value: len_raw,
-                        });
-                    }
-                    let len = len_raw as usize;
-                    if buf.remaining() < len {
-                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                            declared: len,
-                            available: buf.remaining(),
-                        });
-                    }
-                    let mut bytes = vec![0u8; len];
-                    buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-                })
-            } else {
-                None
-            }
-        };
-        Ok(Self {
-            code_builder_override_uri,
+            reserved_0,
+            reserved_1,
         })
     }
 }
@@ -13170,235 +13033,6 @@ impl crate::bedrock::codec::BedrockCodec for ExternalLinkSettings {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         Ok(Self { url, display_name })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct EducationLevelSettings {
-    pub code_builder_default_uri: String,
-    pub code_builder_title: String,
-    pub canresize_code_builder: bool,
-    pub disablelegacytitlebar: bool,
-    pub post_process_filter: String,
-    pub screenshot_border_resource_path: String,
-    pub agent_capabilities: Option<AgentCapabilities>,
-    pub local_settings: EducationLocalLevelSettings,
-    pub deprecated_always_false: bool,
-    pub external_link_settings: Option<ExternalLinkSettings>,
-}
-impl crate::bedrock::codec::BedrockSized for EducationLevelSettings {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.code_builder_default_uri).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.code_builder_title).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += 1usize;
-        size += 1usize;
-        size += {
-            let _len = (&self.post_process_filter).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.screenshot_border_resource_path).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += {
-            1usize
-                + match &self.agent_capabilities {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                    None => 0usize,
-                }
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.local_settings);
-        size += 1usize;
-        size += {
-            1usize
-                + match &self.external_link_settings {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                    None => 0usize,
-                }
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for EducationLevelSettings {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.code_builder_default_uri).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.code_builder_title).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        self.canresize_code_builder.encode(buf)?;
-        self.disablelegacytitlebar.encode(buf)?;
-        let bytes = (&self.post_process_filter).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.screenshot_border_resource_path).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        match &self.agent_capabilities {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
-        self.local_settings.encode(buf)?;
-        self.deprecated_always_false.encode(buf)?;
-        match &self.external_link_settings {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let code_builder_default_uri = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let code_builder_title = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let canresize_code_builder =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let disablelegacytitlebar = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let post_process_filter = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let screenshot_border_resource_path = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let agent_capabilities = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(<AgentCapabilities as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?)
-            } else {
-                None
-            }
-        };
-        let local_settings =
-            <EducationLocalLevelSettings as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let deprecated_always_false =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let external_link_settings = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(
-                    <ExternalLinkSettings as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
-                )
-            } else {
-                None
-            }
-        };
-        Ok(Self {
-            code_builder_default_uri,
-            code_builder_title,
-            canresize_code_builder,
-            disablelegacytitlebar,
-            post_process_filter,
-            screenshot_border_resource_path,
-            agent_capabilities,
-            local_settings,
-            deprecated_always_false,
-            external_link_settings,
-        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -13974,12 +13608,12 @@ pub enum FullContainerNameContainerName {
     TradeIngredient2Container,
     TradeResultPreviewContainer,
     OffhandContainer,
-    CompoundCreatorInput,
-    CompoundCreatorOutputPreview,
-    ElementConstructorOutputPreview,
-    MaterialReducerInput,
-    MaterialReducerOutput,
-    LabTableInput,
+    Reserved35,
+    Reserved36,
+    Reserved37,
+    Reserved38,
+    Reserved39,
+    Reserved40,
     LoomInputContainer,
     LoomDyeContainer,
     LoomMaterialContainer,
@@ -14046,12 +13680,12 @@ impl crate::bedrock::codec::BedrockSized for FullContainerNameContainerName {
             FullContainerNameContainerName::TradeIngredient2Container => 32,
             FullContainerNameContainerName::TradeResultPreviewContainer => 33,
             FullContainerNameContainerName::OffhandContainer => 34,
-            FullContainerNameContainerName::CompoundCreatorInput => 35,
-            FullContainerNameContainerName::CompoundCreatorOutputPreview => 36,
-            FullContainerNameContainerName::ElementConstructorOutputPreview => 37,
-            FullContainerNameContainerName::MaterialReducerInput => 38,
-            FullContainerNameContainerName::MaterialReducerOutput => 39,
-            FullContainerNameContainerName::LabTableInput => 40,
+            FullContainerNameContainerName::Reserved35 => 35,
+            FullContainerNameContainerName::Reserved36 => 36,
+            FullContainerNameContainerName::Reserved37 => 37,
+            FullContainerNameContainerName::Reserved38 => 38,
+            FullContainerNameContainerName::Reserved39 => 39,
+            FullContainerNameContainerName::Reserved40 => 40,
             FullContainerNameContainerName::LoomInputContainer => 41,
             FullContainerNameContainerName::LoomDyeContainer => 42,
             FullContainerNameContainerName::LoomMaterialContainer => 43,
@@ -14122,12 +13756,12 @@ impl crate::bedrock::codec::BedrockCodec for FullContainerNameContainerName {
             FullContainerNameContainerName::TradeIngredient2Container => 32,
             FullContainerNameContainerName::TradeResultPreviewContainer => 33,
             FullContainerNameContainerName::OffhandContainer => 34,
-            FullContainerNameContainerName::CompoundCreatorInput => 35,
-            FullContainerNameContainerName::CompoundCreatorOutputPreview => 36,
-            FullContainerNameContainerName::ElementConstructorOutputPreview => 37,
-            FullContainerNameContainerName::MaterialReducerInput => 38,
-            FullContainerNameContainerName::MaterialReducerOutput => 39,
-            FullContainerNameContainerName::LabTableInput => 40,
+            FullContainerNameContainerName::Reserved35 => 35,
+            FullContainerNameContainerName::Reserved36 => 36,
+            FullContainerNameContainerName::Reserved37 => 37,
+            FullContainerNameContainerName::Reserved38 => 38,
+            FullContainerNameContainerName::Reserved39 => 39,
+            FullContainerNameContainerName::Reserved40 => 40,
             FullContainerNameContainerName::LoomInputContainer => 41,
             FullContainerNameContainerName::LoomDyeContainer => 42,
             FullContainerNameContainerName::LoomMaterialContainer => 43,
@@ -14199,12 +13833,12 @@ impl crate::bedrock::codec::BedrockCodec for FullContainerNameContainerName {
             32 => Ok(FullContainerNameContainerName::TradeIngredient2Container),
             33 => Ok(FullContainerNameContainerName::TradeResultPreviewContainer),
             34 => Ok(FullContainerNameContainerName::OffhandContainer),
-            35 => Ok(FullContainerNameContainerName::CompoundCreatorInput),
-            36 => Ok(FullContainerNameContainerName::CompoundCreatorOutputPreview),
-            37 => Ok(FullContainerNameContainerName::ElementConstructorOutputPreview),
-            38 => Ok(FullContainerNameContainerName::MaterialReducerInput),
-            39 => Ok(FullContainerNameContainerName::MaterialReducerOutput),
-            40 => Ok(FullContainerNameContainerName::LabTableInput),
+            35 => Ok(FullContainerNameContainerName::Reserved35),
+            36 => Ok(FullContainerNameContainerName::Reserved36),
+            37 => Ok(FullContainerNameContainerName::Reserved37),
+            38 => Ok(FullContainerNameContainerName::Reserved38),
+            39 => Ok(FullContainerNameContainerName::Reserved39),
+            40 => Ok(FullContainerNameContainerName::Reserved40),
             41 => Ok(FullContainerNameContainerName::LoomInputContainer),
             42 => Ok(FullContainerNameContainerName::LoomDyeContainer),
             43 => Ok(FullContainerNameContainerName::LoomMaterialContainer),
@@ -15763,7 +15397,7 @@ pub enum ItemStackRequestCerealBeaconPaymentActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -15790,7 +15424,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::Create => 6,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealBeaconPaymentActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::CraftRecipe => 12,
@@ -15821,7 +15455,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::Create => 6,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealBeaconPaymentActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealBeaconPaymentActionDataActiontype::CraftRecipe => 12,
@@ -15851,7 +15485,7 @@ impl crate::bedrock::codec::BedrockCodec
             6 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealBeaconPaymentActionDataActiontype::CraftRecipe),
@@ -15940,7 +15574,7 @@ pub enum ItemStackRequestCerealConsumeActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -15965,7 +15599,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealConsumeAction
             ItemStackRequestCerealConsumeActionDataActiontype::Create => 6,
             ItemStackRequestCerealConsumeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealConsumeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealConsumeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealConsumeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealConsumeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealConsumeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealConsumeActionDataActiontype::CraftRecipe => 12,
@@ -15994,7 +15628,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealConsumeAction
             ItemStackRequestCerealConsumeActionDataActiontype::Create => 6,
             ItemStackRequestCerealConsumeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealConsumeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealConsumeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealConsumeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealConsumeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealConsumeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealConsumeActionDataActiontype::CraftRecipe => 12,
@@ -16024,7 +15658,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealConsumeAction
             6 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealConsumeActionDataActiontype::CraftRecipe),
@@ -16145,7 +15779,7 @@ pub enum ItemStackRequestCerealCraftCreativeActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -16172,7 +15806,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftCreativeActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftCreativeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::CraftRecipe => 12,
@@ -16203,7 +15837,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftCreativeActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftCreativeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftCreativeActionDataActiontype::CraftRecipe => 12,
@@ -16233,7 +15867,7 @@ impl crate::bedrock::codec::BedrockCodec
             6 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealCraftCreativeActionDataActiontype::CraftRecipe),
@@ -16315,7 +15949,7 @@ pub enum ItemStackRequestCerealCraftLoomActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -16340,7 +15974,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealCraftLoomActi
             ItemStackRequestCerealCraftLoomActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftLoomActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftLoomActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftLoomActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftLoomActionDataActiontype::CraftRecipe => 12,
@@ -16369,7 +16003,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftLoomActi
             ItemStackRequestCerealCraftLoomActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftLoomActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftLoomActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftLoomActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftLoomActionDataActiontype::CraftRecipe => 12,
@@ -16399,7 +16033,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftLoomActi
             6 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealCraftLoomActionDataActiontype::CraftRecipe),
@@ -16500,7 +16134,7 @@ pub enum ItemStackRequestCerealCraftNonImplementedActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -16531,7 +16165,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftNonImplementedActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftNonImplementedActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftNonImplementedActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftNonImplementedActionDataActiontype::ScreenBeaconPayment => {
@@ -16590,7 +16224,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftNonImplementedActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftNonImplementedActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftNonImplementedActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftNonImplementedActionDataActiontype::ScreenBeaconPayment => {
@@ -16664,7 +16298,7 @@ impl crate::bedrock::codec::BedrockCodec
             }
             9 => {
                 Ok(
-                    ItemStackRequestCerealCraftNonImplementedActionDataActiontype::ScreenLabTableCombine,
+                    ItemStackRequestCerealCraftNonImplementedActionDataActiontype::Reserved9,
                 )
             }
             10 => {
@@ -16773,7 +16407,7 @@ pub enum ItemStackRequestCerealCraftRecipeActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -16798,7 +16432,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealCraftRecipeAc
             ItemStackRequestCerealCraftRecipeActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftRecipeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::CraftRecipe => 12,
@@ -16827,7 +16461,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftRecipeAc
             ItemStackRequestCerealCraftRecipeActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftRecipeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftRecipeActionDataActiontype::CraftRecipe => 12,
@@ -16857,7 +16491,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftRecipeAc
             6 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealCraftRecipeActionDataActiontype::CraftRecipe),
@@ -16936,7 +16570,7 @@ pub enum ItemStackRequestCerealCraftRecipeAutoActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -16963,7 +16597,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::CraftRecipe => 12,
@@ -16996,7 +16630,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::CraftRecipe => 12,
@@ -17032,9 +16666,7 @@ impl crate::bedrock::codec::BedrockCodec
             8 => Ok(
                 ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::TakeFromItemContainer,
             ),
-            9 => Ok(
-                ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenLabTableCombine,
-            ),
+            9 => Ok(ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::Reserved9),
             10 => {
                 Ok(ItemStackRequestCerealCraftRecipeAutoActionDataActiontype::ScreenBeaconPayment)
             }
@@ -18030,7 +17662,7 @@ pub enum ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -18061,7 +17693,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::ScreenBeaconPayment => {
@@ -18120,7 +17752,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::ScreenBeaconPayment => {
@@ -18194,7 +17826,7 @@ impl crate::bedrock::codec::BedrockCodec
             }
             9 => {
                 Ok(
-                    ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::ScreenLabTableCombine,
+                    ItemStackRequestCerealCraftRecipeOptionalActionDataActiontype::Reserved9,
                 )
             }
             10 => {
@@ -18321,7 +17953,7 @@ pub enum ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -18360,7 +17992,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::ScreenBeaconPayment => {
@@ -18427,7 +18059,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::TakeFromItemContainer => {
                 8
             }
-            ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::ScreenLabTableCombine => {
+            ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::Reserved9 => {
                 9
             }
             ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::ScreenBeaconPayment => {
@@ -18519,7 +18151,7 @@ impl crate::bedrock::codec::BedrockCodec
             }
             9 => {
                 Ok(
-                    ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::ScreenLabTableCombine,
+                    ItemStackRequestCerealCraftRepairAndDisenchantActionDataActiontype::Reserved9,
                 )
             }
             10 => {
@@ -18658,7 +18290,7 @@ pub enum ItemStackRequestCerealCraftResultsActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -18685,7 +18317,7 @@ impl crate::bedrock::codec::BedrockSized
             ItemStackRequestCerealCraftResultsActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftResultsActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftResultsActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftResultsActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftResultsActionDataActiontype::CraftRecipe => 12,
@@ -18716,7 +18348,7 @@ impl crate::bedrock::codec::BedrockCodec
             ItemStackRequestCerealCraftResultsActionDataActiontype::Create => 6,
             ItemStackRequestCerealCraftResultsActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCraftResultsActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCraftResultsActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCraftResultsActionDataActiontype::CraftRecipe => 12,
@@ -18746,7 +18378,7 @@ impl crate::bedrock::codec::BedrockCodec
             6 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealCraftResultsActionDataActiontype::CraftRecipe),
@@ -19093,7 +18725,7 @@ pub enum ItemStackRequestCerealCreateActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -19118,7 +18750,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealCreateActionD
             ItemStackRequestCerealCreateActionDataActiontype::Create => 6,
             ItemStackRequestCerealCreateActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCreateActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCreateActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCreateActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCreateActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCreateActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCreateActionDataActiontype::CraftRecipe => 12,
@@ -19147,7 +18779,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCreateActionD
             ItemStackRequestCerealCreateActionDataActiontype::Create => 6,
             ItemStackRequestCerealCreateActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealCreateActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealCreateActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealCreateActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealCreateActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealCreateActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealCreateActionDataActiontype::CraftRecipe => 12,
@@ -19177,7 +18809,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCreateActionD
             6 => Ok(ItemStackRequestCerealCreateActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealCreateActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealCreateActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealCreateActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealCreateActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealCreateActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealCreateActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealCreateActionDataActiontype::CraftRecipe),
@@ -19247,7 +18879,7 @@ pub enum ItemStackRequestCerealDestroyActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -19272,7 +18904,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealDestroyAction
             ItemStackRequestCerealDestroyActionDataActiontype::Create => 6,
             ItemStackRequestCerealDestroyActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealDestroyActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealDestroyActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealDestroyActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealDestroyActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealDestroyActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealDestroyActionDataActiontype::CraftRecipe => 12,
@@ -19301,7 +18933,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealDestroyAction
             ItemStackRequestCerealDestroyActionDataActiontype::Create => 6,
             ItemStackRequestCerealDestroyActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealDestroyActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealDestroyActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealDestroyActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealDestroyActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealDestroyActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealDestroyActionDataActiontype::CraftRecipe => 12,
@@ -19331,7 +18963,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealDestroyAction
             6 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealDestroyActionDataActiontype::CraftRecipe),
@@ -19410,7 +19042,7 @@ pub enum ItemStackRequestCerealDropActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -19435,7 +19067,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealDropActionDat
             ItemStackRequestCerealDropActionDataActiontype::Create => 6,
             ItemStackRequestCerealDropActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealDropActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealDropActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealDropActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealDropActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealDropActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealDropActionDataActiontype::CraftRecipe => 12,
@@ -19464,7 +19096,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealDropActionDat
             ItemStackRequestCerealDropActionDataActiontype::Create => 6,
             ItemStackRequestCerealDropActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealDropActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealDropActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealDropActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealDropActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealDropActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealDropActionDataActiontype::CraftRecipe => 12,
@@ -19494,7 +19126,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealDropActionDat
             6 => Ok(ItemStackRequestCerealDropActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealDropActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealDropActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealDropActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealDropActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealDropActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealDropActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealDropActionDataActiontype::CraftRecipe),
@@ -19567,171 +19199,27 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealDropActionDat
         })
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ItemStackRequestCerealLabTableCombineActionDataActiontype {
-    Take,
-    Place,
-    Swap,
-    Drop,
-    Destroy,
-    Consume,
-    Create,
-    PlaceInItemContainer,
-    TakeFromItemContainer,
-    ScreenLabTableCombine,
-    ScreenBeaconPayment,
-    ScreenHudMineBlock,
-    CraftRecipe,
-    CraftRecipeAuto,
-    CraftCreative,
-    CraftRecipeOptional,
-    CraftRepairAndDisenchant,
-    CraftLoom,
-    CraftNonImplemented,
-    CraftResults,
-    Unknown(u8),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ItemStackRequestReserved7ActionData {
+    pub reserved_0: u8,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ItemStackRequestCerealLabTableCombineActionDataActiontype
-{
+impl crate::bedrock::codec::BedrockSized for ItemStackRequestReserved7ActionData {
     fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Take => 0,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Place => 1,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Swap => 2,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Drop => 3,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Destroy => 4,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Consume => 5,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Create => 6,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::PlaceInItemContainer => 7,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenLabTableCombine => 9,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenBeaconPayment => 10,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenHudMineBlock => 11,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipe => 12,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeAuto => 13,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftCreative => 14,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeOptional => 15,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRepairAndDisenchant => {
-                16
-            }
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftLoom => 17,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftNonImplemented => 18,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftResults => 19,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Unknown(v) => *v,
-        };
         1usize
     }
 }
-impl crate::bedrock::codec::BedrockCodec
-    for ItemStackRequestCerealLabTableCombineActionDataActiontype
-{
+impl crate::bedrock::codec::BedrockCodec for ItemStackRequestReserved7ActionData {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Take => 0,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Place => 1,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Swap => 2,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Drop => 3,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Destroy => 4,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Consume => 5,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Create => 6,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::PlaceInItemContainer => 7,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenLabTableCombine => 9,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenBeaconPayment => 10,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenHudMineBlock => 11,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipe => 12,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeAuto => 13,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftCreative => 14,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeOptional => 15,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRepairAndDisenchant => {
-                16
-            }
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftLoom => 17,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftNonImplemented => 18,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftResults => 19,
-            ItemStackRequestCerealLabTableCombineActionDataActiontype::Unknown(v) => *v,
-        };
-        val.encode(buf)
+        self.reserved_0.encode(buf)
     }
     fn decode<B: bytes::Buf>(
         buf: &mut B,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Take),
-            1 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Place),
-            2 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Swap),
-            3 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Drop),
-            4 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Destroy),
-            5 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Consume),
-            6 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Create),
-            7 => {
-                Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::PlaceInItemContainer)
-            }
-            8 => Ok(
-                ItemStackRequestCerealLabTableCombineActionDataActiontype::TakeFromItemContainer,
-            ),
-            9 => Ok(
-                ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenLabTableCombine,
-            ),
-            10 => {
-                Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenBeaconPayment)
-            }
-            11 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::ScreenHudMineBlock),
-            12 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipe),
-            13 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeAuto),
-            14 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftCreative),
-            15 => {
-                Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRecipeOptional)
-            }
-            16 => Ok(
-                ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftRepairAndDisenchant,
-            ),
-            17 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftLoom),
-            18 => {
-                Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftNonImplemented)
-            }
-            19 => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::CraftResults),
-            other => Ok(ItemStackRequestCerealLabTableCombineActionDataActiontype::Unknown(other)),
-        }
-    }
-}
-impl Default for ItemStackRequestCerealLabTableCombineActionDataActiontype {
-    fn default() -> Self {
-        Self::Take
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ItemStackRequestCerealLabTableCombineActionData {
-    pub actiontype: ItemStackRequestCerealLabTableCombineActionDataActiontype,
-}
-impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealLabTableCombineActionData {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.actiontype);
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealLabTableCombineActionData {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        self.actiontype.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let actiontype = <ItemStackRequestCerealLabTableCombineActionDataActiontype as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        Ok(Self { actiontype })
+        Ok(Self {
+            reserved_0: <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+        })
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19745,7 +19233,7 @@ pub enum ItemStackRequestCerealMineBlockActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -19770,7 +19258,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealMineBlockActi
             ItemStackRequestCerealMineBlockActionDataActiontype::Create => 6,
             ItemStackRequestCerealMineBlockActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealMineBlockActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealMineBlockActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealMineBlockActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealMineBlockActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealMineBlockActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealMineBlockActionDataActiontype::CraftRecipe => 12,
@@ -19799,7 +19287,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealMineBlockActi
             ItemStackRequestCerealMineBlockActionDataActiontype::Create => 6,
             ItemStackRequestCerealMineBlockActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealMineBlockActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealMineBlockActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealMineBlockActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealMineBlockActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealMineBlockActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealMineBlockActionDataActiontype::CraftRecipe => 12,
@@ -19829,7 +19317,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealMineBlockActi
             6 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealMineBlockActionDataActiontype::CraftRecipe),
@@ -19923,7 +19411,7 @@ pub enum ItemStackRequestCerealPlaceActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -19948,7 +19436,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealPlaceActionDa
             ItemStackRequestCerealPlaceActionDataActiontype::Create => 6,
             ItemStackRequestCerealPlaceActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealPlaceActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealPlaceActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealPlaceActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealPlaceActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealPlaceActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealPlaceActionDataActiontype::CraftRecipe => 12,
@@ -19977,7 +19465,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealPlaceActionDa
             ItemStackRequestCerealPlaceActionDataActiontype::Create => 6,
             ItemStackRequestCerealPlaceActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealPlaceActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealPlaceActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealPlaceActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealPlaceActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealPlaceActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealPlaceActionDataActiontype::CraftRecipe => 12,
@@ -20007,7 +19495,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealPlaceActionDa
             6 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealPlaceActionDataActiontype::CraftRecipe),
@@ -20128,7 +19616,7 @@ pub enum ItemStackRequestCerealTakeActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -20153,7 +19641,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealTakeActionDat
             ItemStackRequestCerealTakeActionDataActiontype::Create => 6,
             ItemStackRequestCerealTakeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealTakeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealTakeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealTakeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealTakeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealTakeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealTakeActionDataActiontype::CraftRecipe => 12,
@@ -20182,7 +19670,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealTakeActionDat
             ItemStackRequestCerealTakeActionDataActiontype::Create => 6,
             ItemStackRequestCerealTakeActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealTakeActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealTakeActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealTakeActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealTakeActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealTakeActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealTakeActionDataActiontype::CraftRecipe => 12,
@@ -20212,7 +19700,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealTakeActionDat
             6 => Ok(ItemStackRequestCerealTakeActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealTakeActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealTakeActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealTakeActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealTakeActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealTakeActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealTakeActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealTakeActionDataActiontype::CraftRecipe),
@@ -20300,7 +19788,7 @@ pub enum ItemStackRequestCerealSwapActionDataActiontype {
     Create,
     PlaceInItemContainer,
     TakeFromItemContainer,
-    ScreenLabTableCombine,
+    Reserved9,
     ScreenBeaconPayment,
     ScreenHudMineBlock,
     CraftRecipe,
@@ -20325,7 +19813,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealSwapActionDat
             ItemStackRequestCerealSwapActionDataActiontype::Create => 6,
             ItemStackRequestCerealSwapActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealSwapActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealSwapActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealSwapActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealSwapActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealSwapActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealSwapActionDataActiontype::CraftRecipe => 12,
@@ -20354,7 +19842,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealSwapActionDat
             ItemStackRequestCerealSwapActionDataActiontype::Create => 6,
             ItemStackRequestCerealSwapActionDataActiontype::PlaceInItemContainer => 7,
             ItemStackRequestCerealSwapActionDataActiontype::TakeFromItemContainer => 8,
-            ItemStackRequestCerealSwapActionDataActiontype::ScreenLabTableCombine => 9,
+            ItemStackRequestCerealSwapActionDataActiontype::Reserved9 => 9,
             ItemStackRequestCerealSwapActionDataActiontype::ScreenBeaconPayment => 10,
             ItemStackRequestCerealSwapActionDataActiontype::ScreenHudMineBlock => 11,
             ItemStackRequestCerealSwapActionDataActiontype::CraftRecipe => 12,
@@ -20384,7 +19872,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealSwapActionDat
             6 => Ok(ItemStackRequestCerealSwapActionDataActiontype::Create),
             7 => Ok(ItemStackRequestCerealSwapActionDataActiontype::PlaceInItemContainer),
             8 => Ok(ItemStackRequestCerealSwapActionDataActiontype::TakeFromItemContainer),
-            9 => Ok(ItemStackRequestCerealSwapActionDataActiontype::ScreenLabTableCombine),
+            9 => Ok(ItemStackRequestCerealSwapActionDataActiontype::Reserved9),
             10 => Ok(ItemStackRequestCerealSwapActionDataActiontype::ScreenBeaconPayment),
             11 => Ok(ItemStackRequestCerealSwapActionDataActiontype::ScreenHudMineBlock),
             12 => Ok(ItemStackRequestCerealSwapActionDataActiontype::CraftRecipe),
@@ -20465,7 +19953,7 @@ pub enum ItemStackRequestCerealRequestDataActionsItem {
     DestroyActionData(ItemStackRequestCerealDestroyActionData),
     ConsumeActionData(ItemStackRequestCerealConsumeActionData),
     CreateActionData(ItemStackRequestCerealCreateActionData),
-    LabTableCombineActionData(ItemStackRequestCerealLabTableCombineActionData),
+    Reserved7ActionData(ItemStackRequestReserved7ActionData),
     BeaconPaymentActionData(ItemStackRequestCerealBeaconPaymentActionData),
     MineBlockActionData(Box<ItemStackRequestCerealMineBlockActionData>),
     CraftRecipeActionData(ItemStackRequestCerealCraftRecipeActionData),
@@ -20522,7 +20010,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestCerealRequestDataAc
                     6 as i32,
                 )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
-            ItemStackRequestCerealRequestDataActionsItem::LabTableCombineActionData(value) => {
+            ItemStackRequestCerealRequestDataActionsItem::Reserved7ActionData(value) => {
                 crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                     7 as i32,
                 )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
@@ -20628,7 +20116,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestDataAc
                 value.encode(buf)?;
                 Ok(())
             }
-            ItemStackRequestCerealRequestDataActionsItem::LabTableCombineActionData(value) => {
+            ItemStackRequestCerealRequestDataActionsItem::Reserved7ActionData(value) => {
                 let control_value = 7 as i64;
                 crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
                 value.encode(buf)?;
@@ -20784,8 +20272,8 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestDataAc
             }
             7 => {
                 Ok(
-                    ItemStackRequestCerealRequestDataActionsItem::LabTableCombineActionData(
-                        <ItemStackRequestCerealLabTableCombineActionData as crate::bedrock::codec::BedrockCodec>::decode(
+                    ItemStackRequestCerealRequestDataActionsItem::Reserved7ActionData(
+                        <ItemStackRequestReserved7ActionData as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -21169,7 +20657,7 @@ pub enum ItemStackRequestPacketDataRequestDataActionsItem {
     DestroyActionData(ItemStackRequestCerealDestroyActionData),
     ConsumeActionData(ItemStackRequestCerealConsumeActionData),
     CreateActionData(ItemStackRequestCerealCreateActionData),
-    LabTableCombineActionData(ItemStackRequestCerealLabTableCombineActionData),
+    Reserved7ActionData(ItemStackRequestReserved7ActionData),
     BeaconPaymentActionData(ItemStackRequestCerealBeaconPaymentActionData),
     MineBlockActionData(Box<ItemStackRequestCerealMineBlockActionData>),
     CraftRecipeActionData(ItemStackRequestCerealCraftRecipeActionData),
@@ -21230,7 +20718,7 @@ impl crate::bedrock::codec::BedrockSized for ItemStackRequestPacketDataRequestDa
                     &crate::bedrock::codec::VarInt(6 as i32),
                 ) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
-            ItemStackRequestPacketDataRequestDataActionsItem::LabTableCombineActionData(
+            ItemStackRequestPacketDataRequestDataActionsItem::Reserved7ActionData(
                 value,
             ) => {
                 crate::bedrock::codec::BedrockSized::encoded_size(
@@ -21362,7 +20850,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestPacketDataRequestDa
                 value.encode(buf)?;
                 Ok(())
             }
-            ItemStackRequestPacketDataRequestDataActionsItem::LabTableCombineActionData(
+            ItemStackRequestPacketDataRequestDataActionsItem::Reserved7ActionData(
                 value,
             ) => {
                 let control_value = 7 as i64;
@@ -21538,8 +21026,8 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestPacketDataRequestDa
             }
             7 => {
                 Ok(
-                    ItemStackRequestPacketDataRequestDataActionsItem::LabTableCombineActionData(
-                        <ItemStackRequestCerealLabTableCombineActionData as crate::bedrock::codec::BedrockCodec>::decode(
+                    ItemStackRequestPacketDataRequestDataActionsItem::Reserved7ActionData(
+                        <ItemStackRequestReserved7ActionData as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -22993,12 +22481,12 @@ pub enum LegacySetSlotContainerEnum {
     TradeIngredient2Container,
     TradeResultPreviewContainer,
     OffhandContainer,
-    CompoundCreatorInput,
-    CompoundCreatorOutputPreview,
-    ElementConstructorOutputPreview,
-    MaterialReducerInput,
-    MaterialReducerOutput,
-    LabTableInput,
+    Reserved35,
+    Reserved36,
+    Reserved37,
+    Reserved38,
+    Reserved39,
+    Reserved40,
     LoomInputContainer,
     LoomDyeContainer,
     LoomMaterialContainer,
@@ -23065,12 +22553,12 @@ impl crate::bedrock::codec::BedrockSized for LegacySetSlotContainerEnum {
             LegacySetSlotContainerEnum::TradeIngredient2Container => 32,
             LegacySetSlotContainerEnum::TradeResultPreviewContainer => 33,
             LegacySetSlotContainerEnum::OffhandContainer => 34,
-            LegacySetSlotContainerEnum::CompoundCreatorInput => 35,
-            LegacySetSlotContainerEnum::CompoundCreatorOutputPreview => 36,
-            LegacySetSlotContainerEnum::ElementConstructorOutputPreview => 37,
-            LegacySetSlotContainerEnum::MaterialReducerInput => 38,
-            LegacySetSlotContainerEnum::MaterialReducerOutput => 39,
-            LegacySetSlotContainerEnum::LabTableInput => 40,
+            LegacySetSlotContainerEnum::Reserved35 => 35,
+            LegacySetSlotContainerEnum::Reserved36 => 36,
+            LegacySetSlotContainerEnum::Reserved37 => 37,
+            LegacySetSlotContainerEnum::Reserved38 => 38,
+            LegacySetSlotContainerEnum::Reserved39 => 39,
+            LegacySetSlotContainerEnum::Reserved40 => 40,
             LegacySetSlotContainerEnum::LoomInputContainer => 41,
             LegacySetSlotContainerEnum::LoomDyeContainer => 42,
             LegacySetSlotContainerEnum::LoomMaterialContainer => 43,
@@ -23141,12 +22629,12 @@ impl crate::bedrock::codec::BedrockCodec for LegacySetSlotContainerEnum {
             LegacySetSlotContainerEnum::TradeIngredient2Container => 32,
             LegacySetSlotContainerEnum::TradeResultPreviewContainer => 33,
             LegacySetSlotContainerEnum::OffhandContainer => 34,
-            LegacySetSlotContainerEnum::CompoundCreatorInput => 35,
-            LegacySetSlotContainerEnum::CompoundCreatorOutputPreview => 36,
-            LegacySetSlotContainerEnum::ElementConstructorOutputPreview => 37,
-            LegacySetSlotContainerEnum::MaterialReducerInput => 38,
-            LegacySetSlotContainerEnum::MaterialReducerOutput => 39,
-            LegacySetSlotContainerEnum::LabTableInput => 40,
+            LegacySetSlotContainerEnum::Reserved35 => 35,
+            LegacySetSlotContainerEnum::Reserved36 => 36,
+            LegacySetSlotContainerEnum::Reserved37 => 37,
+            LegacySetSlotContainerEnum::Reserved38 => 38,
+            LegacySetSlotContainerEnum::Reserved39 => 39,
+            LegacySetSlotContainerEnum::Reserved40 => 40,
             LegacySetSlotContainerEnum::LoomInputContainer => 41,
             LegacySetSlotContainerEnum::LoomDyeContainer => 42,
             LegacySetSlotContainerEnum::LoomMaterialContainer => 43,
@@ -23218,12 +22706,12 @@ impl crate::bedrock::codec::BedrockCodec for LegacySetSlotContainerEnum {
             32 => Ok(LegacySetSlotContainerEnum::TradeIngredient2Container),
             33 => Ok(LegacySetSlotContainerEnum::TradeResultPreviewContainer),
             34 => Ok(LegacySetSlotContainerEnum::OffhandContainer),
-            35 => Ok(LegacySetSlotContainerEnum::CompoundCreatorInput),
-            36 => Ok(LegacySetSlotContainerEnum::CompoundCreatorOutputPreview),
-            37 => Ok(LegacySetSlotContainerEnum::ElementConstructorOutputPreview),
-            38 => Ok(LegacySetSlotContainerEnum::MaterialReducerInput),
-            39 => Ok(LegacySetSlotContainerEnum::MaterialReducerOutput),
-            40 => Ok(LegacySetSlotContainerEnum::LabTableInput),
+            35 => Ok(LegacySetSlotContainerEnum::Reserved35),
+            36 => Ok(LegacySetSlotContainerEnum::Reserved36),
+            37 => Ok(LegacySetSlotContainerEnum::Reserved37),
+            38 => Ok(LegacySetSlotContainerEnum::Reserved38),
+            39 => Ok(LegacySetSlotContainerEnum::Reserved39),
+            40 => Ok(LegacySetSlotContainerEnum::Reserved40),
             41 => Ok(LegacySetSlotContainerEnum::LoomInputContainer),
             42 => Ok(LegacySetSlotContainerEnum::LoomDyeContainer),
             43 => Ok(LegacySetSlotContainerEnum::LoomMaterialContainer),
@@ -23317,4813 +22805,6 @@ impl crate::bedrock::codec::BedrockCodec for LegacySetSlot {
             container_enum,
             slots,
         })
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketPayloadAchievementAchievementId {
-    ChestFullOfCobblestone,
-    DiamondForYou,
-    IronBelly,
-    IronMan,
-    OnARail,
-    Overkill,
-    ReturnToSender,
-    SniperDuel,
-    StayinFrosty,
-    TakeInventory,
-    MapRoom,
-    FreightStation,
-    SmeltEverything,
-    TasteOfYourOwnMedicine,
-    WhenPigsFly,
-    Inception,
-    ArtificialSelection,
-    FreeDiver,
-    SpawnTheWither,
-    Beaconator,
-    GreatView,
-    SuperSonic,
-    TheEndAgain,
-    TreasureHunter,
-    ShootingStar,
-    FashionShow,
-    SelfPublishedAuthor,
-    AlternativeFuel,
-    SleepWithTheFishes,
-    Castaway,
-    ImAMarineBiologist,
-    SailThe7Seas,
-    MeGold,
-    Ahoy,
-    Atlantis,
-    OnePickleTwoPickleSeaPickleFour,
-    DoaBarrelRoll,
-    Moskstraumen,
-    Echolocation,
-    WhereHaveYouBeen,
-    TopOfTheWorld,
-    FruitOnTheLoom,
-    SoundTheAlarm,
-    BuyLowSellHigh,
-    Disenchanted,
-    TimeForStew,
-    BeeOurGuest,
-    TotalBeeLocation,
-    StickySituation,
-    CoverMeInDebris,
-    FloatYourGoat,
-    Friend,
-    WaxOnWaxOff,
-    StriderRiddenInLavaInOverworld,
-    GoatHornAcquired,
-    JukeboxUsedInMeadows,
-    TradedAtWorldHeight,
-    SurvivedFallFromWorldHeight,
-    SneakCloseToSculkSensor,
-    ItSpreads,
-    BirthdaySong,
-    WithOurPowersCombined,
-    PlantingThePast,
-    CarefulRestoration,
-    Revaulting,
-    CraftersCraftingCrafters,
-    WhoNeedsRockets,
-    OverOverkill,
-    HeartTransplanter,
-    StayHydrated,
-    MobKabob,
-    AdventuringTime,
-    UhOh,
-    GettingWood,
-    BenchMaking,
-    TimeToMine,
-    HotTopic,
-    AcquireHardware,
-    GettingAnUpgrade,
-    MonsterHunter,
-    Diamonds,
-    PlethoraOfCats,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadAchievementAchievementId
-{
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ChestFullOfCobblestone => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::DiamondForYou => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronBelly => 20,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronMan => 21,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnARail => 29,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Overkill => 30,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ReturnToSender => {
-                37
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SniperDuel => 38,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayinFrosty => 39,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TakeInventory => {
-                40
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MapRoom => 50,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreightStation => {
-                52
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SmeltEverything => {
-                53
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TasteOfYourOwnMedicine => {
-                54
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhenPigsFly => 56,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Inception => 58,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ArtificialSelection => {
-                60
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreeDiver => 61,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SpawnTheWither => {
-                62
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Beaconator => 63,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GreatView => 64,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SuperSonic => 65,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TheEndAgain => 66,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TreasureHunter => {
-                67
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ShootingStar => 68,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FashionShow => 69,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SelfPublishedAuthor => {
-                71
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AlternativeFuel => {
-                72
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SleepWithTheFishes => {
-                73
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Castaway => 74,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ImAMarineBiologist => {
-                75
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SailThe7Seas => 76,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MeGold => 77,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Ahoy => 78,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Atlantis => 79,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnePickleTwoPickleSeaPickleFour => {
-                80
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::DoaBarrelRoll => {
-                81
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Moskstraumen => 82,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Echolocation => 83,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhereHaveYouBeen => {
-                84
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TopOfTheWorld => {
-                85
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FruitOnTheLoom => {
-                86
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SoundTheAlarm => {
-                87
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BuyLowSellHigh => {
-                88
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Disenchanted => 89,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeForStew => 90,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BeeOurGuest => 91,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TotalBeeLocation => {
-                92
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StickySituation => {
-                93
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CoverMeInDebris => {
-                94
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FloatYourGoat => {
-                95
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Friend => 96,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WaxOnWaxOff => 97,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StriderRiddenInLavaInOverworld => {
-                98
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GoatHornAcquired => {
-                99
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::JukeboxUsedInMeadows => {
-                100
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TradedAtWorldHeight => {
-                101
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SurvivedFallFromWorldHeight => {
-                102
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SneakCloseToSculkSensor => {
-                103
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ItSpreads => 104,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BirthdaySong => {
-                105
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WithOurPowersCombined => {
-                106
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlantingThePast => {
-                107
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CarefulRestoration => {
-                108
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Revaulting => 109,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CraftersCraftingCrafters => {
-                110
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhoNeedsRockets => {
-                111
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OverOverkill => {
-                112
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::HeartTransplanter => {
-                113
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayHydrated => {
-                114
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MobKabob => 115,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AdventuringTime => {
-                116
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::UhOh => 117,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingWood => 118,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BenchMaking => 119,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeToMine => 120,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::HotTopic => 121,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AcquireHardware => {
-                122
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingAnUpgrade => {
-                123
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MonsterHunter => {
-                124
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Diamonds => 125,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlethoraOfCats => {
-                126
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadAchievementAchievementId
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ChestFullOfCobblestone => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::DiamondForYou => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronBelly => 20,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronMan => 21,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnARail => 29,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Overkill => 30,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ReturnToSender => {
-                37
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SniperDuel => 38,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayinFrosty => 39,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TakeInventory => {
-                40
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MapRoom => 50,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreightStation => {
-                52
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SmeltEverything => {
-                53
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TasteOfYourOwnMedicine => {
-                54
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhenPigsFly => 56,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Inception => 58,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ArtificialSelection => {
-                60
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreeDiver => 61,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SpawnTheWither => {
-                62
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Beaconator => 63,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GreatView => 64,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SuperSonic => 65,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TheEndAgain => 66,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TreasureHunter => {
-                67
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ShootingStar => 68,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FashionShow => 69,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SelfPublishedAuthor => {
-                71
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AlternativeFuel => {
-                72
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SleepWithTheFishes => {
-                73
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Castaway => 74,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ImAMarineBiologist => {
-                75
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SailThe7Seas => 76,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MeGold => 77,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Ahoy => 78,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Atlantis => 79,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnePickleTwoPickleSeaPickleFour => {
-                80
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::DoaBarrelRoll => {
-                81
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Moskstraumen => 82,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Echolocation => 83,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhereHaveYouBeen => {
-                84
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TopOfTheWorld => {
-                85
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FruitOnTheLoom => {
-                86
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SoundTheAlarm => {
-                87
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BuyLowSellHigh => {
-                88
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Disenchanted => 89,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeForStew => 90,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BeeOurGuest => 91,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TotalBeeLocation => {
-                92
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StickySituation => {
-                93
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CoverMeInDebris => {
-                94
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::FloatYourGoat => {
-                95
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Friend => 96,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WaxOnWaxOff => 97,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StriderRiddenInLavaInOverworld => {
-                98
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GoatHornAcquired => {
-                99
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::JukeboxUsedInMeadows => {
-                100
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TradedAtWorldHeight => {
-                101
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SurvivedFallFromWorldHeight => {
-                102
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::SneakCloseToSculkSensor => {
-                103
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::ItSpreads => 104,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BirthdaySong => {
-                105
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WithOurPowersCombined => {
-                106
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlantingThePast => {
-                107
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CarefulRestoration => {
-                108
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Revaulting => 109,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::CraftersCraftingCrafters => {
-                110
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhoNeedsRockets => {
-                111
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::OverOverkill => {
-                112
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::HeartTransplanter => {
-                113
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayHydrated => {
-                114
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MobKabob => 115,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AdventuringTime => {
-                116
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::UhOh => 117,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingWood => 118,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::BenchMaking => 119,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeToMine => 120,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::HotTopic => 121,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::AcquireHardware => {
-                122
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingAnUpgrade => {
-                123
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::MonsterHunter => {
-                124
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Diamonds => 125,
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlethoraOfCats => {
-                126
-            }
-            LegacyTelemetryEventPacketPayloadAchievementAchievementId::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            7 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::ChestFullOfCobblestone,
-                )
-            }
-            10 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::DiamondForYou,
-                )
-            }
-            20 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronBelly)
-            }
-            21 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::IronMan),
-            29 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnARail),
-            30 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Overkill),
-            37 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::ReturnToSender,
-                )
-            }
-            38 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::SniperDuel)
-            }
-            39 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayinFrosty,
-                )
-            }
-            40 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TakeInventory,
-                )
-            }
-            50 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::MapRoom),
-            52 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreightStation,
-                )
-            }
-            53 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SmeltEverything,
-                )
-            }
-            54 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TasteOfYourOwnMedicine,
-                )
-            }
-            56 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhenPigsFly,
-                )
-            }
-            58 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Inception)
-            }
-            60 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::ArtificialSelection,
-                )
-            }
-            61 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::FreeDiver)
-            }
-            62 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SpawnTheWither,
-                )
-            }
-            63 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Beaconator)
-            }
-            64 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::GreatView)
-            }
-            65 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::SuperSonic)
-            }
-            66 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TheEndAgain,
-                )
-            }
-            67 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TreasureHunter,
-                )
-            }
-            68 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::ShootingStar,
-                )
-            }
-            69 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::FashionShow,
-                )
-            }
-            71 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SelfPublishedAuthor,
-                )
-            }
-            72 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::AlternativeFuel,
-                )
-            }
-            73 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SleepWithTheFishes,
-                )
-            }
-            74 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Castaway),
-            75 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::ImAMarineBiologist,
-                )
-            }
-            76 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SailThe7Seas,
-                )
-            }
-            77 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::MeGold),
-            78 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Ahoy),
-            79 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Atlantis),
-            80 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::OnePickleTwoPickleSeaPickleFour,
-                )
-            }
-            81 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::DoaBarrelRoll,
-                )
-            }
-            82 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::Moskstraumen,
-                )
-            }
-            83 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::Echolocation,
-                )
-            }
-            84 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhereHaveYouBeen,
-                )
-            }
-            85 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TopOfTheWorld,
-                )
-            }
-            86 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::FruitOnTheLoom,
-                )
-            }
-            87 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SoundTheAlarm,
-                )
-            }
-            88 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::BuyLowSellHigh,
-                )
-            }
-            89 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::Disenchanted,
-                )
-            }
-            90 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeForStew,
-                )
-            }
-            91 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::BeeOurGuest,
-                )
-            }
-            92 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TotalBeeLocation,
-                )
-            }
-            93 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::StickySituation,
-                )
-            }
-            94 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::CoverMeInDebris,
-                )
-            }
-            95 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::FloatYourGoat,
-                )
-            }
-            96 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Friend),
-            97 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::WaxOnWaxOff,
-                )
-            }
-            98 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::StriderRiddenInLavaInOverworld,
-                )
-            }
-            99 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::GoatHornAcquired,
-                )
-            }
-            100 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::JukeboxUsedInMeadows,
-                )
-            }
-            101 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::TradedAtWorldHeight,
-                )
-            }
-            102 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SurvivedFallFromWorldHeight,
-                )
-            }
-            103 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::SneakCloseToSculkSensor,
-                )
-            }
-            104 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::ItSpreads)
-            }
-            105 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::BirthdaySong,
-                )
-            }
-            106 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::WithOurPowersCombined,
-                )
-            }
-            107 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlantingThePast,
-                )
-            }
-            108 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::CarefulRestoration,
-                )
-            }
-            109 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Revaulting)
-            }
-            110 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::CraftersCraftingCrafters,
-                )
-            }
-            111 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::WhoNeedsRockets,
-                )
-            }
-            112 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::OverOverkill,
-                )
-            }
-            113 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::HeartTransplanter,
-                )
-            }
-            114 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::StayHydrated,
-                )
-            }
-            115 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::MobKabob)
-            }
-            116 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::AdventuringTime,
-                )
-            }
-            117 => Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::UhOh),
-            118 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingWood,
-                )
-            }
-            119 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::BenchMaking,
-                )
-            }
-            120 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::TimeToMine)
-            }
-            121 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::HotTopic)
-            }
-            122 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::AcquireHardware,
-                )
-            }
-            123 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::GettingAnUpgrade,
-                )
-            }
-            124 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::MonsterHunter,
-                )
-            }
-            125 => {
-                Ok(LegacyTelemetryEventPacketPayloadAchievementAchievementId::Diamonds)
-            }
-            126 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::PlethoraOfCats,
-                )
-            }
-            other => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadAchievementAchievementId::Unknown(
-                        other,
-                    ),
-                )
-            }
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketPayloadAchievementAchievementId {
-    fn default() -> Self {
-        Self::ChestFullOfCobblestone
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadAchievement {
-    pub achievement_id: LegacyTelemetryEventPacketPayloadAchievementAchievementId,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadAchievement {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.achievement_id);
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadAchievement {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        self.achievement_id.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let achievement_id = <LegacyTelemetryEventPacketPayloadAchievementAchievementId as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        Ok(Self { achievement_id })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadActorDefinition {
-    pub event_name: String,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadActorDefinition {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.event_name).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadActorDefinition {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.event_name).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let event_name = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self { event_name })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadBellUsed {
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadBellUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadBellUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.item_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { item_id })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadBossKilled {
-    pub boss_actor_id: i64,
-    pub party_size: i32,
-    pub boss_type: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadBossKilled {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag64(self.boss_actor_id),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.party_size),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.boss_type),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadBossKilled {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(self.boss_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.party_size).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.boss_type).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let boss_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let party_size =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let boss_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            boss_actor_id,
-            party_size,
-            boss_type,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadCauldronUsed {
-    pub contents_color: i32,
-    pub contents_type: i32,
-    pub fill_level: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadCauldronUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-            self.contents_color,
-        ));
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.contents_type),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.fill_level),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadCauldronUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarInt(self.contents_color).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.contents_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.fill_level).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let contents_color =
-            <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let contents_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let fill_level =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            contents_color,
-            contents_type,
-            fill_level,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction {
-    pub code_builder_runtime_action: String,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction
-{
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.code_builder_runtime_action).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.code_builder_runtime_action).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let code_builder_runtime_action = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self {
-            code_builder_runtime_action,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard {
-    pub objective_name: String,
-    pub score: i32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard
-{
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.objective_name).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.score),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.objective_name).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        crate::bedrock::codec::ZigZag32(self.score).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let objective_name = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let score =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            objective_name,
-            score,
-        })
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType {
-    None,
-    Extend,
-    Clone,
-    Lock,
-    Create,
-    CreateLocator,
-    Rename,
-    ItemPlaced,
-    ItemRemoved,
-    Cooking,
-    Dousing,
-    Lighting,
-    Haystack,
-    Filled,
-    Emptied,
-    AddDye,
-    DyeItem,
-    ClearItem,
-    EnchantArrow,
-    CompostItemPlaced,
-    RecoveredBonemeal,
-    BookPlaced,
-    BookOpened,
-    Disenchant,
-    Repair,
-    DisenchantAndRepair,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType
-{
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::None => 0,
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Extend => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Clone => {
-                2
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lock => 3,
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Create => {
-                4
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CreateLocator => {
-                5
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Rename => {
-                6
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemPlaced => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemRemoved => {
-                8
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Cooking => {
-                9
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Dousing => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lighting => {
-                11
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Haystack => {
-                12
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Filled => {
-                13
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Emptied => {
-                14
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::AddDye => {
-                15
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DyeItem => {
-                16
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ClearItem => {
-                17
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::EnchantArrow => {
-                18
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CompostItemPlaced => {
-                19
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::RecoveredBonemeal => {
-                20
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookPlaced => {
-                21
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookOpened => {
-                22
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Disenchant => {
-                23
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Repair => {
-                24
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DisenchantAndRepair => {
-                25
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Unknown(
-                v,
-            ) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::None => 0,
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Extend => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Clone => {
-                2
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lock => 3,
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Create => {
-                4
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CreateLocator => {
-                5
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Rename => {
-                6
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemPlaced => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemRemoved => {
-                8
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Cooking => {
-                9
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Dousing => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lighting => {
-                11
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Haystack => {
-                12
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Filled => {
-                13
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Emptied => {
-                14
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::AddDye => {
-                15
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DyeItem => {
-                16
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ClearItem => {
-                17
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::EnchantArrow => {
-                18
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CompostItemPlaced => {
-                19
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::RecoveredBonemeal => {
-                20
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookPlaced => {
-                21
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookOpened => {
-                22
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Disenchant => {
-                23
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Repair => {
-                24
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DisenchantAndRepair => {
-                25
-            }
-            LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Unknown(
-                v,
-            ) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::None,
-                )
-            }
-            1 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Extend,
-                )
-            }
-            2 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Clone,
-                )
-            }
-            3 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lock,
-                )
-            }
-            4 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Create,
-                )
-            }
-            5 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CreateLocator,
-                )
-            }
-            6 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Rename,
-                )
-            }
-            7 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemPlaced,
-                )
-            }
-            8 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ItemRemoved,
-                )
-            }
-            9 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Cooking,
-                )
-            }
-            10 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Dousing,
-                )
-            }
-            11 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Lighting,
-                )
-            }
-            12 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Haystack,
-                )
-            }
-            13 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Filled,
-                )
-            }
-            14 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Emptied,
-                )
-            }
-            15 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::AddDye,
-                )
-            }
-            16 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DyeItem,
-                )
-            }
-            17 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::ClearItem,
-                )
-            }
-            18 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::EnchantArrow,
-                )
-            }
-            19 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::CompostItemPlaced,
-                )
-            }
-            20 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::RecoveredBonemeal,
-                )
-            }
-            21 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookPlaced,
-                )
-            }
-            22 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::BookOpened,
-                )
-            }
-            23 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Disenchant,
-                )
-            }
-            24 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Repair,
-                )
-            }
-            25 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::DisenchantAndRepair,
-                )
-            }
-            other => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType::Unknown(
-                        other,
-                    ),
-                )
-            }
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType {
-    fn default() -> Self {
-        Self::None
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadComposterUsed {
-    pub block_interaction_type: LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType,
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadComposterUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.block_interaction_type);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadComposterUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        self.block_interaction_type.encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.item_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let block_interaction_type = <LegacyTelemetryEventPacketPayloadComposterUsedBlockInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            block_interaction_type,
-            item_id,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadEmpty {}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadEmpty {
-    fn encoded_size(&self) -> usize {
-        0usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadEmpty {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        Ok(Self {})
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketPayloadInteractionInteractionType {
-    Breeding,
-    Taming,
-    Curing,
-    Crafted,
-    Shearing,
-    Milking,
-    Trading,
-    Feeding,
-    Igniting,
-    Coloring,
-    Naming,
-    Leashing,
-    Unleashing,
-    PetSleep,
-    Trusting,
-    Commanding,
-    Equipping,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadInteractionInteractionType
-{
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Breeding => 1,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Taming => 2,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Curing => 3,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Crafted => 4,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Shearing => 5,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Milking => 6,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trading => 7,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Feeding => 8,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Igniting => 9,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Coloring => 10,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Naming => 11,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Leashing => 12,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unleashing => 13,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::PetSleep => 14,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trusting => 15,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Commanding => 16,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Equipping => 17,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadInteractionInteractionType
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Breeding => 1,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Taming => 2,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Curing => 3,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Crafted => 4,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Shearing => 5,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Milking => 6,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trading => 7,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Feeding => 8,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Igniting => 9,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Coloring => 10,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Naming => 11,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Leashing => 12,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unleashing => 13,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::PetSleep => 14,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trusting => 15,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Commanding => 16,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Equipping => 17,
-            LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            1 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Breeding),
-            2 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Taming),
-            3 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Curing),
-            4 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Crafted),
-            5 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Shearing),
-            6 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Milking),
-            7 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trading),
-            8 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Feeding),
-            9 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Igniting),
-            10 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Coloring),
-            11 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Naming),
-            12 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Leashing),
-            13 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unleashing),
-            14 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::PetSleep),
-            15 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Trusting),
-            16 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Commanding),
-            17 => Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Equipping),
-            other => {
-                Ok(LegacyTelemetryEventPacketPayloadInteractionInteractionType::Unknown(other))
-            }
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketPayloadInteractionInteractionType {
-    fn default() -> Self {
-        Self::Breeding
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadInteraction {
-    pub interacted_entity_id: i64,
-    pub interaction_type: LegacyTelemetryEventPacketPayloadInteractionInteractionType,
-    pub interaction_actor_type: i32,
-    pub interaction_actor_variant: i32,
-    pub interaction_actor_color: u8,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadInteraction {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag64(self.interacted_entity_id),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.interaction_type);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.interaction_actor_type),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.interaction_actor_variant),
-        );
-        size += 1usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadInteraction {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(self.interacted_entity_id).encode(buf)?;
-        self.interaction_type.encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.interaction_actor_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.interaction_actor_variant).encode(buf)?;
-        self.interaction_actor_color.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let interacted_entity_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_type = <LegacyTelemetryEventPacketPayloadInteractionInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let interaction_actor_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_actor_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let interaction_actor_color = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            interacted_entity_id,
-            interaction_type,
-            interaction_actor_type,
-            interaction_actor_variant,
-            interaction_actor_color,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadItemUsed {
-    pub item_id: i16,
-    pub item_aux: i32,
-    pub use_method: i32,
-    pub count: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadItemUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += 2usize;
-        size += 4usize;
-        size += 4usize;
-        size += 4usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadItemUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::I16LE(self.item_id).encode(buf)?;
-        crate::bedrock::codec::I32LE(self.item_aux).encode(buf)?;
-        crate::bedrock::codec::I32LE(self.use_method).encode(buf)?;
-        crate::bedrock::codec::I32LE(self.count).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let item_id =
-            <crate::bedrock::codec::I16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let item_aux =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let use_method =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let count =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self {
-            item_id,
-            item_aux,
-            use_method,
-            count,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadMobBorn {
-    pub born_baby_entity_type: i32,
-    pub born_baby_entity_variant: i32,
-    pub born_baby_color: u8,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadMobBorn {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.born_baby_entity_type),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.born_baby_entity_variant),
-        );
-        size += 1usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadMobBorn {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.born_baby_entity_type).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.born_baby_entity_variant).encode(buf)?;
-        self.born_baby_color.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let born_baby_entity_type =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let born_baby_entity_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let born_baby_color = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            born_baby_entity_type,
-            born_baby_entity_variant,
-            born_baby_color,
-        })
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType {
-    Undefined,
-    Mob,
-    PathfinderMob,
-    Monster,
-    Animal,
-    TamableAnimal,
-    Ambient,
-    UndeadMonster,
-    ZombieMonster,
-    Arthropod,
-    Minecart,
-    SkeletonMonster,
-    EquineAnimal,
-    Projectile,
-    AbstractArrow,
-    WaterAnimal,
-    VillagerBase,
-    Chicken,
-    Cow,
-    Pig,
-    Sheep,
-    Wolf,
-    Villager,
-    MushroomCow,
-    Squid,
-    Rabbit,
-    Bat,
-    IronGolem,
-    SnowGolem,
-    Ocelot,
-    Horse,
-    PolarBear,
-    Llama,
-    Parrot,
-    Dolphin,
-    Donkey,
-    Mule,
-    SkeletonHorse,
-    ZombieHorse,
-    Zombie,
-    Creeper,
-    Skeleton,
-    Spider,
-    PigZombie,
-    Slime,
-    EnderMan,
-    Silverfish,
-    CaveSpider,
-    Ghast,
-    LavaSlime,
-    Blaze,
-    ZombieVillager,
-    Witch,
-    Stray,
-    Husk,
-    WitherSkeleton,
-    Guardian,
-    ElderGuardian,
-    Npc,
-    WitherBoss,
-    Dragon,
-    Shulker,
-    Endermite,
-    Agent,
-    Vindicator,
-    Phantom,
-    IllagerBeast,
-    ArmorStand,
-    TripodCamera,
-    Player,
-    ItemEntity,
-    PrimedTnt,
-    FallingBlock,
-    MovingBlock,
-    ExperiencePotion,
-    Experience,
-    EyeOfEnder,
-    EnderCrystal,
-    FireworksRocket,
-    Trident,
-    Turtle,
-    Cat,
-    ShulkerBullet,
-    FishingHook,
-    Chalkboard,
-    DragonFireball,
-    Arrow,
-    Snowball,
-    ThrownEgg,
-    Painting,
-    LargeFireball,
-    ThrownPotion,
-    Enderpearl,
-    LeashKnot,
-    WitherSkull,
-    BoatRideable,
-    WitherSkullDangerous,
-    LightningBolt,
-    SmallFireball,
-    AreaEffectCloud,
-    LingeringPotion,
-    LlamaSpit,
-    EvocationFang,
-    EvocationIllager,
-    Vex,
-    MinecartRideable,
-    MinecartHopper,
-    MinecartTnt,
-    MinecartChest,
-    MinecartFurnace,
-    MinecartCommandBlock,
-    IceBomb,
-    Balloon,
-    Pufferfish,
-    Salmon,
-    Drowned,
-    Tropicalfish,
-    Fish,
-    Panda,
-    Pillager,
-    VillagerV2,
-    ZombieVillagerV2,
-    Shield,
-    WanderingTrader,
-    Lectern,
-    ElderGuardianGhost,
-    Fox,
-    Bee,
-    Piglin,
-    Hoglin,
-    Strider,
-    Zoglin,
-    PiglinBrute,
-    Goat,
-    GlowSquid,
-    Axolotl,
-    Warden,
-    Frog,
-    Tadpole,
-    Allay,
-    ChestBoatRideable,
-    TraderLlama,
-    Camel,
-    Sniffer,
-    Breeze,
-    BreezeWindChargeProjectile,
-    Armadillo,
-    WindChargeProjectile,
-    Bogged,
-    OminousItemSpawner,
-    Creaking,
-    HappyGhast,
-    CopperGolem,
-    Nautilus,
-    ZombieNautilus,
-    Parched,
-    CamelHusk,
-    SulfurCube,
-    Cushion,
-    Unknown(i32),
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType
-{
-    fn encoded_size(&self) -> usize {
-        let _val: i32 = match self {
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Undefined => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mob => {
-                256
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PathfinderMob => {
-                768
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Monster => {
-                2816
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Animal => {
-                4864
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TamableAnimal => {
-                21248
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ambient => {
-                33024
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::UndeadMonster => {
-                68352
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieMonster => {
-                199424
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arthropod => {
-                264960
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Minecart => {
-                524288
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonMonster => {
-                1116928
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EquineAnimal => {
-                2118400
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Projectile => {
-                4194304
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AbstractArrow => {
-                8388608
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WaterAnimal => {
-                8960
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerBase => {
-                16777984
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chicken => {
-                4874
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cow => {
-                4875
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pig => {
-                4876
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sheep => {
-                4877
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Wolf => {
-                21262
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Villager => {
-                16777999
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MushroomCow => {
-                4880
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Squid => {
-                8977
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Rabbit => {
-                4882
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bat => {
-                33043
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IronGolem => {
-                788
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SnowGolem => {
-                789
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ocelot => {
-                21270
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Horse => {
-                2118423
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PolarBear => {
-                4892
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Llama => {
-                4893
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parrot => {
-                21278
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dolphin => {
-                8991
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Donkey => {
-                2118424
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mule => {
-                2118425
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonHorse => {
-                2183962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieHorse => {
-                2183963
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zombie => {
-                199456
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creeper => {
-                2849
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Skeleton => {
-                1116962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Spider => {
-                264995
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PigZombie => {
-                68388
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Slime => {
-                2853
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderMan => {
-                2854
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Silverfish => {
-                264999
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CaveSpider => {
-                265000
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ghast => {
-                2857
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LavaSlime => {
-                2858
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Blaze => {
-                2859
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillager => {
-                199468
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Witch => {
-                2861
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Stray => {
-                1116974
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Husk => {
-                199471
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkeleton => {
-                1116976
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Guardian => {
-                2865
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardian => {
-                2866
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Npc => {
-                307
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherBoss => {
-                68404
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dragon => {
-                2869
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shulker => {
-                2870
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Endermite => {
-                265015
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Agent => {
-                312
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vindicator => {
-                2873
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Phantom => {
-                68410
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IllagerBeast => {
-                2875
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ArmorStand => {
-                317
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TripodCamera => {
-                318
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Player => {
-                319
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ItemEntity => {
-                64
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PrimedTnt => {
-                65
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FallingBlock => {
-                66
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MovingBlock => {
-                67
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ExperiencePotion => {
-                4194372
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Experience => {
-                69
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EyeOfEnder => {
-                70
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderCrystal => {
-                71
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FireworksRocket => {
-                72
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Trident => {
-                12582985
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Turtle => {
-                4938
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cat => {
-                21323
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ShulkerBullet => {
-                4194380
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FishingHook => {
-                77
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chalkboard => {
-                78
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::DragonFireball => {
-                4194383
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arrow => {
-                12582992
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Snowball => {
-                4194385
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownEgg => {
-                4194386
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Painting => {
-                83
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LargeFireball => {
-                4194389
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownPotion => {
-                4194390
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Enderpearl => {
-                4194391
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LeashKnot => {
-                88
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkull => {
-                4194393
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BoatRideable => {
-                90
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkullDangerous => {
-                4194395
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LightningBolt => {
-                93
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SmallFireball => {
-                4194398
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AreaEffectCloud => {
-                95
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LingeringPotion => {
-                4194405
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LlamaSpit => {
-                4194406
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationFang => {
-                4194407
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationIllager => {
-                2920
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vex => {
-                2921
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartRideable => {
-                524372
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartHopper => {
-                524384
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartTnt => {
-                524385
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartChest => {
-                524386
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartFurnace => {
-                524387
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartCommandBlock => {
-                524388
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IceBomb => {
-                4194410
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Balloon => {
-                107
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pufferfish => {
-                9068
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Salmon => {
-                9069
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Drowned => {
-                199534
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tropicalfish => {
-                9071
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fish => {
-                9072
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Panda => {
-                4977
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pillager => {
-                2930
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerV2 => {
-                16778099
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillagerV2 => {
-                199540
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shield => {
-                117
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WanderingTrader => {
-                886
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Lectern => {
-                119
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardianGhost => {
-                2936
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fox => {
-                4985
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bee => {
-                378
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Piglin => {
-                379
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Hoglin => {
-                4988
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Strider => {
-                4989
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zoglin => {
-                68478
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PiglinBrute => {
-                383
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Goat => {
-                4992
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::GlowSquid => {
-                9089
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Axolotl => {
-                4994
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Warden => {
-                2947
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Frog => {
-                4996
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tadpole => {
-                9093
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Allay => {
-                390
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ChestBoatRideable => {
-                218
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TraderLlama => {
-                5021
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Camel => {
-                5002
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sniffer => {
-                5003
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Breeze => {
-                2956
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BreezeWindChargeProjectile => {
-                4194445
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Armadillo => {
-                5006
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WindChargeProjectile => {
-                4194447
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bogged => {
-                1117072
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::OminousItemSpawner => {
-                145
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creaking => {
-                2962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::HappyGhast => {
-                5011
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CopperGolem => {
-                916
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Nautilus => {
-                9109
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieNautilus => {
-                74646
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parched => {
-                1117079
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CamelHusk => {
-                70552
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SulfurCube => {
-                921
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cushion => {
-                154
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Unknown(
-                v,
-            ) => *v,
-        };
-        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-            _val as i32,
-        ))
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: i32 = match self {
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Undefined => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mob => {
-                256
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PathfinderMob => {
-                768
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Monster => {
-                2816
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Animal => {
-                4864
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TamableAnimal => {
-                21248
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ambient => {
-                33024
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::UndeadMonster => {
-                68352
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieMonster => {
-                199424
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arthropod => {
-                264960
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Minecart => {
-                524288
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonMonster => {
-                1116928
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EquineAnimal => {
-                2118400
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Projectile => {
-                4194304
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AbstractArrow => {
-                8388608
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WaterAnimal => {
-                8960
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerBase => {
-                16777984
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chicken => {
-                4874
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cow => {
-                4875
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pig => {
-                4876
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sheep => {
-                4877
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Wolf => {
-                21262
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Villager => {
-                16777999
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MushroomCow => {
-                4880
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Squid => {
-                8977
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Rabbit => {
-                4882
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bat => {
-                33043
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IronGolem => {
-                788
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SnowGolem => {
-                789
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ocelot => {
-                21270
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Horse => {
-                2118423
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PolarBear => {
-                4892
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Llama => {
-                4893
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parrot => {
-                21278
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dolphin => {
-                8991
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Donkey => {
-                2118424
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mule => {
-                2118425
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonHorse => {
-                2183962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieHorse => {
-                2183963
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zombie => {
-                199456
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creeper => {
-                2849
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Skeleton => {
-                1116962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Spider => {
-                264995
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PigZombie => {
-                68388
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Slime => {
-                2853
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderMan => {
-                2854
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Silverfish => {
-                264999
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CaveSpider => {
-                265000
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ghast => {
-                2857
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LavaSlime => {
-                2858
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Blaze => {
-                2859
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillager => {
-                199468
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Witch => {
-                2861
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Stray => {
-                1116974
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Husk => {
-                199471
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkeleton => {
-                1116976
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Guardian => {
-                2865
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardian => {
-                2866
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Npc => {
-                307
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherBoss => {
-                68404
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dragon => {
-                2869
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shulker => {
-                2870
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Endermite => {
-                265015
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Agent => {
-                312
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vindicator => {
-                2873
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Phantom => {
-                68410
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IllagerBeast => {
-                2875
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ArmorStand => {
-                317
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TripodCamera => {
-                318
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Player => {
-                319
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ItemEntity => {
-                64
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PrimedTnt => {
-                65
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FallingBlock => {
-                66
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MovingBlock => {
-                67
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ExperiencePotion => {
-                4194372
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Experience => {
-                69
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EyeOfEnder => {
-                70
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderCrystal => {
-                71
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FireworksRocket => {
-                72
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Trident => {
-                12582985
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Turtle => {
-                4938
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cat => {
-                21323
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ShulkerBullet => {
-                4194380
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FishingHook => {
-                77
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chalkboard => {
-                78
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::DragonFireball => {
-                4194383
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arrow => {
-                12582992
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Snowball => {
-                4194385
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownEgg => {
-                4194386
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Painting => {
-                83
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LargeFireball => {
-                4194389
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownPotion => {
-                4194390
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Enderpearl => {
-                4194391
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LeashKnot => {
-                88
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkull => {
-                4194393
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BoatRideable => {
-                90
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkullDangerous => {
-                4194395
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LightningBolt => {
-                93
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SmallFireball => {
-                4194398
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AreaEffectCloud => {
-                95
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LingeringPotion => {
-                4194405
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LlamaSpit => {
-                4194406
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationFang => {
-                4194407
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationIllager => {
-                2920
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vex => {
-                2921
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartRideable => {
-                524372
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartHopper => {
-                524384
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartTnt => {
-                524385
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartChest => {
-                524386
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartFurnace => {
-                524387
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartCommandBlock => {
-                524388
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IceBomb => {
-                4194410
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Balloon => {
-                107
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pufferfish => {
-                9068
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Salmon => {
-                9069
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Drowned => {
-                199534
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tropicalfish => {
-                9071
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fish => {
-                9072
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Panda => {
-                4977
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pillager => {
-                2930
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerV2 => {
-                16778099
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillagerV2 => {
-                199540
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shield => {
-                117
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WanderingTrader => {
-                886
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Lectern => {
-                119
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardianGhost => {
-                2936
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fox => {
-                4985
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bee => {
-                378
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Piglin => {
-                379
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Hoglin => {
-                4988
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Strider => {
-                4989
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zoglin => {
-                68478
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PiglinBrute => {
-                383
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Goat => {
-                4992
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::GlowSquid => {
-                9089
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Axolotl => {
-                4994
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Warden => {
-                2947
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Frog => {
-                4996
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tadpole => {
-                9093
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Allay => {
-                390
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ChestBoatRideable => {
-                218
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TraderLlama => {
-                5021
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Camel => {
-                5002
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sniffer => {
-                5003
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Breeze => {
-                2956
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BreezeWindChargeProjectile => {
-                4194445
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Armadillo => {
-                5006
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WindChargeProjectile => {
-                4194447
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bogged => {
-                1117072
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::OminousItemSpawner => {
-                145
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creaking => {
-                2962
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::HappyGhast => {
-                5011
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CopperGolem => {
-                916
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Nautilus => {
-                9109
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieNautilus => {
-                74646
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parched => {
-                1117079
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CamelHusk => {
-                70552
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SulfurCube => {
-                921
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cushion => {
-                154
-            }
-            LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Unknown(
-                v,
-            ) => *v,
-        };
-        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let val = raw.0 as i32;
-        match val {
-            1 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Undefined,
-                )
-            }
-            256 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mob,
-                )
-            }
-            768 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PathfinderMob,
-                )
-            }
-            2816 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Monster,
-                )
-            }
-            4864 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Animal,
-                )
-            }
-            21248 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TamableAnimal,
-                )
-            }
-            33024 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ambient,
-                )
-            }
-            68352 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::UndeadMonster,
-                )
-            }
-            199424 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieMonster,
-                )
-            }
-            264960 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arthropod,
-                )
-            }
-            524288 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Minecart,
-                )
-            }
-            1116928 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonMonster,
-                )
-            }
-            2118400 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EquineAnimal,
-                )
-            }
-            4194304 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Projectile,
-                )
-            }
-            8388608 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AbstractArrow,
-                )
-            }
-            8960 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WaterAnimal,
-                )
-            }
-            16777984 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerBase,
-                )
-            }
-            4874 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chicken,
-                )
-            }
-            4875 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cow,
-                )
-            }
-            4876 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pig,
-                )
-            }
-            4877 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sheep,
-                )
-            }
-            21262 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Wolf,
-                )
-            }
-            16777999 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Villager,
-                )
-            }
-            4880 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MushroomCow,
-                )
-            }
-            8977 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Squid,
-                )
-            }
-            4882 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Rabbit,
-                )
-            }
-            33043 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bat,
-                )
-            }
-            788 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IronGolem,
-                )
-            }
-            789 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SnowGolem,
-                )
-            }
-            21270 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ocelot,
-                )
-            }
-            2118423 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Horse,
-                )
-            }
-            4892 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PolarBear,
-                )
-            }
-            4893 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Llama,
-                )
-            }
-            21278 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parrot,
-                )
-            }
-            8991 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dolphin,
-                )
-            }
-            2118424 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Donkey,
-                )
-            }
-            2118425 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Mule,
-                )
-            }
-            2183962 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SkeletonHorse,
-                )
-            }
-            2183963 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieHorse,
-                )
-            }
-            199456 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zombie,
-                )
-            }
-            2849 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creeper,
-                )
-            }
-            1116962 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Skeleton,
-                )
-            }
-            264995 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Spider,
-                )
-            }
-            68388 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PigZombie,
-                )
-            }
-            2853 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Slime,
-                )
-            }
-            2854 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderMan,
-                )
-            }
-            264999 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Silverfish,
-                )
-            }
-            265000 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CaveSpider,
-                )
-            }
-            2857 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Ghast,
-                )
-            }
-            2858 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LavaSlime,
-                )
-            }
-            2859 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Blaze,
-                )
-            }
-            199468 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillager,
-                )
-            }
-            2861 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Witch,
-                )
-            }
-            1116974 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Stray,
-                )
-            }
-            199471 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Husk,
-                )
-            }
-            1116976 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkeleton,
-                )
-            }
-            2865 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Guardian,
-                )
-            }
-            2866 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardian,
-                )
-            }
-            307 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Npc,
-                )
-            }
-            68404 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherBoss,
-                )
-            }
-            2869 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Dragon,
-                )
-            }
-            2870 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shulker,
-                )
-            }
-            265015 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Endermite,
-                )
-            }
-            312 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Agent,
-                )
-            }
-            2873 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vindicator,
-                )
-            }
-            68410 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Phantom,
-                )
-            }
-            2875 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IllagerBeast,
-                )
-            }
-            317 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ArmorStand,
-                )
-            }
-            318 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TripodCamera,
-                )
-            }
-            319 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Player,
-                )
-            }
-            64 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ItemEntity,
-                )
-            }
-            65 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PrimedTnt,
-                )
-            }
-            66 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FallingBlock,
-                )
-            }
-            67 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MovingBlock,
-                )
-            }
-            4194372 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ExperiencePotion,
-                )
-            }
-            69 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Experience,
-                )
-            }
-            70 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EyeOfEnder,
-                )
-            }
-            71 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EnderCrystal,
-                )
-            }
-            72 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FireworksRocket,
-                )
-            }
-            12582985 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Trident,
-                )
-            }
-            4938 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Turtle,
-                )
-            }
-            21323 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cat,
-                )
-            }
-            4194380 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ShulkerBullet,
-                )
-            }
-            77 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::FishingHook,
-                )
-            }
-            78 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Chalkboard,
-                )
-            }
-            4194383 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::DragonFireball,
-                )
-            }
-            12582992 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Arrow,
-                )
-            }
-            4194385 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Snowball,
-                )
-            }
-            4194386 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownEgg,
-                )
-            }
-            83 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Painting,
-                )
-            }
-            4194389 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LargeFireball,
-                )
-            }
-            4194390 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ThrownPotion,
-                )
-            }
-            4194391 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Enderpearl,
-                )
-            }
-            88 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LeashKnot,
-                )
-            }
-            4194393 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkull,
-                )
-            }
-            90 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BoatRideable,
-                )
-            }
-            4194395 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WitherSkullDangerous,
-                )
-            }
-            93 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LightningBolt,
-                )
-            }
-            4194398 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SmallFireball,
-                )
-            }
-            95 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::AreaEffectCloud,
-                )
-            }
-            4194405 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LingeringPotion,
-                )
-            }
-            4194406 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::LlamaSpit,
-                )
-            }
-            4194407 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationFang,
-                )
-            }
-            2920 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::EvocationIllager,
-                )
-            }
-            2921 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Vex,
-                )
-            }
-            524372 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartRideable,
-                )
-            }
-            524384 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartHopper,
-                )
-            }
-            524385 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartTnt,
-                )
-            }
-            524386 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartChest,
-                )
-            }
-            524387 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartFurnace,
-                )
-            }
-            524388 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::MinecartCommandBlock,
-                )
-            }
-            4194410 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::IceBomb,
-                )
-            }
-            107 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Balloon,
-                )
-            }
-            9068 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pufferfish,
-                )
-            }
-            9069 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Salmon,
-                )
-            }
-            199534 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Drowned,
-                )
-            }
-            9071 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tropicalfish,
-                )
-            }
-            9072 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fish,
-                )
-            }
-            4977 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Panda,
-                )
-            }
-            2930 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Pillager,
-                )
-            }
-            16778099 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::VillagerV2,
-                )
-            }
-            199540 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieVillagerV2,
-                )
-            }
-            117 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Shield,
-                )
-            }
-            886 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WanderingTrader,
-                )
-            }
-            119 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Lectern,
-                )
-            }
-            2936 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ElderGuardianGhost,
-                )
-            }
-            4985 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Fox,
-                )
-            }
-            378 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bee,
-                )
-            }
-            379 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Piglin,
-                )
-            }
-            4988 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Hoglin,
-                )
-            }
-            4989 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Strider,
-                )
-            }
-            68478 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Zoglin,
-                )
-            }
-            383 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::PiglinBrute,
-                )
-            }
-            4992 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Goat,
-                )
-            }
-            9089 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::GlowSquid,
-                )
-            }
-            4994 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Axolotl,
-                )
-            }
-            2947 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Warden,
-                )
-            }
-            4996 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Frog,
-                )
-            }
-            9093 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Tadpole,
-                )
-            }
-            390 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Allay,
-                )
-            }
-            218 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ChestBoatRideable,
-                )
-            }
-            5021 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::TraderLlama,
-                )
-            }
-            5002 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Camel,
-                )
-            }
-            5003 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Sniffer,
-                )
-            }
-            2956 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Breeze,
-                )
-            }
-            4194445 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::BreezeWindChargeProjectile,
-                )
-            }
-            5006 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Armadillo,
-                )
-            }
-            4194447 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::WindChargeProjectile,
-                )
-            }
-            1117072 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Bogged,
-                )
-            }
-            145 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::OminousItemSpawner,
-                )
-            }
-            2962 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Creaking,
-                )
-            }
-            5011 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::HappyGhast,
-                )
-            }
-            916 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CopperGolem,
-                )
-            }
-            9109 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Nautilus,
-                )
-            }
-            74646 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::ZombieNautilus,
-                )
-            }
-            1117079 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Parched,
-                )
-            }
-            70552 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::CamelHusk,
-                )
-            }
-            921 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::SulfurCube,
-                )
-            }
-            154 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Cushion,
-                )
-            }
-            other => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType::Unknown(
-                        other,
-                    ),
-                )
-            }
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType {
-    fn default() -> Self {
-        Self::Undefined
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadMobKilled {
-    pub instigator_actor_id: i64,
-    pub target_actor_id: i64,
-    pub instigators_child_actor_type:
-        LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType,
-    pub damage_source: i32,
-    pub trade_tier: i32,
-    pub trader_name: String,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadMobKilled {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag64(self.instigator_actor_id),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag64(self.target_actor_id),
-        );
-        size +=
-            crate::bedrock::codec::BedrockSized::encoded_size(&self.instigators_child_actor_type);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.damage_source),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.trade_tier),
-        );
-        size += {
-            let _len = (&self.trader_name).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadMobKilled {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag64(self.instigator_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag64(self.target_actor_id).encode(buf)?;
-        self.instigators_child_actor_type.encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.damage_source).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.trade_tier).encode(buf)?;
-        let bytes = (&self.trader_name).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let instigator_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let target_actor_id =
-            <crate::bedrock::codec::ZigZag64 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let instigators_child_actor_type = <LegacyTelemetryEventPacketPayloadMobKilledInstigatorsChildActorType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let damage_source =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let trade_tier =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let trader_name = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self {
-            instigator_actor_id,
-            target_actor_id,
-            instigators_child_actor_type,
-            damage_source,
-            trade_tier,
-            trader_name,
-        })
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType {
-    None,
-    Extend,
-    Clone,
-    Lock,
-    Create,
-    CreateLocator,
-    Rename,
-    ItemPlaced,
-    ItemRemoved,
-    Cooking,
-    Dousing,
-    Lighting,
-    Haystack,
-    Filled,
-    Emptied,
-    AddDye,
-    DyeItem,
-    ClearItem,
-    EnchantArrow,
-    CompostItemPlaced,
-    RecoveredBonemeal,
-    BookPlaced,
-    BookOpened,
-    Disenchant,
-    Repair,
-    DisenchantAndRepair,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType
-{
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::None => {
-                0
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Extend => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Clone => {
-                2
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lock => {
-                3
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Create => {
-                4
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CreateLocator => {
-                5
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Rename => {
-                6
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemPlaced => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemRemoved => {
-                8
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Cooking => {
-                9
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Dousing => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lighting => {
-                11
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Haystack => {
-                12
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Filled => {
-                13
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Emptied => {
-                14
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::AddDye => {
-                15
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DyeItem => {
-                16
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ClearItem => {
-                17
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::EnchantArrow => {
-                18
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CompostItemPlaced => {
-                19
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::RecoveredBonemeal => {
-                20
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookPlaced => {
-                21
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookOpened => {
-                22
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Disenchant => {
-                23
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Repair => {
-                24
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DisenchantAndRepair => {
-                25
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Unknown(
-                v,
-            ) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::None => {
-                0
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Extend => {
-                1
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Clone => {
-                2
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lock => {
-                3
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Create => {
-                4
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CreateLocator => {
-                5
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Rename => {
-                6
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemPlaced => {
-                7
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemRemoved => {
-                8
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Cooking => {
-                9
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Dousing => {
-                10
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lighting => {
-                11
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Haystack => {
-                12
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Filled => {
-                13
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Emptied => {
-                14
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::AddDye => {
-                15
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DyeItem => {
-                16
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ClearItem => {
-                17
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::EnchantArrow => {
-                18
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CompostItemPlaced => {
-                19
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::RecoveredBonemeal => {
-                20
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookPlaced => {
-                21
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookOpened => {
-                22
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Disenchant => {
-                23
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Repair => {
-                24
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DisenchantAndRepair => {
-                25
-            }
-            LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Unknown(
-                v,
-            ) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::None,
-                )
-            }
-            1 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Extend,
-                )
-            }
-            2 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Clone,
-                )
-            }
-            3 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lock,
-                )
-            }
-            4 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Create,
-                )
-            }
-            5 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CreateLocator,
-                )
-            }
-            6 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Rename,
-                )
-            }
-            7 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemPlaced,
-                )
-            }
-            8 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ItemRemoved,
-                )
-            }
-            9 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Cooking,
-                )
-            }
-            10 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Dousing,
-                )
-            }
-            11 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Lighting,
-                )
-            }
-            12 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Haystack,
-                )
-            }
-            13 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Filled,
-                )
-            }
-            14 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Emptied,
-                )
-            }
-            15 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::AddDye,
-                )
-            }
-            16 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DyeItem,
-                )
-            }
-            17 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::ClearItem,
-                )
-            }
-            18 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::EnchantArrow,
-                )
-            }
-            19 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::CompostItemPlaced,
-                )
-            }
-            20 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::RecoveredBonemeal,
-                )
-            }
-            21 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookPlaced,
-                )
-            }
-            22 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::BookOpened,
-                )
-            }
-            23 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Disenchant,
-                )
-            }
-            24 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Repair,
-                )
-            }
-            25 => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::DisenchantAndRepair,
-                )
-            }
-            other => {
-                Ok(
-                    LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType::Unknown(
-                        other,
-                    ),
-                )
-            }
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType {
-    fn default() -> Self {
-        Self::None
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPoiCauldronUsed {
-    pub block_interaction_type:
-        LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType,
-    pub item_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPoiCauldronUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.block_interaction_type);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadPoiCauldronUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        self.block_interaction_type.encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.item_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let block_interaction_type = <LegacyTelemetryEventPacketPayloadPoiCauldronUsedBlockInteractionType as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            block_interaction_type,
-            item_id,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPiglinBarter {
-    pub item_id: i32,
-    pub was_targeting_bartering_player: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPiglinBarter {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_id),
-        );
-        size += 1usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadPiglinBarter {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.item_id).encode(buf)?;
-        self.was_targeting_bartering_player.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let item_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let was_targeting_bartering_player =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            item_id,
-            was_targeting_bartering_player,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPlayerDied {
-    pub instigator_actor_id: i32,
-    pub instigator_mob_variant: i32,
-    pub damage_source: i32,
-    pub diedin_raid: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPlayerDied {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.instigator_actor_id),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.instigator_mob_variant),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.damage_source),
-        );
-        size += 1usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadPlayerDied {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.instigator_actor_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.instigator_mob_variant).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.damage_source).encode(buf)?;
-        self.diedin_raid.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let instigator_actor_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let instigator_mob_variant =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let damage_source =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let diedin_raid = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            instigator_actor_id,
-            instigator_mob_variant,
-            damage_source,
-            diedin_raid,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper {
-    pub player_waxedor_unwaxed_copper_block_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper
-{
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.player_waxedor_unwaxed_copper_block_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.player_waxedor_unwaxed_copper_block_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let player_waxedor_unwaxed_copper_block_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            player_waxedor_unwaxed_copper_block_id,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPortalCreated {
-    pub dimension_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPortalCreated {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.dimension_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadPortalCreated {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.dimension_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { dimension_id })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadPortalUsed {
-    pub source_dimension_id: i32,
-    pub target_dimension_id: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadPortalUsed {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.source_dimension_id),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.target_dimension_id),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadPortalUsed {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.source_dimension_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.target_dimension_id).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let source_dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let target_dimension_id =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self {
-            source_dimension_id,
-            target_dimension_id,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadRaidUpdate {
-    pub current_wave: i32,
-    pub total_waves: i32,
-    pub success: bool,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadRaidUpdate {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.current_wave),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.total_waves),
-        );
-        size += 1usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadRaidUpdate {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.current_wave).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.total_waves).encode(buf)?;
-        self.success.encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let current_wave =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let total_waves =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let success = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            current_wave,
-            total_waves,
-            success,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadSlashCommand {
-    pub success_count: i32,
-    pub error_count: i32,
-    pub command_name: String,
-    pub error_list: String,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadSlashCommand {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.success_count),
-        );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.error_count),
-        );
-        size += {
-            let _len = (&self.command_name).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.error_list).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                _len as i32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadSlashCommand {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.success_count).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.error_count).encode(buf)?;
-        let bytes = (&self.command_name).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.error_list).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let success_count =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let error_count =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        let command_name = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let error_list = {
-            let len_raw =
-                (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as i64;
-            if len_raw < 0 {
-                return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
-            }
-            let len = len_raw as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self {
-            success_count,
-            error_count,
-            command_name,
-            error_list,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LegacyTelemetryEventPacketPayloadTargetBlockHit {
-    pub redstone_level: i32,
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketPayloadTargetBlockHit {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.redstone_level),
-        );
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadTargetBlockHit {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.redstone_level).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let redstone_level =
-            <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0;
-        Ok(Self { redstone_level })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -28532,33 +23213,33 @@ impl Default for LevelSettingsEditorWorldType {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LevelSettingsEducationEditionOffer {
-    None,
-    RestOfWorld,
-    ChinaDeprecated,
+pub enum LevelSettingsReserved12 {
+    Reserved0,
+    Reserved1,
+    Reserved2,
     Unknown(i32),
 }
-impl crate::bedrock::codec::BedrockSized for LevelSettingsEducationEditionOffer {
+impl crate::bedrock::codec::BedrockSized for LevelSettingsReserved12 {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            LevelSettingsEducationEditionOffer::None => 0,
-            LevelSettingsEducationEditionOffer::RestOfWorld => 1,
-            LevelSettingsEducationEditionOffer::ChinaDeprecated => 2,
-            LevelSettingsEducationEditionOffer::Unknown(v) => *v,
+            LevelSettingsReserved12::Reserved0 => 0,
+            LevelSettingsReserved12::Reserved1 => 1,
+            LevelSettingsReserved12::Reserved2 => 2,
+            LevelSettingsReserved12::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
             _val as i32,
         ))
     }
 }
-impl crate::bedrock::codec::BedrockCodec for LevelSettingsEducationEditionOffer {
+impl crate::bedrock::codec::BedrockCodec for LevelSettingsReserved12 {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            LevelSettingsEducationEditionOffer::None => 0,
-            LevelSettingsEducationEditionOffer::RestOfWorld => 1,
-            LevelSettingsEducationEditionOffer::ChinaDeprecated => 2,
-            LevelSettingsEducationEditionOffer::Unknown(v) => *v,
+            LevelSettingsReserved12::Reserved0 => 0,
+            LevelSettingsReserved12::Reserved1 => 1,
+            LevelSettingsReserved12::Reserved2 => 2,
+            LevelSettingsReserved12::Unknown(v) => *v,
         };
         crate::bedrock::codec::VarInt(val as i32).encode(buf)
     }
@@ -28572,16 +23253,16 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettingsEducationEditionOffer 
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(LevelSettingsEducationEditionOffer::None),
-            1 => Ok(LevelSettingsEducationEditionOffer::RestOfWorld),
-            2 => Ok(LevelSettingsEducationEditionOffer::ChinaDeprecated),
-            other => Ok(LevelSettingsEducationEditionOffer::Unknown(other)),
+            0 => Ok(LevelSettingsReserved12::Reserved0),
+            1 => Ok(LevelSettingsReserved12::Reserved1),
+            2 => Ok(LevelSettingsReserved12::Reserved2),
+            other => Ok(LevelSettingsReserved12::Unknown(other)),
         }
     }
 }
-impl Default for LevelSettingsEducationEditionOffer {
+impl Default for LevelSettingsReserved12 {
     fn default() -> Self {
-        Self::None
+        Self::Reserved0
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28875,9 +23556,9 @@ pub struct LevelSettings {
     pub is_created_in_editor: bool,
     pub is_exported_from_editor: bool,
     pub day_cycle_stop_time: i32,
-    pub education_edition_offer: LevelSettingsEducationEditionOffer,
-    pub education_features_enabled: bool,
-    pub education_product_id: String,
+    pub reserved_12: LevelSettingsReserved12,
+    pub reserved_13: bool,
+    pub reserved_14: String,
     pub rain_level: f32,
     pub lightning_level: f32,
     pub has_confirmed_platform_locked_content: bool,
@@ -28907,7 +23588,7 @@ pub struct LevelSettings {
     pub limited_world_width: i32,
     pub limited_world_depth: i32,
     pub nether_type: bool,
-    pub edu_shared_uri_resource: EduSharedUriResource,
+    pub reserved_44: LevelSettingsReserved44,
     pub override_force_experimental_gameplay: Option<bool>,
     pub chat_restriction_level: LevelSettingsChatRestrictionLevel,
     pub disable_player_interactions: bool,
@@ -28932,10 +23613,10 @@ impl crate::bedrock::codec::BedrockSized for LevelSettings {
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.day_cycle_stop_time),
         );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.education_edition_offer);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_12);
         size += 1usize;
         size += {
-            let _len = (&self.education_product_id).as_bytes().len();
+            let _len = (&self.reserved_14).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
             )) + _len
@@ -28975,7 +23656,7 @@ impl crate::bedrock::codec::BedrockSized for LevelSettings {
         size += 4usize;
         size += 4usize;
         size += 1usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.edu_shared_uri_resource);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_44);
         size += {
             1usize
                 + match &self.override_force_experimental_gameplay {
@@ -29008,9 +23689,9 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
         self.is_created_in_editor.encode(buf)?;
         self.is_exported_from_editor.encode(buf)?;
         crate::bedrock::codec::ZigZag32(self.day_cycle_stop_time).encode(buf)?;
-        self.education_edition_offer.encode(buf)?;
-        self.education_features_enabled.encode(buf)?;
-        let bytes = (&self.education_product_id).as_bytes();
+        self.reserved_12.encode(buf)?;
+        self.reserved_13.encode(buf)?;
+        let bytes = (&self.reserved_14).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
         buf.put_slice(bytes);
@@ -29046,7 +23727,7 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
         crate::bedrock::codec::I32LE(self.limited_world_width).encode(buf)?;
         crate::bedrock::codec::I32LE(self.limited_world_depth).encode(buf)?;
         self.nether_type.encode(buf)?;
-        self.edu_shared_uri_resource.encode(buf)?;
+        self.reserved_44.encode(buf)?;
         match &self.override_force_experimental_gameplay {
             Some(v) => {
                 buf.put_u8(1);
@@ -29092,14 +23773,10 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
                 (),
             )?
             .0;
-        let education_edition_offer =
-            <LevelSettingsEducationEditionOffer as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let education_features_enabled =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let education_product_id = {
+        let reserved_12 =
+            <LevelSettingsReserved12 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_13 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_14 = {
             let len_raw =
                 (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -29204,8 +23881,8 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let nether_type = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let edu_shared_uri_resource =
-            <EduSharedUriResource as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_44 =
+            <LevelSettingsReserved44 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let override_force_experimental_gameplay = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
@@ -29243,9 +23920,9 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             is_created_in_editor,
             is_exported_from_editor,
             day_cycle_stop_time,
-            education_edition_offer,
-            education_features_enabled,
-            education_product_id,
+            reserved_12,
+            reserved_13,
+            reserved_14,
             rain_level,
             lightning_level,
             has_confirmed_platform_locked_content,
@@ -29275,7 +23952,7 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             limited_world_width,
             limited_world_depth,
             nether_type,
-            edu_shared_uri_resource,
+            reserved_44,
             override_force_experimental_gameplay,
             chat_restriction_level,
             disable_player_interactions,
@@ -30100,28 +24777,28 @@ impl crate::bedrock::codec::BedrockCodec for MapItemTrackedActorUniqueId {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct MaterialReducerEntryOutput {
-    pub item_id: i32,
-    pub item_count: i32,
+pub struct CraftingDataReservedEntryOutput {
+    pub reserved_0: i32,
+    pub reserved_1: i32,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerEntryOutput {
+impl crate::bedrock::codec::BedrockSized for CraftingDataReservedEntryOutput {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_id),
+            &crate::bedrock::codec::ZigZag32(self.reserved_0),
         );
         size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.item_count),
+            &crate::bedrock::codec::ZigZag32(self.reserved_1),
         );
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for MaterialReducerEntryOutput {
+impl crate::bedrock::codec::BedrockCodec for CraftingDataReservedEntryOutput {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.item_id).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.item_count).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(self.reserved_0).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(self.reserved_1).encode(buf)?;
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -30129,40 +24806,40 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducerEntryOutput {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let item_id =
+        let reserved_0 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let item_count =
+        let reserved_1 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
         Ok(Self {
-            item_id,
-            item_count,
+            reserved_0,
+            reserved_1,
         })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct MaterialReducerDataEntry {
-    pub from_item_key: i32,
-    pub item_idsand_counts: Vec<MaterialReducerEntryOutput>,
+pub struct CraftingDataReservedEntry {
+    pub reserved_0: i32,
+    pub reserved_1: Vec<CraftingDataReservedEntryOutput>,
 }
-impl crate::bedrock::codec::BedrockSized for MaterialReducerDataEntry {
+impl crate::bedrock::codec::BedrockSized for CraftingDataReservedEntry {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.from_item_key),
+            &crate::bedrock::codec::ZigZag32(self.reserved_0),
         );
         size += {
-            let _len = (&self.item_idsand_counts).len();
+            let _len = (&self.reserved_1).len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
                 _len as i32,
-            )) + (&self.item_idsand_counts)
+            )) + (&self.reserved_1)
                 .iter()
                 .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                 .sum::<usize>()
@@ -30170,14 +24847,14 @@ impl crate::bedrock::codec::BedrockSized for MaterialReducerDataEntry {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for MaterialReducerDataEntry {
+impl crate::bedrock::codec::BedrockCodec for CraftingDataReservedEntry {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.from_item_key).encode(buf)?;
-        let len = self.item_idsand_counts.len();
+        crate::bedrock::codec::ZigZag32(self.reserved_0).encode(buf)?;
+        let len = self.reserved_1.len();
         crate::bedrock::codec::VarInt(len as i32).encode(buf)?;
-        for item in &self.item_idsand_counts {
+        for item in &self.reserved_1 {
             item.encode(buf)?;
         }
         Ok(())
@@ -30187,13 +24864,13 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducerDataEntry {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let from_item_key =
+        let reserved_0 =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let item_idsand_counts = {
+        let reserved_1 = {
             let raw =
                 <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
@@ -30207,7 +24884,7 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducerDataEntry {
             let mut tmp_vec = Vec::with_capacity(len);
             for _ in 0..len {
                 tmp_vec.push(
-                    <MaterialReducerEntryOutput as crate::bedrock::codec::BedrockCodec>::decode(
+                    <CraftingDataReservedEntryOutput as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
@@ -30216,8 +24893,8 @@ impl crate::bedrock::codec::BedrockCodec for MaterialReducerDataEntry {
             tmp_vec
         };
         Ok(Self {
-            from_item_key,
-            item_idsand_counts,
+            reserved_0,
+            reserved_1,
         })
     }
 }
@@ -42169,9 +36846,9 @@ pub enum PlayStatusPacketStatus {
     LoginFailedClientOld,
     LoginFailedServerOld,
     PlayerSpawn,
-    LoginFailedInvalidTenant,
-    LoginFailedEditionMismatchEduToVanilla,
-    LoginFailedEditionMismatchVanillaToEdu,
+    Reserved4,
+    Reserved5,
+    Reserved6,
     LoginFailedServerFullSubClient,
     LoginFailedEditorMismatchEditorToVanilla,
     LoginFailedEditorMismatchVanillaToEditor,
@@ -42184,9 +36861,9 @@ impl crate::bedrock::codec::BedrockSized for PlayStatusPacketStatus {
             PlayStatusPacketStatus::LoginFailedClientOld => 1,
             PlayStatusPacketStatus::LoginFailedServerOld => 2,
             PlayStatusPacketStatus::PlayerSpawn => 3,
-            PlayStatusPacketStatus::LoginFailedInvalidTenant => 4,
-            PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla => 5,
-            PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu => 6,
+            PlayStatusPacketStatus::Reserved4 => 4,
+            PlayStatusPacketStatus::Reserved5 => 5,
+            PlayStatusPacketStatus::Reserved6 => 6,
             PlayStatusPacketStatus::LoginFailedServerFullSubClient => 7,
             PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => 8,
             PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor => 9,
@@ -42203,9 +36880,9 @@ impl crate::bedrock::codec::BedrockCodec for PlayStatusPacketStatus {
             PlayStatusPacketStatus::LoginFailedClientOld => 1,
             PlayStatusPacketStatus::LoginFailedServerOld => 2,
             PlayStatusPacketStatus::PlayerSpawn => 3,
-            PlayStatusPacketStatus::LoginFailedInvalidTenant => 4,
-            PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla => 5,
-            PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu => 6,
+            PlayStatusPacketStatus::Reserved4 => 4,
+            PlayStatusPacketStatus::Reserved5 => 5,
+            PlayStatusPacketStatus::Reserved6 => 6,
             PlayStatusPacketStatus::LoginFailedServerFullSubClient => 7,
             PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => 8,
             PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor => 9,
@@ -42223,9 +36900,9 @@ impl crate::bedrock::codec::BedrockCodec for PlayStatusPacketStatus {
             1 => Ok(PlayStatusPacketStatus::LoginFailedClientOld),
             2 => Ok(PlayStatusPacketStatus::LoginFailedServerOld),
             3 => Ok(PlayStatusPacketStatus::PlayerSpawn),
-            4 => Ok(PlayStatusPacketStatus::LoginFailedInvalidTenant),
-            5 => Ok(PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla),
-            6 => Ok(PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu),
+            4 => Ok(PlayStatusPacketStatus::Reserved4),
+            5 => Ok(PlayStatusPacketStatus::Reserved5),
+            6 => Ok(PlayStatusPacketStatus::Reserved6),
             7 => Ok(PlayStatusPacketStatus::LoginFailedServerFullSubClient),
             8 => Ok(PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla),
             9 => Ok(PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor),
@@ -42251,7 +36928,7 @@ pub enum DisconnectPacketReason {
     VersionMismatch,
     SkinIssue,
     InviteSessionNotFound,
-    EduLevelSettingsMissing,
+    Reserved11,
     LocalServerNotFound,
     LegacyDisconnect,
     InternalUserLeaveGameAttempted,
@@ -42267,8 +36944,8 @@ pub enum DisconnectPacketReason {
     ClientSettingsIncompatibleWithServer,
     ServerFull,
     InvalidPlatformSkin,
-    EditionVersionMismatch,
-    EditionMismatch,
+    Reserved27,
+    Reserved28,
     LevelNewerThanExeVersion,
     InternalNoFailOccurred,
     BannedSkin,
@@ -42287,7 +36964,7 @@ pub enum DisconnectPacketReason {
     ServerIdConflict,
     NotAllowed,
     NotAuthenticated,
-    InvalidTenant,
+    Reserved47,
     UnknownPacket,
     UnexpectedPacket,
     InvalidCommandRequestPacket,
@@ -42349,7 +37026,7 @@ pub enum DisconnectPacketReason {
     InternalRequestServerShutdown,
     ClientGameSetupCancelled,
     ClientGameSetupFailed,
-    NoVenue,
+    Reserved109,
     NetherNetSignalingSigninFailed,
     SessionAccessDenied,
     ServiceSigninIssue,
@@ -42371,8 +37048,8 @@ pub enum DisconnectPacketReason {
     StorageLowDuringGameplay,
     StorageFullDuringGameplay,
     LevelStorageCorruption,
-    EditionMismatchVanillaToEdu,
-    EditionMismatchEduToVanilla,
+    Reserved131,
+    Reserved132,
     EditorMismatchEditorToVanilla,
     EditorMismatchVanillaToEditor,
     DenyListed,
@@ -42404,7 +37081,7 @@ impl crate::bedrock::codec::BedrockSized for DisconnectPacketReason {
             DisconnectPacketReason::VersionMismatch => 8,
             DisconnectPacketReason::SkinIssue => 9,
             DisconnectPacketReason::InviteSessionNotFound => 10,
-            DisconnectPacketReason::EduLevelSettingsMissing => 11,
+            DisconnectPacketReason::Reserved11 => 11,
             DisconnectPacketReason::LocalServerNotFound => 12,
             DisconnectPacketReason::LegacyDisconnect => 13,
             DisconnectPacketReason::InternalUserLeaveGameAttempted => 14,
@@ -42420,8 +37097,8 @@ impl crate::bedrock::codec::BedrockSized for DisconnectPacketReason {
             DisconnectPacketReason::ClientSettingsIncompatibleWithServer => 24,
             DisconnectPacketReason::ServerFull => 25,
             DisconnectPacketReason::InvalidPlatformSkin => 26,
-            DisconnectPacketReason::EditionVersionMismatch => 27,
-            DisconnectPacketReason::EditionMismatch => 28,
+            DisconnectPacketReason::Reserved27 => 27,
+            DisconnectPacketReason::Reserved28 => 28,
             DisconnectPacketReason::LevelNewerThanExeVersion => 29,
             DisconnectPacketReason::InternalNoFailOccurred => 30,
             DisconnectPacketReason::BannedSkin => 31,
@@ -42440,7 +37117,7 @@ impl crate::bedrock::codec::BedrockSized for DisconnectPacketReason {
             DisconnectPacketReason::ServerIdConflict => 44,
             DisconnectPacketReason::NotAllowed => 45,
             DisconnectPacketReason::NotAuthenticated => 46,
-            DisconnectPacketReason::InvalidTenant => 47,
+            DisconnectPacketReason::Reserved47 => 47,
             DisconnectPacketReason::UnknownPacket => 48,
             DisconnectPacketReason::UnexpectedPacket => 49,
             DisconnectPacketReason::InvalidCommandRequestPacket => 50,
@@ -42502,7 +37179,7 @@ impl crate::bedrock::codec::BedrockSized for DisconnectPacketReason {
             DisconnectPacketReason::InternalRequestServerShutdown => 106,
             DisconnectPacketReason::ClientGameSetupCancelled => 107,
             DisconnectPacketReason::ClientGameSetupFailed => 108,
-            DisconnectPacketReason::NoVenue => 109,
+            DisconnectPacketReason::Reserved109 => 109,
             DisconnectPacketReason::NetherNetSignalingSigninFailed => 110,
             DisconnectPacketReason::SessionAccessDenied => 111,
             DisconnectPacketReason::ServiceSigninIssue => 112,
@@ -42524,8 +37201,8 @@ impl crate::bedrock::codec::BedrockSized for DisconnectPacketReason {
             DisconnectPacketReason::StorageLowDuringGameplay => 128,
             DisconnectPacketReason::StorageFullDuringGameplay => 129,
             DisconnectPacketReason::LevelStorageCorruption => 130,
-            DisconnectPacketReason::EditionMismatchVanillaToEdu => 131,
-            DisconnectPacketReason::EditionMismatchEduToVanilla => 132,
+            DisconnectPacketReason::Reserved131 => 131,
+            DisconnectPacketReason::Reserved132 => 132,
             DisconnectPacketReason::EditorMismatchEditorToVanilla => 133,
             DisconnectPacketReason::EditorMismatchVanillaToEditor => 134,
             DisconnectPacketReason::DenyListed => 135,
@@ -42563,7 +37240,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             DisconnectPacketReason::VersionMismatch => 8,
             DisconnectPacketReason::SkinIssue => 9,
             DisconnectPacketReason::InviteSessionNotFound => 10,
-            DisconnectPacketReason::EduLevelSettingsMissing => 11,
+            DisconnectPacketReason::Reserved11 => 11,
             DisconnectPacketReason::LocalServerNotFound => 12,
             DisconnectPacketReason::LegacyDisconnect => 13,
             DisconnectPacketReason::InternalUserLeaveGameAttempted => 14,
@@ -42579,8 +37256,8 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             DisconnectPacketReason::ClientSettingsIncompatibleWithServer => 24,
             DisconnectPacketReason::ServerFull => 25,
             DisconnectPacketReason::InvalidPlatformSkin => 26,
-            DisconnectPacketReason::EditionVersionMismatch => 27,
-            DisconnectPacketReason::EditionMismatch => 28,
+            DisconnectPacketReason::Reserved27 => 27,
+            DisconnectPacketReason::Reserved28 => 28,
             DisconnectPacketReason::LevelNewerThanExeVersion => 29,
             DisconnectPacketReason::InternalNoFailOccurred => 30,
             DisconnectPacketReason::BannedSkin => 31,
@@ -42599,7 +37276,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             DisconnectPacketReason::ServerIdConflict => 44,
             DisconnectPacketReason::NotAllowed => 45,
             DisconnectPacketReason::NotAuthenticated => 46,
-            DisconnectPacketReason::InvalidTenant => 47,
+            DisconnectPacketReason::Reserved47 => 47,
             DisconnectPacketReason::UnknownPacket => 48,
             DisconnectPacketReason::UnexpectedPacket => 49,
             DisconnectPacketReason::InvalidCommandRequestPacket => 50,
@@ -42661,7 +37338,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             DisconnectPacketReason::InternalRequestServerShutdown => 106,
             DisconnectPacketReason::ClientGameSetupCancelled => 107,
             DisconnectPacketReason::ClientGameSetupFailed => 108,
-            DisconnectPacketReason::NoVenue => 109,
+            DisconnectPacketReason::Reserved109 => 109,
             DisconnectPacketReason::NetherNetSignalingSigninFailed => 110,
             DisconnectPacketReason::SessionAccessDenied => 111,
             DisconnectPacketReason::ServiceSigninIssue => 112,
@@ -42683,8 +37360,8 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             DisconnectPacketReason::StorageLowDuringGameplay => 128,
             DisconnectPacketReason::StorageFullDuringGameplay => 129,
             DisconnectPacketReason::LevelStorageCorruption => 130,
-            DisconnectPacketReason::EditionMismatchVanillaToEdu => 131,
-            DisconnectPacketReason::EditionMismatchEduToVanilla => 132,
+            DisconnectPacketReason::Reserved131 => 131,
+            DisconnectPacketReason::Reserved132 => 132,
             DisconnectPacketReason::EditorMismatchEditorToVanilla => 133,
             DisconnectPacketReason::EditorMismatchVanillaToEditor => 134,
             DisconnectPacketReason::DenyListed => 135,
@@ -42725,7 +37402,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             8 => Ok(DisconnectPacketReason::VersionMismatch),
             9 => Ok(DisconnectPacketReason::SkinIssue),
             10 => Ok(DisconnectPacketReason::InviteSessionNotFound),
-            11 => Ok(DisconnectPacketReason::EduLevelSettingsMissing),
+            11 => Ok(DisconnectPacketReason::Reserved11),
             12 => Ok(DisconnectPacketReason::LocalServerNotFound),
             13 => Ok(DisconnectPacketReason::LegacyDisconnect),
             14 => Ok(DisconnectPacketReason::InternalUserLeaveGameAttempted),
@@ -42741,8 +37418,8 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             24 => Ok(DisconnectPacketReason::ClientSettingsIncompatibleWithServer),
             25 => Ok(DisconnectPacketReason::ServerFull),
             26 => Ok(DisconnectPacketReason::InvalidPlatformSkin),
-            27 => Ok(DisconnectPacketReason::EditionVersionMismatch),
-            28 => Ok(DisconnectPacketReason::EditionMismatch),
+            27 => Ok(DisconnectPacketReason::Reserved27),
+            28 => Ok(DisconnectPacketReason::Reserved28),
             29 => Ok(DisconnectPacketReason::LevelNewerThanExeVersion),
             30 => Ok(DisconnectPacketReason::InternalNoFailOccurred),
             31 => Ok(DisconnectPacketReason::BannedSkin),
@@ -42761,7 +37438,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             44 => Ok(DisconnectPacketReason::ServerIdConflict),
             45 => Ok(DisconnectPacketReason::NotAllowed),
             46 => Ok(DisconnectPacketReason::NotAuthenticated),
-            47 => Ok(DisconnectPacketReason::InvalidTenant),
+            47 => Ok(DisconnectPacketReason::Reserved47),
             48 => Ok(DisconnectPacketReason::UnknownPacket),
             49 => Ok(DisconnectPacketReason::UnexpectedPacket),
             50 => Ok(DisconnectPacketReason::InvalidCommandRequestPacket),
@@ -42823,7 +37500,7 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             106 => Ok(DisconnectPacketReason::InternalRequestServerShutdown),
             107 => Ok(DisconnectPacketReason::ClientGameSetupCancelled),
             108 => Ok(DisconnectPacketReason::ClientGameSetupFailed),
-            109 => Ok(DisconnectPacketReason::NoVenue),
+            109 => Ok(DisconnectPacketReason::Reserved109),
             110 => Ok(DisconnectPacketReason::NetherNetSignalingSigninFailed),
             111 => Ok(DisconnectPacketReason::SessionAccessDenied),
             112 => Ok(DisconnectPacketReason::ServiceSigninIssue),
@@ -42845,8 +37522,8 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketReason {
             128 => Ok(DisconnectPacketReason::StorageLowDuringGameplay),
             129 => Ok(DisconnectPacketReason::StorageFullDuringGameplay),
             130 => Ok(DisconnectPacketReason::LevelStorageCorruption),
-            131 => Ok(DisconnectPacketReason::EditionMismatchVanillaToEdu),
-            132 => Ok(DisconnectPacketReason::EditionMismatchEduToVanilla),
+            131 => Ok(DisconnectPacketReason::Reserved131),
+            132 => Ok(DisconnectPacketReason::Reserved132),
             133 => Ok(DisconnectPacketReason::EditorMismatchEditorToVanilla),
             134 => Ok(DisconnectPacketReason::EditorMismatchVanillaToEditor),
             135 => Ok(DisconnectPacketReason::DenyListed),
@@ -43382,7 +38059,7 @@ pub enum ActorEventPacketEventId {
     AirSupply,
     DeprecatedAddPlayerLevels,
     GuardianMiningFatigue,
-    AgentSwingArm,
+    Reserved36,
     DragonStartDeathAnim,
     GroundDust,
     Shake,
@@ -43398,9 +38075,9 @@ pub enum ActorEventPacketEventId {
     Puke,
     UpdateStackSize,
     StartSwimming,
-    BalloonPop,
+    Reserved71,
     TreasureHunt,
-    SummonAgent,
+    Reserved73,
     FinishedChargingItem,
     ActorGrowUp,
     VibrationDetected,
@@ -43448,7 +38125,7 @@ impl crate::bedrock::codec::BedrockSized for ActorEventPacketEventId {
             ActorEventPacketEventId::AirSupply => 33,
             ActorEventPacketEventId::DeprecatedAddPlayerLevels => 34,
             ActorEventPacketEventId::GuardianMiningFatigue => 35,
-            ActorEventPacketEventId::AgentSwingArm => 36,
+            ActorEventPacketEventId::Reserved36 => 36,
             ActorEventPacketEventId::DragonStartDeathAnim => 37,
             ActorEventPacketEventId::GroundDust => 38,
             ActorEventPacketEventId::Shake => 39,
@@ -43464,9 +38141,9 @@ impl crate::bedrock::codec::BedrockSized for ActorEventPacketEventId {
             ActorEventPacketEventId::Puke => 68,
             ActorEventPacketEventId::UpdateStackSize => 69,
             ActorEventPacketEventId::StartSwimming => 70,
-            ActorEventPacketEventId::BalloonPop => 71,
+            ActorEventPacketEventId::Reserved71 => 71,
             ActorEventPacketEventId::TreasureHunt => 72,
-            ActorEventPacketEventId::SummonAgent => 73,
+            ActorEventPacketEventId::Reserved73 => 73,
             ActorEventPacketEventId::FinishedChargingItem => 74,
             ActorEventPacketEventId::ActorGrowUp => 76,
             ActorEventPacketEventId::VibrationDetected => 77,
@@ -43518,7 +38195,7 @@ impl crate::bedrock::codec::BedrockCodec for ActorEventPacketEventId {
             ActorEventPacketEventId::AirSupply => 33,
             ActorEventPacketEventId::DeprecatedAddPlayerLevels => 34,
             ActorEventPacketEventId::GuardianMiningFatigue => 35,
-            ActorEventPacketEventId::AgentSwingArm => 36,
+            ActorEventPacketEventId::Reserved36 => 36,
             ActorEventPacketEventId::DragonStartDeathAnim => 37,
             ActorEventPacketEventId::GroundDust => 38,
             ActorEventPacketEventId::Shake => 39,
@@ -43534,9 +38211,9 @@ impl crate::bedrock::codec::BedrockCodec for ActorEventPacketEventId {
             ActorEventPacketEventId::Puke => 68,
             ActorEventPacketEventId::UpdateStackSize => 69,
             ActorEventPacketEventId::StartSwimming => 70,
-            ActorEventPacketEventId::BalloonPop => 71,
+            ActorEventPacketEventId::Reserved71 => 71,
             ActorEventPacketEventId::TreasureHunt => 72,
-            ActorEventPacketEventId::SummonAgent => 73,
+            ActorEventPacketEventId::Reserved73 => 73,
             ActorEventPacketEventId::FinishedChargingItem => 74,
             ActorEventPacketEventId::ActorGrowUp => 76,
             ActorEventPacketEventId::VibrationDetected => 77,
@@ -43589,7 +38266,7 @@ impl crate::bedrock::codec::BedrockCodec for ActorEventPacketEventId {
             33 => Ok(ActorEventPacketEventId::AirSupply),
             34 => Ok(ActorEventPacketEventId::DeprecatedAddPlayerLevels),
             35 => Ok(ActorEventPacketEventId::GuardianMiningFatigue),
-            36 => Ok(ActorEventPacketEventId::AgentSwingArm),
+            36 => Ok(ActorEventPacketEventId::Reserved36),
             37 => Ok(ActorEventPacketEventId::DragonStartDeathAnim),
             38 => Ok(ActorEventPacketEventId::GroundDust),
             39 => Ok(ActorEventPacketEventId::Shake),
@@ -43605,9 +38282,9 @@ impl crate::bedrock::codec::BedrockCodec for ActorEventPacketEventId {
             68 => Ok(ActorEventPacketEventId::Puke),
             69 => Ok(ActorEventPacketEventId::UpdateStackSize),
             70 => Ok(ActorEventPacketEventId::StartSwimming),
-            71 => Ok(ActorEventPacketEventId::BalloonPop),
+            71 => Ok(ActorEventPacketEventId::Reserved71),
             72 => Ok(ActorEventPacketEventId::TreasureHunt),
-            73 => Ok(ActorEventPacketEventId::SummonAgent),
+            73 => Ok(ActorEventPacketEventId::Reserved73),
             74 => Ok(ActorEventPacketEventId::FinishedChargingItem),
             76 => Ok(ActorEventPacketEventId::ActorGrowUp),
             77 => Ok(ActorEventPacketEventId::VibrationDetected),
@@ -43833,7 +38510,7 @@ pub enum InteractPacketAction {
     Invalid,
     StopRiding,
     InteractUpdate,
-    NpcOpen,
+    Reserved5,
     OpenInventory,
     Unknown(u8),
 }
@@ -43843,7 +38520,7 @@ impl crate::bedrock::codec::BedrockSized for InteractPacketAction {
             InteractPacketAction::Invalid => 0,
             InteractPacketAction::StopRiding => 3,
             InteractPacketAction::InteractUpdate => 4,
-            InteractPacketAction::NpcOpen => 5,
+            InteractPacketAction::Reserved5 => 5,
             InteractPacketAction::OpenInventory => 6,
             InteractPacketAction::Unknown(v) => *v,
         };
@@ -43857,7 +38534,7 @@ impl crate::bedrock::codec::BedrockCodec for InteractPacketAction {
             InteractPacketAction::Invalid => 0,
             InteractPacketAction::StopRiding => 3,
             InteractPacketAction::InteractUpdate => 4,
-            InteractPacketAction::NpcOpen => 5,
+            InteractPacketAction::Reserved5 => 5,
             InteractPacketAction::OpenInventory => 6,
             InteractPacketAction::Unknown(v) => *v,
         };
@@ -43872,7 +38549,7 @@ impl crate::bedrock::codec::BedrockCodec for InteractPacketAction {
             0 => Ok(InteractPacketAction::Invalid),
             3 => Ok(InteractPacketAction::StopRiding),
             4 => Ok(InteractPacketAction::InteractUpdate),
-            5 => Ok(InteractPacketAction::NpcOpen),
+            5 => Ok(InteractPacketAction::Reserved5),
             6 => Ok(InteractPacketAction::OpenInventory),
             other => Ok(InteractPacketAction::Unknown(other)),
         }
@@ -44435,706 +39112,6 @@ impl Default for SimpleEventPacketType {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LegacyTelemetryEventPacketEventType {
-    Achievement,
-    Interaction,
-    PortalCreated,
-    PortalUsed,
-    MobKilled,
-    CauldronUsed,
-    PlayerDied,
-    BossKilled,
-    AgentCommandObsolete,
-    AgentCreated,
-    PatternRemovedObsolete,
-    SlashCommand,
-    FishBucketedObsolete,
-    MobBorn,
-    PetDiedObsolete,
-    PoiCauldronUsed,
-    ComposterUsed,
-    BellUsed,
-    ActorDefinition,
-    RaidUpdate,
-    PlayerMovementAnomalyObsolete,
-    PlayerMovementCorrectedObsolete,
-    HoneyHarvested,
-    TargetBlockHit,
-    PiglinBarter,
-    PlayerWaxedOrUnwaxedCopper,
-    CodeBuilderRuntimeAction,
-    CodeBuilderScoreboard,
-    StriderRiddenInLavaInOverworld,
-    SneakCloseToSculkSensor,
-    CarefulRestoration,
-    ItemUsed,
-    Unknown(i32),
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketEventType {
-    fn encoded_size(&self) -> usize {
-        let _val: i32 = match self {
-            LegacyTelemetryEventPacketEventType::Achievement => 0,
-            LegacyTelemetryEventPacketEventType::Interaction => 1,
-            LegacyTelemetryEventPacketEventType::PortalCreated => 2,
-            LegacyTelemetryEventPacketEventType::PortalUsed => 3,
-            LegacyTelemetryEventPacketEventType::MobKilled => 4,
-            LegacyTelemetryEventPacketEventType::CauldronUsed => 5,
-            LegacyTelemetryEventPacketEventType::PlayerDied => 6,
-            LegacyTelemetryEventPacketEventType::BossKilled => 7,
-            LegacyTelemetryEventPacketEventType::AgentCommandObsolete => 8,
-            LegacyTelemetryEventPacketEventType::AgentCreated => 9,
-            LegacyTelemetryEventPacketEventType::PatternRemovedObsolete => 10,
-            LegacyTelemetryEventPacketEventType::SlashCommand => 11,
-            LegacyTelemetryEventPacketEventType::FishBucketedObsolete => 12,
-            LegacyTelemetryEventPacketEventType::MobBorn => 13,
-            LegacyTelemetryEventPacketEventType::PetDiedObsolete => 14,
-            LegacyTelemetryEventPacketEventType::PoiCauldronUsed => 15,
-            LegacyTelemetryEventPacketEventType::ComposterUsed => 16,
-            LegacyTelemetryEventPacketEventType::BellUsed => 17,
-            LegacyTelemetryEventPacketEventType::ActorDefinition => 18,
-            LegacyTelemetryEventPacketEventType::RaidUpdate => 19,
-            LegacyTelemetryEventPacketEventType::PlayerMovementAnomalyObsolete => 20,
-            LegacyTelemetryEventPacketEventType::PlayerMovementCorrectedObsolete => 21,
-            LegacyTelemetryEventPacketEventType::HoneyHarvested => 22,
-            LegacyTelemetryEventPacketEventType::TargetBlockHit => 23,
-            LegacyTelemetryEventPacketEventType::PiglinBarter => 24,
-            LegacyTelemetryEventPacketEventType::PlayerWaxedOrUnwaxedCopper => 25,
-            LegacyTelemetryEventPacketEventType::CodeBuilderRuntimeAction => 26,
-            LegacyTelemetryEventPacketEventType::CodeBuilderScoreboard => 27,
-            LegacyTelemetryEventPacketEventType::StriderRiddenInLavaInOverworld => 28,
-            LegacyTelemetryEventPacketEventType::SneakCloseToSculkSensor => 29,
-            LegacyTelemetryEventPacketEventType::CarefulRestoration => 30,
-            LegacyTelemetryEventPacketEventType::ItemUsed => 31,
-            LegacyTelemetryEventPacketEventType::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-            _val as i32,
-        ))
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketEventType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: i32 = match self {
-            LegacyTelemetryEventPacketEventType::Achievement => 0,
-            LegacyTelemetryEventPacketEventType::Interaction => 1,
-            LegacyTelemetryEventPacketEventType::PortalCreated => 2,
-            LegacyTelemetryEventPacketEventType::PortalUsed => 3,
-            LegacyTelemetryEventPacketEventType::MobKilled => 4,
-            LegacyTelemetryEventPacketEventType::CauldronUsed => 5,
-            LegacyTelemetryEventPacketEventType::PlayerDied => 6,
-            LegacyTelemetryEventPacketEventType::BossKilled => 7,
-            LegacyTelemetryEventPacketEventType::AgentCommandObsolete => 8,
-            LegacyTelemetryEventPacketEventType::AgentCreated => 9,
-            LegacyTelemetryEventPacketEventType::PatternRemovedObsolete => 10,
-            LegacyTelemetryEventPacketEventType::SlashCommand => 11,
-            LegacyTelemetryEventPacketEventType::FishBucketedObsolete => 12,
-            LegacyTelemetryEventPacketEventType::MobBorn => 13,
-            LegacyTelemetryEventPacketEventType::PetDiedObsolete => 14,
-            LegacyTelemetryEventPacketEventType::PoiCauldronUsed => 15,
-            LegacyTelemetryEventPacketEventType::ComposterUsed => 16,
-            LegacyTelemetryEventPacketEventType::BellUsed => 17,
-            LegacyTelemetryEventPacketEventType::ActorDefinition => 18,
-            LegacyTelemetryEventPacketEventType::RaidUpdate => 19,
-            LegacyTelemetryEventPacketEventType::PlayerMovementAnomalyObsolete => 20,
-            LegacyTelemetryEventPacketEventType::PlayerMovementCorrectedObsolete => 21,
-            LegacyTelemetryEventPacketEventType::HoneyHarvested => 22,
-            LegacyTelemetryEventPacketEventType::TargetBlockHit => 23,
-            LegacyTelemetryEventPacketEventType::PiglinBarter => 24,
-            LegacyTelemetryEventPacketEventType::PlayerWaxedOrUnwaxedCopper => 25,
-            LegacyTelemetryEventPacketEventType::CodeBuilderRuntimeAction => 26,
-            LegacyTelemetryEventPacketEventType::CodeBuilderScoreboard => 27,
-            LegacyTelemetryEventPacketEventType::StriderRiddenInLavaInOverworld => 28,
-            LegacyTelemetryEventPacketEventType::SneakCloseToSculkSensor => 29,
-            LegacyTelemetryEventPacketEventType::CarefulRestoration => 30,
-            LegacyTelemetryEventPacketEventType::ItemUsed => 31,
-            LegacyTelemetryEventPacketEventType::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let val = raw.0 as i32;
-        match val {
-            0 => Ok(LegacyTelemetryEventPacketEventType::Achievement),
-            1 => Ok(LegacyTelemetryEventPacketEventType::Interaction),
-            2 => Ok(LegacyTelemetryEventPacketEventType::PortalCreated),
-            3 => Ok(LegacyTelemetryEventPacketEventType::PortalUsed),
-            4 => Ok(LegacyTelemetryEventPacketEventType::MobKilled),
-            5 => Ok(LegacyTelemetryEventPacketEventType::CauldronUsed),
-            6 => Ok(LegacyTelemetryEventPacketEventType::PlayerDied),
-            7 => Ok(LegacyTelemetryEventPacketEventType::BossKilled),
-            8 => Ok(LegacyTelemetryEventPacketEventType::AgentCommandObsolete),
-            9 => Ok(LegacyTelemetryEventPacketEventType::AgentCreated),
-            10 => Ok(LegacyTelemetryEventPacketEventType::PatternRemovedObsolete),
-            11 => Ok(LegacyTelemetryEventPacketEventType::SlashCommand),
-            12 => Ok(LegacyTelemetryEventPacketEventType::FishBucketedObsolete),
-            13 => Ok(LegacyTelemetryEventPacketEventType::MobBorn),
-            14 => Ok(LegacyTelemetryEventPacketEventType::PetDiedObsolete),
-            15 => Ok(LegacyTelemetryEventPacketEventType::PoiCauldronUsed),
-            16 => Ok(LegacyTelemetryEventPacketEventType::ComposterUsed),
-            17 => Ok(LegacyTelemetryEventPacketEventType::BellUsed),
-            18 => Ok(LegacyTelemetryEventPacketEventType::ActorDefinition),
-            19 => Ok(LegacyTelemetryEventPacketEventType::RaidUpdate),
-            20 => Ok(LegacyTelemetryEventPacketEventType::PlayerMovementAnomalyObsolete),
-            21 => Ok(LegacyTelemetryEventPacketEventType::PlayerMovementCorrectedObsolete),
-            22 => Ok(LegacyTelemetryEventPacketEventType::HoneyHarvested),
-            23 => Ok(LegacyTelemetryEventPacketEventType::TargetBlockHit),
-            24 => Ok(LegacyTelemetryEventPacketEventType::PiglinBarter),
-            25 => Ok(LegacyTelemetryEventPacketEventType::PlayerWaxedOrUnwaxedCopper),
-            26 => Ok(LegacyTelemetryEventPacketEventType::CodeBuilderRuntimeAction),
-            27 => Ok(LegacyTelemetryEventPacketEventType::CodeBuilderScoreboard),
-            28 => Ok(LegacyTelemetryEventPacketEventType::StriderRiddenInLavaInOverworld),
-            29 => Ok(LegacyTelemetryEventPacketEventType::SneakCloseToSculkSensor),
-            30 => Ok(LegacyTelemetryEventPacketEventType::CarefulRestoration),
-            31 => Ok(LegacyTelemetryEventPacketEventType::ItemUsed),
-            other => Ok(LegacyTelemetryEventPacketEventType::Unknown(other)),
-        }
-    }
-}
-impl Default for LegacyTelemetryEventPacketEventType {
-    fn default() -> Self {
-        Self::Achievement
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub enum LegacyTelemetryEventPacketEventData {
-    Achievement(LegacyTelemetryEventPacketPayloadAchievement),
-    Interaction(Box<LegacyTelemetryEventPacketPayloadInteraction>),
-    PortalCreated(LegacyTelemetryEventPacketPayloadPortalCreated),
-    PortalUsed(LegacyTelemetryEventPacketPayloadPortalUsed),
-    MobKilled(Box<LegacyTelemetryEventPacketPayloadMobKilled>),
-    CauldronUsed(LegacyTelemetryEventPacketPayloadCauldronUsed),
-    PlayerDied(Box<LegacyTelemetryEventPacketPayloadPlayerDied>),
-    BossKilled(LegacyTelemetryEventPacketPayloadBossKilled),
-    SlashCommand(Box<LegacyTelemetryEventPacketPayloadSlashCommand>),
-    MobBorn(LegacyTelemetryEventPacketPayloadMobBorn),
-    PoiCauldronUsed(LegacyTelemetryEventPacketPayloadPoiCauldronUsed),
-    ComposterUsed(LegacyTelemetryEventPacketPayloadComposterUsed),
-    BellUsed(LegacyTelemetryEventPacketPayloadBellUsed),
-    ActorDefinition(LegacyTelemetryEventPacketPayloadActorDefinition),
-    RaidUpdate(LegacyTelemetryEventPacketPayloadRaidUpdate),
-    TargetBlockHit(LegacyTelemetryEventPacketPayloadTargetBlockHit),
-    PiglinBarter(LegacyTelemetryEventPacketPayloadPiglinBarter),
-    PlayerWaxedOrUnwaxedCopper(LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper),
-    CodeBuilderRuntimeAction(LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction),
-    CodeBuilderScoreboard(LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard),
-    ItemUsed(Box<LegacyTelemetryEventPacketPayloadItemUsed>),
-    Empty(LegacyTelemetryEventPacketPayloadEmpty),
-}
-impl Default for LegacyTelemetryEventPacketEventData {
-    fn default() -> Self {
-        Self::Achievement(Default::default())
-    }
-}
-impl crate::bedrock::codec::BedrockSized for LegacyTelemetryEventPacketEventData {
-    fn encoded_size(&self) -> usize {
-        match self {
-            LegacyTelemetryEventPacketEventData::Achievement(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    0 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::Interaction(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    1 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
-            }
-            LegacyTelemetryEventPacketEventData::PortalCreated(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    2 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::PortalUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    3 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::MobKilled(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    4 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
-            }
-            LegacyTelemetryEventPacketEventData::CauldronUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    5 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::PlayerDied(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    6 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
-            }
-            LegacyTelemetryEventPacketEventData::BossKilled(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    7 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::SlashCommand(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    8 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
-            }
-            LegacyTelemetryEventPacketEventData::MobBorn(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    9 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::PoiCauldronUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    10 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::ComposterUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    11 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::BellUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    12 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::ActorDefinition(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    13 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::RaidUpdate(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    14 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::TargetBlockHit(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    15 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::PiglinBarter(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    16 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::PlayerWaxedOrUnwaxedCopper(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    17 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::CodeBuilderRuntimeAction(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    18 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::CodeBuilderScoreboard(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    19 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            LegacyTelemetryEventPacketEventData::ItemUsed(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    20 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
-            }
-            LegacyTelemetryEventPacketEventData::Empty(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
-                    21 as i32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-        }
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketEventData {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        match self {
-            LegacyTelemetryEventPacketEventData::Achievement(value) => {
-                let control_value = 0 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::Interaction(value) => {
-                let control_value = 1 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.as_ref().encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PortalCreated(value) => {
-                let control_value = 2 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PortalUsed(value) => {
-                let control_value = 3 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::MobKilled(value) => {
-                let control_value = 4 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.as_ref().encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::CauldronUsed(value) => {
-                let control_value = 5 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PlayerDied(value) => {
-                let control_value = 6 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.as_ref().encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::BossKilled(value) => {
-                let control_value = 7 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::SlashCommand(value) => {
-                let control_value = 8 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.as_ref().encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::MobBorn(value) => {
-                let control_value = 9 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PoiCauldronUsed(value) => {
-                let control_value = 10 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::ComposterUsed(value) => {
-                let control_value = 11 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::BellUsed(value) => {
-                let control_value = 12 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::ActorDefinition(value) => {
-                let control_value = 13 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::RaidUpdate(value) => {
-                let control_value = 14 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::TargetBlockHit(value) => {
-                let control_value = 15 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PiglinBarter(value) => {
-                let control_value = 16 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::PlayerWaxedOrUnwaxedCopper(value) => {
-                let control_value = 17 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::CodeBuilderRuntimeAction(value) => {
-                let control_value = 18 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::CodeBuilderScoreboard(value) => {
-                let control_value = 19 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::ItemUsed(value) => {
-                let control_value = 20 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.as_ref().encode(buf)?;
-                Ok(())
-            }
-            LegacyTelemetryEventPacketEventData::Empty(value) => {
-                let control_value = 21 as i64;
-                crate::bedrock::codec::VarInt(control_value as i32).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-        }
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value =
-            <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0 as i64;
-        match control_value {
-            0 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::Achievement(
-                        <LegacyTelemetryEventPacketPayloadAchievement as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            1 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::Interaction(
-                        Box::new(
-                            <LegacyTelemetryEventPacketPayloadInteraction as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        ),
-                    ),
-                )
-            }
-            2 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PortalCreated(
-                        <LegacyTelemetryEventPacketPayloadPortalCreated as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            3 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PortalUsed(
-                        <LegacyTelemetryEventPacketPayloadPortalUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            4 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::MobKilled(
-                        Box::new(
-                            <LegacyTelemetryEventPacketPayloadMobKilled as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        ),
-                    ),
-                )
-            }
-            5 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::CauldronUsed(
-                        <LegacyTelemetryEventPacketPayloadCauldronUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            6 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PlayerDied(
-                        Box::new(
-                            <LegacyTelemetryEventPacketPayloadPlayerDied as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        ),
-                    ),
-                )
-            }
-            7 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::BossKilled(
-                        <LegacyTelemetryEventPacketPayloadBossKilled as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            8 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::SlashCommand(
-                        Box::new(
-                            <LegacyTelemetryEventPacketPayloadSlashCommand as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        ),
-                    ),
-                )
-            }
-            9 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::MobBorn(
-                        <LegacyTelemetryEventPacketPayloadMobBorn as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            10 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PoiCauldronUsed(
-                        <LegacyTelemetryEventPacketPayloadPoiCauldronUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            11 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::ComposterUsed(
-                        <LegacyTelemetryEventPacketPayloadComposterUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            12 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::BellUsed(
-                        <LegacyTelemetryEventPacketPayloadBellUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            13 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::ActorDefinition(
-                        <LegacyTelemetryEventPacketPayloadActorDefinition as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            14 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::RaidUpdate(
-                        <LegacyTelemetryEventPacketPayloadRaidUpdate as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            15 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::TargetBlockHit(
-                        <LegacyTelemetryEventPacketPayloadTargetBlockHit as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            16 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PiglinBarter(
-                        <LegacyTelemetryEventPacketPayloadPiglinBarter as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            17 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::PlayerWaxedOrUnwaxedCopper(
-                        <LegacyTelemetryEventPacketPayloadPlayerWaxedOrUnwaxedCopper as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            18 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::CodeBuilderRuntimeAction(
-                        <LegacyTelemetryEventPacketPayloadCodeBuilderRuntimeAction as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            19 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::CodeBuilderScoreboard(
-                        <LegacyTelemetryEventPacketPayloadCodeBuilderScoreboard as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            20 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::ItemUsed(
-                        Box::new(
-                            <LegacyTelemetryEventPacketPayloadItemUsed as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        ),
-                    ),
-                )
-            }
-            21 => {
-                Ok(
-                    LegacyTelemetryEventPacketEventData::Empty(
-                        <LegacyTelemetryEventPacketPayloadEmpty as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            _ => {
-                Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
-                    enum_name: stringify!(LegacyTelemetryEventPacketEventData),
-                    value: control_value,
-                })
-            }
-        }
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BossEventPacketEventType {
     Add,
     PlayerAdded,
@@ -45534,683 +39511,6 @@ impl Default for ShowStoreOfferPacketRedirectType {
         Self::MarketplaceOffer
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SetLastHurtByPacketLastHurtBy {
-    Undefined,
-    Mob,
-    PathfinderMob,
-    Monster,
-    Animal,
-    TamableAnimal,
-    Ambient,
-    UndeadMonster,
-    ZombieMonster,
-    Arthropod,
-    Minecart,
-    SkeletonMonster,
-    EquineAnimal,
-    Projectile,
-    AbstractArrow,
-    WaterAnimal,
-    VillagerBase,
-    Chicken,
-    Cow,
-    Pig,
-    Sheep,
-    Wolf,
-    Villager,
-    MushroomCow,
-    Squid,
-    Rabbit,
-    Bat,
-    IronGolem,
-    SnowGolem,
-    Ocelot,
-    Horse,
-    PolarBear,
-    Llama,
-    Parrot,
-    Dolphin,
-    Donkey,
-    Mule,
-    SkeletonHorse,
-    ZombieHorse,
-    Zombie,
-    Creeper,
-    Skeleton,
-    Spider,
-    PigZombie,
-    Slime,
-    EnderMan,
-    Silverfish,
-    CaveSpider,
-    Ghast,
-    LavaSlime,
-    Blaze,
-    ZombieVillager,
-    Witch,
-    Stray,
-    Husk,
-    WitherSkeleton,
-    Guardian,
-    ElderGuardian,
-    Npc,
-    WitherBoss,
-    Dragon,
-    Shulker,
-    Endermite,
-    Agent,
-    Vindicator,
-    Phantom,
-    IllagerBeast,
-    ArmorStand,
-    TripodCamera,
-    Player,
-    ItemEntity,
-    PrimedTnt,
-    FallingBlock,
-    MovingBlock,
-    ExperiencePotion,
-    Experience,
-    EyeOfEnder,
-    EnderCrystal,
-    FireworksRocket,
-    Trident,
-    Turtle,
-    Cat,
-    ShulkerBullet,
-    FishingHook,
-    Chalkboard,
-    DragonFireball,
-    Arrow,
-    Snowball,
-    ThrownEgg,
-    Painting,
-    LargeFireball,
-    ThrownPotion,
-    Enderpearl,
-    LeashKnot,
-    WitherSkull,
-    BoatRideable,
-    WitherSkullDangerous,
-    LightningBolt,
-    SmallFireball,
-    AreaEffectCloud,
-    LingeringPotion,
-    LlamaSpit,
-    EvocationFang,
-    EvocationIllager,
-    Vex,
-    MinecartRideable,
-    MinecartHopper,
-    MinecartTnt,
-    MinecartChest,
-    MinecartFurnace,
-    MinecartCommandBlock,
-    IceBomb,
-    Balloon,
-    Pufferfish,
-    Salmon,
-    Drowned,
-    Tropicalfish,
-    Fish,
-    Panda,
-    Pillager,
-    VillagerV2,
-    ZombieVillagerV2,
-    Shield,
-    WanderingTrader,
-    Lectern,
-    ElderGuardianGhost,
-    Fox,
-    Bee,
-    Piglin,
-    Hoglin,
-    Strider,
-    Zoglin,
-    PiglinBrute,
-    Goat,
-    GlowSquid,
-    Axolotl,
-    Warden,
-    Frog,
-    Tadpole,
-    Allay,
-    ChestBoatRideable,
-    TraderLlama,
-    Camel,
-    Sniffer,
-    Breeze,
-    BreezeWindChargeProjectile,
-    Armadillo,
-    WindChargeProjectile,
-    Bogged,
-    OminousItemSpawner,
-    Creaking,
-    HappyGhast,
-    CopperGolem,
-    Nautilus,
-    ZombieNautilus,
-    Parched,
-    CamelHusk,
-    SulfurCube,
-    Cushion,
-    Unknown(i32),
-}
-impl crate::bedrock::codec::BedrockSized for SetLastHurtByPacketLastHurtBy {
-    fn encoded_size(&self) -> usize {
-        let _val: i32 = match self {
-            SetLastHurtByPacketLastHurtBy::Undefined => 1,
-            SetLastHurtByPacketLastHurtBy::Mob => 256,
-            SetLastHurtByPacketLastHurtBy::PathfinderMob => 768,
-            SetLastHurtByPacketLastHurtBy::Monster => 2816,
-            SetLastHurtByPacketLastHurtBy::Animal => 4864,
-            SetLastHurtByPacketLastHurtBy::TamableAnimal => 21248,
-            SetLastHurtByPacketLastHurtBy::Ambient => 33024,
-            SetLastHurtByPacketLastHurtBy::UndeadMonster => 68352,
-            SetLastHurtByPacketLastHurtBy::ZombieMonster => 199424,
-            SetLastHurtByPacketLastHurtBy::Arthropod => 264960,
-            SetLastHurtByPacketLastHurtBy::Minecart => 524288,
-            SetLastHurtByPacketLastHurtBy::SkeletonMonster => 1116928,
-            SetLastHurtByPacketLastHurtBy::EquineAnimal => 2118400,
-            SetLastHurtByPacketLastHurtBy::Projectile => 4194304,
-            SetLastHurtByPacketLastHurtBy::AbstractArrow => 8388608,
-            SetLastHurtByPacketLastHurtBy::WaterAnimal => 8960,
-            SetLastHurtByPacketLastHurtBy::VillagerBase => 16777984,
-            SetLastHurtByPacketLastHurtBy::Chicken => 4874,
-            SetLastHurtByPacketLastHurtBy::Cow => 4875,
-            SetLastHurtByPacketLastHurtBy::Pig => 4876,
-            SetLastHurtByPacketLastHurtBy::Sheep => 4877,
-            SetLastHurtByPacketLastHurtBy::Wolf => 21262,
-            SetLastHurtByPacketLastHurtBy::Villager => 16777999,
-            SetLastHurtByPacketLastHurtBy::MushroomCow => 4880,
-            SetLastHurtByPacketLastHurtBy::Squid => 8977,
-            SetLastHurtByPacketLastHurtBy::Rabbit => 4882,
-            SetLastHurtByPacketLastHurtBy::Bat => 33043,
-            SetLastHurtByPacketLastHurtBy::IronGolem => 788,
-            SetLastHurtByPacketLastHurtBy::SnowGolem => 789,
-            SetLastHurtByPacketLastHurtBy::Ocelot => 21270,
-            SetLastHurtByPacketLastHurtBy::Horse => 2118423,
-            SetLastHurtByPacketLastHurtBy::PolarBear => 4892,
-            SetLastHurtByPacketLastHurtBy::Llama => 4893,
-            SetLastHurtByPacketLastHurtBy::Parrot => 21278,
-            SetLastHurtByPacketLastHurtBy::Dolphin => 8991,
-            SetLastHurtByPacketLastHurtBy::Donkey => 2118424,
-            SetLastHurtByPacketLastHurtBy::Mule => 2118425,
-            SetLastHurtByPacketLastHurtBy::SkeletonHorse => 2183962,
-            SetLastHurtByPacketLastHurtBy::ZombieHorse => 2183963,
-            SetLastHurtByPacketLastHurtBy::Zombie => 199456,
-            SetLastHurtByPacketLastHurtBy::Creeper => 2849,
-            SetLastHurtByPacketLastHurtBy::Skeleton => 1116962,
-            SetLastHurtByPacketLastHurtBy::Spider => 264995,
-            SetLastHurtByPacketLastHurtBy::PigZombie => 68388,
-            SetLastHurtByPacketLastHurtBy::Slime => 2853,
-            SetLastHurtByPacketLastHurtBy::EnderMan => 2854,
-            SetLastHurtByPacketLastHurtBy::Silverfish => 264999,
-            SetLastHurtByPacketLastHurtBy::CaveSpider => 265000,
-            SetLastHurtByPacketLastHurtBy::Ghast => 2857,
-            SetLastHurtByPacketLastHurtBy::LavaSlime => 2858,
-            SetLastHurtByPacketLastHurtBy::Blaze => 2859,
-            SetLastHurtByPacketLastHurtBy::ZombieVillager => 199468,
-            SetLastHurtByPacketLastHurtBy::Witch => 2861,
-            SetLastHurtByPacketLastHurtBy::Stray => 1116974,
-            SetLastHurtByPacketLastHurtBy::Husk => 199471,
-            SetLastHurtByPacketLastHurtBy::WitherSkeleton => 1116976,
-            SetLastHurtByPacketLastHurtBy::Guardian => 2865,
-            SetLastHurtByPacketLastHurtBy::ElderGuardian => 2866,
-            SetLastHurtByPacketLastHurtBy::Npc => 307,
-            SetLastHurtByPacketLastHurtBy::WitherBoss => 68404,
-            SetLastHurtByPacketLastHurtBy::Dragon => 2869,
-            SetLastHurtByPacketLastHurtBy::Shulker => 2870,
-            SetLastHurtByPacketLastHurtBy::Endermite => 265015,
-            SetLastHurtByPacketLastHurtBy::Agent => 312,
-            SetLastHurtByPacketLastHurtBy::Vindicator => 2873,
-            SetLastHurtByPacketLastHurtBy::Phantom => 68410,
-            SetLastHurtByPacketLastHurtBy::IllagerBeast => 2875,
-            SetLastHurtByPacketLastHurtBy::ArmorStand => 317,
-            SetLastHurtByPacketLastHurtBy::TripodCamera => 318,
-            SetLastHurtByPacketLastHurtBy::Player => 319,
-            SetLastHurtByPacketLastHurtBy::ItemEntity => 64,
-            SetLastHurtByPacketLastHurtBy::PrimedTnt => 65,
-            SetLastHurtByPacketLastHurtBy::FallingBlock => 66,
-            SetLastHurtByPacketLastHurtBy::MovingBlock => 67,
-            SetLastHurtByPacketLastHurtBy::ExperiencePotion => 4194372,
-            SetLastHurtByPacketLastHurtBy::Experience => 69,
-            SetLastHurtByPacketLastHurtBy::EyeOfEnder => 70,
-            SetLastHurtByPacketLastHurtBy::EnderCrystal => 71,
-            SetLastHurtByPacketLastHurtBy::FireworksRocket => 72,
-            SetLastHurtByPacketLastHurtBy::Trident => 12582985,
-            SetLastHurtByPacketLastHurtBy::Turtle => 4938,
-            SetLastHurtByPacketLastHurtBy::Cat => 21323,
-            SetLastHurtByPacketLastHurtBy::ShulkerBullet => 4194380,
-            SetLastHurtByPacketLastHurtBy::FishingHook => 77,
-            SetLastHurtByPacketLastHurtBy::Chalkboard => 78,
-            SetLastHurtByPacketLastHurtBy::DragonFireball => 4194383,
-            SetLastHurtByPacketLastHurtBy::Arrow => 12582992,
-            SetLastHurtByPacketLastHurtBy::Snowball => 4194385,
-            SetLastHurtByPacketLastHurtBy::ThrownEgg => 4194386,
-            SetLastHurtByPacketLastHurtBy::Painting => 83,
-            SetLastHurtByPacketLastHurtBy::LargeFireball => 4194389,
-            SetLastHurtByPacketLastHurtBy::ThrownPotion => 4194390,
-            SetLastHurtByPacketLastHurtBy::Enderpearl => 4194391,
-            SetLastHurtByPacketLastHurtBy::LeashKnot => 88,
-            SetLastHurtByPacketLastHurtBy::WitherSkull => 4194393,
-            SetLastHurtByPacketLastHurtBy::BoatRideable => 90,
-            SetLastHurtByPacketLastHurtBy::WitherSkullDangerous => 4194395,
-            SetLastHurtByPacketLastHurtBy::LightningBolt => 93,
-            SetLastHurtByPacketLastHurtBy::SmallFireball => 4194398,
-            SetLastHurtByPacketLastHurtBy::AreaEffectCloud => 95,
-            SetLastHurtByPacketLastHurtBy::LingeringPotion => 4194405,
-            SetLastHurtByPacketLastHurtBy::LlamaSpit => 4194406,
-            SetLastHurtByPacketLastHurtBy::EvocationFang => 4194407,
-            SetLastHurtByPacketLastHurtBy::EvocationIllager => 2920,
-            SetLastHurtByPacketLastHurtBy::Vex => 2921,
-            SetLastHurtByPacketLastHurtBy::MinecartRideable => 524372,
-            SetLastHurtByPacketLastHurtBy::MinecartHopper => 524384,
-            SetLastHurtByPacketLastHurtBy::MinecartTnt => 524385,
-            SetLastHurtByPacketLastHurtBy::MinecartChest => 524386,
-            SetLastHurtByPacketLastHurtBy::MinecartFurnace => 524387,
-            SetLastHurtByPacketLastHurtBy::MinecartCommandBlock => 524388,
-            SetLastHurtByPacketLastHurtBy::IceBomb => 4194410,
-            SetLastHurtByPacketLastHurtBy::Balloon => 107,
-            SetLastHurtByPacketLastHurtBy::Pufferfish => 9068,
-            SetLastHurtByPacketLastHurtBy::Salmon => 9069,
-            SetLastHurtByPacketLastHurtBy::Drowned => 199534,
-            SetLastHurtByPacketLastHurtBy::Tropicalfish => 9071,
-            SetLastHurtByPacketLastHurtBy::Fish => 9072,
-            SetLastHurtByPacketLastHurtBy::Panda => 4977,
-            SetLastHurtByPacketLastHurtBy::Pillager => 2930,
-            SetLastHurtByPacketLastHurtBy::VillagerV2 => 16778099,
-            SetLastHurtByPacketLastHurtBy::ZombieVillagerV2 => 199540,
-            SetLastHurtByPacketLastHurtBy::Shield => 117,
-            SetLastHurtByPacketLastHurtBy::WanderingTrader => 886,
-            SetLastHurtByPacketLastHurtBy::Lectern => 119,
-            SetLastHurtByPacketLastHurtBy::ElderGuardianGhost => 2936,
-            SetLastHurtByPacketLastHurtBy::Fox => 4985,
-            SetLastHurtByPacketLastHurtBy::Bee => 378,
-            SetLastHurtByPacketLastHurtBy::Piglin => 379,
-            SetLastHurtByPacketLastHurtBy::Hoglin => 4988,
-            SetLastHurtByPacketLastHurtBy::Strider => 4989,
-            SetLastHurtByPacketLastHurtBy::Zoglin => 68478,
-            SetLastHurtByPacketLastHurtBy::PiglinBrute => 383,
-            SetLastHurtByPacketLastHurtBy::Goat => 4992,
-            SetLastHurtByPacketLastHurtBy::GlowSquid => 9089,
-            SetLastHurtByPacketLastHurtBy::Axolotl => 4994,
-            SetLastHurtByPacketLastHurtBy::Warden => 2947,
-            SetLastHurtByPacketLastHurtBy::Frog => 4996,
-            SetLastHurtByPacketLastHurtBy::Tadpole => 9093,
-            SetLastHurtByPacketLastHurtBy::Allay => 390,
-            SetLastHurtByPacketLastHurtBy::ChestBoatRideable => 218,
-            SetLastHurtByPacketLastHurtBy::TraderLlama => 5021,
-            SetLastHurtByPacketLastHurtBy::Camel => 5002,
-            SetLastHurtByPacketLastHurtBy::Sniffer => 5003,
-            SetLastHurtByPacketLastHurtBy::Breeze => 2956,
-            SetLastHurtByPacketLastHurtBy::BreezeWindChargeProjectile => 4194445,
-            SetLastHurtByPacketLastHurtBy::Armadillo => 5006,
-            SetLastHurtByPacketLastHurtBy::WindChargeProjectile => 4194447,
-            SetLastHurtByPacketLastHurtBy::Bogged => 1117072,
-            SetLastHurtByPacketLastHurtBy::OminousItemSpawner => 145,
-            SetLastHurtByPacketLastHurtBy::Creaking => 2962,
-            SetLastHurtByPacketLastHurtBy::HappyGhast => 5011,
-            SetLastHurtByPacketLastHurtBy::CopperGolem => 916,
-            SetLastHurtByPacketLastHurtBy::Nautilus => 9109,
-            SetLastHurtByPacketLastHurtBy::ZombieNautilus => 74646,
-            SetLastHurtByPacketLastHurtBy::Parched => 1117079,
-            SetLastHurtByPacketLastHurtBy::CamelHusk => 70552,
-            SetLastHurtByPacketLastHurtBy::SulfurCube => 921,
-            SetLastHurtByPacketLastHurtBy::Cushion => 154,
-            SetLastHurtByPacketLastHurtBy::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-            _val as i32,
-        ))
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for SetLastHurtByPacketLastHurtBy {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: i32 = match self {
-            SetLastHurtByPacketLastHurtBy::Undefined => 1,
-            SetLastHurtByPacketLastHurtBy::Mob => 256,
-            SetLastHurtByPacketLastHurtBy::PathfinderMob => 768,
-            SetLastHurtByPacketLastHurtBy::Monster => 2816,
-            SetLastHurtByPacketLastHurtBy::Animal => 4864,
-            SetLastHurtByPacketLastHurtBy::TamableAnimal => 21248,
-            SetLastHurtByPacketLastHurtBy::Ambient => 33024,
-            SetLastHurtByPacketLastHurtBy::UndeadMonster => 68352,
-            SetLastHurtByPacketLastHurtBy::ZombieMonster => 199424,
-            SetLastHurtByPacketLastHurtBy::Arthropod => 264960,
-            SetLastHurtByPacketLastHurtBy::Minecart => 524288,
-            SetLastHurtByPacketLastHurtBy::SkeletonMonster => 1116928,
-            SetLastHurtByPacketLastHurtBy::EquineAnimal => 2118400,
-            SetLastHurtByPacketLastHurtBy::Projectile => 4194304,
-            SetLastHurtByPacketLastHurtBy::AbstractArrow => 8388608,
-            SetLastHurtByPacketLastHurtBy::WaterAnimal => 8960,
-            SetLastHurtByPacketLastHurtBy::VillagerBase => 16777984,
-            SetLastHurtByPacketLastHurtBy::Chicken => 4874,
-            SetLastHurtByPacketLastHurtBy::Cow => 4875,
-            SetLastHurtByPacketLastHurtBy::Pig => 4876,
-            SetLastHurtByPacketLastHurtBy::Sheep => 4877,
-            SetLastHurtByPacketLastHurtBy::Wolf => 21262,
-            SetLastHurtByPacketLastHurtBy::Villager => 16777999,
-            SetLastHurtByPacketLastHurtBy::MushroomCow => 4880,
-            SetLastHurtByPacketLastHurtBy::Squid => 8977,
-            SetLastHurtByPacketLastHurtBy::Rabbit => 4882,
-            SetLastHurtByPacketLastHurtBy::Bat => 33043,
-            SetLastHurtByPacketLastHurtBy::IronGolem => 788,
-            SetLastHurtByPacketLastHurtBy::SnowGolem => 789,
-            SetLastHurtByPacketLastHurtBy::Ocelot => 21270,
-            SetLastHurtByPacketLastHurtBy::Horse => 2118423,
-            SetLastHurtByPacketLastHurtBy::PolarBear => 4892,
-            SetLastHurtByPacketLastHurtBy::Llama => 4893,
-            SetLastHurtByPacketLastHurtBy::Parrot => 21278,
-            SetLastHurtByPacketLastHurtBy::Dolphin => 8991,
-            SetLastHurtByPacketLastHurtBy::Donkey => 2118424,
-            SetLastHurtByPacketLastHurtBy::Mule => 2118425,
-            SetLastHurtByPacketLastHurtBy::SkeletonHorse => 2183962,
-            SetLastHurtByPacketLastHurtBy::ZombieHorse => 2183963,
-            SetLastHurtByPacketLastHurtBy::Zombie => 199456,
-            SetLastHurtByPacketLastHurtBy::Creeper => 2849,
-            SetLastHurtByPacketLastHurtBy::Skeleton => 1116962,
-            SetLastHurtByPacketLastHurtBy::Spider => 264995,
-            SetLastHurtByPacketLastHurtBy::PigZombie => 68388,
-            SetLastHurtByPacketLastHurtBy::Slime => 2853,
-            SetLastHurtByPacketLastHurtBy::EnderMan => 2854,
-            SetLastHurtByPacketLastHurtBy::Silverfish => 264999,
-            SetLastHurtByPacketLastHurtBy::CaveSpider => 265000,
-            SetLastHurtByPacketLastHurtBy::Ghast => 2857,
-            SetLastHurtByPacketLastHurtBy::LavaSlime => 2858,
-            SetLastHurtByPacketLastHurtBy::Blaze => 2859,
-            SetLastHurtByPacketLastHurtBy::ZombieVillager => 199468,
-            SetLastHurtByPacketLastHurtBy::Witch => 2861,
-            SetLastHurtByPacketLastHurtBy::Stray => 1116974,
-            SetLastHurtByPacketLastHurtBy::Husk => 199471,
-            SetLastHurtByPacketLastHurtBy::WitherSkeleton => 1116976,
-            SetLastHurtByPacketLastHurtBy::Guardian => 2865,
-            SetLastHurtByPacketLastHurtBy::ElderGuardian => 2866,
-            SetLastHurtByPacketLastHurtBy::Npc => 307,
-            SetLastHurtByPacketLastHurtBy::WitherBoss => 68404,
-            SetLastHurtByPacketLastHurtBy::Dragon => 2869,
-            SetLastHurtByPacketLastHurtBy::Shulker => 2870,
-            SetLastHurtByPacketLastHurtBy::Endermite => 265015,
-            SetLastHurtByPacketLastHurtBy::Agent => 312,
-            SetLastHurtByPacketLastHurtBy::Vindicator => 2873,
-            SetLastHurtByPacketLastHurtBy::Phantom => 68410,
-            SetLastHurtByPacketLastHurtBy::IllagerBeast => 2875,
-            SetLastHurtByPacketLastHurtBy::ArmorStand => 317,
-            SetLastHurtByPacketLastHurtBy::TripodCamera => 318,
-            SetLastHurtByPacketLastHurtBy::Player => 319,
-            SetLastHurtByPacketLastHurtBy::ItemEntity => 64,
-            SetLastHurtByPacketLastHurtBy::PrimedTnt => 65,
-            SetLastHurtByPacketLastHurtBy::FallingBlock => 66,
-            SetLastHurtByPacketLastHurtBy::MovingBlock => 67,
-            SetLastHurtByPacketLastHurtBy::ExperiencePotion => 4194372,
-            SetLastHurtByPacketLastHurtBy::Experience => 69,
-            SetLastHurtByPacketLastHurtBy::EyeOfEnder => 70,
-            SetLastHurtByPacketLastHurtBy::EnderCrystal => 71,
-            SetLastHurtByPacketLastHurtBy::FireworksRocket => 72,
-            SetLastHurtByPacketLastHurtBy::Trident => 12582985,
-            SetLastHurtByPacketLastHurtBy::Turtle => 4938,
-            SetLastHurtByPacketLastHurtBy::Cat => 21323,
-            SetLastHurtByPacketLastHurtBy::ShulkerBullet => 4194380,
-            SetLastHurtByPacketLastHurtBy::FishingHook => 77,
-            SetLastHurtByPacketLastHurtBy::Chalkboard => 78,
-            SetLastHurtByPacketLastHurtBy::DragonFireball => 4194383,
-            SetLastHurtByPacketLastHurtBy::Arrow => 12582992,
-            SetLastHurtByPacketLastHurtBy::Snowball => 4194385,
-            SetLastHurtByPacketLastHurtBy::ThrownEgg => 4194386,
-            SetLastHurtByPacketLastHurtBy::Painting => 83,
-            SetLastHurtByPacketLastHurtBy::LargeFireball => 4194389,
-            SetLastHurtByPacketLastHurtBy::ThrownPotion => 4194390,
-            SetLastHurtByPacketLastHurtBy::Enderpearl => 4194391,
-            SetLastHurtByPacketLastHurtBy::LeashKnot => 88,
-            SetLastHurtByPacketLastHurtBy::WitherSkull => 4194393,
-            SetLastHurtByPacketLastHurtBy::BoatRideable => 90,
-            SetLastHurtByPacketLastHurtBy::WitherSkullDangerous => 4194395,
-            SetLastHurtByPacketLastHurtBy::LightningBolt => 93,
-            SetLastHurtByPacketLastHurtBy::SmallFireball => 4194398,
-            SetLastHurtByPacketLastHurtBy::AreaEffectCloud => 95,
-            SetLastHurtByPacketLastHurtBy::LingeringPotion => 4194405,
-            SetLastHurtByPacketLastHurtBy::LlamaSpit => 4194406,
-            SetLastHurtByPacketLastHurtBy::EvocationFang => 4194407,
-            SetLastHurtByPacketLastHurtBy::EvocationIllager => 2920,
-            SetLastHurtByPacketLastHurtBy::Vex => 2921,
-            SetLastHurtByPacketLastHurtBy::MinecartRideable => 524372,
-            SetLastHurtByPacketLastHurtBy::MinecartHopper => 524384,
-            SetLastHurtByPacketLastHurtBy::MinecartTnt => 524385,
-            SetLastHurtByPacketLastHurtBy::MinecartChest => 524386,
-            SetLastHurtByPacketLastHurtBy::MinecartFurnace => 524387,
-            SetLastHurtByPacketLastHurtBy::MinecartCommandBlock => 524388,
-            SetLastHurtByPacketLastHurtBy::IceBomb => 4194410,
-            SetLastHurtByPacketLastHurtBy::Balloon => 107,
-            SetLastHurtByPacketLastHurtBy::Pufferfish => 9068,
-            SetLastHurtByPacketLastHurtBy::Salmon => 9069,
-            SetLastHurtByPacketLastHurtBy::Drowned => 199534,
-            SetLastHurtByPacketLastHurtBy::Tropicalfish => 9071,
-            SetLastHurtByPacketLastHurtBy::Fish => 9072,
-            SetLastHurtByPacketLastHurtBy::Panda => 4977,
-            SetLastHurtByPacketLastHurtBy::Pillager => 2930,
-            SetLastHurtByPacketLastHurtBy::VillagerV2 => 16778099,
-            SetLastHurtByPacketLastHurtBy::ZombieVillagerV2 => 199540,
-            SetLastHurtByPacketLastHurtBy::Shield => 117,
-            SetLastHurtByPacketLastHurtBy::WanderingTrader => 886,
-            SetLastHurtByPacketLastHurtBy::Lectern => 119,
-            SetLastHurtByPacketLastHurtBy::ElderGuardianGhost => 2936,
-            SetLastHurtByPacketLastHurtBy::Fox => 4985,
-            SetLastHurtByPacketLastHurtBy::Bee => 378,
-            SetLastHurtByPacketLastHurtBy::Piglin => 379,
-            SetLastHurtByPacketLastHurtBy::Hoglin => 4988,
-            SetLastHurtByPacketLastHurtBy::Strider => 4989,
-            SetLastHurtByPacketLastHurtBy::Zoglin => 68478,
-            SetLastHurtByPacketLastHurtBy::PiglinBrute => 383,
-            SetLastHurtByPacketLastHurtBy::Goat => 4992,
-            SetLastHurtByPacketLastHurtBy::GlowSquid => 9089,
-            SetLastHurtByPacketLastHurtBy::Axolotl => 4994,
-            SetLastHurtByPacketLastHurtBy::Warden => 2947,
-            SetLastHurtByPacketLastHurtBy::Frog => 4996,
-            SetLastHurtByPacketLastHurtBy::Tadpole => 9093,
-            SetLastHurtByPacketLastHurtBy::Allay => 390,
-            SetLastHurtByPacketLastHurtBy::ChestBoatRideable => 218,
-            SetLastHurtByPacketLastHurtBy::TraderLlama => 5021,
-            SetLastHurtByPacketLastHurtBy::Camel => 5002,
-            SetLastHurtByPacketLastHurtBy::Sniffer => 5003,
-            SetLastHurtByPacketLastHurtBy::Breeze => 2956,
-            SetLastHurtByPacketLastHurtBy::BreezeWindChargeProjectile => 4194445,
-            SetLastHurtByPacketLastHurtBy::Armadillo => 5006,
-            SetLastHurtByPacketLastHurtBy::WindChargeProjectile => 4194447,
-            SetLastHurtByPacketLastHurtBy::Bogged => 1117072,
-            SetLastHurtByPacketLastHurtBy::OminousItemSpawner => 145,
-            SetLastHurtByPacketLastHurtBy::Creaking => 2962,
-            SetLastHurtByPacketLastHurtBy::HappyGhast => 5011,
-            SetLastHurtByPacketLastHurtBy::CopperGolem => 916,
-            SetLastHurtByPacketLastHurtBy::Nautilus => 9109,
-            SetLastHurtByPacketLastHurtBy::ZombieNautilus => 74646,
-            SetLastHurtByPacketLastHurtBy::Parched => 1117079,
-            SetLastHurtByPacketLastHurtBy::CamelHusk => 70552,
-            SetLastHurtByPacketLastHurtBy::SulfurCube => 921,
-            SetLastHurtByPacketLastHurtBy::Cushion => 154,
-            SetLastHurtByPacketLastHurtBy::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let val = raw.0 as i32;
-        match val {
-            1 => Ok(SetLastHurtByPacketLastHurtBy::Undefined),
-            256 => Ok(SetLastHurtByPacketLastHurtBy::Mob),
-            768 => Ok(SetLastHurtByPacketLastHurtBy::PathfinderMob),
-            2816 => Ok(SetLastHurtByPacketLastHurtBy::Monster),
-            4864 => Ok(SetLastHurtByPacketLastHurtBy::Animal),
-            21248 => Ok(SetLastHurtByPacketLastHurtBy::TamableAnimal),
-            33024 => Ok(SetLastHurtByPacketLastHurtBy::Ambient),
-            68352 => Ok(SetLastHurtByPacketLastHurtBy::UndeadMonster),
-            199424 => Ok(SetLastHurtByPacketLastHurtBy::ZombieMonster),
-            264960 => Ok(SetLastHurtByPacketLastHurtBy::Arthropod),
-            524288 => Ok(SetLastHurtByPacketLastHurtBy::Minecart),
-            1116928 => Ok(SetLastHurtByPacketLastHurtBy::SkeletonMonster),
-            2118400 => Ok(SetLastHurtByPacketLastHurtBy::EquineAnimal),
-            4194304 => Ok(SetLastHurtByPacketLastHurtBy::Projectile),
-            8388608 => Ok(SetLastHurtByPacketLastHurtBy::AbstractArrow),
-            8960 => Ok(SetLastHurtByPacketLastHurtBy::WaterAnimal),
-            16777984 => Ok(SetLastHurtByPacketLastHurtBy::VillagerBase),
-            4874 => Ok(SetLastHurtByPacketLastHurtBy::Chicken),
-            4875 => Ok(SetLastHurtByPacketLastHurtBy::Cow),
-            4876 => Ok(SetLastHurtByPacketLastHurtBy::Pig),
-            4877 => Ok(SetLastHurtByPacketLastHurtBy::Sheep),
-            21262 => Ok(SetLastHurtByPacketLastHurtBy::Wolf),
-            16777999 => Ok(SetLastHurtByPacketLastHurtBy::Villager),
-            4880 => Ok(SetLastHurtByPacketLastHurtBy::MushroomCow),
-            8977 => Ok(SetLastHurtByPacketLastHurtBy::Squid),
-            4882 => Ok(SetLastHurtByPacketLastHurtBy::Rabbit),
-            33043 => Ok(SetLastHurtByPacketLastHurtBy::Bat),
-            788 => Ok(SetLastHurtByPacketLastHurtBy::IronGolem),
-            789 => Ok(SetLastHurtByPacketLastHurtBy::SnowGolem),
-            21270 => Ok(SetLastHurtByPacketLastHurtBy::Ocelot),
-            2118423 => Ok(SetLastHurtByPacketLastHurtBy::Horse),
-            4892 => Ok(SetLastHurtByPacketLastHurtBy::PolarBear),
-            4893 => Ok(SetLastHurtByPacketLastHurtBy::Llama),
-            21278 => Ok(SetLastHurtByPacketLastHurtBy::Parrot),
-            8991 => Ok(SetLastHurtByPacketLastHurtBy::Dolphin),
-            2118424 => Ok(SetLastHurtByPacketLastHurtBy::Donkey),
-            2118425 => Ok(SetLastHurtByPacketLastHurtBy::Mule),
-            2183962 => Ok(SetLastHurtByPacketLastHurtBy::SkeletonHorse),
-            2183963 => Ok(SetLastHurtByPacketLastHurtBy::ZombieHorse),
-            199456 => Ok(SetLastHurtByPacketLastHurtBy::Zombie),
-            2849 => Ok(SetLastHurtByPacketLastHurtBy::Creeper),
-            1116962 => Ok(SetLastHurtByPacketLastHurtBy::Skeleton),
-            264995 => Ok(SetLastHurtByPacketLastHurtBy::Spider),
-            68388 => Ok(SetLastHurtByPacketLastHurtBy::PigZombie),
-            2853 => Ok(SetLastHurtByPacketLastHurtBy::Slime),
-            2854 => Ok(SetLastHurtByPacketLastHurtBy::EnderMan),
-            264999 => Ok(SetLastHurtByPacketLastHurtBy::Silverfish),
-            265000 => Ok(SetLastHurtByPacketLastHurtBy::CaveSpider),
-            2857 => Ok(SetLastHurtByPacketLastHurtBy::Ghast),
-            2858 => Ok(SetLastHurtByPacketLastHurtBy::LavaSlime),
-            2859 => Ok(SetLastHurtByPacketLastHurtBy::Blaze),
-            199468 => Ok(SetLastHurtByPacketLastHurtBy::ZombieVillager),
-            2861 => Ok(SetLastHurtByPacketLastHurtBy::Witch),
-            1116974 => Ok(SetLastHurtByPacketLastHurtBy::Stray),
-            199471 => Ok(SetLastHurtByPacketLastHurtBy::Husk),
-            1116976 => Ok(SetLastHurtByPacketLastHurtBy::WitherSkeleton),
-            2865 => Ok(SetLastHurtByPacketLastHurtBy::Guardian),
-            2866 => Ok(SetLastHurtByPacketLastHurtBy::ElderGuardian),
-            307 => Ok(SetLastHurtByPacketLastHurtBy::Npc),
-            68404 => Ok(SetLastHurtByPacketLastHurtBy::WitherBoss),
-            2869 => Ok(SetLastHurtByPacketLastHurtBy::Dragon),
-            2870 => Ok(SetLastHurtByPacketLastHurtBy::Shulker),
-            265015 => Ok(SetLastHurtByPacketLastHurtBy::Endermite),
-            312 => Ok(SetLastHurtByPacketLastHurtBy::Agent),
-            2873 => Ok(SetLastHurtByPacketLastHurtBy::Vindicator),
-            68410 => Ok(SetLastHurtByPacketLastHurtBy::Phantom),
-            2875 => Ok(SetLastHurtByPacketLastHurtBy::IllagerBeast),
-            317 => Ok(SetLastHurtByPacketLastHurtBy::ArmorStand),
-            318 => Ok(SetLastHurtByPacketLastHurtBy::TripodCamera),
-            319 => Ok(SetLastHurtByPacketLastHurtBy::Player),
-            64 => Ok(SetLastHurtByPacketLastHurtBy::ItemEntity),
-            65 => Ok(SetLastHurtByPacketLastHurtBy::PrimedTnt),
-            66 => Ok(SetLastHurtByPacketLastHurtBy::FallingBlock),
-            67 => Ok(SetLastHurtByPacketLastHurtBy::MovingBlock),
-            4194372 => Ok(SetLastHurtByPacketLastHurtBy::ExperiencePotion),
-            69 => Ok(SetLastHurtByPacketLastHurtBy::Experience),
-            70 => Ok(SetLastHurtByPacketLastHurtBy::EyeOfEnder),
-            71 => Ok(SetLastHurtByPacketLastHurtBy::EnderCrystal),
-            72 => Ok(SetLastHurtByPacketLastHurtBy::FireworksRocket),
-            12582985 => Ok(SetLastHurtByPacketLastHurtBy::Trident),
-            4938 => Ok(SetLastHurtByPacketLastHurtBy::Turtle),
-            21323 => Ok(SetLastHurtByPacketLastHurtBy::Cat),
-            4194380 => Ok(SetLastHurtByPacketLastHurtBy::ShulkerBullet),
-            77 => Ok(SetLastHurtByPacketLastHurtBy::FishingHook),
-            78 => Ok(SetLastHurtByPacketLastHurtBy::Chalkboard),
-            4194383 => Ok(SetLastHurtByPacketLastHurtBy::DragonFireball),
-            12582992 => Ok(SetLastHurtByPacketLastHurtBy::Arrow),
-            4194385 => Ok(SetLastHurtByPacketLastHurtBy::Snowball),
-            4194386 => Ok(SetLastHurtByPacketLastHurtBy::ThrownEgg),
-            83 => Ok(SetLastHurtByPacketLastHurtBy::Painting),
-            4194389 => Ok(SetLastHurtByPacketLastHurtBy::LargeFireball),
-            4194390 => Ok(SetLastHurtByPacketLastHurtBy::ThrownPotion),
-            4194391 => Ok(SetLastHurtByPacketLastHurtBy::Enderpearl),
-            88 => Ok(SetLastHurtByPacketLastHurtBy::LeashKnot),
-            4194393 => Ok(SetLastHurtByPacketLastHurtBy::WitherSkull),
-            90 => Ok(SetLastHurtByPacketLastHurtBy::BoatRideable),
-            4194395 => Ok(SetLastHurtByPacketLastHurtBy::WitherSkullDangerous),
-            93 => Ok(SetLastHurtByPacketLastHurtBy::LightningBolt),
-            4194398 => Ok(SetLastHurtByPacketLastHurtBy::SmallFireball),
-            95 => Ok(SetLastHurtByPacketLastHurtBy::AreaEffectCloud),
-            4194405 => Ok(SetLastHurtByPacketLastHurtBy::LingeringPotion),
-            4194406 => Ok(SetLastHurtByPacketLastHurtBy::LlamaSpit),
-            4194407 => Ok(SetLastHurtByPacketLastHurtBy::EvocationFang),
-            2920 => Ok(SetLastHurtByPacketLastHurtBy::EvocationIllager),
-            2921 => Ok(SetLastHurtByPacketLastHurtBy::Vex),
-            524372 => Ok(SetLastHurtByPacketLastHurtBy::MinecartRideable),
-            524384 => Ok(SetLastHurtByPacketLastHurtBy::MinecartHopper),
-            524385 => Ok(SetLastHurtByPacketLastHurtBy::MinecartTnt),
-            524386 => Ok(SetLastHurtByPacketLastHurtBy::MinecartChest),
-            524387 => Ok(SetLastHurtByPacketLastHurtBy::MinecartFurnace),
-            524388 => Ok(SetLastHurtByPacketLastHurtBy::MinecartCommandBlock),
-            4194410 => Ok(SetLastHurtByPacketLastHurtBy::IceBomb),
-            107 => Ok(SetLastHurtByPacketLastHurtBy::Balloon),
-            9068 => Ok(SetLastHurtByPacketLastHurtBy::Pufferfish),
-            9069 => Ok(SetLastHurtByPacketLastHurtBy::Salmon),
-            199534 => Ok(SetLastHurtByPacketLastHurtBy::Drowned),
-            9071 => Ok(SetLastHurtByPacketLastHurtBy::Tropicalfish),
-            9072 => Ok(SetLastHurtByPacketLastHurtBy::Fish),
-            4977 => Ok(SetLastHurtByPacketLastHurtBy::Panda),
-            2930 => Ok(SetLastHurtByPacketLastHurtBy::Pillager),
-            16778099 => Ok(SetLastHurtByPacketLastHurtBy::VillagerV2),
-            199540 => Ok(SetLastHurtByPacketLastHurtBy::ZombieVillagerV2),
-            117 => Ok(SetLastHurtByPacketLastHurtBy::Shield),
-            886 => Ok(SetLastHurtByPacketLastHurtBy::WanderingTrader),
-            119 => Ok(SetLastHurtByPacketLastHurtBy::Lectern),
-            2936 => Ok(SetLastHurtByPacketLastHurtBy::ElderGuardianGhost),
-            4985 => Ok(SetLastHurtByPacketLastHurtBy::Fox),
-            378 => Ok(SetLastHurtByPacketLastHurtBy::Bee),
-            379 => Ok(SetLastHurtByPacketLastHurtBy::Piglin),
-            4988 => Ok(SetLastHurtByPacketLastHurtBy::Hoglin),
-            4989 => Ok(SetLastHurtByPacketLastHurtBy::Strider),
-            68478 => Ok(SetLastHurtByPacketLastHurtBy::Zoglin),
-            383 => Ok(SetLastHurtByPacketLastHurtBy::PiglinBrute),
-            4992 => Ok(SetLastHurtByPacketLastHurtBy::Goat),
-            9089 => Ok(SetLastHurtByPacketLastHurtBy::GlowSquid),
-            4994 => Ok(SetLastHurtByPacketLastHurtBy::Axolotl),
-            2947 => Ok(SetLastHurtByPacketLastHurtBy::Warden),
-            4996 => Ok(SetLastHurtByPacketLastHurtBy::Frog),
-            9093 => Ok(SetLastHurtByPacketLastHurtBy::Tadpole),
-            390 => Ok(SetLastHurtByPacketLastHurtBy::Allay),
-            218 => Ok(SetLastHurtByPacketLastHurtBy::ChestBoatRideable),
-            5021 => Ok(SetLastHurtByPacketLastHurtBy::TraderLlama),
-            5002 => Ok(SetLastHurtByPacketLastHurtBy::Camel),
-            5003 => Ok(SetLastHurtByPacketLastHurtBy::Sniffer),
-            2956 => Ok(SetLastHurtByPacketLastHurtBy::Breeze),
-            4194445 => Ok(SetLastHurtByPacketLastHurtBy::BreezeWindChargeProjectile),
-            5006 => Ok(SetLastHurtByPacketLastHurtBy::Armadillo),
-            4194447 => Ok(SetLastHurtByPacketLastHurtBy::WindChargeProjectile),
-            1117072 => Ok(SetLastHurtByPacketLastHurtBy::Bogged),
-            145 => Ok(SetLastHurtByPacketLastHurtBy::OminousItemSpawner),
-            2962 => Ok(SetLastHurtByPacketLastHurtBy::Creaking),
-            5011 => Ok(SetLastHurtByPacketLastHurtBy::HappyGhast),
-            916 => Ok(SetLastHurtByPacketLastHurtBy::CopperGolem),
-            9109 => Ok(SetLastHurtByPacketLastHurtBy::Nautilus),
-            74646 => Ok(SetLastHurtByPacketLastHurtBy::ZombieNautilus),
-            1117079 => Ok(SetLastHurtByPacketLastHurtBy::Parched),
-            70552 => Ok(SetLastHurtByPacketLastHurtBy::CamelHusk),
-            921 => Ok(SetLastHurtByPacketLastHurtBy::SulfurCube),
-            154 => Ok(SetLastHurtByPacketLastHurtBy::Cushion),
-            other => Ok(SetLastHurtByPacketLastHurtBy::Unknown(other)),
-        }
-    }
-}
-impl Default for SetLastHurtByPacketLastHurtBy {
-    fn default() -> Self {
-        Self::Undefined
-    }
-}
 #[derive(Debug, Clone, PartialEq)]
 pub enum BookEditPacketOperation {
     ReplacePage(BookEditActionReplacePage),
@@ -46322,163 +39622,6 @@ impl crate::bedrock::codec::BedrockCodec for BookEditPacketOperation {
                 value: control_value,
             }),
         }
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NpcRequestPacketRequestType {
-    SetActions,
-    ExecuteAction,
-    ExecuteClosingCommands,
-    SetName,
-    SetSkin,
-    SetInteractText,
-    ExecuteOpeningCommands,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for NpcRequestPacketRequestType {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            NpcRequestPacketRequestType::SetActions => 0,
-            NpcRequestPacketRequestType::ExecuteAction => 1,
-            NpcRequestPacketRequestType::ExecuteClosingCommands => 2,
-            NpcRequestPacketRequestType::SetName => 3,
-            NpcRequestPacketRequestType::SetSkin => 4,
-            NpcRequestPacketRequestType::SetInteractText => 5,
-            NpcRequestPacketRequestType::ExecuteOpeningCommands => 6,
-            NpcRequestPacketRequestType::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for NpcRequestPacketRequestType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            NpcRequestPacketRequestType::SetActions => 0,
-            NpcRequestPacketRequestType::ExecuteAction => 1,
-            NpcRequestPacketRequestType::ExecuteClosingCommands => 2,
-            NpcRequestPacketRequestType::SetName => 3,
-            NpcRequestPacketRequestType::SetSkin => 4,
-            NpcRequestPacketRequestType::SetInteractText => 5,
-            NpcRequestPacketRequestType::ExecuteOpeningCommands => 6,
-            NpcRequestPacketRequestType::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(NpcRequestPacketRequestType::SetActions),
-            1 => Ok(NpcRequestPacketRequestType::ExecuteAction),
-            2 => Ok(NpcRequestPacketRequestType::ExecuteClosingCommands),
-            3 => Ok(NpcRequestPacketRequestType::SetName),
-            4 => Ok(NpcRequestPacketRequestType::SetSkin),
-            5 => Ok(NpcRequestPacketRequestType::SetInteractText),
-            6 => Ok(NpcRequestPacketRequestType::ExecuteOpeningCommands),
-            other => Ok(NpcRequestPacketRequestType::Unknown(other)),
-        }
-    }
-}
-impl Default for NpcRequestPacketRequestType {
-    fn default() -> Self {
-        Self::SetActions
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PhotoTransferPacketType {
-    Portfolio,
-    PhotoItem,
-    Book,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for PhotoTransferPacketType {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            PhotoTransferPacketType::Portfolio => 0,
-            PhotoTransferPacketType::PhotoItem => 1,
-            PhotoTransferPacketType::Book => 2,
-            PhotoTransferPacketType::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PhotoTransferPacketType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            PhotoTransferPacketType::Portfolio => 0,
-            PhotoTransferPacketType::PhotoItem => 1,
-            PhotoTransferPacketType::Book => 2,
-            PhotoTransferPacketType::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(PhotoTransferPacketType::Portfolio),
-            1 => Ok(PhotoTransferPacketType::PhotoItem),
-            2 => Ok(PhotoTransferPacketType::Book),
-            other => Ok(PhotoTransferPacketType::Unknown(other)),
-        }
-    }
-}
-impl Default for PhotoTransferPacketType {
-    fn default() -> Self {
-        Self::Portfolio
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PhotoTransferPacketSourceType {
-    Portfolio,
-    PhotoItem,
-    Book,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for PhotoTransferPacketSourceType {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            PhotoTransferPacketSourceType::Portfolio => 0,
-            PhotoTransferPacketSourceType::PhotoItem => 1,
-            PhotoTransferPacketSourceType::Book => 2,
-            PhotoTransferPacketSourceType::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PhotoTransferPacketSourceType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            PhotoTransferPacketSourceType::Portfolio => 0,
-            PhotoTransferPacketSourceType::PhotoItem => 1,
-            PhotoTransferPacketSourceType::Book => 2,
-            PhotoTransferPacketSourceType::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(PhotoTransferPacketSourceType::Portfolio),
-            1 => Ok(PhotoTransferPacketSourceType::PhotoItem),
-            2 => Ok(PhotoTransferPacketSourceType::Book),
-            other => Ok(PhotoTransferPacketSourceType::Unknown(other)),
-        }
-    }
-}
-impl Default for PhotoTransferPacketSourceType {
-    fn default() -> Self {
-        Self::Portfolio
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46677,140 +39820,6 @@ impl crate::bedrock::codec::BedrockCodec for SetScorePacketScoreInfoItem {
                 value: control_value,
             }),
         }
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LabTablePacketType {
-    StartCombine,
-    StartReaction,
-    Reset,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for LabTablePacketType {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LabTablePacketType::StartCombine => 0,
-            LabTablePacketType::StartReaction => 1,
-            LabTablePacketType::Reset => 2,
-            LabTablePacketType::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LabTablePacketType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LabTablePacketType::StartCombine => 0,
-            LabTablePacketType::StartReaction => 1,
-            LabTablePacketType::Reset => 2,
-            LabTablePacketType::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(LabTablePacketType::StartCombine),
-            1 => Ok(LabTablePacketType::StartReaction),
-            2 => Ok(LabTablePacketType::Reset),
-            other => Ok(LabTablePacketType::Unknown(other)),
-        }
-    }
-}
-impl Default for LabTablePacketType {
-    fn default() -> Self {
-        Self::StartCombine
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LabTablePacketReaction {
-    None,
-    IceBomb,
-    Bleach,
-    ElephantToothpaste,
-    Fertilizer,
-    HeatBlock,
-    MagnesiumSalts,
-    MiscFire,
-    MiscExplosion,
-    MiscLava,
-    MiscMystical,
-    MiscSmoke,
-    MiscLargeSmoke,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for LabTablePacketReaction {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            LabTablePacketReaction::None => 0,
-            LabTablePacketReaction::IceBomb => 1,
-            LabTablePacketReaction::Bleach => 2,
-            LabTablePacketReaction::ElephantToothpaste => 3,
-            LabTablePacketReaction::Fertilizer => 4,
-            LabTablePacketReaction::HeatBlock => 5,
-            LabTablePacketReaction::MagnesiumSalts => 6,
-            LabTablePacketReaction::MiscFire => 7,
-            LabTablePacketReaction::MiscExplosion => 8,
-            LabTablePacketReaction::MiscLava => 9,
-            LabTablePacketReaction::MiscMystical => 10,
-            LabTablePacketReaction::MiscSmoke => 11,
-            LabTablePacketReaction::MiscLargeSmoke => 12,
-            LabTablePacketReaction::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for LabTablePacketReaction {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            LabTablePacketReaction::None => 0,
-            LabTablePacketReaction::IceBomb => 1,
-            LabTablePacketReaction::Bleach => 2,
-            LabTablePacketReaction::ElephantToothpaste => 3,
-            LabTablePacketReaction::Fertilizer => 4,
-            LabTablePacketReaction::HeatBlock => 5,
-            LabTablePacketReaction::MagnesiumSalts => 6,
-            LabTablePacketReaction::MiscFire => 7,
-            LabTablePacketReaction::MiscExplosion => 8,
-            LabTablePacketReaction::MiscLava => 9,
-            LabTablePacketReaction::MiscMystical => 10,
-            LabTablePacketReaction::MiscSmoke => 11,
-            LabTablePacketReaction::MiscLargeSmoke => 12,
-            LabTablePacketReaction::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(LabTablePacketReaction::None),
-            1 => Ok(LabTablePacketReaction::IceBomb),
-            2 => Ok(LabTablePacketReaction::Bleach),
-            3 => Ok(LabTablePacketReaction::ElephantToothpaste),
-            4 => Ok(LabTablePacketReaction::Fertilizer),
-            5 => Ok(LabTablePacketReaction::HeatBlock),
-            6 => Ok(LabTablePacketReaction::MagnesiumSalts),
-            7 => Ok(LabTablePacketReaction::MiscFire),
-            8 => Ok(LabTablePacketReaction::MiscExplosion),
-            9 => Ok(LabTablePacketReaction::MiscLava),
-            10 => Ok(LabTablePacketReaction::MiscMystical),
-            11 => Ok(LabTablePacketReaction::MiscSmoke),
-            12 => Ok(LabTablePacketReaction::MiscLargeSmoke),
-            other => Ok(LabTablePacketReaction::Unknown(other)),
-        }
-    }
-}
-impl Default for LabTablePacketReaction {
-    fn default() -> Self {
-        Self::None
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48095,212 +41104,6 @@ impl Default for SimulationTypePacketSimType {
         Self::Game
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NpcDialoguePacketNpcDialogueActionType {
-    Open,
-    Close,
-    Unknown(i32),
-}
-impl crate::bedrock::codec::BedrockSized for NpcDialoguePacketNpcDialogueActionType {
-    fn encoded_size(&self) -> usize {
-        let _val: i32 = match self {
-            NpcDialoguePacketNpcDialogueActionType::Open => 0,
-            NpcDialoguePacketNpcDialogueActionType::Close => 1,
-            NpcDialoguePacketNpcDialogueActionType::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-            _val as i32,
-        ))
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for NpcDialoguePacketNpcDialogueActionType {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: i32 = match self {
-            NpcDialoguePacketNpcDialogueActionType::Open => 0,
-            NpcDialoguePacketNpcDialogueActionType::Close => 1,
-            NpcDialoguePacketNpcDialogueActionType::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let val = raw.0 as i32;
-        match val {
-            0 => Ok(NpcDialoguePacketNpcDialogueActionType::Open),
-            1 => Ok(NpcDialoguePacketNpcDialogueActionType::Close),
-            other => Ok(NpcDialoguePacketNpcDialogueActionType::Unknown(other)),
-        }
-    }
-}
-impl Default for NpcDialoguePacketNpcDialogueActionType {
-    fn default() -> Self {
-        Self::Open
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CodeBuilderSourcePacketOperation {
-    None,
-    Get,
-    Set,
-    Reset,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for CodeBuilderSourcePacketOperation {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            CodeBuilderSourcePacketOperation::None => 0,
-            CodeBuilderSourcePacketOperation::Get => 1,
-            CodeBuilderSourcePacketOperation::Set => 2,
-            CodeBuilderSourcePacketOperation::Reset => 3,
-            CodeBuilderSourcePacketOperation::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for CodeBuilderSourcePacketOperation {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            CodeBuilderSourcePacketOperation::None => 0,
-            CodeBuilderSourcePacketOperation::Get => 1,
-            CodeBuilderSourcePacketOperation::Set => 2,
-            CodeBuilderSourcePacketOperation::Reset => 3,
-            CodeBuilderSourcePacketOperation::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(CodeBuilderSourcePacketOperation::None),
-            1 => Ok(CodeBuilderSourcePacketOperation::Get),
-            2 => Ok(CodeBuilderSourcePacketOperation::Set),
-            3 => Ok(CodeBuilderSourcePacketOperation::Reset),
-            other => Ok(CodeBuilderSourcePacketOperation::Unknown(other)),
-        }
-    }
-}
-impl Default for CodeBuilderSourcePacketOperation {
-    fn default() -> Self {
-        Self::None
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CodeBuilderSourcePacketCategory {
-    None,
-    CodeStatus,
-    Instantiation,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for CodeBuilderSourcePacketCategory {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            CodeBuilderSourcePacketCategory::None => 0,
-            CodeBuilderSourcePacketCategory::CodeStatus => 1,
-            CodeBuilderSourcePacketCategory::Instantiation => 2,
-            CodeBuilderSourcePacketCategory::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for CodeBuilderSourcePacketCategory {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            CodeBuilderSourcePacketCategory::None => 0,
-            CodeBuilderSourcePacketCategory::CodeStatus => 1,
-            CodeBuilderSourcePacketCategory::Instantiation => 2,
-            CodeBuilderSourcePacketCategory::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(CodeBuilderSourcePacketCategory::None),
-            1 => Ok(CodeBuilderSourcePacketCategory::CodeStatus),
-            2 => Ok(CodeBuilderSourcePacketCategory::Instantiation),
-            other => Ok(CodeBuilderSourcePacketCategory::Unknown(other)),
-        }
-    }
-}
-impl Default for CodeBuilderSourcePacketCategory {
-    fn default() -> Self {
-        Self::None
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CodeBuilderSourcePacketCodeStatus {
-    None,
-    NotStarted,
-    InProgress,
-    Paused,
-    Error,
-    Succeeded,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for CodeBuilderSourcePacketCodeStatus {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            CodeBuilderSourcePacketCodeStatus::None => 0,
-            CodeBuilderSourcePacketCodeStatus::NotStarted => 1,
-            CodeBuilderSourcePacketCodeStatus::InProgress => 2,
-            CodeBuilderSourcePacketCodeStatus::Paused => 3,
-            CodeBuilderSourcePacketCodeStatus::Error => 4,
-            CodeBuilderSourcePacketCodeStatus::Succeeded => 5,
-            CodeBuilderSourcePacketCodeStatus::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for CodeBuilderSourcePacketCodeStatus {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            CodeBuilderSourcePacketCodeStatus::None => 0,
-            CodeBuilderSourcePacketCodeStatus::NotStarted => 1,
-            CodeBuilderSourcePacketCodeStatus::InProgress => 2,
-            CodeBuilderSourcePacketCodeStatus::Paused => 3,
-            CodeBuilderSourcePacketCodeStatus::Error => 4,
-            CodeBuilderSourcePacketCodeStatus::Succeeded => 5,
-            CodeBuilderSourcePacketCodeStatus::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(CodeBuilderSourcePacketCodeStatus::None),
-            1 => Ok(CodeBuilderSourcePacketCodeStatus::NotStarted),
-            2 => Ok(CodeBuilderSourcePacketCodeStatus::InProgress),
-            3 => Ok(CodeBuilderSourcePacketCodeStatus::Paused),
-            4 => Ok(CodeBuilderSourcePacketCodeStatus::Error),
-            5 => Ok(CodeBuilderSourcePacketCodeStatus::Succeeded),
-            other => Ok(CodeBuilderSourcePacketCodeStatus::Unknown(other)),
-        }
-    }
-}
-impl Default for CodeBuilderSourcePacketCodeStatus {
-    fn default() -> Self {
-        Self::None
-    }
-}
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DimensionDataPacketDefinitionsItem {
     pub key: String,
@@ -48361,115 +41164,6 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDataPacketDefinitionsItem 
             (),
         )?;
         Ok(Self { key, value })
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AgentActionEventPacketAction {
-    Attack,
-    Collect,
-    Destroy,
-    DetectRedstone,
-    DetectObstacle,
-    Drop,
-    DropAll,
-    Inspect,
-    InspectData,
-    InspectItemCount,
-    InspectItemDetail,
-    InspectItemSpace,
-    Interact,
-    Move,
-    PlaceBlock,
-    Till,
-    TransferItemTo,
-    Turn,
-    Unknown(i32),
-}
-impl crate::bedrock::codec::BedrockSized for AgentActionEventPacketAction {
-    fn encoded_size(&self) -> usize {
-        let _val: i32 = match self {
-            AgentActionEventPacketAction::Attack => 1,
-            AgentActionEventPacketAction::Collect => 2,
-            AgentActionEventPacketAction::Destroy => 3,
-            AgentActionEventPacketAction::DetectRedstone => 4,
-            AgentActionEventPacketAction::DetectObstacle => 5,
-            AgentActionEventPacketAction::Drop => 6,
-            AgentActionEventPacketAction::DropAll => 7,
-            AgentActionEventPacketAction::Inspect => 8,
-            AgentActionEventPacketAction::InspectData => 9,
-            AgentActionEventPacketAction::InspectItemCount => 10,
-            AgentActionEventPacketAction::InspectItemDetail => 11,
-            AgentActionEventPacketAction::InspectItemSpace => 12,
-            AgentActionEventPacketAction::Interact => 13,
-            AgentActionEventPacketAction::Move => 14,
-            AgentActionEventPacketAction::PlaceBlock => 15,
-            AgentActionEventPacketAction::Till => 16,
-            AgentActionEventPacketAction::TransferItemTo => 17,
-            AgentActionEventPacketAction::Turn => 18,
-            AgentActionEventPacketAction::Unknown(v) => *v,
-        };
-        4usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for AgentActionEventPacketAction {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: i32 = match self {
-            AgentActionEventPacketAction::Attack => 1,
-            AgentActionEventPacketAction::Collect => 2,
-            AgentActionEventPacketAction::Destroy => 3,
-            AgentActionEventPacketAction::DetectRedstone => 4,
-            AgentActionEventPacketAction::DetectObstacle => 5,
-            AgentActionEventPacketAction::Drop => 6,
-            AgentActionEventPacketAction::DropAll => 7,
-            AgentActionEventPacketAction::Inspect => 8,
-            AgentActionEventPacketAction::InspectData => 9,
-            AgentActionEventPacketAction::InspectItemCount => 10,
-            AgentActionEventPacketAction::InspectItemDetail => 11,
-            AgentActionEventPacketAction::InspectItemSpace => 12,
-            AgentActionEventPacketAction::Interact => 13,
-            AgentActionEventPacketAction::Move => 14,
-            AgentActionEventPacketAction::PlaceBlock => 15,
-            AgentActionEventPacketAction::Till => 16,
-            AgentActionEventPacketAction::TransferItemTo => 17,
-            AgentActionEventPacketAction::Turn => 18,
-            AgentActionEventPacketAction::Unknown(v) => *v,
-        };
-        crate::bedrock::codec::I32LE(val as i32).encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let raw =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let val = raw.0 as i32;
-        match val {
-            1 => Ok(AgentActionEventPacketAction::Attack),
-            2 => Ok(AgentActionEventPacketAction::Collect),
-            3 => Ok(AgentActionEventPacketAction::Destroy),
-            4 => Ok(AgentActionEventPacketAction::DetectRedstone),
-            5 => Ok(AgentActionEventPacketAction::DetectObstacle),
-            6 => Ok(AgentActionEventPacketAction::Drop),
-            7 => Ok(AgentActionEventPacketAction::DropAll),
-            8 => Ok(AgentActionEventPacketAction::Inspect),
-            9 => Ok(AgentActionEventPacketAction::InspectData),
-            10 => Ok(AgentActionEventPacketAction::InspectItemCount),
-            11 => Ok(AgentActionEventPacketAction::InspectItemDetail),
-            12 => Ok(AgentActionEventPacketAction::InspectItemSpace),
-            13 => Ok(AgentActionEventPacketAction::Interact),
-            14 => Ok(AgentActionEventPacketAction::Move),
-            15 => Ok(AgentActionEventPacketAction::PlaceBlock),
-            16 => Ok(AgentActionEventPacketAction::Till),
-            17 => Ok(AgentActionEventPacketAction::TransferItemTo),
-            18 => Ok(AgentActionEventPacketAction::Turn),
-            other => Ok(AgentActionEventPacketAction::Unknown(other)),
-        }
-    }
-}
-impl Default for AgentActionEventPacketAction {
-    fn default() -> Self {
-        Self::Attack
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48625,49 +41319,6 @@ impl crate::bedrock::codec::BedrockCodec for UnlockedRecipesPacketPacketType {
 impl Default for UnlockedRecipesPacketPacketType {
     fn default() -> Self {
         Self::Empty
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AgentAnimationPacketAgentAnimation {
-    ArmSwing,
-    Shrug,
-    Unknown(u8),
-}
-impl crate::bedrock::codec::BedrockSized for AgentAnimationPacketAgentAnimation {
-    fn encoded_size(&self) -> usize {
-        let _val: u8 = match self {
-            AgentAnimationPacketAgentAnimation::ArmSwing => 0,
-            AgentAnimationPacketAgentAnimation::Shrug => 1,
-            AgentAnimationPacketAgentAnimation::Unknown(v) => *v,
-        };
-        1usize
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for AgentAnimationPacketAgentAnimation {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let val: u8 = match self {
-            AgentAnimationPacketAgentAnimation::ArmSwing => 0,
-            AgentAnimationPacketAgentAnimation::Shrug => 1,
-            AgentAnimationPacketAgentAnimation::Unknown(v) => *v,
-        };
-        val.encode(buf)
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        match val {
-            0 => Ok(AgentAnimationPacketAgentAnimation::ArmSwing),
-            1 => Ok(AgentAnimationPacketAgentAnimation::Shrug),
-            other => Ok(AgentAnimationPacketAgentAnimation::Unknown(other)),
-        }
-    }
-}
-impl Default for AgentAnimationPacketAgentAnimation {
-    fn default() -> Self {
-        Self::ArmSwing
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

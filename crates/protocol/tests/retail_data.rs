@@ -1,0 +1,65 @@
+use std::collections::HashSet;
+
+use protocol::vanilla_item_registry;
+use sha2::{Digest, Sha256};
+
+const RETAIL_ITEMS: &[u8] = include_bytes!("../data/retail_items_1_26_40.tsv");
+const RETAIL_BIOMES: &[u8] = include_bytes!("../data/retail_biomes_1_26_40.txt");
+
+#[test]
+fn retail_item_table_has_the_pinned_projection_fingerprint() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(RETAIL_ITEMS)),
+        "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
+    );
+}
+
+#[test]
+fn retail_biome_table_has_the_pinned_projection_fingerprint() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(RETAIL_BIOMES)),
+        "237d0652f4a218765d52968c7764e4388a8d2372842d0a37a7ce7ba75692f9fc"
+    );
+    let biomes = std::str::from_utf8(RETAIL_BIOMES)
+        .expect("biome table must be UTF-8")
+        .lines()
+        .collect::<HashSet<_>>();
+    assert_eq!(biomes.len(), 87);
+    assert!(biomes.contains("minecraft:deep_warm_ocean"));
+}
+
+#[test]
+fn retail_item_table_preserves_current_network_ids_and_gaps() {
+    let entries = vanilla_item_registry();
+    assert_eq!(entries.len(), 1_485);
+    assert_eq!(
+        entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:stone")
+            .map(|entry| entry.network_id),
+        Some(1)
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:diamond_sword")
+            .map(|entry| entry.network_id),
+        Some(318)
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:apple")
+            .map(|entry| entry.network_id),
+        Some(878)
+    );
+
+    let ids: HashSet<_> = entries.iter().map(|entry| entry.network_id).collect();
+    let names: HashSet<_> = entries
+        .iter()
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(ids.len(), entries.len());
+    assert_eq!(names.len(), entries.len());
+    assert!(!ids.contains(&-1121), "an omitted ID must remain a gap");
+}

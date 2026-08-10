@@ -18,10 +18,10 @@ use protocol::BedrockSession;
 //
 // Two things changed against protocol 1001. `CraftingData` no longer carries a
 // single fused `Recipes` slice: `packet/crafting_data.go` marshals eight typed
-// recipe vectors (shaped, shapeless, multi, shulker box, shapeless chemistry,
-// shaped chemistry, smithing transform, smithing trim) before the potion,
-// potion-container and material-reducer vectors, so a lone shaped recipe now
-// costs seven extra empty counts on the wire. And shaped ingredients are a
+// recipe vectors (shaped, shapeless, multi, the reserved vectors at positions
+// 4 and 5, smithing transform, and smithing trim) before the potion,
+// potion-container and reserved position-10 vectors, so a lone shaped recipe
+// now costs seven extra empty counts on the wire. And shaped ingredients are a
 // `FuncSlice` with its own varuint32 length prefix (`marshalShaped`,
 // minecraft/protocol/recipe.go); the protocol-1001 "exactly width*height
 // descriptors, no length prefix" layout is gone.
@@ -55,13 +55,13 @@ fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
     assert!(packet.shapeless_recipes.is_empty());
     assert!(packet.multi_recipes.is_empty());
     assert!(packet.user_data_shapeless_recipes.is_empty());
-    assert!(packet.shapeless_chemistry_recipes.is_empty());
-    assert!(packet.shaped_chemistry_recipes.is_empty());
+    assert!(packet.reserved_recipes_4.is_empty());
+    assert!(packet.reserved_recipes_5.is_empty());
     assert!(packet.smithing_transform_recipes.is_empty());
     assert!(packet.smithing_trim_recipes.is_empty());
     assert!(packet.potion_mixes.is_empty());
     assert!(packet.container_mixes.is_empty());
-    assert!(packet.material_reducers.is_empty());
+    assert!(packet.reserved_entries_10.is_empty());
     assert!(!packet.clear_recipes);
 
     let recipe = &packet.shaped_recipes[0];

@@ -85,13 +85,13 @@ pub struct PlayerAuthInputSnapshot {
 /// Invalid app-owned state that cannot be represented safely on the wire.
 #[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum PlayerAuthInputError {
-    #[error("PlayerAuthInput tick {0} exceeds the protocol-1001 signed wire range")]
+    #[error("PlayerAuthInput tick {0} exceeds the protocol-2168 signed wire range")]
     TickOutOfRange(u64),
     #[error("PlayerAuthInput contains a non-finite position, rotation, delta, or input vector")]
     NonFiniteState,
 }
 
-/// Converts an app-owned movement snapshot to the pinned protocol-1001 packet.
+/// Converts an app-owned movement snapshot to the pinned protocol-2168 packet.
 pub fn player_auth_input(
     snapshot: PlayerAuthInputSnapshot,
 ) -> Result<Packet, PlayerAuthInputError> {

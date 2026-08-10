@@ -1,6 +1,7 @@
 # Protocol deviations
 
-All entries below target Bedrock 1.26.30 / protocol 1001. Valentine/Jolyne is
+The historical entries through Phase 0.8 target Bedrock 1.26.30 / protocol
+1001. Valentine/Jolyne is
 based on axolotl-stack commit
 `6f6806e821a579c183c44d786f76d9b358a2b825`; exact wire behaviour is checked
 against gophertunnel commit
@@ -11,9 +12,7 @@ pinned encoder/decoder and live bytes agreed exactly.
 The Go core and `crates/protocol/fixtures` have since moved to gophertunnel
 `56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` (Bedrock 1.26.40 / protocol 2168).
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
-generation of those fixtures; `material_reducer.bin` is the one cited fixture
-whose bytes changed, because 1.26.40 splits `CraftingData.Recipes` into eight
-typed recipe vectors. `available_commands.bin` and
+generation of those fixtures. `available_commands.bin` and
 `available_commands_live_356513.bin` are byte-identical across the bump.
 
 ## Task 0.4 baseline
@@ -144,17 +143,29 @@ malformed and oversized shared counts, encoding bounds, and the recorded live
 body-length regression. The guarded BDS login test now continues after
 StartGame until packet 76 is decoded and then asserts zero decode errors.
 
-### MaterialReducer in CraftingData (packet 52)
+## Protocol-2168 wire corrections
 
-Pinned gophertunnel defines `Outputs []MaterialReducerOutput` and writes one
-VarUInt count followed by every ZigZag `(network_id, count)` pair. Valentine
-previously modelled and consumed one uncounted pair in both owned and borrowed
-forms.
+The following generated corrections target Bedrock 1.26.40 / protocol 2168 and
+the pinned gophertunnel commit `56a0f77dbbb2fb006b081ec38bb4bedf9cb95088`.
 
-Task 0.8 replaces that singular field with a bounded output vector in both
-forms, applies the same 4,096-element limit and fallible preallocation, and
-encodes every output after one count. `material_reducer.bin` is an 18-byte
-pinned-gophertunnel raw CraftingData batch with one reducer and two outputs,
-SHA-256 `b73c651ccf07ece21aea4b186be3780875ce7cacef04f9327e3c968636d43a39`.
-Owned decode, borrowed materialisation, the direct borrowed reducer view, exact
-byte round-trip, oversized counts, and truncated vectors are covered.
+### Redactable strings are two adjacent strings
+
+`ItemStackResponseSlotInfo::custom_name` and
+`StructureEditorData::structure_name` use the generated
+`BedrockSafetyRedactableString` wrapper, but gophertunnel writes both halves as
+unconditional adjacent VarInt-length-prefixed strings. The correction removes
+the generated presence byte while retaining `Option` in memory: `None` writes
+an empty second string, and an empty second string decodes as `None`.
+
+The checked-in `item_stack_response.bin` fixture now decodes and re-encodes
+byte-for-byte, and the public raw scanner bounds both name strings before owned
+decoding. Owned and borrowed structure-editor tests pin the same wire shape;
+the owned decoder also pins the truncated second-string failure.
+
+### MovePlayer actor IDs use strict unsigned varints
+
+The owned and borrowed `MovePlayer` runtime and ridden ID call sites use the
+strict unsigned-64 decoder without changing unrelated generated `VarLong`
+fields. Canonical encodings through the ten-byte `u64::MAX` boundary round-trip
+exactly; overflowing tenth-byte payloads and non-canonical ten-byte encodings
+are rejected for both IDs.

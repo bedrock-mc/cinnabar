@@ -368,6 +368,26 @@ fn live_stack_response_checks_nested_counts_before_owned_decoder() {
             ),
             "slots",
         ),
+        (
+            raw_packet(
+                McpePacketName::ItemStackResponsePacket,
+                &accepted_response_with_name_lengths(
+                    (crate::MAX_RESPONSE_NAME_BYTES + 1) as u32,
+                    0,
+                ),
+            ),
+            "unredacted name",
+        ),
+        (
+            raw_packet(
+                McpePacketName::ItemStackResponsePacket,
+                &accepted_response_with_name_lengths(
+                    0,
+                    (crate::MAX_RESPONSE_NAME_BYTES + 1) as u32,
+                ),
+            ),
+            "redacted name",
+        ),
     ];
 
     for (raw, label) in cases {
@@ -426,58 +446,32 @@ fn live_inventory_items_check_extra_length_before_owned_decoder() {
 #[test]
 fn canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization() {
     let session = BedrockSession { shield_item_id: 0 };
-    // item_stack_response.bin is covered separately by
-    // `item_stack_response_fixture_pins_the_redactable_string_divergence`: the
-    // generated decoder cannot read it, which is an upstream defect rather than
-    // anything this crate can normalise around.
-    for fixture in [
-        &include_bytes!("../../fixtures/inventory_content.bin")[..],
-        &include_bytes!("../../fixtures/inventory_slot.bin")[..],
-        &include_bytes!("../../fixtures/player_hotbar.bin")[..],
+    for (name, fixture) in [
+        (
+            "inventory_content",
+            &include_bytes!("../../fixtures/inventory_content.bin")[..],
+        ),
+        (
+            "inventory_slot",
+            &include_bytes!("../../fixtures/inventory_slot.bin")[..],
+        ),
+        (
+            "player_hotbar",
+            &include_bytes!("../../fixtures/player_hotbar.bin")[..],
+        ),
+        (
+            "item_stack_response",
+            &include_bytes!("../../fixtures/item_stack_response.bin")[..],
+        ),
     ] {
         let mut batch = Bytes::copy_from_slice(fixture);
         assert_eq!(batch.get_u8(), 0xfe);
         let raw = decode_packet_raw(&mut batch).expect("raw inventory fixture");
         let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
-            .expect("canonical inventory fixture")
+            .unwrap_or_else(|error| panic!("canonical {name} fixture: {error}"))
             .expect("inventory world event");
         assert!(matches!(event, WorldEvent::Inventory(_)));
     }
-}
-
-/// Pins a known generated-code divergence on `ItemStackResponse`.
-///
-/// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ be6713da4dc051a4197f897d04835e89e9c54321)
-/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent
-/// strings. The generated `ItemStackResponseSlotInfo` models them as a single
-/// `BedrockSafetyRedactableString`, which puts an optional-presence byte between
-/// them, so it reads the second string's length prefix as that flag and then
-/// reads a bogus length. Everything earlier in the packet decodes correctly --
-/// the double-optional stack net ID included -- so the divergence is exactly the
-/// two-strings-versus-string-plus-optional shape.
-///
-/// This fails loudly rather than silently corrupting, and it is narrow: only
-/// `ItemStackResponseSlotInfo::custom_name` and one `structure_name` field use
-/// the type. It must be fixed in the generator's correction layer, not here.
-///
-/// The assertion is deliberately inverted: when upstream fixes the shape this
-/// test starts failing, which is the signal to fold the fixture back into
-/// `canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization`.
-#[test]
-fn item_stack_response_fixture_pins_the_redactable_string_divergence() {
-    let session = BedrockSession { shield_item_id: 0 };
-    let mut batch =
-        Bytes::copy_from_slice(&include_bytes!("../../fixtures/item_stack_response.bin")[..]);
-    assert_eq!(batch.get_u8(), 0xfe);
-    let raw = decode_packet_raw(&mut batch).expect("raw item stack response");
-
-    let result = decode_world_raw_with(raw, 0, |raw| raw.decode(&session));
-
-    assert!(
-        result.is_err(),
-        "the generated ItemStackResponse decoder now reads the gophertunnel          fixture: the BedrockSafetyRedactableString divergence is fixed upstream,          so restore this fixture to the canonical decode test"
-    );
 }
 
 fn varint_body(value: u32) -> BytesMut {
@@ -492,7 +486,8 @@ fn accepted_response_prefix(container_count: u32) -> BytesMut {
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
     // The container list is a DoubleOptionalFunc in 1.26.40: an outer bool that
-    // a Go writer always sets, then the list itself.
+    // a Go writer always sets, then the optional-list presence and list itself.
+    body.put_u8(1);
     body.put_u8(1);
     wire::write_var_u32(&mut body, container_count);
     body
@@ -503,6 +498,18 @@ fn accepted_response_with_slot_count(slot_count: u32) -> BytesMut {
     body.put_u8(0);
     body.put_u8(0);
     wire::write_var_u32(&mut body, slot_count);
+    body
+}
+
+fn accepted_response_with_name_lengths(unredacted: u32, redacted: u32) -> BytesMut {
+    let mut body = accepted_response_with_slot_count(1);
+    body.extend_from_slice(&[0, 0, 0]);
+    body.put_u8(1);
+    body.put_u8(0);
+    wire::write_var_u32(&mut body, unredacted);
+    if unredacted <= crate::MAX_RESPONSE_NAME_BYTES as u32 {
+        wire::write_var_u32(&mut body, redacted);
+    }
     body
 }
 

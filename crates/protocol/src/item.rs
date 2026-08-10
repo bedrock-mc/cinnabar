@@ -242,37 +242,23 @@ pub struct ItemRegistryEntry {
     pub component_digest: [u8; 32],
 }
 
-/// Returns the generated vanilla item registry for the pinned Bedrock
-/// protocol. Bedrock servers normally send only custom/data-driven item
-/// entries; the vanilla client already knows this built-in table and merges
-/// the server packet over it.
+/// Returns the retail-positive item registry for the pinned Bedrock protocol.
+///
+/// The compact table contains only entries referenced by the default creative
+/// inventory. Numeric network IDs come from the matching ItemRegistry packet;
+/// omitted entries remain unsupported gaps and are never renumbered.
 #[must_use]
 pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
-    // Content registries stay on v1_26_30: the Endstone-derived 1.26.40 crate is
-    // wire-only and generates no items.rs table. See the note in world.rs.
-    const GENERATED_ITEMS: &str =
-        include_str!("../vendor/valentine/bedrock_versions/v1_26_30/src/items.rs");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_40.tsv");
 
-    let mut entries = Vec::new();
-    let mut pending_id = None;
-    for line in GENERATED_ITEMS.lines().map(str::trim) {
-        if let Some(value) = line
-            .strip_prefix("const ID: i32 = ")
-            .and_then(|value| value.strip_suffix(';'))
-            .and_then(|value| value.parse::<i32>().ok())
-        {
-            pending_id = Some(value);
-            continue;
-        }
-        let Some(identifier) = line
-            .strip_prefix("const STRING_ID: &'static str = \"")
-            .and_then(|value| value.strip_suffix("\";"))
-        else {
-            continue;
-        };
-        let Some(network_id) = pending_id.take() else {
-            continue;
-        };
+    let mut entries = Vec::with_capacity(RETAIL_ITEMS.lines().count());
+    for line in RETAIL_ITEMS.lines() {
+        let (network_id, identifier) = line
+            .split_once('\t')
+            .expect("retail item row must contain an ID and identifier");
+        let network_id = network_id
+            .parse::<i32>()
+            .expect("retail item ID must be an i32");
         entries.push(ItemRegistryEntry {
             identifier: Arc::from(identifier),
             network_id,

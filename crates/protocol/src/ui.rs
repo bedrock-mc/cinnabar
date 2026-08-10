@@ -187,9 +187,7 @@ pub enum PlayerStatus {
     FailedClient,
     FailedSpawn,
     PlayerSpawn,
-    FailedInvalidTenant,
-    FailedVanillaEducation,
-    FailedEducationVanilla,
+    UnsupportedEdition,
     FailedServerFull,
     FailedEditorVanillaMismatch,
     FailedVanillaEditorMismatch,
@@ -570,24 +568,15 @@ pub(crate) fn normalize_health(packet: SetHealthPacket) -> UiEvent {
 }
 
 pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEvent, UiPacketError> {
-    // 1.26.40 renamed every failure variant to the Mojang spelling. The mapping
-    // below is by wire value against gophertunnel's `PlayStatus*` constants
-    // (`minecraft/protocol/packet/play_status.go`): 1 = client outdated,
-    // 2 = server outdated (this crate's historical `FailedSpawn` name),
-    // 5 = vanilla client -> education server, 6 = education client -> vanilla
-    // server, 8 = editor client -> vanilla server, 9 = vanilla -> editor.
+    // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
         PlayStatusPacketStatus::LoginSuccess => PlayerStatus::LoginSuccess,
         PlayStatusPacketStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
         PlayStatusPacketStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
         PlayStatusPacketStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
-        PlayStatusPacketStatus::LoginFailedInvalidTenant => PlayerStatus::FailedInvalidTenant,
-        PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla => {
-            PlayerStatus::FailedVanillaEducation
-        }
-        PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu => {
-            PlayerStatus::FailedEducationVanilla
-        }
+        PlayStatusPacketStatus::Reserved4
+        | PlayStatusPacketStatus::Reserved5
+        | PlayStatusPacketStatus::Reserved6 => PlayerStatus::UnsupportedEdition,
         PlayStatusPacketStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
         PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
