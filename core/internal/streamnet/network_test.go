@@ -45,7 +45,7 @@ func TestResolveAndRoundTrip(t *testing.T) {
 			t.Fatalf("host = %q, want 127.0.0.1", host)
 		}
 	} else {
-		if network != "unix" || address != filepath.Join(dir, "game.sock") {
+		if network != "unix" || address != unixEndpointPath(dir) {
 			t.Fatalf("Resolve() = %q, %q", network, address)
 		}
 	}
@@ -127,11 +127,11 @@ func TestNetworkListenerStableIDAndCleanup(t *testing.T) {
 	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("second Close() error = %v", err)
 	}
-	name := "game.sock"
+	endpoint := unixEndpointPath(dir)
 	if runtime.GOOS == "windows" {
-		name = "game.addr"
+		endpoint = filepath.Join(dir, windowsEndpointName)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(endpoint); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("endpoint remains after Close(): %v", err)
 	}
 }
@@ -324,13 +324,12 @@ func TestEndpointLeaseSurvivesCloseAndSuccessor(t *testing.T) {
 
 func TestEndpointConstructorFailureReleasesLease(t *testing.T) {
 	dir := t.TempDir()
-	name := unixEndpointName
+	path := unixEndpointPath(dir)
 	contents := []byte("not a socket")
 	if runtime.GOOS == "windows" {
-		name = windowsEndpointName
+		path = filepath.Join(dir, windowsEndpointName)
 		contents = []byte("invalid publication")
 	}
-	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}

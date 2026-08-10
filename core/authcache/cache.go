@@ -38,7 +38,10 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	if err != nil {
 		return nil, errors.New("resolve auth cache path")
 	}
-	config.Path = filepath.Clean(path)
+	config.Path, err = canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return nil, errors.New("resolve auth cache path")
+	}
 	writer := config.Writer
 	if writer == nil {
 		writer = io.Discard
@@ -227,6 +230,10 @@ type saveHooks struct {
 }
 
 func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr error) {
+	path, err := canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return errors.New("resolve auth cache path")
+	}
 	serialized, err := serializeToken(tok)
 	if err != nil {
 		return err

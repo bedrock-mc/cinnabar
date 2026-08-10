@@ -6,10 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
 type unixEndpointIdentity struct{}
+
+func unixEndpointPath(socketDir string) string {
+	return filepath.Join(socketDir, unixEndpointName)
+}
 
 func validateSocketDirOwner(os.FileInfo) error { return nil }
 

@@ -1333,6 +1333,7 @@ dependencies = [
  "bytes",
  "futures",
  "rustix 1.1.4",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

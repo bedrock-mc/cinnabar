@@ -25,7 +25,7 @@ func Resolve(socketDir string) (network, address string, err error) {
 		return "", "", errors.New("streamnet: socket directory is empty")
 	}
 	if runtime.GOOS != "windows" {
-		address = filepath.Join(socketDir, unixEndpointName)
+		address = unixEndpointPath(socketDir)
 		if err := validateUnixEndpoint(address); err != nil {
 			return "", "", err
 		}

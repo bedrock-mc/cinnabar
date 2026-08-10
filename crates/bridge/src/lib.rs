@@ -9,6 +9,12 @@ use std::path::Path;
 pub use error::BridgeError;
 pub use framed::FramedStream;
 
+/// Returns the platform endpoint used for the logical socket directory.
+#[must_use]
+pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+    endpoint::endpoint_path(socket_dir)
+}
+
 /// Largest payload accepted by the local bridge framing protocol.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 

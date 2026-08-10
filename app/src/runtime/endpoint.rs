@@ -43,11 +43,7 @@ pub(crate) fn bridge_endpoint_exists(directory: &Path) -> bool {
 }
 
 pub(crate) fn bridge_endpoint_path(directory: &Path) -> PathBuf {
-    directory.join(if cfg!(windows) {
-        "game.addr"
-    } else {
-        "game.sock"
-    })
+    protocol::bridge_endpoint_path(directory)
 }
 
 pub(crate) fn preflight_bridge_endpoint(socket_dir: &Path) -> Result<()> {

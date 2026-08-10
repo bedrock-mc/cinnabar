@@ -3,13 +3,34 @@
 package streamnet
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 )
+
+// sockaddr_un.sun_path is 104 bytes on macOS and 108 bytes on Linux. Keep one
+// conservative limit, including room for the trailing NUL used by pathname
+// sockets, so a socket directory accepted on one desktop Unix remains usable
+// on the other.
+const maxUnixEndpointPathBytes = 103
+
+func unixEndpointPath(socketDir string) string {
+	// filepath.Clean is the cross-language contract: normalize separators and
+	// dot components lexically, without resolving anything in the filesystem,
+	// before measuring or hashing the endpoint bytes.
+	direct := filepath.Clean(filepath.Join(socketDir, unixEndpointName))
+	if len(direct) <= maxUnixEndpointPathBytes {
+		return direct
+	}
+	digest := sha256.Sum256([]byte(direct))
+	return filepath.Join("/tmp", "cinnabar-"+hex.EncodeToString(digest[:16])+".sock")
+}
 
 type unixEndpointIdentity struct {
 	device uint64
