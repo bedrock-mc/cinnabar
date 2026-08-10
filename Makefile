@@ -19,6 +19,7 @@ UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
 LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
 BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
+REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2168.json
 BLOCK_DATA_MANIFEST ?= assets/block-data-sources.json
 BLOCK_DATA_DIR ?= .local/assets/block-data
 BLOCK_DATA_SENTINEL ?= $(BLOCK_DATA_DIR)/pmmp/protocol_info.json
@@ -54,6 +55,7 @@ BLOCK_DATA_FETCH = $(GO) -C tools/registrygen run ./cmd/datafetch -manifest "$(a
 PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
 PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -coverage "$(abspath $(BLOCK_COVERAGE_MANIFEST))"
 BIOME_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -biome-out "$(abspath $(BIOME_REGISTRY))" -biome-coverage "$(abspath $(BIOME_COVERAGE_MANIFEST))"
+REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))" -expect-blocked
 WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
@@ -73,10 +75,12 @@ RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
 .PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
 help:
+	@echo make registry-foundation-check - Validate the blocked protocol-2168 registry evidence scaffold
 	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
@@ -96,6 +100,9 @@ help:
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
+
+registry-foundation-check:
+	$(REGISTRY_FOUNDATION_CHECK)
 
 vanilla-assets: $(PACK_SENTINEL)
 
