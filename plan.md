@@ -87,15 +87,14 @@ checked-in fixture `.bin` files remained byte-for-byte unchanged. The Go and pro
 suites passed, and the closure received independent approval. This establishes the pinned
 wire/tooling baseline; it is not live gameplay, native visual, or performance evidence.
 
-The local `dev` integration now also contains the independently reviewed protocol-2168
+The pushed `dev` integration now also contains the independently reviewed protocol-2168
 wire projection, retail-safe transitional registry projection, exact 87-entry biome
 projection, and protocol-2168 acceptance-harness update. The protocol crate exposes only
 the current generated version and preserves unavailable wire values as neutral reserved or
 opaque data. The acceptance harness validates the exact dependency revision and public BDS
 runtime identity, canonicalizes runtime lease paths before mutation, and keeps the existing
 content-carrier `v1001` identity distinct from the wire protocol. No native BDS or client
-acceptance run has been performed for this integration, and remote publication remains
-gated by the mandatory publication audit.
+acceptance run has been performed for this integration.
 
 The transitional block/light/physics/visual carriers remain bound to the older 16,913-state
 content corpus. Their retail projection is internally deterministic and fail-closed, but it
@@ -114,7 +113,9 @@ Current implementation state:
   ingress only; response UX and routing are not implemented.
 - Outbound combat and block-use/break/place transactions plus interactive container inventory
   are absent; receive-side crack presentation and read-only inventory state have landed.
-- First-run authentication UX is absent. Local worlds, audio, and packaging are absent.
+- Supervised first-run device-code authentication and cached-account validation have landed;
+  token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
+  evidence remain open. Local worlds, audio, and packaging are absent.
 - Live, native-comparison, and performance gates remain open. Do not infer their completion
   from deterministic tests or checked-in fixtures.
 - Content assets intentionally remain on the older pinned inputs until a coherent
@@ -127,8 +128,8 @@ Immediate execution order:
    paths; resolve the `ItemStackResponse` wire-shape divergence; replace the owned/copied
    `LevelChunk` packet view with a bounded borrowed zero-copy view; and enforce strict actor-ID
    varint decoding. Re-run conformance and adversarial decode coverage after each bounded fix.
-2. **Connectivity and authentication:** close real-server connectivity, session lifecycle,
-   device-code authentication, and first-run auth UX with explicit live evidence.
+2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
+   then validate the device-code and cached-account UX with explicit native/live evidence.
 3. **Resource packs:** negotiate, cache, validate, and apply server packs, including their
    resource-pack-driven UI contracts.
 4. **Interactions:** implement combat, breaking/placement/use transactions, item-stack
