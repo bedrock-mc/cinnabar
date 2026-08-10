@@ -294,7 +294,13 @@ mod tests {
             first,
             Path::new("/tmp/cinnabar-7b260d1b166f7db809ce8c3d8bd42d1a.sock")
         );
-        assert!(first.starts_with("/tmp/cinnabar-"));
+        assert_eq!(first.parent(), Some(Path::new("/tmp")));
+        let file_name = first
+            .file_name()
+            .expect("length-safe endpoint must have a filename")
+            .as_bytes();
+        assert!(file_name.starts_with(b"cinnabar-"));
+        assert!(file_name.ends_with(b".sock"));
         assert!(first.as_os_str().as_bytes().len() <= 103);
     }
 
