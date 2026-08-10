@@ -14,8 +14,9 @@ use semantic_input::Action;
 
 use super::physics::is_transient_collision_unavailability;
 use super::{
-    LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker, PhysicsAuthorityFault,
-    PhysicsCollisionRegistries, PhysicsSampleContext, physics_movement_input,
+    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+    MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries, PhysicsSampleContext,
+    physics_movement_input,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -28,6 +29,7 @@ pub(crate) fn advance_local_physics(
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_effects: ResMut<LocalMovementEffectTimeline>,
+    movement_speed: Res<LocalMovementSpeedAuthority>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
@@ -56,7 +58,7 @@ pub(crate) fn advance_local_physics(
     let movement = input.movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
-    let input = physics_movement_input(
+    let mut input = physics_movement_input(
         movement,
         yaw,
         active,
@@ -64,6 +66,7 @@ pub(crate) fn advance_local_physics(
         input.phase(Action::Sneak).held,
         input.phase(Action::Sprint).held,
     );
+    input.movement_speed = movement_speed.current();
     let world = sim::PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),

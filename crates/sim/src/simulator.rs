@@ -53,17 +53,9 @@ const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
 // distinguishes them. A future input model that latches sneak across start/stop
 // edges must split this field before it can claim parity on those ticks.
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Simulator {
-    movement_speed: f64,
-}
-
-impl Default for Simulator {
-    fn default() -> Self {
-        Self {
-            movement_speed: DEFAULT_MOVEMENT_SPEED,
-        }
-    }
+    _private: (),
 }
 
 impl Simulator {
@@ -97,7 +89,7 @@ impl Simulator {
             DEFAULT_AIR_FRICTION
         };
         let relative_speed = if grounded_at_start {
-            let speed = self.movement_speed
+            let speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED)
                 * if input.sprinting {
                     SPRINT_SPEED_MULTIPLIER
                 } else {

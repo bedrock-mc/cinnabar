@@ -197,6 +197,11 @@ impl WorldStream {
         self.current_dimension
     }
 
+    #[must_use]
+    pub const fn local_movement_speed(&self) -> Option<f64> {
+        self.local_movement_speed
+    }
+
     /// Packed palette store used by read-only local collision queries.
     #[must_use]
     pub const fn collision_store(&self) -> &world::ChunkStore {

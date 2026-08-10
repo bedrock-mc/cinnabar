@@ -129,6 +129,93 @@ fn flat_and_diagonal_motion_are_normalized_and_bind_world_identity() {
 }
 
 #[test]
+fn grounded_movement_uses_snapshotted_authority_and_surface_formula() {
+    let mut world = TerrainWorld::floor(Vec3::new(-16.0, 0.0, -16.0), Vec3::new(16.0, 1.0, 16.0));
+    world.facts.insert(
+        [0, 0, 0],
+        BlockPhysicsFacts {
+            friction: 0.8,
+            horizontal_speed_factor: 0.4,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: BlockPhysicsFlags::default(),
+            surface_response: SurfaceResponse::None,
+        },
+    );
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                forward: 1.0,
+                sprinting: true,
+                movement_speed: Some(0.25),
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+
+    let friction: f64 = 0.91 * 0.8;
+    let expected = 0.98 * 0.25 * 1.3 * 0.4 * 0.162_771_36 / friction.powi(3);
+    assert!((tick.movement.z - expected).abs() <= 1.0e-12, "{tick:?}");
+}
+
+#[test]
+fn zero_authority_is_valid_and_absent_authority_uses_vanilla_default() {
+    let world = TerrainWorld::floor(Vec3::new(-16.0, 0.0, -16.0), Vec3::new(16.0, 1.0, 16.0));
+    let mut zero = grounded(Vec3::new(0.0, 1.0, 0.0));
+    let zero_tick = Simulator::default()
+        .tick(
+            &mut zero,
+            MovementInput {
+                forward: 1.0,
+                movement_speed: Some(0.0),
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(zero_tick.movement.z, 0.0);
+
+    let mut absent = grounded(Vec3::new(0.0, 1.0, 0.0));
+    let default_tick = Simulator::default()
+        .tick(
+            &mut absent,
+            MovementInput {
+                forward: 1.0,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    let friction: f64 = 0.91 * 0.6;
+    let expected = 0.98 * 0.1 * 0.162_771_36 / friction.powi(3);
+    assert!((default_tick.movement.z - expected).abs() <= 1.0e-12);
+}
+
+#[test]
+fn air_speed_ignores_ground_movement_authority() {
+    let world = TerrainWorld::default();
+    for (sprinting, expected) in [(false, 0.0196), (true, 0.025_48)] {
+        let mut state = PlayerState::new(Vec3::new(0.0, 4.0, 0.0));
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    sprinting,
+                    movement_speed: Some(10.0),
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!((tick.movement.z - expected).abs() <= 1.0e-12, "{tick:?}");
+    }
+}
+
+#[test]
 fn sneaking_clips_motion_at_each_exposed_ledge_orientation() {
     for velocity in [
         Vec3::new(0.8, 0.0, 0.0),
@@ -239,6 +326,7 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
                         jump_pressed: true,
                         sprinting: true,
                         sneaking: true,
+                        movement_speed: None,
                         effects: sim::MovementEffects::default(),
                     };
                     assert!(matches!(

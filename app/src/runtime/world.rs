@@ -45,8 +45,9 @@ use crate::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
     },
     movement::{
-        LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
-        PhysicsCollisionRegistries, PhysicsCorrectionMode, reconcile_candidate_physics_correction,
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
+        reconcile_candidate_physics_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -236,6 +237,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) movement: ResMut<'w, MovementTicker>,
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
     pub(crate) movement_effects: ResMut<'w, LocalMovementEffectTimeline>,
+    pub(crate) movement_speed: ResMut<'w, LocalMovementSpeedAuthority>,
     pub(crate) collisions: Res<'w, PhysicsCollisionRegistries>,
     pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
@@ -329,6 +331,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut movement,
         mut local_physics,
         mut movement_effects,
+        mut movement_speed,
         collisions,
         time,
         ..
@@ -365,6 +368,15 @@ pub(crate) fn reconcile_world_stream_before_physics(
     for control in controls {
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
             movement_effects.apply(clock.session_generation(), sequence, event);
+            continue;
+        }
+        if let CommittedControlEvent::LocalMovementSpeed {
+            sequence,
+            dimension,
+            current,
+        } = control
+        {
+            movement_speed.apply(clock.session_generation(), sequence, dimension, current);
             continue;
         }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
@@ -455,6 +467,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 LocalPlayerFrameReset::Correction
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                movement_speed
+                    .replace_dimension(clock.session_generation(), stream.current_dimension());
                 phase3_evidence.note_event(Phase3EvidenceEventKind::Dimension);
                 if movement.physics_is_authorized() {
                     let world = sim::PaletteWorld::new(
@@ -526,7 +540,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
             CommittedControlEvent::SetTime { .. }
             | CommittedControlEvent::DaylightCycle { .. }
             | CommittedControlEvent::Weather { .. }
-            | CommittedControlEvent::LocalMovementEffect { .. } => {
+            | CommittedControlEvent::LocalMovementEffect { .. }
+            | CommittedControlEvent::LocalMovementSpeed { .. } => {
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
@@ -969,7 +984,8 @@ pub(crate) fn apply_committed_control(
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::Weather { .. }
-        | CommittedControlEvent::LocalMovementEffect { .. } => return,
+        | CommittedControlEvent::LocalMovementEffect { .. }
+        | CommittedControlEvent::LocalMovementSpeed { .. } => return,
     };
     view.set_eye_translation(Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;

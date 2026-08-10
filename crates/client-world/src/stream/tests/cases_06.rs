@@ -187,6 +187,116 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
     assert!(stream.take_committed_ui().is_empty());
 }
 
+fn movement_attribute(current: f32) -> ActorAttribute {
+    ActorAttribute {
+        name: Arc::from("minecraft:movement"),
+        min: 0.0,
+        max: 1024.0,
+        current,
+        default: Some(0.1),
+        modifiers: Arc::from([]),
+    }
+}
+
+#[test]
+fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 42,
+                attributes: Arc::from([movement_attribute(0.0)]),
+                tick: 2,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), None);
+
+    stream
+        .submit(1, WorldEvent::SetTime(SetTimeEvent { time: 0 }))
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), Some(0.0));
+    assert!(matches!(
+        stream.take_committed_controls().as_slice(),
+        [
+            CommittedControlEvent::SetTime { sequence: 1, .. },
+            CommittedControlEvent::LocalMovementSpeed {
+                sequence: 2,
+                dimension: 0,
+                current: 0.0
+            }
+        ]
+    ));
+}
+
+#[test]
+fn movement_authority_skips_wrong_actor_dimension_and_invalid_values_then_clears_on_transfer() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, dimension, runtime_id, current) in [
+        (1, 0, 42, 0.25),
+        (2, 0, 7, 0.5),
+        (3, 1, 42, 0.75),
+        (4, 0, 42, -1.0),
+        (5, 0, 42, f32::NAN),
+        (6, 0, 42, f32::INFINITY),
+    ] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension,
+                    runtime_id,
+                    attributes: Arc::from([movement_attribute(current)]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+    }
+    assert_eq!(stream.local_movement_speed(), Some(0.25));
+
+    stream
+        .submit(
+            7,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 42,
+                attributes: Arc::from([movement_attribute(0.3), movement_attribute(-1.0)]),
+                tick: 7,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), Some(f64::from(0.3_f32)));
+
+    stream
+        .submit(
+            8,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+            }),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), None);
+}
+
 #[test]
 fn local_effect_commits_to_movement_control_and_ui_together() {
     let mut stream = WorldStream::new(WorldBootstrap {

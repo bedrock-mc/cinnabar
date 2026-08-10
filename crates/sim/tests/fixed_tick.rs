@@ -235,6 +235,23 @@ fn non_finite_state_and_input_are_rejected_transactionally_before_world_access()
         ));
         assert_eq!(state, before);
     }
+
+    for movement_speed in [f64::NAN, f64::INFINITY, -0.01] {
+        let mut state = initial.clone();
+        let before = state.clone();
+        assert_eq!(
+            simulator.tick(
+                &mut state,
+                MovementInput {
+                    movement_speed: Some(movement_speed),
+                    ..MovementInput::default()
+                },
+                &PanicWorld,
+            ),
+            Err(SimulationError::InvalidMovementSpeed)
+        );
+        assert_eq!(state, before);
+    }
 }
 
 #[test]

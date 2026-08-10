@@ -58,8 +58,8 @@ use crate::{
     },
     metrics::MetricsCollector,
     movement::{
-        LocalMovementEffectTimeline, LocalPhysicsController, PhysicsAuthorityGate,
-        PhysicsCollisionRegistries, advance_local_physics,
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
@@ -523,6 +523,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ))
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())
+        .insert_resource(LocalMovementSpeedAuthority::default())
         .insert_resource(collision_registries)
         .insert_resource(actor_render_scene)
         .insert_resource(AtmosphereFrame::default())
