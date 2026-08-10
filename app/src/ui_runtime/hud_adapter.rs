@@ -21,20 +21,29 @@ pub(super) fn attribute_stat(attribute: &ActorAttribute) -> Option<BoundedStat> 
 }
 
 pub(super) fn player_status(status: PlayerStatus) -> HudPlayerStatus {
-    let ordinal = status as u8;
     match status {
         PlayerStatus::LoginSuccess => HudPlayerStatus::LoginSuccess,
         PlayerStatus::FailedClient => HudPlayerStatus::FailedClient,
         PlayerStatus::FailedSpawn => HudPlayerStatus::FailedSpawn,
         PlayerStatus::PlayerSpawn => HudPlayerStatus::PlayerSpawn,
+        PlayerStatus::UnsupportedEdition => HudPlayerStatus::UnsupportedEdition,
         PlayerStatus::FailedServerFull => HudPlayerStatus::FailedServerFull,
         PlayerStatus::FailedEditorVanillaMismatch => HudPlayerStatus::FailedEditorVanillaMismatch,
         PlayerStatus::FailedVanillaEditorMismatch => HudPlayerStatus::FailedVanillaEditorMismatch,
-        _ => match ordinal {
-            4 => HudPlayerStatus::Reserved4,
-            5 => HudPlayerStatus::Reserved5,
-            6 => HudPlayerStatus::Reserved6,
-            _ => unreachable!("all public player-status variants are matched"),
-        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::player_status;
+    use protocol::PlayerStatus;
+    use ui::HudPlayerStatus;
+
+    #[test]
+    fn unsupported_edition_status_stays_semantic_at_the_hud_boundary() {
+        assert_eq!(
+            player_status(PlayerStatus::UnsupportedEdition),
+            HudPlayerStatus::UnsupportedEdition
+        );
     }
 }
