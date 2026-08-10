@@ -3,6 +3,7 @@ pub mod asset_startup;
 pub mod camera;
 mod environment;
 mod hotbar;
+mod install_layout;
 pub mod local_player;
 mod menu;
 pub mod metrics;

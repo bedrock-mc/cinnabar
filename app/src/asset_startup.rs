@@ -523,6 +523,15 @@ pub fn select_asset_path(
     command_line: Option<&Path>,
     environment: Option<OsString>,
 ) -> AssetSelection {
+    select_asset_path_with_default(command_line, environment, Path::new(DEFAULT_ASSET_PATH))
+}
+
+#[must_use]
+pub fn select_asset_path_with_default(
+    command_line: Option<&Path>,
+    environment: Option<OsString>,
+    default_path: &Path,
+) -> AssetSelection {
     if let Some(path) = command_line {
         return AssetSelection {
             path: path.to_owned(),
@@ -536,7 +545,7 @@ pub fn select_asset_path(
         };
     }
     AssetSelection {
-        path: PathBuf::from(DEFAULT_ASSET_PATH),
+        path: default_path.to_owned(),
         source: AssetPathSource::Default,
     }
 }
@@ -570,14 +579,14 @@ pub fn select_asset_path_in_context(
 }
 
 #[must_use]
-pub fn select_asset_path_from_environment(command_line: Option<&Path>) -> AssetSelection {
-    let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let executable = std::env::current_exe().unwrap_or_default();
-    select_asset_path_in_context(
+pub fn select_asset_path_from_environment(
+    command_line: Option<&Path>,
+    default_path: &Path,
+) -> AssetSelection {
+    select_asset_path_with_default(
         command_line,
         std::env::var_os(ASSET_PATH_ENVIRONMENT),
-        &current_directory,
-        &executable,
+        default_path,
     )
 }
 

@@ -15,6 +15,7 @@ members = [
     "tools/visualcoverage",
     "tools/architecture",
     "tools/devtool",
+    "tools/dist",
     "tools/phase2-evidence",
 ]
 resolver = "3"
