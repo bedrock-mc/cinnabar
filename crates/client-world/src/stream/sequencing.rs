@@ -499,6 +499,7 @@ impl WorldStream {
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
+                self.local_movement_speed = None;
                 self.publish_local_mount_change(sequence, previous_mount);
                 let resolved = resolve_server_position(
                     change.position,
@@ -628,6 +629,21 @@ impl WorldStream {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
+                    if let Some(current) = update
+                        .attributes
+                        .iter()
+                        .rev()
+                        .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
+                        .map(|attribute| f64::from(attribute.current))
+                        .find(|current| current.is_finite() && *current >= 0.0)
+                    {
+                        self.local_movement_speed = Some(current);
+                        self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
+                            sequence,
+                            dimension: update.dimension,
+                            current,
+                        });
+                    }
                 }
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id

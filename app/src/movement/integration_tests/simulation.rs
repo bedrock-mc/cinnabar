@@ -40,6 +40,35 @@ fn local_physics_and_interpolation_are_equivalent_at_30_60_and_144_hz() {
 }
 
 #[test]
+fn multi_tick_frames_snapshot_the_authority_present_at_the_frame_boundary() {
+    let mut batched = LocalPhysicsController::default();
+    let mut split = LocalPhysicsController::default();
+    for physics in [&mut batched, &mut split] {
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    }
+    let slower = MovementInput {
+        forward: 1.0,
+        movement_speed: Some(0.2),
+        ..MovementInput::default()
+    };
+    let faster = MovementInput {
+        forward: 1.0,
+        movement_speed: Some(0.4),
+        ..MovementInput::default()
+    };
+
+    let frame = batched.advance(Duration::from_millis(100), slower, &Floor);
+    assert_eq!(frame.completed_ticks, 2);
+    split.advance(Duration::from_millis(50), slower, &Floor);
+    split.advance(Duration::from_millis(50), slower, &Floor);
+    assert_eq!(batched.state(), split.state());
+
+    batched.advance(Duration::from_millis(50), faster, &Floor);
+    split.advance(Duration::from_millis(50), faster, &Floor);
+    assert_eq!(batched.state(), split.state());
+}
+
+#[test]
 fn perspective_changes_leave_physics_history_and_outbox_unchanged() {
     let physics = physics_after_one_second(60);
     let expected_state = physics.state().unwrap().clone();

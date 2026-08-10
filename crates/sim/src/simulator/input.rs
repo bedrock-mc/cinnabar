@@ -12,6 +12,10 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Server-authoritative `minecraft:movement` current value captured for
+    /// this fixed tick. Absence selects the vanilla default; zero is valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "MovementEffects::is_empty")]
     pub effects: MovementEffects,
 }
@@ -25,6 +29,12 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteInput { field });
         }
+    }
+    if input
+        .movement_speed
+        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err(SimulationError::InvalidMovementSpeed);
     }
     Ok(())
 }

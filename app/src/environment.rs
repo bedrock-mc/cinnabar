@@ -185,7 +185,8 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::PlayerMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::Respawn { .. }
-        | CommittedControlEvent::LocalMovementEffect { .. } => false,
+        | CommittedControlEvent::LocalMovementEffect { .. }
+        | CommittedControlEvent::LocalMovementSpeed { .. } => false,
     }
 }
 

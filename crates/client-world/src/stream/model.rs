@@ -338,6 +338,12 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
+    /// Valid current `minecraft:movement` authority for local prediction.
+    LocalMovementSpeed {
+        sequence: u64,
+        dimension: i32,
+        current: f64,
+    },
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,

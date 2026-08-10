@@ -552,6 +552,10 @@ fn simulation_error_detail(error: &sim::SimulationError) -> serde_json::Value {
             "field": field,
             "message": error.to_string(),
         }),
+        sim::SimulationError::InvalidMovementSpeed => serde_json::json!({
+            "kind": "invalid_movement_speed",
+            "message": error.to_string(),
+        }),
         sim::SimulationError::World(world_error) => serde_json::json!({
             "kind": "world",
             "message": world_error.to_string(),

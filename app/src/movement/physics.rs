@@ -65,6 +65,7 @@ pub fn physics_movement_input(
         jump_pressed: false,
         sprinting,
         sneaking,
+        movement_speed: None,
         effects: sim::MovementEffects::default(),
     }
 }
