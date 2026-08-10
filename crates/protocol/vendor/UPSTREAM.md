@@ -33,8 +33,8 @@ Pinned conformance fixtures under `crates/protocol/tests` cover these shapes.
 
 Wire behaviour and byte fixtures use the project pin
 `hashimthearab/gophertunnel` commit
-`56a0f77dbbb2fb006b081ec38bb4bedf9cb95088` (`cinnabar`, module pseudo-version
-`v1.25.3-0.20260807205305-56a0f77dbbb2`, Minecraft 1.26.40 / protocol 2168).
+`0f3bd7e6f748ca972da664130af63244d625a6b8` (`cinnabar`, module pseudo-version
+`v1.25.3-0.20260810160123-0f3bd7e6f748`, Minecraft 1.26.40 / protocol 2168).
 
 ## Generated-code caveats
 
