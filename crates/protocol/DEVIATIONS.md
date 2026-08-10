@@ -10,7 +10,7 @@ protocol documentation was not needed to distinguish these cases because the
 pinned encoder/decoder and live bytes agreed exactly.
 
 The Go core and `crates/protocol/fixtures` have since moved to gophertunnel
-`0f3bd7e6f748ca972da664130af63244d625a6b8` (Bedrock 1.26.40 / protocol 2168).
+`c31450ff6e54b163acd72a95583ccaa71c001e6b` (Bedrock 1.26.40 / protocol 2168).
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
 generation of those fixtures. `available_commands.bin` and
 `available_commands_live_356513.bin` are byte-identical across the bump.
@@ -146,7 +146,7 @@ StartGame until packet 76 is decoded and then asserts zero decode errors.
 ## Protocol-2168 wire corrections
 
 The following generated corrections target Bedrock 1.26.40 / protocol 2168 and
-the pinned gophertunnel commit `0f3bd7e6f748ca972da664130af63244d625a6b8`.
+the pinned gophertunnel commit `c31450ff6e54b163acd72a95583ccaa71c001e6b`.
 
 ### Redactable strings are two adjacent strings
 

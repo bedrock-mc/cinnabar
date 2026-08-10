@@ -26,8 +26,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$ExpectedGophertunnelCommit = '0f3bd7e6f748ca972da664130af63244d625a6b8'
-$ExpectedGophertunnelVersion = 'v1.25.3-0.20260810160123-0f3bd7e6f748'
+$ExpectedGophertunnelCommit = 'c31450ff6e54b163acd72a95583ccaa71c001e6b'
+$ExpectedGophertunnelVersion = 'v1.25.3-0.20260810220748-c31450ff6e54'
 $ExpectedBdsSha256 = 'e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
 $ExpectedBdsRelease = '1.26.40.8'
 $PinnedValentineForkCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
