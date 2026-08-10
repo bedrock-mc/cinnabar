@@ -106,6 +106,7 @@ pub fn decode_batch(
         let mut frame = frame_start.slice(..length_prefix + declared);
         bytes.advance(declared);
         validate_raw_ui_frame(&frame)?;
+        validate_raw_audio_frame(&frame)?;
         let (header, data) =
             McpePacketData::decode_inner(&mut frame, jolyne::valentine::packet_args(session))?;
         if frame.has_remaining() {
@@ -116,6 +117,30 @@ pub fn decode_batch(
         packets.push(Packet::new(header, data));
     }
     Ok(packets)
+}
+
+fn validate_raw_audio_frame(frame: &Bytes) -> Result<(), ProtocolError> {
+    let mut probe = frame.clone();
+    let _declared = wire::read_var_u32(&mut probe)?;
+    let header = wire::read_var_u32(&mut probe)?;
+    let packet_id = header & 0x3ff;
+    if !matches!(
+        packet_id,
+        id if id == McpePacketName::PlaySoundPacket as u32
+            || id == McpePacketName::StopSoundPacket as u32
+            || id == McpePacketName::LevelSoundEventPacket as u32
+    ) {
+        return Ok(());
+    }
+    let mut borrowed_frame = frame.clone();
+    let packet = BorrowedMcpePacket::decode_inner(&mut borrowed_frame)?;
+    if borrowed_frame.has_remaining() {
+        return Err(ProtocolError::TrailingPacketBytes {
+            remaining: borrowed_frame.remaining(),
+        });
+    }
+    crate::audio::validate_borrowed_audio_packet(&packet.data)?;
+    Ok(())
 }
 
 pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> {

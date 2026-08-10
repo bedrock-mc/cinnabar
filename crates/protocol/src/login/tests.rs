@@ -75,10 +75,80 @@ use valentine::bedrock::version::v1_26_40::{
     CorrectPlayerMovePredictionPacket, GameRule, GameRuleRuleValue, GameRulesChangedPacket,
     GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MobEquipmentPacket,
-    MovePlayerPacket, PlayerInputTick, RespawnPacket, RespawnPacketState, SetTimePacket,
-    TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
+    MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket, RespawnPacketState,
+    SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
     TextPacketPayloadMessageOnlyMessageType, UpdateBlockPacket, Vec2, Vec3,
 };
+
+#[test]
+fn all_named_audio_packets_are_allowlisted_for_raw_world_ingress() {
+    let session = BedrockSession { shield_item_id: 0 };
+    for fixture in [
+        include_bytes!("../../fixtures/play_sound.bin").as_slice(),
+        include_bytes!("../../fixtures/stop_sound.bin").as_slice(),
+        include_bytes!("../../fixtures/level_sound_event.bin").as_slice(),
+    ] {
+        let mut batch = Bytes::copy_from_slice(fixture);
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw audio fixture");
+        let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
+            .expect("audio wire decode")
+            .expect("allowlisted audio event");
+        assert!(matches!(event, WorldEvent::Audio(_)));
+    }
+}
+
+#[test]
+fn audio_semantic_rejections_do_not_reach_the_allocating_decoder() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = PlaySoundPacket {
+        name: "x".repeat(crate::MAX_AUDIO_IDENTIFIER_BYTES + 1),
+        volume: 1.0,
+        pitch: 1.0,
+        ..Default::default()
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode overlong semantic packet");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw overlong packet");
+    let decoder_called = Cell::new(false);
+    let error = decode_world_raw_with(raw, 0, |_| {
+        decoder_called.set(true);
+        unreachable!("borrowed allocation preflight must reject first")
+    })
+    .expect_err("overlong identifier is semantically unusable");
+    assert!(!decoder_called.get());
+    assert!(matches!(
+        error,
+        ProtocolError::World(crate::WorldPacketError::AudioIdentifierTooLong { .. })
+    ));
+
+    let packet: Packet = PlaySoundPacket {
+        name: String::new(),
+        volume: f32::NAN,
+        pitch: 1.0,
+        ..Default::default()
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode non-finite semantic packet");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw non-finite packet");
+    assert!(matches!(
+        decode_world_raw_with(raw, 0, |raw| raw.decode(&session)),
+        Err(ProtocolError::World(
+            crate::WorldPacketError::NonFiniteAudioField { .. }
+        ))
+    ));
+}
+
+#[test]
+fn truncated_audio_wire_remains_fatal() {
+    let raw = raw_packet(McpePacketName::PlaySoundPacket, &[2, b'x']);
+    assert!(matches!(
+        decode_world_raw_with(raw, 0, |_| unreachable!("truncated borrowed decode")),
+        Err(ProtocolError::Session(_))
+    ));
+}
 
 /// Builds a cache-enabled LevelChunk carrying exactly the given blob hashes.
 ///

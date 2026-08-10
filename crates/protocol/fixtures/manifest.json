@@ -189,5 +189,32 @@
     "id": 47,
     "byte_length": 7,
     "sha256": "5747ae7ca8ae13dbfe947387e6c039f26eb37791ec426740b4a63607daa2c556"
+  },
+  {
+    "name": "PlaySound",
+    "file": "play_sound.bin",
+    "id": 86,
+    "byte_length": 42,
+    "sha256": "bd520f81c922522d8dcf728c0b9865b725539ac65d2777f82fd8894b8f04c96e",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+  },
+  {
+    "name": "StopSound",
+    "file": "stop_sound.bin",
+    "id": 87,
+    "byte_length": 7,
+    "sha256": "b76e0abd94c65e6cd2a11510aefecaa6be85ef42716128a50ce69845b7aea7ea",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+  },
+  {
+    "name": "LevelSoundEvent",
+    "file": "level_sound_event.bin",
+    "id": 123,
+    "byte_length": 65,
+    "sha256": "dab6026965440281c5e7456a297d6ef2015411a4b40371631b9c042567560cec",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
   }
 ]

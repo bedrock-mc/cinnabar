@@ -20,12 +20,12 @@ use assets::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;
 use protocol::{
-    ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
-    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
-    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
+    ActorAttribute, ActorEvent, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
+    BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
+    DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
+    PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
@@ -99,6 +99,7 @@ static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -210,10 +211,10 @@ use model::{
 };
 
 pub use model::{
-    CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState,
-    PendingSubChunkRequest, PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange,
-    WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+    CommittedAudioEvent, CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest,
+    ForcedRemeshManifestState, PendingSubChunkRequest, PublisherViewGeometry, ViewCohort,
+    ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
@@ -297,6 +298,7 @@ pub struct WorldStream {
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
     local_movement_speed: Option<f64>,
+    committed_audio: VecDeque<CommittedAudioEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,

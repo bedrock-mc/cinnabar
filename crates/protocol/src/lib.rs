@@ -1,6 +1,7 @@
 //! Bedrock 1.26.40 (protocol 2168) packet definitions and codec.
 
 mod actor;
+mod audio;
 mod blob_cache;
 mod codec;
 mod interaction;
@@ -24,6 +25,9 @@ pub use actor::{
     MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
     MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE, PlayerListEntry,
     PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+};
+pub use audio::{
+    AudioEvent, LevelAudioEvent, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent, StopAudioEvent,
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,

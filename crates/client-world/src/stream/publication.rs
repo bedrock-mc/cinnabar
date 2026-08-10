@@ -88,6 +88,9 @@ impl WorldStream {
     pub fn take_committed_ui(&mut self) -> Vec<CommittedUiEvent> {
         self.committed_ui.drain(..).collect()
     }
+    pub fn take_committed_audio(&mut self) -> Vec<CommittedAudioEvent> {
+        self.committed_audio.drain(..).collect()
+    }
     pub fn take_fatal_error(&mut self) -> Option<WorldStreamFatalError> {
         self.fatal_error.take()
     }
@@ -182,6 +185,7 @@ impl WorldStream {
             terminal_light_failures: self.light_failures.len(),
             admitted_world_events: self.submitted.len(),
             admitted_heavy_events: self.heavy_sequences.len(),
+            committed_audio_events: self.committed_audio.len(),
             queued_decode_jobs: self.pending_decode.len(),
             in_flight_decode_jobs: self.in_flight_decode_jobs,
             completed_decode_results,

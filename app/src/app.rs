@@ -145,7 +145,8 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
-    app.init_resource::<WorldStreamFramePoll>()
+    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+        .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
         .add_systems(
             Update,
