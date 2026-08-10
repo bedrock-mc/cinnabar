@@ -14,8 +14,8 @@ use semantic_input::Action;
 
 use super::physics::is_transient_collision_unavailability;
 use super::{
-    LocalPhysicsController, MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries,
-    PhysicsSampleContext, physics_movement_input,
+    LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker, PhysicsAuthorityFault,
+    PhysicsCollisionRegistries, PhysicsSampleContext, physics_movement_input,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -27,6 +27,7 @@ pub(crate) fn advance_local_physics(
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
+    mut movement_effects: ResMut<LocalMovementEffectTimeline>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
@@ -68,7 +69,7 @@ pub(crate) fn advance_local_physics(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let frame = physics.advance_with_context(
+    let frame = physics.advance_with_context_and_effects(
         time.delta(),
         input,
         PhysicsSampleContext {
@@ -78,6 +79,7 @@ pub(crate) fn advance_local_physics(
             input_mode,
         },
         &world,
+        &mut *movement_effects,
     );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
     let authority_fault = physics_authority_fault_for_frame(&frame);

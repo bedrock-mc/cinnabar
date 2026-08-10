@@ -14,7 +14,8 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. } => return false,
+        | CommittedControlEvent::Weather { .. }
+        | CommittedControlEvent::LocalMovementEffect { .. } => return false,
     };
     acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))
 }

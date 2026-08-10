@@ -268,6 +268,7 @@ pub(crate) fn receive_network_events(
         mut weather,
         mut movement,
         mut local_physics,
+        mut movement_effects,
         collisions,
         mut ui_runtime,
         time,
@@ -318,6 +319,7 @@ pub(crate) fn receive_network_events(
                     time.elapsed_secs_f64(),
                 );
                 ui_runtime.begin_session(session_generation);
+                movement_effects.begin_session(session_generation);
                 let protocol::InventoryEvent::Authority(authority) = inventory else {
                     record_fatal_error(
                         &mut client_world.fatal_error,

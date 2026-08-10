@@ -650,6 +650,10 @@ impl WorldStream {
                 if event.actor_runtime_id == self.local_player_runtime_id
                     && event.dimension == self.current_dimension
                 {
+                    self.push_committed_control(CommittedControlEvent::LocalMovementEffect {
+                        sequence,
+                        event,
+                    });
                     self.push_committed_ui(CommittedUiEvent::LocalEffect { sequence, event });
                 }
                 // Remote actors' effects have no owned presentation surface yet;
