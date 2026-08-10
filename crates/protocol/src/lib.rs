@@ -3,6 +3,7 @@
 mod actor;
 mod blob_cache;
 mod codec;
+mod interaction;
 mod inventory;
 mod item;
 mod login;
@@ -34,6 +35,7 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use interaction::{BlockUsePacketError, BlockUseRequest, click_block_packet};
 pub use inventory::{
     ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
     InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,

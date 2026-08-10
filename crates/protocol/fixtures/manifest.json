@@ -140,5 +140,26 @@
     "id": 148,
     "byte_length": 46,
     "sha256": "7104be672f27e9fadef58f2500138162b7e41b5c204b363d8df9d681964fde0d"
+  },
+  {
+    "name": "InventoryTransactionClickBlock",
+    "file": "inventory_transaction_click_block.bin",
+    "id": 30,
+    "byte_length": 85,
+    "sha256": "481b1e60edeeaf0c9c60b223e610a73886daacda11bf596aba03317fa8292f91"
+  },
+  {
+    "name": "InventoryTransactionClickBlockEmptyHand",
+    "file": "inventory_transaction_click_block_empty_hand.bin",
+    "id": 30,
+    "byte_length": 56,
+    "sha256": "3bd736915819b4881fd040e3b712d552700c838f321194d4c37510c93d9c0695"
+  },
+  {
+    "name": "ContainerClose",
+    "file": "container_close.bin",
+    "id": 47,
+    "byte_length": 7,
+    "sha256": "5747ae7ca8ae13dbfe947387e6c039f26eb37791ec426740b4a63607daa2c556"
   }
 ]

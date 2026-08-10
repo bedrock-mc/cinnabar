@@ -384,6 +384,53 @@ func fixtures() []fixture {
 				},
 			},
 		},
+		{
+			name: "InventoryTransactionClickBlock",
+			file: "inventory_transaction_click_block.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemTransactionData{
+					ActionType:          protocol.UseItemActionClickBlock,
+					TriggerType:         protocol.TriggerTypePlayerInput,
+					BlockPosition:       protocol.BlockPos{13, 71, -29},
+					BlockFace:           5,
+					HotBarSlot:          7,
+					HeldItem:            inventoryItem(5, 2, 11),
+					Position:            mgl32.Vec3{13.25, 72.625, -28.75},
+					ClickedPosition:     mgl32.Vec3{0.125, 0.875, 0.625},
+					BlockRuntimeID:      123_456,
+					ClientPrediction:    protocol.ClientPredictionFailure,
+					ClientCooldownState: protocol.ClientCooldownStateOff,
+				},
+			},
+		},
+		{
+			name: "InventoryTransactionClickBlockEmptyHand",
+			file: "inventory_transaction_click_block_empty_hand.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemTransactionData{
+					ActionType:          protocol.UseItemActionClickBlock,
+					TriggerType:         protocol.TriggerTypePlayerInput,
+					BlockPosition:       protocol.BlockPos{-8, 63, 21},
+					BlockFace:           0,
+					HotBarSlot:          0,
+					HeldItem:            protocol.ItemInstance{},
+					Position:            mgl32.Vec3{-7.75, 64.5, 21.875},
+					ClickedPosition:     mgl32.Vec3{0.75, 0.25, 0.5},
+					BlockRuntimeID:      ^uint32(0),
+					ClientPrediction:    protocol.ClientPredictionFailure,
+					ClientCooldownState: protocol.ClientCooldownStateOff,
+				},
+			},
+		},
+		{
+			name: "ContainerClose",
+			file: "container_close.bin",
+			pk: &packet.ContainerClose{
+				WindowID:      5,
+				ContainerType: 0,
+				ServerSide:    false,
+			},
+		},
 	}
 }
 

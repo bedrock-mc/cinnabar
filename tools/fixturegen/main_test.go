@@ -10,7 +10,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 type testManifestEntry struct {
@@ -21,6 +23,94 @@ type testManifestEntry struct {
 	SHA256        string `json:"sha256"`
 	WireAuthority string `json:"wire_authority,omitempty"`
 	WireCommit    string `json:"wire_commit,omitempty"`
+}
+
+func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
+	out := t.TempDir()
+	if err := generate(out); err != nil {
+		t.Fatalf("generate corpus: %v", err)
+	}
+
+	filled := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_click_block.bin"))
+	assertClickBlockTransaction(t, filled, protocol.BlockPos{13, 71, -29}, 5, 7,
+		mgl32.Vec3{13.25, 72.625, -28.75}, mgl32.Vec3{0.125, 0.875, 0.625}, 123_456)
+	filledData := filled.TransactionData.(*protocol.UseItemTransactionData)
+	if filledData.HeldItem.Stack.NetworkID != 5 || filledData.HeldItem.Stack.Count != 2 || filledData.HeldItem.StackNetworkID != 11 {
+		t.Fatalf("filled held item = %+v, want network=5 count=2 stack=11", filledData.HeldItem)
+	}
+
+	empty := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_click_block_empty_hand.bin"))
+	assertClickBlockTransaction(t, empty, protocol.BlockPos{-8, 63, 21}, 0, 0,
+		mgl32.Vec3{-7.75, 64.5, 21.875}, mgl32.Vec3{0.75, 0.25, 0.5}, ^uint32(0))
+	emptyData := empty.TransactionData.(*protocol.UseItemTransactionData)
+	if emptyData.HeldItem.Stack.NetworkID != 0 || emptyData.HeldItem.Stack.Count != 0 || emptyData.HeldItem.StackNetworkID != 0 {
+		t.Fatalf("empty held item = %+v, want canonical empty item", emptyData.HeldItem)
+	}
+
+	closed := decodeClientPacket(t, filepath.Join(out, "container_close.bin"))
+	closePacket, ok := closed.(*packet.ContainerClose)
+	if !ok {
+		t.Fatalf("container close decoded as %T", closed)
+	}
+	if closePacket.WindowID != 5 || closePacket.ContainerType != 0 || closePacket.ServerSide {
+		t.Fatalf("container close = %+v, want client close for window 5/type 0", closePacket)
+	}
+}
+
+func decodeClientFixture(t *testing.T, path string) *packet.InventoryTransaction {
+	t.Helper()
+	decoded := decodeClientPacket(t, path)
+	transaction, ok := decoded.(*packet.InventoryTransaction)
+	if !ok {
+		t.Fatalf("inventory transaction decoded as %T", decoded)
+	}
+	return transaction
+}
+
+func decodeClientPacket(t *testing.T, path string) packet.Packet {
+	t.Helper()
+	raw := readFile(t, path)
+	entries, err := packet.NewDecoder(bytes.NewReader(raw)).Decode()
+	if err != nil {
+		t.Fatalf("decode raw batch %s: %v", filepath.Base(path), err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("%s entries = %d, want 1", filepath.Base(path), len(entries))
+	}
+	body := bytes.NewBuffer(entries[0])
+	var header packet.Header
+	if err := header.Read(body); err != nil {
+		t.Fatalf("decode %s header: %v", filepath.Base(path), err)
+	}
+	constructor, ok := packet.NewClientPool()[header.PacketID]
+	if !ok {
+		t.Fatalf("packet %d is absent from client pool", header.PacketID)
+	}
+	decoded := constructor()
+	decoded.Marshal(protocol.NewReader(body, 0, true))
+	if body.Len() != 0 {
+		t.Fatalf("%s leaves %d trailing bytes", filepath.Base(path), body.Len())
+	}
+	return decoded
+}
+
+func assertClickBlockTransaction(t *testing.T, transaction *packet.InventoryTransaction, block protocol.BlockPos,
+	face, slot int32, player, click mgl32.Vec3, runtimeID uint32) {
+	t.Helper()
+	if transaction.LegacyRequestID != 0 || len(transaction.LegacySetItemSlots) != 0 || len(transaction.Actions) != 0 {
+		t.Fatalf("legacy/actions = (%d, %d, %d), want all empty", transaction.LegacyRequestID,
+			len(transaction.LegacySetItemSlots), len(transaction.Actions))
+	}
+	data, ok := transaction.TransactionData.(*protocol.UseItemTransactionData)
+	if !ok {
+		t.Fatalf("transaction data = %T, want use-item", transaction.TransactionData)
+	}
+	if data.ActionType != protocol.UseItemActionClickBlock || data.TriggerType != protocol.TriggerTypePlayerInput ||
+		data.BlockPosition != block || data.BlockFace != face || data.HotBarSlot != slot || data.Position != player ||
+		data.ClickedPosition != click || data.BlockRuntimeID != runtimeID ||
+		data.ClientPrediction != protocol.ClientPredictionFailure || data.ClientCooldownState != protocol.ClientCooldownStateOff {
+		t.Fatalf("click-block data = %+v", data)
+	}
 }
 
 func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
@@ -67,8 +157,11 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"InventorySlot",
 		"PlayerHotBar",
 		"ItemStackResponse",
+		"InventoryTransactionClickBlock",
+		"InventoryTransactionClickBlockEmptyHand",
+		"ContainerClose",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 47}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -90,6 +183,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0xb2, 0x48},
 		{0xb0, 0x48},
 		{0x94, 0x49},
+		{0x9e, 0x48},
+		{0x9e, 0x48},
+		{0xaf, 0x48},
 	}
 	if len(manifest) != len(wantNames) {
 		t.Fatalf("manifest entries = %d, want %d", len(manifest), len(wantNames))
