@@ -29,6 +29,11 @@ pub enum LayoutError {
     MissingUserHome { platform: &'static str },
     #[error("LOCALAPPDATA is unavailable for the Windows installed layout")]
     MissingLocalAppData,
+    #[error("{variable} must be an absolute path for the {platform} installed layout")]
+    InvalidUserRoot {
+        variable: &'static str,
+        platform: &'static str,
+    },
     #[error("Linux executable is not inside a supported <prefix>/bin layout: `{0}`")]
     InvalidLinuxLayout(PathBuf),
     #[error("macOS executable is not inside <name>.app/Contents/MacOS: `{0}`")]
@@ -44,6 +49,7 @@ pub struct InstallLayout {
     pub user_config_root: PathBuf,
     pub user_data_root: PathBuf,
     pub runtime_root: PathBuf,
+    transient_runtime_root: PathBuf,
 }
 
 impl InstallLayout {
@@ -63,7 +69,8 @@ impl InstallLayout {
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: local.join("cinnabar"),
                 user_data_root: local.clone(),
-                runtime_root: local.join("cinnabar/run"),
+                runtime_root: local.join("run"),
+                transient_runtime_root: local.join("cinnabar"),
             });
         }
 
@@ -118,6 +125,7 @@ impl InstallLayout {
             core_executable,
             user_config_root,
             user_data_root,
+            transient_runtime_root: runtime_root.clone(),
             runtime_root,
         })
     }
@@ -155,13 +163,20 @@ impl InstallLayout {
 
     #[must_use]
     pub fn catalog_file(&self, process_id: u32) -> PathBuf {
-        self.runtime_root.join(format!("catalog-{process_id}.json"))
+        self.transient_runtime_root
+            .join(format!("catalog-{process_id}.json"))
     }
 
     #[must_use]
-    pub fn session_socket_dir(&self, label: &str, process_id: u32, generation: u64) -> PathBuf {
-        self.runtime_root
-            .join(format!("{label}-{process_id}-{generation}"))
+    pub fn direct_socket_dir(&self, process_id: u32) -> PathBuf {
+        self.transient_runtime_root
+            .join(format!("direct-{process_id}"))
+    }
+
+    #[must_use]
+    pub fn connect_socket_dir(&self, process_id: u32, generation: u64) -> PathBuf {
+        self.transient_runtime_root
+            .join(format!("connect-{process_id}-{generation}"))
     }
 }
 
@@ -194,34 +209,55 @@ fn user_roots(
 ) -> Result<(PathBuf, PathBuf, PathBuf), LayoutError> {
     match platform {
         Platform::Windows => {
-            let root = environment
+            let base = environment
                 .local_app_data
                 .as_deref()
                 .filter(|path| !path.as_os_str().is_empty())
-                .ok_or(LayoutError::MissingLocalAppData)?
-                .join(APP_DIR);
+                .ok_or(LayoutError::MissingLocalAppData)?;
+            require_absolute(base, Platform::Windows, "LOCALAPPDATA", "Windows")?;
+            let root = base.join(APP_DIR);
             Ok((root.clone(), root.clone(), root.join("run")))
         }
         Platform::MacOs => {
             let home = required_home(environment, "macOS")?;
+            require_absolute(home, Platform::MacOs, "HOME", "macOS")?;
             let root = home.join("Library/Application Support").join(APP_DIR);
             Ok((root.clone(), root.clone(), root.join("run")))
         }
         Platform::Linux => {
-            let home = required_home(environment, "Linux")?;
-            let config = environment
+            let config_base = environment
                 .xdg_config_home
-                .clone()
-                .unwrap_or_else(|| home.join(".config"))
-                .join("cinnabar");
-            let data = environment
+                .as_deref()
+                .filter(|path| absolute_for(Platform::Linux, path))
+                .map(Path::to_owned);
+            let data_base = environment
                 .xdg_data_home
-                .clone()
-                .unwrap_or_else(|| home.join(".local/share"))
+                .as_deref()
+                .filter(|path| absolute_for(Platform::Linux, path))
+                .map(Path::to_owned);
+            let home = if config_base.is_none() || data_base.is_none() {
+                let home = required_home(environment, "Linux")?;
+                require_absolute(home, Platform::Linux, "HOME", "Linux")?;
+                Some(home)
+            } else {
+                None
+            };
+            let config = config_base
+                .unwrap_or_else(|| {
+                    home.expect("home required for config fallback")
+                        .join(".config")
+                })
+                .join("cinnabar");
+            let data = data_base
+                .unwrap_or_else(|| {
+                    home.expect("home required for data fallback")
+                        .join(".local/share")
+                })
                 .join("cinnabar");
             let runtime = environment
                 .xdg_runtime_dir
                 .as_ref()
+                .filter(|path| absolute_for(Platform::Linux, path))
                 .map_or_else(|| data.join("run"), |root| root.join("cinnabar"));
             Ok((config, data, runtime))
         }
@@ -237,6 +273,41 @@ fn required_home<'a>(
         .as_deref()
         .filter(|path| !path.as_os_str().is_empty())
         .ok_or(LayoutError::MissingUserHome { platform })
+}
+
+fn require_absolute(
+    path: &Path,
+    platform: Platform,
+    variable: &'static str,
+    platform_name: &'static str,
+) -> Result<(), LayoutError> {
+    if absolute_for(platform, path) {
+        Ok(())
+    } else {
+        Err(LayoutError::InvalidUserRoot {
+            variable,
+            platform: platform_name,
+        })
+    }
+}
+
+fn absolute_for(platform: Platform, path: &Path) -> bool {
+    let value = path.as_os_str().to_string_lossy();
+    if value.is_empty() {
+        return false;
+    }
+    match platform {
+        Platform::Windows => {
+            let bytes = value.as_bytes();
+            (bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'/' | b'\\'))
+                || value.starts_with("\\\\")
+                || value.starts_with("//")
+        }
+        Platform::Linux | Platform::MacOs => value.starts_with('/'),
+    }
 }
 
 const fn core_filename(platform: Platform) -> &'static str {
@@ -296,6 +367,22 @@ mod tests {
         assert_eq!(
             layout.physics_registry,
             PathBuf::from("/work/cinnabar/.local/assets/block-physics-v1001.bin")
+        );
+        assert_eq!(
+            layout.runtime_root,
+            PathBuf::from("/work/cinnabar/.local/run")
+        );
+        assert_eq!(
+            layout.direct_socket_dir(41),
+            PathBuf::from("/work/cinnabar/.local/cinnabar/direct-41")
+        );
+        assert_eq!(
+            layout.connect_socket_dir(41, 3),
+            PathBuf::from("/work/cinnabar/.local/cinnabar/connect-41-3")
+        );
+        assert_eq!(
+            layout.catalog_file(41),
+            PathBuf::from("/work/cinnabar/.local/cinnabar/catalog-41.json")
         );
     }
 
@@ -399,6 +486,65 @@ mod tests {
         assert_eq!(
             InstallLayout::resolve(Platform::Linux, &missing_executable),
             Err(LayoutError::MissingExecutable)
+        );
+    }
+
+    #[test]
+    fn installed_layouts_never_accept_relative_user_roots() {
+        let mut windows = environment("C:/Cinnabar/bedrock-client.exe", "C:/Users/dev");
+        windows.local_app_data = Some(PathBuf::from("relative/local"));
+        assert!(matches!(
+            InstallLayout::resolve(Platform::Windows, &windows),
+            Err(LayoutError::InvalidUserRoot {
+                variable: "LOCALAPPDATA",
+                ..
+            })
+        ));
+
+        let mac = environment(
+            "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+            "relative/home",
+        );
+        assert!(matches!(
+            InstallLayout::resolve(Platform::MacOs, &mac),
+            Err(LayoutError::InvalidUserRoot {
+                variable: "HOME",
+                ..
+            })
+        ));
+
+        let mut linux = environment("/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        linux.xdg_config_home = Some(PathBuf::from("relative/config"));
+        linux.xdg_data_home = Some(PathBuf::new());
+        linux.xdg_runtime_dir = Some(PathBuf::from("relative/run"));
+        let layout = InstallLayout::resolve(Platform::Linux, &linux).unwrap();
+        assert_eq!(
+            layout.user_config_root,
+            PathBuf::from("/home/dev/.config/cinnabar")
+        );
+        assert_eq!(
+            layout.user_data_root,
+            PathBuf::from("/home/dev/.local/share/cinnabar")
+        );
+        assert_eq!(
+            layout.runtime_root,
+            PathBuf::from("/home/dev/.local/share/cinnabar/run")
+        );
+    }
+
+    #[test]
+    fn absolute_linux_xdg_roots_do_not_require_home() {
+        let mut linux = environment("/opt/cinnabar/bin/bedrock-client", "/unused");
+        linux.home = None;
+        linux.xdg_config_home = Some(PathBuf::from("/cfg"));
+        linux.xdg_data_home = Some(PathBuf::from("/data"));
+        linux.xdg_runtime_dir = Some(PathBuf::from("/run/user/1000"));
+        let layout = InstallLayout::resolve(Platform::Linux, &linux).unwrap();
+        assert_eq!(layout.user_config_root, PathBuf::from("/cfg/cinnabar"));
+        assert_eq!(layout.user_data_root, PathBuf::from("/data/cinnabar"));
+        assert_eq!(
+            layout.runtime_root,
+            PathBuf::from("/run/user/1000/cinnabar")
         );
     }
 

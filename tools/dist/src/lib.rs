@@ -1,8 +1,7 @@
 use std::{
     collections::BTreeSet,
     ffi::OsStr,
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Component, Path, PathBuf},
 };
 
@@ -10,16 +9,18 @@ use serde::Serialize;
 use thiserror::Error;
 
 mod cli;
+mod copy;
 mod hashing;
 mod layout;
 pub use cli::parse_args;
+use copy::{copy_validated, executable_destination};
 use hashing::hash_file;
 #[cfg(test)]
 use layout::ASSET_FILES;
 use layout::input_files;
 
-const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Platform {
@@ -51,6 +52,8 @@ pub enum DistError {
     UnsafePath(PathBuf),
     #[error("input is not a regular, non-symlink file: `{0}`")]
     NotRegular(PathBuf),
+    #[error("input changed while it was being opened: `{0}`")]
+    InputChanged(PathBuf),
     #[error("input path may contain secret material: `{0}`")]
     SecretPath(PathBuf),
     #[error("input `{path}` exceeds the {limit}-byte bound")]
@@ -130,7 +133,10 @@ pub fn stage(options: &Options) -> Result<(), DistError> {
         let _ = fs::remove_dir_all(&temporary);
         return Err(error);
     }
-    fs::rename(&temporary, &options.output).map_err(|source| io_error(&options.output, source))?;
+    if let Err(source) = fs::rename(&temporary, &options.output) {
+        let _ = fs::remove_dir_all(&temporary);
+        return Err(io_error(&options.output, source));
+    }
     Ok(())
 }
 
@@ -141,13 +147,19 @@ fn stage_into(
 ) -> Result<(), DistError> {
     files.sort_by(|left, right| left.1.cmp(&right.1));
     let mut manifest_files = Vec::with_capacity(files.len());
+    let mut total_bytes = 0_u64;
     for (source, relative) in files {
         let destination = root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
         let parent = destination
             .parent()
             .ok_or_else(|| DistError::UnsafePath(destination.clone()))?;
         fs::create_dir_all(parent).map_err(|source| io_error(parent, source))?;
-        copy_validated(&source, &destination)?;
+        copy_validated(
+            &source,
+            &destination,
+            executable_destination(options.platform, &relative),
+            &mut total_bytes,
+        )?;
         let (bytes, sha256) = hash_file(&destination)?;
         manifest_files.push(ManifestFile {
             path: relative,
@@ -179,7 +191,7 @@ fn validate_output(path: &Path) -> Result<(), DistError> {
     Ok(())
 }
 
-fn validate_input(path: &Path) -> Result<(), DistError> {
+pub(crate) fn validate_input(path: &Path) -> Result<(), DistError> {
     validate_lexical_path(path)?;
     if path
         .components()
@@ -229,19 +241,6 @@ fn reject_output_inside(output: &Path, input: &Path) -> Result<(), DistError> {
     Ok(())
 }
 
-fn copy_validated(source: &Path, destination: &Path) -> Result<(), DistError> {
-    validate_input(source)?;
-    let mut input = fs::File::open(source).map_err(|error| io_error(source, error))?;
-    validate_input(source)?;
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)
-        .map_err(|error| io_error(destination, error))?;
-    io::copy(&mut input, &mut output).map_err(|error| io_error(destination, error))?;
-    output.flush().map_err(|error| io_error(destination, error))
-}
-
 fn validate_lexical_path(path: &Path) -> Result<(), DistError> {
     if path.as_os_str().is_empty()
         || path
@@ -281,7 +280,7 @@ fn metadata(path: &Path) -> Result<fs::Metadata, DistError> {
     fs::symlink_metadata(path).map_err(|source| io_error(path, source))
 }
 
-fn io_error(path: &Path, source: io::Error) -> DistError {
+pub(crate) fn io_error(path: &Path, source: io::Error) -> DistError {
     DistError::Io {
         path: path.to_owned(),
         source,

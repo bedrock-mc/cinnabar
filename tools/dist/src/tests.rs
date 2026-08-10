@@ -85,6 +85,32 @@ fn synthetic_bundle_has_sorted_hash_manifest_and_local_scope() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn unix_bundle_binaries_are_executable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for (platform, client, core) in [
+        (Platform::Linux, "bin/bedrock-client", "bin/bedrock-core"),
+        (
+            Platform::Macos,
+            "Cinnabar.app/Contents/MacOS/bedrock-client",
+            "Cinnabar.app/Contents/MacOS/bedrock-core",
+        ),
+    ] {
+        let (root, options) = fixture(platform);
+        stage(&options).unwrap();
+        for path in [client, core] {
+            let mode = fs::metadata(options.output.join(path))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o111, 0o111);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[test]
 fn refuses_existing_output_and_secret_named_inputs() {
     let (root, mut options) = fixture(Platform::Windows);

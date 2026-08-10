@@ -137,7 +137,7 @@ pub(crate) fn drive_menu_connection(
         // previous run's directory would be reused for this session.
         let socket_dir = menu
             .layout
-            .session_socket_dir("connect", std::process::id(), generation);
+            .connect_socket_dir(std::process::id(), generation);
         if let Err(error) = fs::create_dir_all(&socket_dir)
             .and_then(|_| {
                 spawn_core_for_address(&menu.layout, &socket_dir, &address)

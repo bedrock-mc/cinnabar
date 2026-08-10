@@ -307,7 +307,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let connection_requested = args.connection_requested();
     let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
-        layout.session_socket_dir("direct", std::process::id(), 1)
+        layout.direct_socket_dir(std::process::id())
     } else if !args.socket_dir_explicit {
         layout.runtime_root.clone()
     } else {

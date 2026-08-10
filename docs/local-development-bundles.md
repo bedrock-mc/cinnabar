@@ -18,9 +18,11 @@ regular file reached without symlinks, destinations come from a fixed platform
 table, required carrier names are explicit, collisions and parent traversal are
 rejected, and paths that look like credential material are refused. The command
 does not fetch assets, discover credentials, or include authentication state.
-Inputs are opened through validated file handles rather than reopened by path
-during copying. Like ordinary local build tooling, this is not a sandbox against
-an attacker concurrently replacing otherwise valid regular files.
+Inputs are copied through opened handles whose regular-file identity is checked
+against the validated path, and size bounds are enforced again while streaming.
+Like ordinary local build tooling, this is not a sandbox against an attacker
+concurrently mutating or replacing files; run it only over developer-controlled
+inputs in a developer-controlled directory.
 
 These bundles are unsigned developer conveniences. This target is not a public
 installer or release pipeline and makes no signing, notarization, support, or
