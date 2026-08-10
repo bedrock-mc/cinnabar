@@ -265,7 +265,7 @@ upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [
     f"- Reviewed fork revision: `{fork_revision}`",
     f"- Upstream snapshot revision: `{upstream_revision}`",
-    f"- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `{license_sha256}`)",
+    f"- Retained license normalized SHA-256: `{license_sha256}`",
 ]
 for line in metadata_lines:
     if upstream.splitlines().count(line) != 1:

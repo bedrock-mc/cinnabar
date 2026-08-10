@@ -72,7 +72,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
-## Current integration snapshot (2026-08-07)
+## Current integration snapshot (2026-08-10)
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit compares the Bedrock
@@ -86,6 +86,23 @@ and `a5c327d` repinned the two Go consumers and synchronized checked-in provenan
 checked-in fixture `.bin` files remained byte-for-byte unchanged. The Go and protocol test
 suites passed, and the closure received independent approval. This establishes the pinned
 wire/tooling baseline; it is not live gameplay, native visual, or performance evidence.
+
+The local `dev` integration now also contains the independently reviewed protocol-2168
+wire projection, retail-safe transitional registry projection, exact 87-entry biome
+projection, and protocol-2168 acceptance-harness update. The protocol crate exposes only
+the current generated version and preserves unavailable wire values as neutral reserved or
+opaque data. The acceptance harness validates the exact dependency revision and public BDS
+runtime identity, canonicalizes runtime lease paths before mutation, and keeps the existing
+content-carrier `v1001` identity distinct from the wire protocol. No native BDS or client
+acceptance run has been performed for this integration, and remote publication remains
+gated by the mandatory publication audit.
+
+The transitional block/light/physics/visual carriers remain bound to the older 16,913-state
+content corpus. Their retail projection is internally deterministic and fail-closed, but it
+does not make them current 1.26.40 content. Current 1.26.40 identity inputs contain 17,499
+states; migration must produce versioned `v2168` BREG/LREG/BIOREG carriers first, then close
+current physics and dependent visual evidence before switching any production default.
+Cross-version carrier fallback is forbidden.
 
 Current implementation state:
 

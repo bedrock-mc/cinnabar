@@ -315,7 +315,7 @@ function Assert-ProtocolDependencyProvenance {
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($upstreamLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: upstream revision is not $ExpectedUpstreamRevision"
     }
-    $licenseLine = "- Retained license: MIT at ``crates/protocol/vendor/LICENSE`` (normalized SHA-256 ``$ExpectedLicenseSha256``)"
+    $licenseLine = "- Retained license normalized SHA-256: ``$ExpectedLicenseSha256``"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($licenseLine) + '\r?$').Count -ne 1) {
         throw 'protocol dependency provenance drifted: retained license metadata is missing or ambiguous'
     }

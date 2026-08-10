@@ -96,6 +96,9 @@ func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Git may materialize text fixtures with CRLF on Windows. The generator's
+	// canonical JSON remains LF-delimited, so normalize only the checkout form.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(encoded, want) {
 		t.Fatal("checked-in block item routes are stale")
 	}

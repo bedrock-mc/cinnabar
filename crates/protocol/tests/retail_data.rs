@@ -6,10 +6,25 @@ use sha2::{Digest, Sha256};
 const RETAIL_ITEMS: &[u8] = include_bytes!("../data/retail_items_1_26_40.tsv");
 const RETAIL_BIOMES: &[u8] = include_bytes!("../data/retail_biomes_1_26_40.txt");
 
+fn canonical_text(bytes: &[u8]) -> Vec<u8> {
+    let mut normalized = Vec::with_capacity(bytes.len());
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor..].starts_with(b"\r\n") {
+            normalized.push(b'\n');
+            cursor += 2;
+        } else {
+            normalized.push(bytes[cursor]);
+            cursor += 1;
+        }
+    }
+    normalized
+}
+
 #[test]
 fn retail_item_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
-        format!("{:x}", Sha256::digest(RETAIL_ITEMS)),
+        format!("{:x}", Sha256::digest(canonical_text(RETAIL_ITEMS))),
         "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
     );
 }
@@ -17,7 +32,7 @@ fn retail_item_table_has_the_pinned_projection_fingerprint() {
 #[test]
 fn retail_biome_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
-        format!("{:x}", Sha256::digest(RETAIL_BIOMES)),
+        format!("{:x}", Sha256::digest(canonical_text(RETAIL_BIOMES))),
         "237d0652f4a218765d52968c7764e4388a8d2372842d0a37a7ce7ba75692f9fc"
     );
     let biomes = std::str::from_utf8(RETAIL_BIOMES)

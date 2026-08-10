@@ -1,5 +1,7 @@
 crates/world/fixtures/manifest.json text eol=lf
 crates/sim/fixtures/*.jsonl text eol=lf
+crates/protocol/data/retail_items_*.tsv text eol=lf
+crates/protocol/data/retail_biomes_*.txt text eol=lf
 assets/vanilla-source.json text eol=lf
 assets/ui-font-source.json text eol=lf
 assets/hud-source-v1001.json text eol=lf
