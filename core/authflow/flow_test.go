@@ -132,7 +132,7 @@ func TestCancellationEmitsSafeTerminalEvent(t *testing.T) {
 }
 
 func TestConfiguredSourceCannotSmuggleTokenIntoEvents(t *testing.T) {
-	const sentinel = "token-sentinel"
+	const sentinel = "token-sentinel Microsoft token device authorization"
 	var output bytes.Buffer
 	err := Run(context.Background(), Config{
 		Path: "ignored", Writer: &output,
@@ -142,6 +142,10 @@ func TestConfiguredSourceCannotSmuggleTokenIntoEvents(t *testing.T) {
 	})
 	if err == nil || strings.Contains(output.String(), sentinel) || strings.Contains(err.Error(), sentinel) {
 		t.Fatalf("unsafe result: output=%q err=%v", output.String(), err)
+	}
+	events := decodeEvents(t, output.Bytes())
+	if got := events[len(events)-1]; got.Stage != "cache" {
+		t.Fatalf("terminal stage = %q, want cache", got.Stage)
 	}
 }
 

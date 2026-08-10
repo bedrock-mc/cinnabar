@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"strings"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -18,6 +17,8 @@ import (
 )
 
 const maxEventBytes = 4096
+
+var errDeviceAuthorization = errors.New("device authorization failed")
 
 // Config supplies the cache and injectable authentication operations.
 type Config struct {
@@ -68,20 +69,20 @@ func Run(ctx context.Context, config Config) error {
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
 		response, err := deviceAuth(ctx)
 		if err != nil {
-			return nil, errors.New("start device authorization")
+			return nil, fmt.Errorf("%w: start", errDeviceAuthorization)
 		}
 		if err := validatePrompt(response); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: invalid prompt", errDeviceAuthorization)
 		}
 		if err := emit(writer, event{
 			Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
 			UserCode: response.UserCode,
 		}); err != nil {
-			return nil, errors.New("publish device authorization")
+			return nil, fmt.Errorf("%w: publish prompt", errDeviceAuthorization)
 		}
 		token, err := deviceToken(ctx, response)
 		if err != nil {
-			return nil, errors.New("complete device authorization")
+			return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
 		}
 		acquired = true
 		return token, nil
@@ -96,7 +97,7 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		stage := "cache"
 		message := "Could not validate the saved account."
-		if strings.Contains(err.Error(), "device authorization") || strings.Contains(err.Error(), "Microsoft token") {
+		if errors.Is(err, errDeviceAuthorization) {
 			stage = "device_code"
 			message = "Microsoft sign-in did not complete. Try again."
 		}

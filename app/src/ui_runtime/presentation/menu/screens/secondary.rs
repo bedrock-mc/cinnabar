@@ -472,3 +472,73 @@ pub(super) fn pause(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use ui::{DpiScale, TextLayoutCache};
+
+    use super::*;
+    use crate::{
+        menu::{MenuRuntime, MenuScreen, auth::AuthState},
+        ui_runtime::presentation::tests::fixture_font,
+    };
+
+    #[test]
+    fn profile_presents_signed_out_and_device_code_actions() {
+        let mut runtime = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+        runtime.activate(MenuAction::Navigate(MenuScreen::Profile));
+        let mut signed_out = runtime.view();
+        let font = fixture_font();
+        let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+        let area = ContentArea {
+            left: 200.0,
+            top: 80.0,
+            width: 1000.0,
+            height: 600.0,
+            compact: false,
+        };
+
+        let render = |view: &MenuView| {
+            let mut nodes = Vec::new();
+            let mut hits = Vec::new();
+            let mut next_id = 1;
+            let mut layouts = TextLayoutCache::new(128, 1024 * 1024);
+            profile(
+                view,
+                &mut nodes,
+                &mut hits,
+                &mut next_id,
+                &mut layouts,
+                &font,
+                metrics,
+                0,
+                area,
+            )
+            .unwrap();
+            (nodes, hits)
+        };
+
+        let (nodes, hits) = render(&signed_out);
+        assert!(!nodes.is_empty());
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::StartSignIn)
+        );
+
+        signed_out.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.test/device".to_owned(),
+            code: "ABCD-1234".to_owned(),
+        };
+        let (nodes, hits) = render(&signed_out);
+        assert!(!nodes.is_empty());
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::CancelSignIn)
+        );
+        assert!(
+            !hits
+                .iter()
+                .any(|(action, _)| *action == MenuAction::StartSignIn)
+        );
+    }
+}

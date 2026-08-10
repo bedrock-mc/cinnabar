@@ -2,7 +2,12 @@ use std::{
     io::Read,
     path::Path,
     process::{Child, Command, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -12,6 +17,7 @@ use url::Url;
 
 const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
+const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum AuthState {
@@ -38,7 +44,7 @@ enum WireEvent {
     #[serde(rename = "error")]
     Error {
         v: u8,
-        stage: String,
+        stage: ErrorStage,
         message: String,
     },
 }
@@ -48,6 +54,15 @@ enum WireEvent {
 enum AuthMethod {
     Cached,
     DeviceCode,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ErrorStage {
+    Configuration,
+    Cache,
+    DeviceCode,
+    Cancelled,
 }
 
 #[derive(Debug)]
@@ -110,12 +125,18 @@ impl LineDecoder {
 
 #[derive(Debug)]
 pub(crate) struct AuthSupervisor {
-    child: Child,
+    child: Option<Child>,
     receiver: Receiver<ReaderMessage>,
     reader: Option<JoinHandle<()>>,
     state: AuthState,
     terminal: bool,
     checking_seen: bool,
+    reaped: Arc<AtomicBool>,
+    stream_ended: bool,
+    child_exited: bool,
+    cancel_requested: bool,
+    success_exit_deadline: Option<Instant>,
+    success_cleanup_forced: bool,
 }
 
 impl AuthSupervisor {
@@ -132,7 +153,7 @@ impl AuthSupervisor {
         Self::from_child(child)
     }
 
-    fn from_child(mut child: Child) -> Result<Self> {
+    pub(super) fn from_child(mut child: Child) -> Result<Self> {
         let stdout = child
             .stdout
             .take()
@@ -140,12 +161,18 @@ impl AuthSupervisor {
         let (sender, receiver) = bounded(EVENT_CAPACITY);
         let reader = thread::spawn(move || read_events(stdout, sender));
         Ok(Self {
-            child,
+            child: Some(child),
             receiver,
             reader: Some(reader),
             state: AuthState::Checking,
             terminal: false,
             checking_seen: false,
+            reaped: Arc::new(AtomicBool::new(false)),
+            stream_ended: false,
+            child_exited: false,
+            cancel_requested: false,
+            success_exit_deadline: None,
+            success_cleanup_forced: false,
         })
     }
 
@@ -156,45 +183,115 @@ impl AuthSupervisor {
     pub(crate) fn poll(&mut self) {
         for _ in 0..EVENT_CAPACITY {
             match self.receiver.try_recv() {
-                Ok(ReaderMessage::Line(line)) => self.apply_line(&line),
-                Ok(ReaderMessage::Invalid(message)) => self.fail(message),
+                Ok(ReaderMessage::Line(line)) if !self.cancel_requested => self.apply_line(&line),
+                Ok(ReaderMessage::Invalid(message)) if !self.cancel_requested => self.fail(message),
+                Ok(ReaderMessage::Line(_) | ReaderMessage::Invalid(_)) => {}
                 Ok(ReaderMessage::End) => {
+                    self.stream_ended = true;
                     if !self.terminal {
                         self.fail("Sign-in helper stopped before authentication completed.");
                     }
                     break;
                 }
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.stream_ended = true;
+                    break;
+                }
             }
         }
-        if !self.terminal && matches!(self.child.try_wait(), Ok(Some(_))) {
+        if matches!(self.state, AuthState::Failed(_)) {
+            self.request_cancel();
+        }
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
+        let inspection_failed = match child.try_wait() {
+            Ok(Some(_)) => {
+                self.child_exited = true;
+                false
+            }
+            Ok(None) => false,
+            Err(_) => {
+                if !self.cancel_requested {
+                    self.fail("Could not inspect the sign-in helper.");
+                }
+                true
+            }
+        };
+        if inspection_failed {
+            self.request_cancel();
+            self.handoff_reap();
+            return;
+        }
+        if self.stream_ended && !self.terminal {
             self.fail("Sign-in helper stopped before authentication completed.");
+            self.request_cancel();
+        }
+        if matches!(self.state, AuthState::Authenticated)
+            && self
+                .success_exit_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            && !self.success_cleanup_forced
+            && !self.cleanup_handed_off()
+        {
+            self.success_cleanup_forced = true;
+            self.request_cancel();
+        }
+        if self.child_exited && (self.stream_ended || self.success_cleanup_forced) {
+            self.handoff_reap();
         }
     }
 
     fn apply_line(&mut self, line: &[u8]) {
+        let was_authenticated = matches!(self.state, AuthState::Authenticated);
         apply_event(
             &mut self.state,
             &mut self.terminal,
             &mut self.checking_seen,
             line,
         );
+        if !was_authenticated && matches!(self.state, AuthState::Authenticated) {
+            self.success_exit_deadline = Some(
+                Instant::now()
+                    .checked_add(AUTH_SUCCESS_EXIT_GRACE)
+                    .expect("the bounded authentication cleanup grace fits in Instant"),
+            );
+        }
     }
 
     fn fail(&mut self, message: &str) {
         fail_state(&mut self.state, &mut self.terminal, message);
     }
 
-    pub(crate) fn cancel(&mut self) {
+    pub(crate) fn request_cancel(&mut self) {
+        self.cancel_requested = true;
         if !self.terminal {
             self.state = AuthState::SignedOut;
             self.terminal = true;
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
         }
+    }
+
+    pub(crate) fn cleanup_handed_off(&self) -> bool {
+        self.child.is_none() && self.reader.is_none()
+    }
+
+    fn handoff_reap(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        let reader = self.reader.take();
+        let reaped = Arc::clone(&self.reaped);
+        thread::spawn(move || {
+            let _ = child.wait();
+            if let Some(reader) = reader {
+                let _ = reader.join();
+            }
+            reaped.store(true, Ordering::Release);
+        });
     }
 }
 
@@ -258,8 +355,13 @@ fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut b
             *terminal = true;
         }
         WireEvent::Error { stage, message, .. } => {
-            let _ = stage;
-            fail_state(state, terminal, &safe_message(&message));
+            let message = match stage {
+                ErrorStage::Cancelled => "Sign-in was cancelled.".to_owned(),
+                ErrorStage::Configuration | ErrorStage::Cache | ErrorStage::DeviceCode => {
+                    safe_message(&message)
+                }
+            };
+            fail_state(state, terminal, &message);
         }
         _ => fail_state(
             state,
@@ -276,7 +378,8 @@ fn fail_state(state: &mut AuthState, terminal: &mut bool, message: &str) {
 
 impl Drop for AuthSupervisor {
     fn drop(&mut self) {
-        self.cancel();
+        self.request_cancel();
+        self.handoff_reap();
     }
 }
 
@@ -321,6 +424,12 @@ fn safe_message(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
     use super::*;
 
     fn channel() -> (Sender<ReaderMessage>, Receiver<ReaderMessage>) {
@@ -365,6 +474,12 @@ mod tests {
         assert!(!valid_https_uri("https://user@example.test"));
         assert!(!valid_code("bad code"));
         assert!(valid_code("ABCD-1234"));
+        assert!(
+            serde_json::from_slice::<WireEvent>(
+                br#"{"v":1,"event":"error","stage":"unexpected","message":"failed"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -454,9 +569,155 @@ mod tests {
         };
         let child = command.stdout(Stdio::piped()).spawn().unwrap();
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
-        supervisor.cancel();
-        assert!(supervisor.child.try_wait().unwrap().is_some());
+        supervisor.request_cancel();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !supervisor.cleanup_handed_off() && Instant::now() < deadline {
+            supervisor.poll();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(supervisor.cleanup_handed_off());
         assert_eq!(supervisor.state, AuthState::SignedOut);
+        assert!(supervisor.reader.is_none());
+    }
+
+    #[test]
+    fn cancellation_discards_buffered_events_and_remains_signed_out() {
+        let (child, directory) = event_child_holding(&[r#"{"v":1,"event":"checking_cache"}"#]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        let buffered_deadline = Instant::now() + Duration::from_secs(5);
+        while supervisor.receiver.is_empty() && Instant::now() < buffered_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!supervisor.receiver.is_empty(), "event was not buffered");
+
+        supervisor.request_cancel();
+        assert_eq!(supervisor.state, AuthState::SignedOut);
+        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+        while !supervisor.cleanup_handed_off() && Instant::now() < cleanup_deadline {
+            supervisor.poll();
+            assert_eq!(supervisor.state, AuthState::SignedOut);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(supervisor.cleanup_handed_off());
+        assert_eq!(supervisor.state, AuthState::SignedOut);
+
+        let reap_deadline = Instant::now() + Duration::from_secs(5);
+        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(supervisor.reaped.load(Ordering::Acquire));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn terminal_success_and_failure_reap_and_join_the_helper() {
+        for (lines, expected) in [
+            (
+                &[
+                    r#"{"v":1,"event":"checking_cache"}"#,
+                    r#"{"v":1,"event":"authenticated","method":"cached"}"#,
+                ][..],
+                AuthState::Authenticated,
+            ),
+            (
+                &[
+                    r#"{"v":1,"event":"checking_cache"}"#,
+                    r#"{"v":1,"event":"error","stage":"cache","message":"Account check failed."}"#,
+                ][..],
+                AuthState::Failed("Account check failed.".to_owned()),
+            ),
+        ] {
+            let (child, directory) = event_child(lines);
+            let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while supervisor.reader.is_some() && Instant::now() < deadline {
+                supervisor.poll();
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(supervisor.state, expected);
+            assert!(supervisor.terminal);
+            assert!(
+                supervisor.cleanup_handed_off(),
+                "cleanup was not handed off"
+            );
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                supervisor.reaped.load(Ordering::Acquire),
+                "helper was not reaped and reader was not joined"
+            );
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn authenticated_helper_that_holds_stdout_is_terminated_and_reaped() {
+        let (child, directory) = event_child_holding(&[
+            r#"{"v":1,"event":"checking_cache"}"#,
+            r#"{"v":1,"event":"authenticated","method":"cached"}"#,
+        ]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut authenticated = false;
+        while !supervisor.cleanup_handed_off() && Instant::now() < deadline {
+            let poll_started = Instant::now();
+            supervisor.poll();
+            assert!(poll_started.elapsed() < Duration::from_millis(100));
+            if authenticated {
+                assert_eq!(supervisor.state, AuthState::Authenticated);
+            } else {
+                authenticated = matches!(supervisor.state, AuthState::Authenticated);
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(authenticated, "cached authentication was not observed");
+        assert_eq!(supervisor.state, AuthState::Authenticated);
+        assert!(
+            supervisor.cleanup_handed_off(),
+            "successful helper cleanup was not handed off after the grace window"
+        );
+
+        let reap_deadline = Instant::now() + Duration::from_secs(5);
+        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            supervisor.reaped.load(Ordering::Acquire),
+            "successful helper was not reaped and its reader was not joined"
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancel_and_poll_do_not_wait_for_a_delayed_reader() {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit 0"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+        let child = command.stdout(Stdio::piped()).spawn().unwrap();
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        if let Some(reader) = supervisor.reader.take() {
+            reader.join().unwrap();
+        }
+        supervisor.reader = Some(thread::spawn(|| thread::sleep(Duration::from_millis(400))));
+
+        let started = Instant::now();
+        supervisor.request_cancel();
+        supervisor.poll();
+        assert!(started.elapsed() < Duration::from_millis(100));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+            supervisor.poll();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(supervisor.reaped.load(Ordering::Acquire));
     }
 
     #[test]
@@ -471,5 +732,66 @@ mod tests {
         assert!(menu.focus_actions().contains(&MenuAction::StartSignIn));
         menu.activate(MenuAction::Navigate(MenuScreen::Servers));
         assert!(menu.focus_actions().contains(&MenuAction::PlayAddServer));
+    }
+
+    fn event_child(lines: &[&str]) -> (Child, PathBuf) {
+        event_child_with_policy(lines, false)
+    }
+
+    fn event_child_holding(lines: &[&str]) -> (Child, PathBuf) {
+        event_child_with_policy(lines, true)
+    }
+
+    fn event_child_with_policy(lines: &[&str], hold_open: bool) -> (Child, PathBuf) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "cinnabar-auth-helper-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut command = if cfg!(windows) {
+            let script = directory.join("events.cmd");
+            let hold = if hold_open { "set /p hold=\r\n" } else { "" };
+            let body = format!(
+                "@echo off\r\n{}\r\n{hold}",
+                lines
+                    .iter()
+                    .map(|line| format!("echo {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\r\n")
+            );
+            fs::write(&script, body).unwrap();
+            let mut command = Command::new("cmd");
+            command.args(["/Q", "/C"]).arg(script);
+            command
+        } else {
+            let script = directory.join("events.sh");
+            let hold = if hold_open { "IFS= read -r hold\n" } else { "" };
+            let body = format!(
+                "#!/bin/sh\n{}\n{hold}",
+                lines
+                    .iter()
+                    .map(|line| format!("printf '%s\\n' '{line}'"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            fs::write(&script, body).unwrap();
+            let mut command = Command::new("sh");
+            command.arg(script);
+            command
+        };
+        let child = command
+            .stdin(if hold_open {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        (child, directory)
     }
 }

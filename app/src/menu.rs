@@ -238,6 +238,8 @@ pub(crate) struct MenuRuntime {
     catalog_path: PathBuf,
     catalog_process: Option<Child>,
     auth_process: Option<AuthSupervisor>,
+    auth_attempted: bool,
+    auth_restart_requested: bool,
 }
 
 impl MenuRuntime {
@@ -282,6 +284,8 @@ impl MenuRuntime {
             )),
             catalog_process: None,
             auth_process: None,
+            auth_attempted: false,
+            auth_restart_requested: false,
         }
     }
 
