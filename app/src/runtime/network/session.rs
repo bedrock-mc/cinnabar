@@ -10,6 +10,7 @@ use std::{
 };
 
 use bevy::prelude::Resource;
+use bytes::Bytes;
 use protocol::{
     BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
     PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
@@ -92,12 +93,27 @@ pub struct SequencedWorldEvent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum InboundWorldEvent {
+    Event(WorldEvent),
+    LevelChunk {
+        event: protocol::LevelChunkEvent,
+        payload: Bytes,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 // The FIFO is strictly bounded to WORLD_EVENT_CAPACITY. Keeping the event
 // inline avoids adding one heap allocation to every normal world packet just
 // to accommodate the rare, small transfer barrier variant.
 #[allow(clippy::large_enum_variant)]
 pub enum WorldIngress {
     Event(SequencedWorldEvent),
+    LevelChunk {
+        session_generation: u64,
+        sequence: u64,
+        event: protocol::LevelChunkEvent,
+        payload: Bytes,
+    },
     FastTransferBarrier {
         session_generation: u64,
         sequence: u64,
@@ -164,6 +180,30 @@ fn wrap_readiness_tracked_event(
     let sequenced = sequencer.wrap(event);
     readiness_ingress.record_produced(&sequenced.event);
     sequenced
+}
+
+fn wrap_inbound_world_event(
+    sequencer: &mut NetworkSequencer,
+    readiness_ingress: &ReadinessIngressCounter,
+    event: InboundWorldEvent,
+) -> WorldIngress {
+    match event {
+        InboundWorldEvent::Event(event) => WorldIngress::Event(wrap_readiness_tracked_event(
+            sequencer,
+            readiness_ingress,
+            event,
+        )),
+        InboundWorldEvent::LevelChunk { event, payload } => {
+            let sequence = sequencer.take_sequence();
+            readiness_ingress.produced.fetch_add(1, Ordering::Release);
+            WorldIngress::LevelChunk {
+                session_generation: sequencer.session_generation(),
+                sequence,
+                event,
+                payload,
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -289,6 +329,12 @@ impl NetworkHandle {
 
     pub(crate) fn record_readiness_event_consumed(&self, event: &WorldEvent) {
         self.readiness_ingress.record_consumed(event);
+    }
+
+    pub(crate) fn record_level_chunk_consumed(&self) {
+        self.readiness_ingress
+            .consumed
+            .fetch_add(1, Ordering::Release);
     }
 
     #[cfg(test)]
@@ -553,6 +599,17 @@ trait NetworkSession: Send {
         current_dimension: i32,
     ) -> impl Future<Output = Result<WorldEvent, Self::Error>> + Send;
 
+    fn receive_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+        async move {
+            self.receive_world_event(current_dimension)
+                .await
+                .map(InboundWorldEvent::Event)
+        }
+    }
+
     fn send_packet(
         &mut self,
         packet: Packet,
@@ -587,6 +644,17 @@ impl NetworkSession for protocol::PlaySession {
         current_dimension: i32,
     ) -> impl Future<Output = Result<WorldEvent, Self::Error>> + Send {
         self.recv_world_event(current_dimension)
+    }
+
+    fn receive_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+        self.recv_world_event_mapped(
+            current_dimension,
+            InboundWorldEvent::Event,
+            |event, payload| InboundWorldEvent::LevelChunk { event, payload },
+        )
     }
 
     fn send_packet(

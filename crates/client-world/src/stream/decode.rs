@@ -75,13 +75,13 @@ impl WorldStream {
                 let completion = match job {
                     DecodeJob::InlineLevelChunk {
                         sequence,
-                        mut event,
+                        event,
+                        payload,
                         base_sub_chunk_y,
                         count,
                         biome_storage_count,
                     } => {
                         let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                        let payload = std::mem::take(&mut event.payload);
                         let decoded = DecodedLevelChunk::decode_with_biomes_and_block_entities(
                             chunk,
                             base_sub_chunk_y,
@@ -102,12 +102,12 @@ impl WorldStream {
                     }
                     DecodeJob::RequestLevelChunk {
                         sequence,
-                        mut event,
+                        event,
+                        payload,
                         biome_base_sub_chunk_y,
                         biome_storage_count,
                     } => {
                         let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                        let payload = std::mem::take(&mut event.payload);
                         let decoded = DecodedBiomeColumn::decode(
                             biome_base_sub_chunk_y,
                             biome_storage_count,

@@ -475,7 +475,11 @@ pub fn decode_batch_raw_split(
             }
             BatchCompression::None => {
                 ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
-                decode_packets_raw(compressed)
+                // LengthDelimitedCodec may yield a slice backed by its much
+                // larger bridge read buffer. Materialise the uncompressed
+                // batch so a retained packet cannot pin unrelated frames or
+                // decoder spare capacity.
+                decode_packets_raw(Bytes::copy_from_slice(&compressed))
             }
             BatchCompression::Snappy => {
                 let decompressed =
@@ -538,7 +542,7 @@ fn decode_batch_payload_raw(
             }
             BatchCompression::None => {
                 ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
-                decode_packets_raw(compressed)
+                decode_packets_raw(Bytes::copy_from_slice(&compressed))
             }
             BatchCompression::Snappy => {
                 let decompressed =
@@ -652,7 +656,7 @@ pub(crate) fn encode_batch_raw_into(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::valentine::{PlayStatusPacket, PlayStatusPacketStatus};
+    use crate::valentine::{LevelChunkPacket, PlayStatusPacket, PlayStatusPacketStatus};
 
     fn test_session() -> BedrockSession {
         BedrockSession { shield_item_id: 0 }
@@ -968,6 +972,34 @@ mod tests {
             decoded[0].data,
             McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
         ));
+    }
+
+    #[test]
+    fn none_batch_detaches_level_chunk_from_oversized_outer_bridge_frame() {
+        let packet = McpePacket::from(LevelChunkPacket {
+            serialized_chunk_data: vec![0x5a; 1024 * 1024],
+            ..Default::default()
+        });
+        let batch = encode_batch(&packet, true, 0, u16::MAX).expect("encode None batch");
+        assert_eq!(batch[1], BatchCompression::None as u8);
+
+        let mut outer = BytesMut::with_capacity(64 * 1024 * 1024);
+        outer.extend_from_slice(&batch);
+        outer.resize(batch.len() + 8 * 1024 * 1024, 0x7b);
+        let outer = outer.freeze();
+        let outer_start = outer.as_ptr() as usize;
+        let outer_end = outer_start + outer.len();
+        let mut bridge_frame = outer.slice(..batch.len());
+        let packets = decode_batch_raw(&mut bridge_frame, true, Some(16 * 1024 * 1024))
+            .expect("decode uncompressed bridge frame");
+
+        assert_eq!(packets.len(), 1);
+        let pointer = packets[0].inner_frame().as_ptr() as usize;
+        assert!(!(outer_start..outer_end).contains(&pointer));
+        assert_eq!(
+            packets[0].id,
+            crate::valentine::McpePacketName::LevelChunkPacket
+        );
     }
 
     #[test]

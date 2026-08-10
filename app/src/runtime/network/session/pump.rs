@@ -3,10 +3,12 @@ use std::future::Future;
 use protocol::WorldEvent;
 use tokio::sync::{mpsc, watch};
 
-use super::{NetworkControlEvent, NetworkSession, SequencedWorldEvent, WorldIngress};
+use super::{
+    InboundWorldEvent, NetworkControlEvent, NetworkSession, SequencedWorldEvent, WorldIngress,
+};
 
 pub(super) enum WorldSideWork<'a, E> {
-    Event(Result<Box<WorldEvent>, E>),
+    Event(Result<Box<InboundWorldEvent>, E>),
     Capacity(Result<mpsc::Permit<'a, WorldIngress>, mpsc::error::SendError<()>>),
 }
 
@@ -21,7 +23,7 @@ pub(super) async fn wait_for_world_side_work<'a, S: NetworkSession>(
     } else {
         WorldSideWork::Event(
             session
-                .receive_world_event(current_dimension)
+                .receive_world_ingress(current_dimension)
                 .await
                 .map(Box::new),
         )
@@ -158,6 +160,15 @@ pub(super) struct NetworkSequencer {
 }
 
 impl NetworkSequencer {
+    pub(super) fn take_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        sequence
+    }
+
+    pub(super) const fn session_generation(&self) -> u64 {
+        self.session_generation
+    }
     pub(super) const fn new(
         session_generation: u64,
         current_dimension: i32,
@@ -172,8 +183,7 @@ impl NetworkSequencer {
     }
 
     pub(super) fn wrap_fast_transfer_barrier(&mut self, action_sequence: u64) -> WorldIngress {
-        let sequence = self.next_sequence;
-        self.next_sequence = self.next_sequence.saturating_add(1);
+        let sequence = self.take_sequence();
         WorldIngress::FastTransferBarrier {
             session_generation: self.session_generation,
             sequence,
@@ -206,8 +216,7 @@ impl NetworkSequencer {
             }
             event => event,
         };
-        let sequence = self.next_sequence;
-        self.next_sequence = self.next_sequence.saturating_add(1);
+        let sequence = self.take_sequence();
         if let WorldEvent::ChangeDimension(change) = &event {
             self.current_dimension = change.dimension;
         }

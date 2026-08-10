@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
+use valentine::bedrock::version::v1_26_40::LevelChunkPacketView;
 use valentine::bedrock::version::v1_26_40::{
     CorrectPlayerMovePredictionPacketPredictionType, GameRule, GameRuleRuleValue, McpePacketData,
     RespawnPacketState, SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
@@ -422,34 +423,11 @@ pub fn into_world_event(
             // values above 64), then reads `SubChunkLimit Optional[int32]`.
             // Presence of the limit is what selects client-request mode; its
             // documented `-1` value means "no limit".
-            let mode = match packet.client_request_sub_chunk_limit {
-                Some(-1) => LevelChunkMode::LimitlessRequests,
-                Some(limit) => LevelChunkMode::LimitedRequests {
-                    highest: u16::try_from(limit)
-                        .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
-                },
-                None => {
-                    // SubChunkCount is unsigned on the wire but decoded into an
-                    // i32, so anything above i32::MAX still surfaces as negative.
-                    if packet.subchunks_count < 0 {
-                        return Err(WorldPacketError::InvalidSubChunkCount(
-                            packet.subchunks_count,
-                        ));
-                    }
-                    let count = packet.subchunks_count as usize;
-                    // Bound by the absolute protocol maximum, not the vanilla
-                    // dimension height: custom servers advertise standard
-                    // dimension ids with taller-than-vanilla world columns.
-                    if count > MAX_SUB_CHUNK_REQUESTS {
-                        return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-                            dimension: packet.dimension_id.value,
-                            count,
-                            max: MAX_SUB_CHUNK_REQUESTS,
-                        });
-                    }
-                    LevelChunkMode::Inline { count }
-                }
-            };
+            let mode = level_chunk_mode(
+                packet.client_request_sub_chunk_limit,
+                packet.subchunks_count,
+                packet.dimension_id.value,
+            )?;
             WorldEvent::LevelChunk(LevelChunkEvent {
                 dimension: packet.dimension_id.value,
                 x: packet.chunk_position.x,
@@ -678,6 +656,58 @@ pub fn into_world_event(
         _ => return Ok(None),
     };
     Ok(Some(event))
+}
+
+fn level_chunk_mode(
+    request_limit: Option<i32>,
+    subchunks_count: i32,
+    dimension: i32,
+) -> Result<LevelChunkMode, WorldPacketError> {
+    match request_limit {
+        Some(-1) => Ok(LevelChunkMode::LimitlessRequests),
+        Some(limit) => Ok(LevelChunkMode::LimitedRequests {
+            highest: u16::try_from(limit)
+                .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
+        }),
+        None => {
+            if subchunks_count < 0 {
+                return Err(WorldPacketError::InvalidSubChunkCount(subchunks_count));
+            }
+            let count = subchunks_count as usize;
+            if count > MAX_SUB_CHUNK_REQUESTS {
+                return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
+                    dimension,
+                    count,
+                    max: MAX_SUB_CHUNK_REQUESTS,
+                });
+            }
+            Ok(LevelChunkMode::Inline { count })
+        }
+    }
+}
+
+pub(crate) fn normalize_borrowed_level_chunk(
+    packet: LevelChunkPacketView,
+) -> Result<(LevelChunkEvent, bytes::Bytes), WorldPacketError> {
+    if packet.cache_enabled {
+        return Err(WorldPacketError::CachedChunksUnsupported);
+    }
+    let mode = level_chunk_mode(
+        packet.client_request_sub_chunk_limit,
+        packet.subchunks_count,
+        packet.dimension_id.value,
+    )?;
+    let payload = packet.serialized_chunk_data;
+    Ok((
+        LevelChunkEvent {
+            dimension: packet.dimension_id.value,
+            x: packet.chunk_position.x,
+            z: packet.chunk_position.z,
+            mode,
+            payload: Vec::new(),
+        },
+        payload,
+    ))
 }
 
 /// Reads the authoritative `doDaylightCycle` switch from a rule list.

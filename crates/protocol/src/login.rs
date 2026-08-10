@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use bytes::Buf;
+use bytes::{Buf, Bytes};
 use jolyne::error::JolyneError;
 use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
@@ -10,9 +10,10 @@ use jolyne::stream::{BedrockStream, Client, Handshake, Play};
 use valentine::bedrock::version::v1_26_40::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
+use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
-    BlobCacheReady, BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, Packet,
+    BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
     ProtocolError, WorldEvent, into_world_event,
 };
 
@@ -94,6 +95,25 @@ struct PendingBlobCacheDelivery {
     status_packets: VecDeque<Packet>,
     status_send_in_flight: bool,
     events: VecDeque<WorldEvent>,
+}
+
+enum WorldIngress {
+    Event(WorldEvent),
+    // This slice avoids a payload-sized copy, but intentionally retains the
+    // decompressed batch allocation until client-world finishes the decode job.
+    LevelChunk(LevelChunkEvent, Bytes),
+}
+
+impl WorldIngress {
+    fn into_world_event(self) -> WorldEvent {
+        match self {
+            Self::Event(event) => event,
+            Self::LevelChunk(mut event, payload) => {
+                event.payload = payload.to_vec();
+                WorldEvent::LevelChunk(event)
+            }
+        }
+    }
 }
 
 const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
@@ -221,9 +241,33 @@ impl<T: Transport> PlaySession<T> {
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
+        self.recv_world_ingress(current_dimension)
+            .await
+            .map(WorldIngress::into_world_event)
+    }
+
+    /// Receives world work while allowing the app to retain an uncopied LevelChunk payload.
+    /// Other callers should continue using [`Self::recv_world_event`].
+    #[doc(hidden)]
+    pub async fn recv_world_event_mapped<U>(
+        &mut self,
+        current_dimension: i32,
+        map_event: impl FnOnce(WorldEvent) -> U,
+        map_level_chunk: impl FnOnce(LevelChunkEvent, Bytes) -> U,
+    ) -> Result<U, ProtocolError> {
+        Ok(match self.recv_world_ingress(current_dimension).await? {
+            WorldIngress::Event(event) => map_event(event),
+            WorldIngress::LevelChunk(event, payload) => map_level_chunk(event, payload),
+        })
+    }
+
+    async fn recv_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> Result<WorldIngress, ProtocolError> {
         if self.blob_cache.is_some() {
             return self
-                .recv_world_event_with_blob_cache(current_dimension)
+                .recv_world_ingress_with_blob_cache(current_dimension)
                 .await;
         }
         loop {
@@ -237,11 +281,30 @@ impl<T: Transport> PlaySession<T> {
                 }
             };
             self.packet_id_trace.observe(raw.id);
+            if raw.id == McpePacketName::LevelChunkPacket {
+                let raw = raw.into_retention_bounded();
+                let borrowed = raw
+                    .decode_borrowed()
+                    .map_err(|error| self.fail_session(error))?;
+                let valentine::bedrock::version::v1_26_40::BorrowedMcpePacketData::LevelChunkPacket(
+                    packet,
+                ) = borrowed.data
+                else {
+                    unreachable!("LevelChunk packet ID decoded to another borrowed variant")
+                };
+                match crate::world::normalize_borrowed_level_chunk(packet) {
+                    Ok((event, payload)) => return Ok(WorldIngress::LevelChunk(event, payload)),
+                    Err(error) => {
+                        self.skip_or_fail_world(error.into())?;
+                        continue;
+                    }
+                }
+            }
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
             });
             match decoded {
-                Ok(Some(event)) => return Ok(event),
+                Ok(Some(event)) => return Ok(WorldIngress::Event(event)),
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => {
                     if is_decode_error(&error) {
@@ -311,10 +374,10 @@ impl<T: Transport> PlaySession<T> {
         }
     }
 
-    async fn recv_world_event_with_blob_cache(
+    async fn recv_world_ingress_with_blob_cache(
         &mut self,
         current_dimension: i32,
-    ) -> Result<WorldEvent, ProtocolError> {
+    ) -> Result<WorldIngress, ProtocolError> {
         loop {
             if self
                 .pending_blob_cache_delivery
@@ -337,7 +400,7 @@ impl<T: Transport> PlaySession<T> {
                 .expect("enabled path owns a resolver")
                 .pop_recovery_ready()
             {
-                return Ok(WorldEvent::ChunkResync(recovery));
+                return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
             if let Some(status_packet) = self
                 .pending_blob_cache_delivery
@@ -365,18 +428,22 @@ impl<T: Transport> PlaySession<T> {
                 .as_mut()
                 .and_then(|delivery| delivery.events.pop_front())
             {
-                return Ok(event);
+                return Ok(WorldIngress::Event(event));
             }
             self.pending_blob_cache_delivery = None;
             if let Some(ready) = self
                 .blob_cache
                 .as_mut()
                 .expect("enabled path owns a resolver")
-                .pop_ready()
+                .pop_ready_ingress()
             {
                 let event = match ready {
-                    BlobCacheReady::Packet(packet) => {
+                    ResolverReady::Packet(packet) => {
                         match into_world_event(packet, current_dimension) {
+                            Ok(Some(WorldEvent::LevelChunk(mut event))) => {
+                                let payload = Bytes::from(std::mem::take(&mut event.payload));
+                                return Ok(WorldIngress::LevelChunk(event, payload));
+                            }
                             Ok(Some(event)) => event,
                             Ok(None) => {
                                 self.reset_blob_cache_pending();
@@ -388,12 +455,15 @@ impl<T: Transport> PlaySession<T> {
                             }
                         }
                     }
-                    BlobCacheReady::WorldEvent(event) => event,
+                    ResolverReady::WorldEvent(event) => event,
+                    ResolverReady::LevelChunkBytes(event, payload) => {
+                        return Ok(WorldIngress::LevelChunk(event, payload));
+                    }
                 };
                 if matches!(event, WorldEvent::ChangeDimension(_)) {
                     self.reset_blob_cache_pending();
                 }
-                return Ok(event);
+                return Ok(WorldIngress::Event(event));
             }
 
             let resolver = self
@@ -412,6 +482,11 @@ impl<T: Transport> PlaySession<T> {
             self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
+            let raw = if packet_name == McpePacketName::LevelChunkPacket {
+                raw.into_retention_bounded()
+            } else {
+                raw
+            };
 
             if matches!(
                 packet_name,
@@ -434,6 +509,33 @@ impl<T: Transport> PlaySession<T> {
                     | McpePacketName::SubChunkPacket
                     | McpePacketName::ClientCacheMissResponsePacket
             ) {
+                if packet_name == McpePacketName::LevelChunkPacket {
+                    let borrowed_raw = raw.clone();
+                    let borrowed = match borrowed_raw.decode_borrowed() {
+                        Ok(packet) => packet,
+                        Err(error) => return Err(self.fail_session(error)),
+                    };
+                    let valentine::bedrock::version::v1_26_40::BorrowedMcpePacketData::LevelChunkPacket(view) = borrowed.data else {
+                        unreachable!("LevelChunk packet ID decoded to another borrowed variant")
+                    };
+                    if !view.cache_enabled {
+                        let (event, payload) =
+                            match crate::world::normalize_borrowed_level_chunk(view) {
+                                Ok(value) => value,
+                                Err(error) => {
+                                    self.skip_or_fail_world(error.into())?;
+                                    continue;
+                                }
+                            };
+                        let resolver = self
+                            .blob_cache
+                            .as_mut()
+                            .expect("enabled path owns a resolver");
+                        resolver.reset_pending_for_fast_transfer_candidate()?;
+                        resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
+                        continue;
+                    }
+                }
                 let packet = match self.stream.decode_raw_packet(raw) {
                     Ok(packet) => packet,
                     Err(error) => return Err(self.fail_session(error)),

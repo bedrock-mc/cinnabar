@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
 assets = { path = "../crates/assets" }

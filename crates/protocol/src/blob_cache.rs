@@ -21,7 +21,8 @@ pub(crate) fn dimension_id(
     dimension.value
 }
 
-use crate::{ChunkResyncEvent, Packet, SubChunkReplyAdmissionEvent, WorldEvent};
+use crate::{ChunkResyncEvent, LevelChunkEvent, Packet, SubChunkReplyAdmissionEvent, WorldEvent};
+use bytes::Bytes;
 
 #[cfg(test)]
 static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
@@ -309,7 +310,7 @@ struct PendingTransaction {
 
 #[derive(Debug)]
 struct ReadyTransaction {
-    value: BlobCacheReady,
+    value: ResolverReady,
     columns: Vec<ColumnKey>,
     accounted_bytes: usize,
     sequence: u64,
@@ -317,10 +318,39 @@ struct ReadyTransaction {
 
 #[derive(Debug)]
 struct ImmediateReady {
-    value: BlobCacheReady,
+    value: ResolverReady,
     columns: Vec<ColumnKey>,
     accounted_bytes: usize,
     sequence: u64,
+}
+
+#[derive(Debug)]
+pub(crate) enum ResolverReady {
+    Packet(Packet),
+    WorldEvent(WorldEvent),
+    LevelChunkBytes(LevelChunkEvent, Bytes),
+}
+
+impl From<BlobCacheReady> for ResolverReady {
+    fn from(value: BlobCacheReady) -> Self {
+        match value {
+            BlobCacheReady::Packet(packet) => Self::Packet(packet),
+            BlobCacheReady::WorldEvent(event) => Self::WorldEvent(event),
+        }
+    }
+}
+
+impl ResolverReady {
+    fn into_public(self) -> BlobCacheReady {
+        match self {
+            Self::Packet(packet) => BlobCacheReady::Packet(packet),
+            Self::WorldEvent(event) => BlobCacheReady::WorldEvent(event),
+            Self::LevelChunkBytes(mut event, payload) => {
+                event.payload = payload.to_vec();
+                BlobCacheReady::WorldEvent(WorldEvent::LevelChunk(event))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -406,9 +436,9 @@ pub struct BlobCacheResolver {
     stats: BlobCacheStats,
 }
 
-fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCacheError> {
+fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {
     match value {
-        BlobCacheReady::Packet(Packet {
+        ResolverReady::Packet(Packet {
             data: McpePacketData::LevelChunkPacket(packet),
             ..
         }) => {
@@ -424,7 +454,7 @@ fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCach
                 .and_then(|bytes| bytes.checked_add(hash_bytes))
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
-        BlobCacheReady::Packet(Packet {
+        ResolverReady::Packet(Packet {
             data: McpePacketData::SubChunkPacket(packet),
             ..
         }) => {
@@ -448,9 +478,9 @@ fn ready_value_accounted_bytes(value: &BlobCacheReady) -> Result<usize, BlobCach
                 })
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
-        BlobCacheReady::Packet(_) | BlobCacheReady::WorldEvent(_) => {
-            Err(BlobCacheError::NotCachedPacket)
-        }
+        ResolverReady::Packet(_)
+        | ResolverReady::WorldEvent(_)
+        | ResolverReady::LevelChunkBytes(_, _) => Err(BlobCacheError::NotCachedPacket),
     }
 }
 
