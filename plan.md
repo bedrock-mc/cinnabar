@@ -109,16 +109,31 @@ is not wired into the production asset targets.
 Current implementation state:
 
 - Protocol, world, movement, gameplay-HUD, and launcher foundations have landed. Production
-  physics is enabled by default.
+  physics is enabled by default. Generated collection decoders are allocation-bounded, the
+  current generated borrowed packet views retain byte fields without an eager copy, and the
+  StartGame world clock is separated from the provisional local prediction-tick anchor.
+- Replay-stable local Jump Boost, Levitation, and Slow Falling snapshots have landed with
+  correction-safe history. A bounded collision-shape-aware block interaction ray query has
+  also landed, but neither tranche closes the remaining movement strata, outbound block
+  transactions, gameplay reach, or live server-authoritative acceptance.
 - Actor CPU/GPU rig foundations have landed, but non-player families, held items, dropped
   items, and live actor acceptance remain open.
-- Server resource-pack application and resource-pack JSON UI are absent. Forms have bounded
-  ingress only; response UX and routing are not implemented.
-- Outbound combat and block-use/break/place transactions plus interactive container inventory
-  are absent; receive-side crack presentation and read-only inventory state have landed.
+- The Go core now performs one bounded upstream pack negotiation before downstream login.
+  Optional offers may be downloaded under explicit limits and are then declined downstream;
+  non-empty required offers fail with a typed pre-login reason. Persistent cache integration,
+  resource-pack application, content-key handoff, and resource-pack JSON UI remain absent.
+  This admission foundation is not a claim that a server pack is usable.
+- A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
+  the 36 player slots and cursor have landed, including rollback, full-authority recovery,
+  transport admission, and pointer routing. Generic storage containers, crafting, furnace
+  roles, and all outbound combat and block-use/break/place transactions remain open.
+  Receive-side crack presentation remains read-only.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
   evidence remain open. Local worlds, audio, and packaging are absent.
+- Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
+  path derivation have landed. Platform CI remains a continuing gate rather than evidence of
+  native gameplay parity.
 - Live, native-comparison, and performance gates remain open. Do not infer their completion
   from deterministic tests or checked-in fixtures.
 - Content assets intentionally remain on the older pinned inputs until a coherent
@@ -127,16 +142,20 @@ Current implementation state:
 
 Immediate execution order:
 
-1. **Protocol-2168 debt closure:** restore bounded pre-allocation guards in generated decode
-   paths; resolve the `ItemStackResponse` wire-shape divergence; replace the owned/copied
-   `LevelChunk` packet view with a bounded borrowed zero-copy view; and enforce strict actor-ID
-   varint decoding. Re-run conformance and adversarial decode coverage after each bounded fix.
+1. **Protocol-2168 debt closure:** finish routing the already-borrowed `LevelChunk` bytes
+   through the resolver, world ingress, and decode-job hot path without retaining unrelated
+   batch storage. Keep conformance, cache ordering, legacy API compatibility, and adversarial
+   length coverage green. The generated allocation guards and borrowed packet-view surface are
+   already closed; do not redo them.
 2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
    then validate the device-code and cached-account UX with explicit native/live evidence.
-3. **Resource packs:** negotiate, cache, validate, and apply server packs, including their
-   resource-pack-driven UI contracts.
-4. **Interactions:** implement combat, breaking/placement/use transactions, item-stack
-   reconciliation, hotbar contents, and container inventory.
+3. **Resource packs:** integrate the bounded persistent cache with the existing admission
+   owner, add a versioned/correlated status-control surface, then validate and apply server
+   packs including their resource-pack-driven UI contracts. Required packs must remain
+   truthfully rejected until application exists.
+4. **Interactions:** build protocol-2168 combat and block-use/break/place transactions on the
+   landed authoritative ray query, then extend the landed player ledger to bounded generic
+   storage and later container/crafting roles without weakening single-flight reconciliation.
 5. **Actors and UI:** complete non-player/held/dropped rendering and actor live gates, then
    interactive forms and the remaining HUD/menu/UI acceptance work.
 6. **Product phases:** proceed through online product surfaces, local worlds, audio, polish,
