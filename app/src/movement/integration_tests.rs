@@ -21,6 +21,8 @@ use ui::UserSettings;
 use crate::{
     acceptance::{AcceptanceRun, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
     camera::CameraSettingsAuthority,
+    environment::{WeatherState, WorldClock, replace_session},
+    runtime::network::reset_start_game_prediction,
 };
 
 #[path = "transport_tests.rs"]
