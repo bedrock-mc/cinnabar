@@ -4,7 +4,11 @@ package packcache
 
 import (
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,6 +22,56 @@ func secureOwnerOnlyPath(path string, directory bool) error {
 	return os.Chmod(path, 0o600)
 }
 func canonicalPlatformPath(path string) string { return path }
+
+// canonicalizeTopLevelAlias resolves only a root-owned first Unix path
+// component. macOS exposes standard temporary paths through a system-owned
+// alias such as /var -> private/var. Links below that boundary remain
+// untouched so validatePathComponents rejects them.
+func canonicalizeTopLevelAlias(path string) (string, error) {
+	return canonicalizeTopLevelAliasWith(path, os.Lstat, os.Readlink)
+}
+
+func canonicalizeTopLevelAliasWith(
+	path string,
+	lstat func(string) (fs.FileInfo, error),
+	readlink func(string) (string, error),
+) (string, error) {
+	if !filepath.IsAbs(path) || path == string(filepath.Separator) {
+		return path, nil
+	}
+	relative := strings.TrimPrefix(path, string(filepath.Separator))
+	component, _, _ := strings.Cut(relative, string(filepath.Separator))
+	if component == "" {
+		return path, nil
+	}
+	alias := string(filepath.Separator) + component
+	info, err := lstat(alias)
+	if err != nil {
+		return "", errors.New("inspect cache system path")
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != 0 {
+		return "", errors.New("cache system path alias is not trusted")
+	}
+	target, err := readlink(alias)
+	if err != nil {
+		return "", errors.New("resolve cache system path alias")
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(alias), target)
+	} else {
+		target = filepath.Clean(target)
+	}
+	if !filepath.IsAbs(target) {
+		return "", errors.New("resolve cache system path alias")
+	}
+	remainder := strings.TrimPrefix(path, alias)
+	return filepath.Join(target, remainder), nil
+}
+
 func syncDir(path string) error {
 	f, err := os.Open(path)
 	if err != nil {

@@ -17,8 +17,9 @@ func hasLinkAttribute(info os.FileInfo) bool {
 	return !ok || data.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
-func syncDir(string) error                     { return nil }
-func canonicalPlatformPath(path string) string { return strings.ToLower(path) }
+func syncDir(string) error                                  { return nil }
+func canonicalPlatformPath(path string) string              { return strings.ToLower(path) }
+func canonicalizeTopLevelAlias(path string) (string, error) { return path, nil }
 
 func currentUserSID() (*windows.SID, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -68,6 +69,20 @@ func secureOwnerOnlyPath(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
+	return applyOwnerOnlySecurity(path, directory, user, windows.SetNamedSecurityInfo)
+}
+
+type namedSecuritySetter func(
+	string,
+	windows.SE_OBJECT_TYPE,
+	windows.SECURITY_INFORMATION,
+	*windows.SID,
+	*windows.SID,
+	*windows.ACL,
+	*windows.ACL,
+) error
+
+func applyOwnerOnlySecurity(path string, directory bool, user *windows.SID, setSecurity namedSecuritySetter) error {
 	inheritance := uint32(windows.NO_INHERITANCE)
 	if directory {
 		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
@@ -81,7 +96,15 @@ func secureOwnerOnlyPath(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil)
+	return setSecurity(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		user,
+		nil,
+		acl,
+		nil,
+	)
 }
 
 func openRegular(path string) (*os.File, error) {

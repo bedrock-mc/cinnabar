@@ -833,30 +833,29 @@ func TestBackpressuredAcceptHandoffAbortsBeforePanickingClose(t *testing.T) {
 
 func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 	dir := t.TempDir()
+	var output lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:1"})
+		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:1", Logger: logger})
 	}()
 
-	var networkName, address string
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		var err error
-		networkName, address, err = streamnet.Resolve(dir)
-		if err == nil {
-			break
-		}
+	readyCtx, stopWaiting := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stopWaiting()
+	if !output.waitFor(readyCtx, "msg=\"listener ready; waiting for local Rust client\"") {
+		cancel()
 		select {
 		case serveErr := <-done:
-			t.Fatalf("Serve() stopped before publishing endpoint: %v", serveErr)
+			t.Fatalf("Serve() stopped before reporting listener readiness: %v", serveErr)
 		default:
+			t.Fatalf("proxy listener was not ready:\n%s", output.String())
 		}
-		time.Sleep(5 * time.Millisecond)
 	}
-	if networkName == "" {
+	networkName, address, err := streamnet.Resolve(dir)
+	if err != nil {
 		cancel()
-		t.Fatal("proxy endpoint was not published")
+		t.Fatalf("resolve ready proxy endpoint: %v", err)
 	}
 	client, err := net.DialTimeout(networkName, address, time.Second)
 	if err != nil {
@@ -914,14 +913,15 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:19132", Logger: logger})
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(output.String(), "msg=\"listener ready; waiting for local Rust client\"") && time.Now().Before(deadline) {
+	readyCtx, stopWaiting := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stopWaiting()
+	if !output.waitFor(readyCtx, "msg=\"listener ready; waiting for local Rust client\"") {
 		select {
 		case err := <-done:
 			t.Fatalf("Serve() stopped before reporting readiness: %v", err)
 		default:
+			t.Fatalf("Serve() did not report readiness:\n%s", output.String())
 		}
-		time.Sleep(time.Millisecond)
 	}
 	network, endpoint, err := streamnet.Resolve(dir)
 	if err != nil {
