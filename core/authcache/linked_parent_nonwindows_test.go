@@ -70,8 +70,16 @@ func TestCanonicalizeCachePathPreservesNestedAliasForRejection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalizeCachePath() error = %v", err)
 	}
-	if canonical != raw {
-		t.Fatalf("canonicalizeCachePath() = %q, want nested alias retained as %q", canonical, raw)
+	canonicalRoot, err := canonicalizeCachePath(root)
+	if err != nil {
+		t.Fatalf("canonicalizeCachePath(root) error = %v", err)
+	}
+	want := filepath.Join(canonicalRoot, "linked-parent", "microsoft-token.json")
+	if canonical != want {
+		t.Fatalf("canonicalizeCachePath() = %q, want nested alias retained as %q", canonical, want)
+	}
+	if _, err := snapshotDirectoryChain(filepath.Dir(canonical)); err == nil {
+		t.Fatal("snapshotDirectoryChain() accepted the retained nested alias")
 	}
 }
 
