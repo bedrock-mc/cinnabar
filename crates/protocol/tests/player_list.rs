@@ -38,8 +38,6 @@ const FIXTURE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
 ]);
 
-const MAX_PLAYER_LIST_ENTRIES: usize = 4_096;
-
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:
 //
@@ -176,31 +174,21 @@ fn pinned_gophertunnel_player_list_borrowed_materializes_with_same_count() {
     assert_remove_payload(&owned);
 }
 
-/// An entry count above gophertunnel's slice ceiling must still fail the read.
-///
-/// REGRESSION - see the module header of `world_collection_bounds.rs`. Protocol
-/// 1001 failed here with `DecodeError::ArrayLengthExceeded { declared: 4097,
-/// available: 4096 }` *before* allocating, matching gophertunnel's
-/// `maxSliceLength = 4096` guard in `minecraft/protocol/io.go`. The 1.26.40
-/// generated crate emits no collection ceilings, so the count is reserved with
-/// `Vec::with_capacity` and the read only fails once the entries turn out to be
-/// absent. The `ArrayLengthExceeded` arm is the tripwire for the ceiling
-/// returning.
+/// An impossible entry count fails its minimum-wire-size check before reserve.
+/// The check is driven by remaining bytes, not by a global element ceiling.
 #[test]
 fn player_list_decode_rejects_count_above_gophertunnel_slice_limit() {
     let mut encoded = BytesMut::new();
     VarInt(4097).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("oversized count");
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the \
-             `declared: 4097, available: {MAX_PLAYER_LIST_ENTRIES}` assertion here"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(matches!(
+        error,
+        DecodeError::ArrayLengthExceeded {
+            declared: 4097,
+            available: 0
+        }
+    ));
 }
 
 #[test]
@@ -209,9 +197,25 @@ fn player_list_decode_rejects_count_larger_than_remaining_bytes() {
     VarInt(2).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("truncated entries");
-    let truncated = matches!(&error, DecodeError::UnexpectedEof { .. })
-        || matches!(&error, DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof);
-    assert!(truncated, "unexpected decode error: {error:?}");
+    assert!(matches!(
+        error,
+        DecodeError::ArrayLengthExceeded {
+            declared: 2,
+            available: 0
+        }
+    ));
+}
+
+#[test]
+fn player_list_owned_rejects_negative_counts() {
+    let mut encoded = BytesMut::new();
+    VarInt(-1).encode(&mut encoded).expect("negative count");
+
+    let mut owned = encoded.clone().freeze();
+    assert!(matches!(
+        PlayerListPacket::decode(&mut owned, ()).unwrap_err(),
+        DecodeError::NegativeLength { value: -1 }
+    ));
 }
 
 /// RETARGETED from `player_records_encode_rejects_count_and_record_length_mismatch_before_writing`.
@@ -321,6 +325,9 @@ fn player_list_decode_rejects_unknown_entry_variants() {
         let mut encoded = BytesMut::new();
         VarInt(1).encode(&mut encoded).expect("entry count");
         encoded.extend_from_slice(&[variant]);
+        // Supply the valid-variant minimum so the collection feasibility guard
+        // does not mask the union discriminant error under test.
+        encoded.resize(encoded.len() + 17, 0);
 
         let error = PlayerListPacket::decode(&mut encoded.freeze(), ())
             .expect_err("unknown entry variant must not decode");

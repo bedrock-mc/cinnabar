@@ -110,9 +110,11 @@ impl crate::bedrock::codec::BedrockCodec for ActorDataFlagComponent {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -402,9 +404,11 @@ impl crate::bedrock::codec::BedrockCodec for SkinImage {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -916,16 +920,16 @@ impl crate::bedrock::codec::BedrockCodec for AttributeModifier {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let name = {
             let len_raw =
@@ -937,16 +941,16 @@ impl crate::bedrock::codec::BedrockCodec for AttributeModifier {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let amount =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -1060,16 +1064,16 @@ impl crate::bedrock::codec::BedrockCodec for AttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let modifiers = {
             let raw =
@@ -1081,9 +1085,11 @@ impl crate::bedrock::codec::BedrockCodec for AttributeData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(15))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <AttributeModifier as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -1207,16 +1213,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let attribute_layer_dimension =
             <DimensionType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -1230,9 +1236,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -1245,16 +1253,16 @@ impl crate::bedrock::codec::BedrockCodec
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -1365,16 +1373,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let attribute_layer_dimension =
             <DimensionType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -1432,16 +1440,16 @@ impl crate::bedrock::codec::BedrockCodec for EasBoolAttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { value, operation })
     }
@@ -1523,16 +1531,16 @@ impl crate::bedrock::codec::BedrockCodec for EasFloatAttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let constraint_min = {
             let present = u8::decode(buf, ())?;
@@ -1632,16 +1640,16 @@ impl crate::bedrock::codec::BedrockCodec for EasColorAttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { value, operation })
     }
@@ -2003,16 +2011,16 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let from_attribute = {
             let present = u8::decode(buf, ())?;
@@ -2061,16 +2069,16 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let local_transition_ticks =
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -2174,16 +2182,16 @@ impl crate::bedrock::codec::BedrockCodec for EasAttributeLayerData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let noise_name = {
             let present = u8::decode(buf, ())?;
@@ -2199,16 +2207,16 @@ impl crate::bedrock::codec::BedrockCodec for EasAttributeLayerData {
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -2227,9 +2235,11 @@ impl crate::bedrock::codec::BedrockCodec for EasAttributeLayerData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(20))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <EasEnvironmentAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2293,9 +2303,11 @@ impl crate::bedrock::codec::BedrockCodec for AttributeLayerSyncPacketDataUpdateA
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(14))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <EasAttributeLayerData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2371,16 +2383,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let attribute_layer_dimension =
             <DimensionType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -2394,9 +2406,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(20))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <EasEnvironmentAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2521,16 +2535,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadChain
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let sub_commandvalues = {
             let raw =
@@ -2542,9 +2556,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadChain
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <AvailableCommandsPacketPayloadChainedSubcommandRelationship as crate::bedrock::codec::BedrockCodec>::decode(
@@ -2611,16 +2627,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadParam
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let parse_symbol =
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -2684,9 +2700,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadOverl
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <AvailableCommandsPacketPayloadParamData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -2802,16 +2820,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadComma
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let description = {
             let len_raw =
@@ -2823,16 +2841,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadComma
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let flags =
             <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -2847,16 +2865,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadComma
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let alias_enum =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -2871,9 +2889,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadComma
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2894,9 +2914,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadComma
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <AvailableCommandsPacketPayloadOverloadData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -2975,9 +2997,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadConst
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -3045,16 +3069,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadEnumD
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let values = {
             let raw =
@@ -3066,9 +3090,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadEnumD
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -3146,16 +3172,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadSoftE
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let enum_options = {
             let raw =
@@ -3167,9 +3193,11 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadSoftE
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -3182,16 +3210,16 @@ impl crate::bedrock::codec::BedrockCodec for AvailableCommandsPacketPayloadSoftE
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -3260,16 +3288,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreChange {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let property = {
             let len_raw =
@@ -3281,16 +3309,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreChange {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let update_count =
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -3345,16 +3373,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreRemoval {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { data_store_name })
     }
@@ -3517,16 +3545,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreUpdate {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let property = {
             let len_raw =
@@ -3538,16 +3566,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreUpdate {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let path = {
             let len_raw =
@@ -3559,16 +3587,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockDduiDataStoreUpdate {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let data = <BedrockDduiDataStoreUpdateData as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -3651,16 +3679,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockProfileWhiskerDiagnosticsSco
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let indentation = {
             let len_raw =
@@ -3672,16 +3700,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockProfileWhiskerDiagnosticsSco
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let total_high_cost_ns =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -3754,16 +3782,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let redacted = {
             let len_raw =
@@ -3775,16 +3803,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            let value = crate::bedrock::codec::decode_utf8_lossy_owned(bytes);
+            let value = crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?;
             (!value.is_empty()).then_some(value)
         };
         Ok(Self {
@@ -3898,9 +3926,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeCappedSurfaceData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -3921,9 +3951,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeCappedSurfaceData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -4126,9 +4158,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeConditionalTransformationData 
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -4437,9 +4471,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeScatterParamData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(15))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeCoordinateData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -4588,9 +4624,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeConsolidatedFeaturesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(23))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeConsolidatedFeatureData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -4859,9 +4897,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeSurfaceMaterialAdjustmentData 
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(42))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeElementData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5049,9 +5089,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5068,9 +5110,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5087,9 +5131,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5106,9 +5152,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5125,9 +5173,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <BiomeConditionalTransformationData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -5148,9 +5198,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <BiomeConditionalTransformationData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -5171,9 +5223,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeOverworldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeWeightedTemperatureData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -5298,9 +5352,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeLegacyWorldGenRulesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <BiomeConditionalTransformationData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -5380,9 +5436,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeReplacementData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -5457,9 +5515,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeReplacementsData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(17))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <BiomeReplacementData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -5657,16 +5717,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedNoiseBlockSpecifier {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let threshold =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -5740,16 +5800,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12630NoiseDescriptor {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let first_octave =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -5764,9 +5824,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12630NoiseDescriptor {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -5847,9 +5909,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeNoiseGradientSurfaceData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -5870,9 +5934,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeNoiseGradientSurfaceData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(17))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <SerializedNoiseBlockSpecifier as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -6432,9 +6498,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeTagsData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -6632,9 +6700,11 @@ impl crate::bedrock::codec::BedrockCodec for BiomeStringList {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -6647,16 +6717,16 @@ impl crate::bedrock::codec::BedrockCodec for BiomeStringList {
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -6780,16 +6850,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionAddPage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let reserved_2 = {
             let len_raw =
@@ -6801,16 +6871,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionAddPage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             page_index,
@@ -6916,16 +6986,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionFinalize {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let author = {
             let len_raw =
@@ -6937,16 +7007,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionFinalize {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let xuid = {
             let len_raw =
@@ -6958,16 +7028,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionFinalize {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             title,
@@ -7039,16 +7109,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionReplacePage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let reserved_2 = {
             let len_raw =
@@ -7060,16 +7130,16 @@ impl crate::bedrock::codec::BedrockCodec for BookEditActionReplacePage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             page_index,
@@ -7932,16 +8002,16 @@ impl crate::bedrock::codec::BedrockCodec for CameraInstructionOptionsFovInstruct
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let fieldof_view_clear = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -8009,16 +8079,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             keyframevalue,
@@ -8082,16 +8152,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             keyframevalue,
@@ -8199,9 +8269,11 @@ impl crate::bedrock::codec::BedrockCodec for CameraInstructionOptionsSplineInstr
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(12))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<Vec3 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -8219,9 +8291,11 @@ impl crate::bedrock::codec::BedrockCodec for CameraInstructionOptionsSplineInstr
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(9))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CameraInstructionOptionsSplineInstructionSplineProgressOption as crate::bedrock::codec::BedrockCodec>::decode(
@@ -8242,9 +8316,11 @@ impl crate::bedrock::codec::BedrockCodec for CameraInstructionOptionsSplineInstr
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(17))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CameraInstructionOptionsSplineInstructionSplineRotationOption as crate::bedrock::codec::BedrockCodec>::decode(
@@ -8265,16 +8341,16 @@ impl crate::bedrock::codec::BedrockCodec for CameraInstructionOptionsSplineInstr
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let load_from_json = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -8829,16 +8905,16 @@ impl crate::bedrock::codec::BedrockCodec
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -9297,16 +9373,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12190CameraPreset {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let inherit_from = {
             let len_raw =
@@ -9318,16 +9394,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12190CameraPreset {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let pos_x = {
             let present = u8::decode(buf, ())?;
@@ -9656,9 +9732,11 @@ impl crate::bedrock::codec::BedrockCodec for CameraPresets {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(22))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <SharedTypesV12190CameraPreset as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -9766,16 +9844,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangeEntityScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let scoreboard_id = <ScoreboardId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let objective_name = {
@@ -9788,16 +9866,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangeEntityScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let score_value =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -9881,16 +9959,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangeFakePlayerScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let scoreboard_id = <ScoreboardId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let objective_name = {
@@ -9903,16 +9981,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangeFakePlayerScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let score_value =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -9927,16 +10005,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangeFakePlayerScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             action,
@@ -10042,16 +10120,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangePlayerScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let scoreboard_id = <ScoreboardId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let objective_name = {
@@ -10064,16 +10142,16 @@ impl crate::bedrock::codec::BedrockCodec for ChangePlayerScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let score_value =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -10211,16 +10289,16 @@ impl crate::bedrock::codec::BedrockCodec for ClientboundDebugRendererPacketPaylo
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let position = <Vec3 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let color = <MceColor as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -10372,16 +10450,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOriginData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let uuid = <uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let request_id = {
@@ -10394,16 +10472,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOriginData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let player_id =
             <crate::bedrock::codec::I64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -10483,16 +10561,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutputMessage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let successful = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let parameters = {
@@ -10505,9 +10583,11 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutputMessage {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -10520,16 +10600,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutputMessage {
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -10623,16 +10703,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutput {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let success_count =
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -10647,9 +10727,11 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutput {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <CommandOutputMessage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -10670,16 +10752,16 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutput {
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -10835,16 +10917,16 @@ impl crate::bedrock::codec::BedrockCodec for ContentIdentity {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { identity })
     }
@@ -10995,9 +11077,11 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerNetworkItemInstanceDescri
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -11065,16 +11149,16 @@ impl crate::bedrock::codec::BedrockCodec for CreativeGroupInfoPayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let group_icon_item = <CerealizerNetworkItemInstanceDescriptorSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -11865,16 +11949,16 @@ impl crate::bedrock::codec::BedrockCodec for DataItemStringPayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { type_, value })
     }
@@ -12578,16 +12662,16 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketMessages {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let filtered_message = {
             let len_raw =
@@ -12599,16 +12683,16 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacketMessages {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             message,
@@ -12674,16 +12758,16 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsEntityDiagno
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let entity = {
             let len_raw =
@@ -12695,16 +12779,16 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsEntityDiagno
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let timein_ns =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -12762,16 +12846,16 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsSystemCatego
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let system_index =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -12832,16 +12916,16 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsSystemDiagno
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let system_index =
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -12910,16 +12994,16 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettingsReserved44 {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let reserved_1 = {
             let len_raw =
@@ -12931,16 +13015,16 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettingsReserved44 {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             reserved_0,
@@ -13000,16 +13084,16 @@ impl crate::bedrock::codec::BedrockCodec for ExternalLinkSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let display_name = {
             let len_raw =
@@ -13021,16 +13105,16 @@ impl crate::bedrock::codec::BedrockCodec for ExternalLinkSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { url, display_name })
     }
@@ -13396,16 +13480,16 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerExperimentsAnonExperiment
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let enabled = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self { name, enabled })
@@ -13449,14 +13533,17 @@ impl crate::bedrock::codec::BedrockCodec for Experiments {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
         let toggles = {
-            let len =
+            let len = crate::bedrock::codec::checked_unsigned_len(
                 (<crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?
-                .0) as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+                .0) as u128,
+            )?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerExperimentsAnonExperimentToggle as crate::bedrock::codec::BedrockCodec>::decode(
@@ -13531,16 +13618,16 @@ impl crate::bedrock::codec::BedrockCodec for FeatureRegistryFeatureBinaryJsonFor
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let binary_json_output = {
             let raw =
@@ -13552,9 +13639,11 @@ impl crate::bedrock::codec::BedrockCodec for FeatureRegistryFeatureBinaryJsonFor
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -14082,16 +14171,16 @@ impl crate::bedrock::codec::BedrockCodec for GameRule {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let rule_can_be_modified = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let rule_value =
@@ -14148,9 +14237,11 @@ impl crate::bedrock::codec::BedrockCodec for GameRulesChangedPacketData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<GameRule as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -14477,9 +14568,11 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerNetworkItemStackDescripto
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -14602,9 +14695,11 @@ impl crate::bedrock::codec::BedrockCodec for InventoryTransaction {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(22))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <InventoryAction as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -15050,16 +15145,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let item_id =
             <crate::bedrock::codec::I16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -15139,9 +15234,14 @@ impl crate::bedrock::codec::BedrockCodec for ItemEnchants {
                                 value: raw,
                             });
                         }
-                        let len = raw as usize;
-                        let mut tmp_vec = Vec::with_capacity(len);
+                        let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+                        let mut tmp_vec = crate::bedrock::codec::prepare_decode_vec(
+                            len,
+                            buf.remaining(),
+                            Some(2),
+                        )?;
                         for _ in 0..len {
+                            crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                             tmp_vec
                                 .push(
                                     <EnchantmentInstance as crate::bedrock::codec::BedrockCodec>::decode(
@@ -15250,16 +15350,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemEnchantOption {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let enchant_net_id =
             <TypedServerNetIdStructRecipeNetIdTag as crate::bedrock::codec::BedrockCodec>::decode(
@@ -16104,16 +16204,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftLoomActi
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let num_crafts = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -16889,16 +16989,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealItemNameDescr
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let aux_value =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -17238,16 +17338,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealMolangItemDes
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let molang_version = <ItemStackRequestCerealMolangItemDescriptorDataMolangVersion as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -17363,16 +17463,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealItemTagDescri
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             descriptor_type,
@@ -17630,9 +17730,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftRecipeAu
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <ItemStackRequestCerealRecipeIngredientData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -18620,9 +18722,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -18693,9 +18797,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftResultsA
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <ItemStackRequestCerealNetworkItemInstanceDescriptorData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -20584,9 +20690,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <ItemStackRequestCerealRequestDataActionsItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -20607,9 +20715,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -20622,16 +20732,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestData {
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -21340,9 +21450,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestPacketDataRequestDa
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <ItemStackRequestPacketDataRequestDataActionsItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -21363,9 +21475,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestPacketDataRequestDa
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -21378,16 +21492,16 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestPacketDataRequestDa
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -21581,9 +21695,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseContainerInfo {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(8))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <ItemStackResponseSlotInfo as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -21983,9 +22099,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseInfo {
                             value: raw,
                         });
                     }
-                    let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+                    let mut tmp_vec =
+                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
                     for _ in 0..len {
+                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                         tmp_vec
                             .push(
                                 <ItemStackResponseContainerInfo as crate::bedrock::codec::BedrockCodec>::decode(
@@ -22791,9 +22909,11 @@ impl crate::bedrock::codec::BedrockCodec for LegacySetSlot {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -22932,16 +23052,16 @@ impl crate::bedrock::codec::BedrockCodec for SpawnSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let dimension =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -23786,16 +23906,16 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let rain_level =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -23863,16 +23983,16 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let limited_world_width =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -24222,16 +24342,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerWaypointPayload {
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -24586,16 +24706,16 @@ impl crate::bedrock::codec::BedrockCodec for MapDecoration {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let color = <MceColor as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -24880,9 +25000,11 @@ impl crate::bedrock::codec::BedrockCodec for CraftingDataReservedEntry {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <CraftingDataReservedEntryOutput as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -25465,9 +25587,11 @@ impl crate::bedrock::codec::BedrockCodec for MissingBlobData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -25931,16 +26055,16 @@ impl crate::bedrock::codec::BedrockCodec for SemVersion {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { version })
     }
@@ -26065,16 +26189,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInfoData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let subpack_name = {
             let len_raw =
@@ -26086,16 +26210,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInfoData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let content_identity =
             <ContentIdentity as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -26113,16 +26237,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInfoData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             pack_id_version,
@@ -26200,16 +26324,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInstanceId {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let version = {
             let len_raw =
@@ -26221,16 +26345,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInstanceId {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let sub_pack_name = {
             let len_raw =
@@ -26242,16 +26366,16 @@ impl crate::bedrock::codec::BedrockCodec for PackInstanceId {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             pack_id,
@@ -26371,9 +26495,11 @@ impl crate::bedrock::codec::BedrockCodec for PackedItemUseLegacyInventoryTransac
                             value: raw,
                         });
                     }
-                    let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+                    let mut tmp_vec =
+                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
                     for _ in 0..len {
+                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                         tmp_vec.push(
                             <LegacySetSlot as crate::bedrock::codec::BedrockCodec>::decode(
                                 buf,
@@ -27078,16 +27204,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedPersonaPieceHandle {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let piece_type =
             <SerializedPersonaPieceHandlePieceType as crate::bedrock::codec::BedrockCodec>::decode(
@@ -27106,16 +27232,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedPersonaPieceHandle {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             piece_id,
@@ -27214,16 +27340,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRefPieceTintColorsIte
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value = <TintMapColor as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self { key, value })
@@ -27441,16 +27567,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let play_fab_id = {
             let len_raw =
@@ -27462,16 +27588,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let resource_patch = {
             let len_raw =
@@ -27483,16 +27609,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let image_data = <SkinImage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let animated_image_data = {
@@ -27505,9 +27631,11 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(15))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <AnimatedImageData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -27525,16 +27653,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let geometry_data_min_engine_version = {
             let len_raw =
@@ -27546,16 +27674,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let animation_data = {
             let len_raw =
@@ -27567,16 +27695,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let cape_id = {
             let len_raw =
@@ -27588,16 +27716,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let full_id = {
             let len_raw =
@@ -27609,16 +27737,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let arm_size =
             <SerializedSkinRefArmSize as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -27633,9 +27761,11 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(23))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <SerializedPersonaPieceHandle as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -27655,9 +27785,11 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(17))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SerializedSkinRefPieceTintColorsItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -27685,16 +27817,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let profile_hash = {
             let len_raw =
@@ -27706,16 +27838,16 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             id,
@@ -27841,16 +27973,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerListPacketPayloadAddEntry {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let xblxuid = {
             let len_raw =
@@ -27862,16 +27994,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerListPacketPayloadAddEntry {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let platform_online_id = {
             let len_raw =
@@ -27883,16 +28015,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerListPacketPayloadAddEntry {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let build_platform = <PlayerListPacketPayloadAddEntryBuildPlatform as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -28216,16 +28348,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerPartyInfo {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let is_party_leader = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
@@ -28275,16 +28407,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPa
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { type_ })
     }
@@ -28333,16 +28465,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPa
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -28394,16 +28526,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPa
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -28456,16 +28588,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { type_ })
     }
@@ -28517,16 +28649,16 @@ impl crate::bedrock::codec::BedrockCodec for PlayerVideoCapturePacketPayloadStar
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             frame_rate,
@@ -28828,16 +28960,16 @@ impl crate::bedrock::codec::BedrockCodec for TextDataPayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let use_rotation = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let background_color = {
@@ -29592,9 +29724,11 @@ impl crate::bedrock::codec::BedrockCodec for PropertySyncData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <PropertySyncDataPropertySyncIntEntry as crate::bedrock::codec::BedrockCodec>::decode(
@@ -29615,9 +29749,11 @@ impl crate::bedrock::codec::BedrockCodec for PropertySyncData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <PropertySyncDataPropertySyncFloatEntry as crate::bedrock::codec::BedrockCodec>::decode(
@@ -29701,16 +29837,16 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let scoreboard_id = <ScoreboardId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let objective_name = {
@@ -29727,16 +29863,16 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -29790,16 +29926,16 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { response_type })
     }
@@ -29868,16 +30004,16 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let downloading_packs = {
             let raw =
@@ -29889,9 +30025,11 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -29904,16 +30042,16 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -29969,16 +30107,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { response_type })
     }
@@ -30028,16 +30166,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { response_type })
     }
@@ -30344,9 +30482,11 @@ impl crate::bedrock::codec::BedrockCodec for SerializedAbilitiesData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(22))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SerializedAbilitiesDataSerializedLayer as crate::bedrock::codec::BedrockCodec>::decode(
@@ -30409,16 +30549,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerBlockProperty {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let block_definition =
             <crate::bedrock::codec::Nbt as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -30480,16 +30620,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationClientStoreEntry
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let store_name = {
             let len_raw =
@@ -30501,16 +30641,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationClientStoreEntry
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             store_id,
@@ -30673,16 +30813,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationGatheringsConfig
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let world_id = {
             let present = u8::decode(buf, ())?;
@@ -30709,16 +30849,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationGatheringsConfig
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -30734,16 +30874,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationGatheringsConfig
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let target_id = {
             let present = u8::decode(buf, ())?;
@@ -30770,16 +30910,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationGatheringsConfig
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -30799,16 +30939,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationGatheringsConfig
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -30883,16 +31023,16 @@ impl crate::bedrock::codec::BedrockCodec for ServerConfigurationPresenceConfigur
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -31099,16 +31239,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value = {
             let len_raw =
@@ -31120,16 +31260,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self { key, value })
     }
@@ -31189,9 +31329,11 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerRecipeIngredientSerialize
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerRecipeIngredientSerializedDataDescriptorItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31388,9 +31530,11 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerRecipeUnlockingRequiremen
                             value: raw,
                         });
                     }
-                    let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+                    let mut tmp_vec =
+                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
                     for _ in 0..len {
+                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                         tmp_vec
                             .push(
                                 <CerealizerRecipeIngredientSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31532,16 +31676,16 @@ impl crate::bedrock::codec::BedrockCodec for ShapedRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let width =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31565,9 +31709,11 @@ impl crate::bedrock::codec::BedrockCodec for ShapedRecipePayload {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerRecipeIngredientSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31588,9 +31734,11 @@ impl crate::bedrock::codec::BedrockCodec for ShapedRecipePayload {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerNetworkItemInstanceDescriptorSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31612,16 +31760,16 @@ impl crate::bedrock::codec::BedrockCodec for ShapedRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let priority =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31771,16 +31919,16 @@ impl crate::bedrock::codec::BedrockCodec for ShapelessRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let ingredients = {
             let raw =
@@ -31792,9 +31940,11 @@ impl crate::bedrock::codec::BedrockCodec for ShapelessRecipePayload {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerRecipeIngredientSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31815,9 +31965,11 @@ impl crate::bedrock::codec::BedrockCodec for ShapelessRecipePayload {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(6))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerNetworkItemInstanceDescriptorSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
@@ -31839,16 +31991,16 @@ impl crate::bedrock::codec::BedrockCodec for ShapelessRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let priority =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32012,9 +32164,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32027,16 +32181,16 @@ impl crate::bedrock::codec::BedrockCodec
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -32051,9 +32205,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32066,16 +32222,16 @@ impl crate::bedrock::codec::BedrockCodec
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -32090,9 +32246,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32105,16 +32263,16 @@ impl crate::bedrock::codec::BedrockCodec
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -32129,9 +32287,11 @@ impl crate::bedrock::codec::BedrockCodec
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32144,16 +32304,16 @@ impl crate::bedrock::codec::BedrockCodec
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -32294,16 +32454,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let exclusion_settings = <SharedTypesV121120CameraAimAssistPresetExclusionDefinition as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -32319,9 +32479,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32334,16 +32496,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -32358,9 +32520,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(2))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <CerealizerRecipeIngredientSerializedDataDescriptorItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32385,16 +32549,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -32414,16 +32578,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV121120CameraAimAssistPr
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -32487,16 +32651,16 @@ impl crate::bedrock::codec::BedrockCodec
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value =
             <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -32624,9 +32788,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12150CameraAimAssistCat
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32647,9 +32813,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12150CameraAimAssistCat
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32670,9 +32838,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12150CameraAimAssistCat
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32693,9 +32863,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12150CameraAimAssistCat
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItem as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32788,16 +32960,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV12150CameraAimAssistCat
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let priorities = <SharedTypesV12150CameraAimAssistCategoryPriorities as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -32902,16 +33074,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineProgres
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -32991,16 +33163,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineRotatio
                             value: len_raw,
                         });
                     }
-                    let len = len_raw as usize;
+                    let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                     if buf.remaining() < len {
                         return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                             declared: len,
                             available: buf.remaining(),
                         });
                     }
-                    let mut bytes = vec![0u8; len];
+                    let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                     buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                    crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                 })
             } else {
                 None
@@ -33113,16 +33285,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineDefinit
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let total_time =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -33137,16 +33309,16 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineDefinit
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let control_points = {
             let raw =
@@ -33158,9 +33330,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineDefinit
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(12))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV1260CameraSplineControlPoint as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33181,9 +33355,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineDefinit
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(9))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV1260CameraSplineProgressKeyFrame as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33204,9 +33380,11 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesV1260CameraSplineDefinit
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(17))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <SharedTypesV1260CameraSplineRotationKeyFrame as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33294,16 +33472,16 @@ impl crate::bedrock::codec::BedrockCodec for SmithingTransformRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let template_ingredient = <CerealizerRecipeIngredientSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -33331,16 +33509,16 @@ impl crate::bedrock::codec::BedrockCodec for SmithingTransformRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let net_id =
             <TypedServerNetIdStructRecipeNetIdTag as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33422,16 +33600,16 @@ impl crate::bedrock::codec::BedrockCodec for SmithingTrimRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let template_ingredient = <CerealizerRecipeIngredientSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -33455,16 +33633,16 @@ impl crate::bedrock::codec::BedrockCodec for SmithingTrimRecipePayload {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let net_id =
             <TypedServerNetIdStructRecipeNetIdTag as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33555,16 +33733,16 @@ impl crate::bedrock::codec::BedrockCodec for SocialEventsServerTelemetryData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let scenario_id = {
             let len_raw =
@@ -33576,16 +33754,16 @@ impl crate::bedrock::codec::BedrockCodec for SocialEventsServerTelemetryData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let world_id = {
             let len_raw =
@@ -33597,16 +33775,16 @@ impl crate::bedrock::codec::BedrockCodec for SocialEventsServerTelemetryData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let owner_id = {
             let len_raw =
@@ -33618,16 +33796,16 @@ impl crate::bedrock::codec::BedrockCodec for SocialEventsServerTelemetryData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             server_id,
@@ -34120,16 +34298,16 @@ impl crate::bedrock::codec::BedrockCodec for StructureSettings {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let shouldignoreentities = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let shouldignoreblocks = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -34283,16 +34461,16 @@ impl crate::bedrock::codec::BedrockCodec for StructureEditorData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let shouldincludeplayers = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let shouldshowboundingbox = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -34789,9 +34967,11 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadSubChunkPacket
                             value: raw,
                         });
                     }
-                    let len = raw as usize;
-                    let mut tmp_vec = Vec::with_capacity(len);
+                    let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+                    let mut tmp_vec =
+                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
                     for _ in 0..len {
+                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                         tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
@@ -35000,16 +35180,16 @@ impl crate::bedrock::codec::BedrockCodec for TimeMarkerData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let time =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -35095,9 +35275,11 @@ impl crate::bedrock::codec::BedrockCodec for SyncWorldClocksPacketPayloadAddTime
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <TimeMarkerData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -35184,16 +35366,16 @@ impl crate::bedrock::codec::BedrockCodec for WorldClockData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let time =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
@@ -35212,9 +35394,11 @@ impl crate::bedrock::codec::BedrockCodec for WorldClockData {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <TimeMarkerData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -35275,9 +35459,11 @@ impl crate::bedrock::codec::BedrockCodec for SyncWorldClocksPacketPayloadInitial
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(5))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <WorldClockData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
                 );
@@ -35347,9 +35533,11 @@ impl crate::bedrock::codec::BedrockCodec for SyncWorldClocksPacketPayloadRemoveT
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <crate::bedrock::codec::VarLong as crate::bedrock::codec::BedrockCodec>::decode(
@@ -35412,9 +35600,11 @@ impl crate::bedrock::codec::BedrockCodec for SyncWorldClocksPacketPayloadSyncSta
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <SyncWorldClockStateData as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -35477,16 +35667,16 @@ impl crate::bedrock::codec::BedrockCodec for SyncedAttribute {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let min_value =
             <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
@@ -35592,9 +35782,11 @@ impl crate::bedrock::codec::BedrockCodec for SynchedActorDataCopyableDataList {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(<DataItemEntry as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?);
             }
@@ -35745,16 +35937,16 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let message = {
             let len_raw =
@@ -35766,16 +35958,16 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessage {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             message_type,
@@ -35938,16 +36130,16 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let parameter_list = {
             let raw =
@@ -35959,9 +36151,11 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push({
                         let len_raw = (<crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -35974,16 +36168,16 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
                                 value: len_raw,
                             });
                         }
-                        let len = len_raw as usize;
+                        let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
                         if buf.remaining() < len {
                             return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                                 declared: len,
                                 available: buf.remaining(),
                             });
                         }
-                        let mut bytes = vec![0u8; len];
+                        let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
                         buf.copy_to_slice(&mut bytes);
-                        crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
                     });
             }
             tmp_vec
@@ -36126,16 +36320,16 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageOnly {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             message_type,
@@ -36206,16 +36400,16 @@ impl crate::bedrock::codec::BedrockCodec for TrimMaterial {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let color = {
             let len_raw =
@@ -36227,16 +36421,16 @@ impl crate::bedrock::codec::BedrockCodec for TrimMaterial {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let item_name = {
             let len_raw =
@@ -36248,16 +36442,16 @@ impl crate::bedrock::codec::BedrockCodec for TrimMaterial {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             material_id,
@@ -36318,16 +36512,16 @@ impl crate::bedrock::codec::BedrockCodec for TrimPattern {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let pattern_id = {
             let len_raw =
@@ -36339,16 +36533,16 @@ impl crate::bedrock::codec::BedrockCodec for TrimPattern {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             item_name,
@@ -36493,9 +36687,11 @@ impl crate::bedrock::codec::BedrockCodec for UpdateSubChunkBlocksChangedInfo {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <UpdateSubChunkNetworkBlockInfo as crate::bedrock::codec::BedrockCodec>::decode(
@@ -36516,9 +36712,11 @@ impl crate::bedrock::codec::BedrockCodec for UpdateSubChunkBlocksChangedInfo {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(7))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec
                     .push(
                         <UpdateSubChunkNetworkBlockInfo as crate::bedrock::codec::BedrockCodec>::decode(
@@ -36618,9 +36816,11 @@ impl crate::bedrock::codec::BedrockCodec for VoxelShapesSerializableCells {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -36716,9 +36916,11 @@ impl crate::bedrock::codec::BedrockCodec for VoxelShapesSerializableVoxelShape {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -36739,9 +36941,11 @@ impl crate::bedrock::codec::BedrockCodec for VoxelShapesSerializableVoxelShape {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -36762,9 +36966,11 @@ impl crate::bedrock::codec::BedrockCodec for VoxelShapesSerializableVoxelShape {
             if raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
-            let len = raw as usize;
-            let mut tmp_vec = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(4))?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -36824,16 +37030,16 @@ impl crate::bedrock::codec::BedrockCodec for WebSocketPacketData {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         Ok(Self {
             websocket_server_uri,
@@ -41148,16 +41354,16 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDataPacketDefinitionsItem 
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value = <DimensionDefinitionGroupDimensionDefinition as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
@@ -42770,16 +42976,16 @@ impl crate::bedrock::codec::BedrockCodec for VoxelShapesPacketNameMapItem {
             if len_raw < 0 {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: len_raw });
             }
-            let len = len_raw as usize;
+            let len = crate::bedrock::codec::checked_signed_len(len_raw as i128)?;
             if buf.remaining() < len {
                 return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
                     declared: len,
                     available: buf.remaining(),
                 });
             }
-            let mut bytes = vec![0u8; len];
+            let mut bytes = crate::bedrock::codec::allocate_decode_bytes(len)?;
             buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            crate::bedrock::codec::try_decode_utf8_lossy_owned(bytes)?
         };
         let value =
             <VoxelShapesRegistryHandle as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;

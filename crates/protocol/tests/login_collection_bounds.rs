@@ -1,28 +1,9 @@
 //! Decode bounds on login-sequence packet collections.
 //!
-//! REGRESSION - READ BEFORE EDITING.
-//!
-//! Against 1.26.30 every test here asserted that a malicious length prefix was
-//! refused *before allocation*, with `DecodeError::ArrayLengthExceeded` naming
-//! the declared count and the bytes actually available. That mirrored
-//! gophertunnel's `maxSliceLength = 4096` guard
-//! (`limit.SliceLength(l, maxSliceLength)` in `minecraft/protocol/io.go` at
-//! commit be6713da4dc051a4197f897d04835e89e9c54321).
-//!
-//! The 1.26.40 generated crate emits no collection ceilings at all: every
-//! length-prefixed field decodes as a bare `Vec::with_capacity(len)` over an
-//! attacker-supplied count, and `ArrayLengthExceeded` is never constructed
-//! anywhere under `bedrock_versions/v1_26_40/`. A hostile peer can therefore
-//! make the decoder reserve up to `i32::MAX` elements before the read fails.
-//!
-//! That is a valentine_gen defect in generated code this crate must not edit,
-//! and it cannot be worked around here without changing wire semantics. So each
-//! test below pins the weaker property that does survive - the read still fails
-//! rather than yielding a packet - and asserts the failure is an end-of-buffer
-//! error, *not* a length ceiling. Restoring the ceiling in valentine_gen trips
-//! these assertions, which is the signal to revert this file to its stricter
-//! 1.26.30 form. See `world_collection_bounds.rs` for the same treatment of the
-//! world packets.
+//! Generated decoders reject counts that cannot fit the remaining wire bytes
+//! before attempting collection reservation. These are field-shape feasibility
+//! checks, not a global 4,096-element ceiling; valid larger collections remain
+//! accepted when their bytes are present.
 
 use bytes::{Bytes, BytesMut};
 use jolyne::valentine::{
@@ -39,22 +20,30 @@ use jolyne::valentine::{
 
 const MAX_LOGIN_COLLECTION_ELEMENTS: usize = 4096;
 
-/// Asserts a declared-but-absent collection still fails the read.
-///
-/// The assertion is deliberately two-sided: an `ArrayLengthExceeded` here would
-/// mean the pre-allocation ceiling is back and this whole file should return to
-/// asserting declared/available counts.
+/// Asserts a declared-but-absent collection fails its feasibility check.
 #[track_caller]
 fn assert_rejected_without_a_length_ceiling(error: DecodeError) {
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the stricter \
-             1.26.30 assertions in this file"
+    assert!(
+        matches!(
+            error,
+            DecodeError::ArrayLengthExceeded {
+                declared,
+                available
+            } if declared > available
         ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+        "unexpected decode error: {error:?}"
+    );
+}
+
+/// Unknown-width element shapes cannot prove a byte lower bound. They start at
+/// zero capacity, grow fallibly per decoded item, and still reject truncation.
+#[track_caller]
+fn assert_unknown_width_rejected_fallibly(error: DecodeError) {
+    assert!(
+        matches!(error, DecodeError::UnexpectedEof { .. })
+            || matches!(&error, DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof),
+        "unexpected decode error: {error:?}"
+    );
 }
 
 fn malicious_collection_prefix<T: BedrockCodec>(
@@ -179,9 +168,7 @@ fn item_registry_owned_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
@@ -191,9 +178,7 @@ fn item_registry_owned_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
@@ -203,9 +188,7 @@ fn item_registry_borrowed_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
 }
 
 #[test]
@@ -215,9 +198,17 @@ fn item_registry_borrowed_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
+}
+
+#[test]
+fn item_registry_borrowed_rejects_negative_count() {
+    let mut bytes = BytesMut::new();
+    VarInt(-1).encode(&mut bytes).expect("negative item count");
+    assert!(matches!(
+        ItemRegistryPacketView::decode(&mut bytes.freeze()).unwrap_err(),
+        DecodeError::NegativeLength { value: -1 }
+    ));
 }
 
 /// StartGame's inline world fields moved into the nested `settings:
@@ -254,7 +245,7 @@ fn start_game_rejects_oversized_block_property_count() {
     one.block_properties.push(ServerBlockProperty::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
+    assert_unknown_width_rejected_fallibly(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 /// `biome_definitions` is `mapof_biomenamestodata` and `string_list` is

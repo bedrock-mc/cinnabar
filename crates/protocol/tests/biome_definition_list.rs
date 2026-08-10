@@ -91,14 +91,7 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 
-/// A hostile nested collection count must still fail the read.
-///
-/// REGRESSION - see the module header of `world_collection_bounds.rs`. Under
-/// 1.26.30 this failed with `DecodeError::ArrayLengthExceeded { declared: 4097,
-/// available: 4096 }` *before* allocating. The 1.26.40 generated crate emits no
-/// collection ceilings, so the count is reserved first and the read only fails
-/// when the elements turn out to be absent. Restoring the ceiling in
-/// valentine_gen should trip the `ArrayLengthExceeded` arm below.
+/// A hostile nested count fails its minimum-wire-size check before reserve.
 #[test]
 fn biome_chunk_generation_rejects_oversized_nested_collection() {
     let mut bytes = BytesMut::from(&[0, 1][..]);
@@ -108,15 +101,13 @@ fn biome_chunk_generation_rejects_oversized_nested_collection() {
 
     let error = BiomeDefinitionChunkGenData::decode(&mut bytes.freeze(), ())
         .expect_err("4,097 consolidated features must not decode");
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the stricter \
-             declared/available assertion here"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(matches!(
+        error,
+        DecodeError::ArrayLengthExceeded {
+            declared: 4_097,
+            available: 0
+        }
+    ));
 }
 
 #[test]

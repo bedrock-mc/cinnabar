@@ -1,23 +1,8 @@
 //! Decode bounds on world-packet collections.
 //!
-//! REGRESSION — READ BEFORE EDITING.
-//!
-//! Against 1.26.30 these tests asserted that a malicious length prefix was
-//! refused *before allocation*, with `DecodeError::ArrayLengthExceeded`
-//! naming the declared count and the bytes actually available. The 1.26.40
-//! generated crate emits no collection ceilings at all: every length-prefixed
-//! field decodes as a bare `Vec::with_capacity(len)` over an attacker-supplied
-//! varint, and `ArrayLengthExceeded` is never constructed anywhere under
-//! `bedrock_versions/v1_26_40/`. A hostile peer can therefore make the decoder
-//! reserve up to `i32::MAX` elements before the read fails.
-//!
-//! That is a valentine_gen defect in generated code this crate must not edit,
-//! and it cannot be worked around here without changing wire semantics. So each
-//! test below now pins the weaker property that does survive — the read still
-//! fails rather than yielding a packet — and asserts that the failure is an
-//! end-of-buffer error, *not* a length ceiling. Restoring the ceiling in
-//! valentine_gen will trip these assertions, which is the signal to revert this
-//! file to its stricter 1.26.30 form.
+//! Generated decoders reject counts that cannot fit the remaining wire bytes
+//! before attempting collection reservation. These are field-shape feasibility
+//! checks, not a global element ceiling.
 
 use bytes::{Bytes, BytesMut};
 use valentine::bedrock::{
@@ -38,22 +23,19 @@ const MAX_PACKET_BYTE_ARRAY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WORLD_COLLECTION_ELEMENTS: usize = 4096;
 const MAX_DIMENSION_DEFINITIONS: usize = 64;
 
-/// Asserts a declared-but-absent collection still fails the read.
-///
-/// The assertion is deliberately two-sided: an `ArrayLengthExceeded` here would
-/// mean the pre-allocation ceiling is back and this whole file should return to
-/// asserting declared/available counts.
+/// Asserts a declared-but-absent collection fails its feasibility check.
 #[track_caller]
 fn assert_rejected_without_a_length_ceiling(error: DecodeError) {
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the stricter \
-             1.26.30 assertions in this file"
+    assert!(
+        matches!(
+            error,
+            DecodeError::ArrayLengthExceeded {
+                declared,
+                available
+            } if declared > available
         ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+        "unexpected decode error: {error:?}"
+    );
 }
 
 fn malicious_collection_prefix<T: BedrockCodec>(

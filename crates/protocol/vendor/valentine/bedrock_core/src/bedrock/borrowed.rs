@@ -1,7 +1,9 @@
 use bytes::{Buf, Bytes};
 use std::borrow::Cow;
 
-use crate::bedrock::codec::{BedrockCodec, BedrockSized, U32LE, VarInt};
+use crate::bedrock::codec::{
+    BedrockCodec, BedrockSized, U32LE, VarInt, checked_signed_len, checked_unsigned_len,
+};
 use crate::bedrock::error::DecodeError;
 use crate::protocol::wire;
 
@@ -85,7 +87,7 @@ impl RawMcpeFrame {
             });
         }
 
-        let declared_len = wire::read_var_u32(buf)? as usize;
+        let declared_len = checked_unsigned_len(wire::read_var_u32(buf)? as u128)?;
         let mut frame = take_exact_packet_bytes(buf, declared_len)?;
         let header_raw = wire::read_var_u32(&mut frame)?;
         let payload = frame.split_to(frame.remaining());
@@ -102,20 +104,17 @@ impl RawMcpeFrame {
 }
 
 pub fn take_var_u32_prefixed_bytes(buf: &mut Bytes) -> Result<Bytes, DecodeError> {
-    let len = wire::read_var_u32(buf)? as usize;
+    let len = checked_unsigned_len(wire::read_var_u32(buf)? as u128)?;
     take_exact_array_bytes(buf, len)
 }
 
 pub fn take_varint_prefixed_bytes(buf: &mut Bytes) -> Result<Bytes, DecodeError> {
-    let len_raw = VarInt::decode(buf, ())?.0 as i64;
-    if len_raw < 0 {
-        return Err(DecodeError::NegativeLength { value: len_raw });
-    }
-    take_exact_array_bytes(buf, len_raw as usize)
+    let len = checked_signed_len(VarInt::decode(buf, ())?.0 as i128)?;
+    take_exact_array_bytes(buf, len)
 }
 
 pub fn take_u32le_prefixed_bytes(buf: &mut Bytes) -> Result<Bytes, DecodeError> {
-    let len = U32LE::decode(buf, ())?.0 as usize;
+    let len = checked_unsigned_len(U32LE::decode(buf, ())?.0 as u128)?;
     take_exact_string_bytes(buf, len)
 }
 
@@ -159,4 +158,25 @@ fn take_exact_string_bytes(buf: &mut Bytes, len: usize) -> Result<Bytes, DecodeE
         });
     }
     Ok(buf.split_to(len))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefixed_bytes_are_sliced_without_copying() {
+        let mut source = Vec::with_capacity(8_200);
+        crate::protocol::wire::write_var_u32(&mut source, 8_192);
+        source.resize(source.len() + 8_192, 0x5a);
+        let mut source = Bytes::from(source);
+        let allocation_start = source.as_ptr() as usize;
+        let allocation_end = allocation_start + source.len();
+
+        let payload = take_var_u32_prefixed_bytes(&mut source).expect("borrowed payload");
+        let payload_start = payload.as_ptr() as usize;
+        assert!(payload_start >= allocation_start && payload_start < allocation_end);
+        assert_eq!(payload.len(), 8_192);
+        assert!(source.is_empty());
+    }
 }
