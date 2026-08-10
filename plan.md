@@ -122,18 +122,28 @@ Current implementation state:
   Optional offers may be downloaded under explicit limits and are then declined downstream;
   non-empty required offers fail with a typed pre-login reason. Persistent cache integration,
   resource-pack application, content-key handoff, and resource-pack JSON UI remain absent.
-  This admission foundation is not a claim that a server pack is usable.
+  A separately reviewed owner-only persistent cache implementation has landed, but it is not
+  yet wired into admission. Neither foundation is a claim that a server pack is usable.
 - A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
   the 36 player slots and cursor have landed, including rollback, full-authority recovery,
-  transport admission, and pointer routing. Generic storage containers, crafting, furnace
-  roles, and all outbound combat and block-use/break/place transactions remain open.
-  Receive-side crack presentation remains read-only.
+  transport admission, and pointer routing. The same single-flight authority now supports a
+  neutral type-0 generic storage surface with exact 27/54-slot bounds, close correlation, and
+  server-authoritative recovery. Crafting, furnace roles, advanced gestures, and live
+  container acceptance remain open. Receive-side crack presentation remains read-only.
+- Exact protocol-2168 click-block and client-close fixtures plus a strict block-use packet
+  builder have landed. The application does not send those transactions yet: gameplay reach,
+  packet-position provenance, ability authority, selected-stack correlation, and live evidence
+  must close before wiring the authoritative ray query to the builder.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
   evidence remain open. Local worlds, audio, and packaging are absent.
 - Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
   path derivation have landed. Platform CI remains a continuing gate rather than evidence of
   native gameplay parity.
+- The open issue/PR sweep is current: obsolete phase trackers and the superseded broad pack
+  ingestion branch are closed with recorded reasons. The remaining open items cover pack
+  application, measured join latency, combat, and actor animation; none of their old branch
+  heads is approved for direct merge into `dev`.
 - Live, native-comparison, and performance gates remain open. Do not infer their completion
   from deterministic tests or checked-in fixtures.
 - Content assets intentionally remain on the older pinned inputs until a coherent
@@ -142,20 +152,21 @@ Current implementation state:
 
 Immediate execution order:
 
-1. **Protocol-2168 debt closure:** finish routing the already-borrowed `LevelChunk` bytes
-   through the resolver, world ingress, and decode-job hot path without retaining unrelated
-   batch storage. Keep conformance, cache ordering, legacy API compatibility, and adversarial
-   length coverage green. The generated allocation guards and borrowed packet-view surface are
-   already closed; do not redo them.
+1. **Protocol/content debt closure:** the generated allocation guards, borrowed packet views,
+   and bounded `LevelChunk` retained-byte hot path are closed; do not redo them. Finish the
+   versioned protocol-2168 BREG/LREG/BIOREG content evidence and switch block/light/physics
+   carriers only as one coherent, verified set. Keep conformance and adversarial coverage green.
 2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
    then validate the device-code and cached-account UX with explicit native/live evidence.
 3. **Resource packs:** integrate the bounded persistent cache with the existing admission
    owner, add a versioned/correlated status-control surface, then validate and apply server
    packs including their resource-pack-driven UI contracts. Required packs must remain
    truthfully rejected until application exists.
-4. **Interactions:** build protocol-2168 combat and block-use/break/place transactions on the
-   landed authoritative ray query, then extend the landed player ledger to bounded generic
-   storage and later container/crafting roles without weakening single-flight reconciliation.
+4. **Interactions:** use the landed protocol-2168 block-use builder only after the frozen
+   ray/position/reach/ability/selected-stack authorities are proven. Add exact entity-use,
+   break, and placement fixtures before their app senders. Extend the landed player plus
+   bounded generic-storage ledger to later container/crafting roles without weakening
+   single-flight reconciliation.
 5. **Actors and UI:** complete non-player/held/dropped rendering and actor live gates, then
    interactive forms and the remaining HUD/menu/UI acceptance work.
 6. **Product phases:** proceed through online product surfaces, local worlds, audio, polish,
