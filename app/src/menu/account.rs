@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn validated_auth_cache(state: Option<&AuthState>) -> Option<PathBuf> {
+    matches!(state, Some(AuthState::Authenticated)).then(configured_auth_cache_path)
+}
+
 impl MenuRuntime {
     fn start_catalog(&mut self) {
         if self.catalog_started || !self.visible || self.connecting {
@@ -96,7 +100,7 @@ impl MenuRuntime {
         self.catalog_started = false;
         self.catalog_message = None;
         if let Some(process) = self.auth_process.as_mut()
-            && !process.cleanup_handed_off()
+            && !process.cleanup_complete()
         {
             process.request_cancel();
             self.auth_restart_requested = true;
@@ -129,7 +133,7 @@ impl MenuRuntime {
         };
         let was_authenticated = matches!(process.state(), AuthState::Authenticated);
         process.poll();
-        if process.cleanup_handed_off() && self.auth_restart_requested {
+        if process.cleanup_complete() && self.auth_restart_requested {
             self.auth_process = None;
             self.auth_restart_requested = false;
             self.spawn_sign_in();
@@ -160,8 +164,12 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use std::{
+        ffi::OsString,
+        fs,
+        path::{Path, PathBuf},
         process::{Command, Stdio},
-        time::{Duration, Instant},
+        thread,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     use super::*;
@@ -225,5 +233,245 @@ mod tests {
         menu.start_sign_in();
         assert!(menu.auth_restart_requested);
         assert!(menu.auth_attempted);
+    }
+
+    #[test]
+    fn only_validated_authentication_selects_the_cache_for_a_connection() {
+        assert_eq!(validated_auth_cache(None), None);
+        assert_eq!(validated_auth_cache(Some(&AuthState::SignedOut)), None);
+        assert_eq!(validated_auth_cache(Some(&AuthState::Checking)), None);
+        let failed = AuthState::Failed("validation failed".to_owned());
+        assert_eq!(validated_auth_cache(Some(&failed)), None);
+        assert_eq!(
+            validated_auth_cache(Some(&AuthState::Authenticated)),
+            Some(configured_auth_cache_path())
+        );
+    }
+
+    #[test]
+    fn core_child_args_are_offline_unless_authentication_was_validated() {
+        let offline = core_command_for_address(
+            Path::new("bedrock-core"),
+            Path::new("run"),
+            "example.test:19132",
+            None,
+        );
+        let offline_args = offline.get_args().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            offline_args,
+            ["-socket-dir", "run", "-upstream", "example.test:19132"].map(OsString::from)
+        );
+
+        let authenticated = core_command_for_address(
+            Path::new("bedrock-core"),
+            Path::new("run"),
+            "example.test:19132",
+            Some(Path::new("validated-token.json")),
+        );
+        let authenticated_args = authenticated
+            .get_args()
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            authenticated_args,
+            [
+                "-socket-dir",
+                "run",
+                "-upstream",
+                "example.test:19132",
+                "-auth-cache",
+                "validated-token.json",
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/Q", "/C", "set /p hold="]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "IFS= read -r hold"]);
+            command
+        };
+        let child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+        menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+
+        menu.request_connect("offline.example:19132".to_owned());
+        assert!(menu.take_pending_connect().is_none());
+        assert!(matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::SignedOut)
+        ));
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !menu
+            .auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            menu.auth_process
+                .as_ref()
+                .is_some_and(AuthSupervisor::cleanup_complete),
+            "cancelled sign-in helper was not reaped"
+        );
+        let pending = menu.take_pending_connect().expect("offline connection");
+        assert_eq!(pending.address, "offline.example:19132");
+        assert_eq!(pending.auth_cache, None);
+    }
+
+    #[test]
+    fn authenticated_connect_waits_for_sign_in_reap_and_keeps_validated_cache() {
+        let (child, directory) = event_child_holding(&[
+            r#"{"v":1,"event":"checking_cache"}"#,
+            r#"{"v":1,"event":"authenticated","method":"cached"}"#,
+        ]);
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+        menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+
+        let authenticated_deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Authenticated)
+        ) && Instant::now() < authenticated_deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Authenticated)
+        ));
+
+        menu.request_connect("authenticated.example:19132".to_owned());
+        assert!(menu.take_pending_connect().is_none());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !menu
+            .auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            menu.auth_process
+                .as_ref()
+                .is_some_and(AuthSupervisor::cleanup_complete),
+            "authenticated sign-in helper was not reaped"
+        );
+        let pending = menu
+            .take_pending_connect()
+            .expect("authenticated connection");
+        assert_eq!(pending.address, "authenticated.example:19132");
+        assert_eq!(pending.auth_cache, Some(configured_auth_cache_path()));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn validation_failure_releases_the_queued_connection_offline() {
+        let (child, directory) = event_child_holding(&[
+            r#"{"v":1,"event":"checking_cache"}"#,
+            r#"{"v":1,"event":"error","stage":"cache","message":"validation failed"}"#,
+        ]);
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+        menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+
+        let failed_deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Failed(_))
+        ) && Instant::now() < failed_deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Failed(_))
+        ));
+
+        menu.request_connect("offline-after-failure.example:19132".to_owned());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !menu
+            .auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            menu.auth_process
+                .as_ref()
+                .is_some_and(AuthSupervisor::cleanup_complete),
+            "failed sign-in helper was not reaped"
+        );
+        let pending = menu.take_pending_connect().expect("offline connection");
+        assert_eq!(pending.address, "offline-after-failure.example:19132");
+        assert_eq!(pending.auth_cache, None);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn event_child_holding(lines: &[&str]) -> (std::process::Child, PathBuf) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "cinnabar-account-auth-helper-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut command = if cfg!(windows) {
+            let script = directory.join("events.cmd");
+            let body = format!(
+                "@echo off\r\n{}\r\nset /p hold=\r\n",
+                lines
+                    .iter()
+                    .map(|line| format!("echo {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\r\n")
+            );
+            fs::write(&script, body).unwrap();
+            let mut command = Command::new("cmd");
+            command.args(["/Q", "/D", "/C"]).arg(script);
+            command
+        } else {
+            let script = directory.join("events.sh");
+            let body = format!(
+                "#!/bin/sh\n{}\nIFS= read -r hold\n",
+                lines
+                    .iter()
+                    .map(|line| format!("printf '%s\\n' '{line}'"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            fs::write(&script, body).unwrap();
+            let mut command = Command::new("sh");
+            command.arg(script);
+            command
+        };
+        let child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        (child, directory)
     }
 }

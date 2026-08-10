@@ -130,7 +130,8 @@ pub(crate) fn drive_menu_connection(
     if menu.is_connecting() && client_world.stream.is_some() {
         menu.mark_connected();
     }
-    if let Some(address) = menu.take_pending_connect() {
+    if let Some(pending) = menu.take_pending_connect() {
+        let address = pending.address;
         let generation = menu.next_session_generation();
         // Namespaced by process id like the `--address` path: a bare
         // generation counter restarts at the same value every launch, so a
@@ -141,7 +142,8 @@ pub(crate) fn drive_menu_connection(
         ));
         if let Err(error) = fs::create_dir_all(&socket_dir)
             .and_then(|_| {
-                spawn_core_for_address(&socket_dir, &address).map_err(std::io::Error::other)
+                spawn_core_for_address(&socket_dir, &address, pending.auth_cache.as_deref())
+                    .map_err(std::io::Error::other)
             })
             .and_then(|child| {
                 guard.replace(child);

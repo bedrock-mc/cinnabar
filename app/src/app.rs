@@ -323,7 +323,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 socket_dir.display()
             )
         })?;
-        let child = spawn_core_for_address(&socket_dir, address)
+        let child = spawn_core_for_address(&socket_dir, address, None)
             .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
         wait_for_core(&socket_dir)
