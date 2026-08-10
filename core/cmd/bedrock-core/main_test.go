@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
 )
 
@@ -96,6 +98,69 @@ func TestParseFlagsAuthCacheIsOptional(t *testing.T) {
 	if withAuth.authCache != ".local/auth/microsoft-token.json" {
 		t.Fatalf("authCache = %q, want configured path", withAuth.authCache)
 	}
+}
+
+func TestResourcePackCacheFlagsAreOptInAndBounded(t *testing.T) {
+	disabled, err := parseFlags(nil, io.Discard)
+	if err != nil {
+		t.Fatalf("parse disabled flags: %v", err)
+	}
+	if disabled.resourcePackCacheDir != "" || disabled.resourcePackCacheQuota != packcache.DefaultQuota {
+		t.Fatalf("disabled cache options = %#v", disabled)
+	}
+	enabled, err := parseFlags([]string{"-resource-pack-cache-dir", "packs"}, io.Discard)
+	if err != nil {
+		t.Fatalf("parse enabled flags: %v", err)
+	}
+	if enabled.resourcePackCacheDir != "packs" || enabled.resourcePackCacheQuota != packcache.DefaultQuota {
+		t.Fatalf("enabled cache options = %#v", enabled)
+	}
+	for _, args := range [][]string{
+		{"-resource-pack-cache-quota-bytes", "1"},
+		{"-resource-pack-cache-dir", "packs", "-resource-pack-cache-quota-bytes", "0"},
+	} {
+		if _, err := parseFlags(args, io.Discard); err == nil {
+			t.Fatalf("parseFlags(%v) succeeded", args)
+		}
+	}
+}
+
+func TestRunOwnsAndClosesResourcePackCacheOnServeFailure(t *testing.T) {
+	root := "private-cache-root-sentinel"
+	wantErr := errors.New("serve failed")
+	cache := new(closingResourcePackCacheStub)
+	err := runWithResourcePackCacheFactory(context.Background(), []string{
+		"-socket-dir", "run", "-upstream", "localhost:19132", "-resource-pack-cache-dir", root,
+	}, io.Discard, io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if cfg.ResourcePackCache == nil || cfg.ResourcePackAdmission == nil {
+				t.Fatal("proxy did not receive cache interface and admission callback")
+			}
+			return wantErr
+		},
+		func(gotRoot string, _ ...packcache.Option) (ownedResourcePackCache, error) {
+			if gotRoot != root {
+				t.Fatalf("cache root = %q", gotRoot)
+			}
+			return cache, nil
+		})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("run() error = %v, want serve failure", err)
+	}
+	if !cache.closed {
+		t.Fatal("cache was not closed after Serve failure")
+	}
+}
+
+type closingResourcePackCacheStub struct {
+	minecraft.ResourcePackCache
+	closed bool
+}
+
+func (cache *closingResourcePackCacheStub) Close() error {
+	cache.closed = true
+	return nil
 }
 
 func TestRunAuthFailureDoesNotStartProxy(t *testing.T) {

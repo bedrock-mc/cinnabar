@@ -80,6 +80,29 @@ func TestConfigureResourcePackOfferStripsOptionalOffer(t *testing.T) {
 	}
 }
 
+func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
+	wantErr := errors.New("configure failed")
+	upstream := newFakeUpstream(nil)
+	upstream.packs = []*resource.Pack{testAdmissionPack(t)}
+	var snapshots []ResourcePackAdmissionSnapshot
+	telemetry := newResourcePackAdmissionTelemetry(1, func(snapshot ResourcePackAdmissionSnapshot) {
+		snapshots = append(snapshots, snapshot)
+	})
+	telemetry.observeOffer(upstream)
+	prepared := &preparedConnection{upstream: upstream, packAdmission: telemetry}
+	connections := newTestPreparedConnections()
+	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
+		return prepared, nil
+	}
+	downstream := &offerTestDownstream{err: wantErr}
+	if err := connections.prepareConnection(context.Background(), new(minecraft.Conn), downstream); !errors.Is(err, wantErr) {
+		t.Fatalf("prepareConnection() error = %v, want configure failure", err)
+	}
+	if len(snapshots) != 1 || snapshots[0].Offer != ResourcePackOfferOptional || snapshots[0].DownstreamOutcome != ResourcePackDownstreamNone {
+		t.Fatalf("failed configure snapshot = %#v", snapshots)
+	}
+}
+
 func TestConfigureResourcePackOfferRejectsNonEmptyRequiredOffer(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack)}

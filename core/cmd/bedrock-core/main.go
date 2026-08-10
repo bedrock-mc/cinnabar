@@ -14,7 +14,9 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
 )
 
@@ -44,11 +46,14 @@ func catalogMode(args []string) bool {
 }
 
 type options struct {
-	socketDir   string
-	upstream    string
-	authCache   string
-	catalogFile string
-	authEvents  bool
+	socketDir                 string
+	upstream                  string
+	authCache                 string
+	catalogFile               string
+	authEvents                bool
+	resourcePackCacheDir      string
+	resourcePackCacheQuota    uint64
+	resourcePackCacheQuotaSet bool
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -60,8 +65,21 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
+	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
+	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
+	}
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "resource-pack-cache-quota-bytes" {
+			opts.resourcePackCacheQuotaSet = true
+		}
+	})
+	if opts.resourcePackCacheQuotaSet && opts.resourcePackCacheDir == "" {
+		return options{}, errors.New("resource-pack-cache-quota-bytes requires -resource-pack-cache-dir")
+	}
+	if opts.resourcePackCacheDir != "" && opts.resourcePackCacheQuota == 0 {
+		return options{}, errors.New("resource-pack-cache-quota-bytes must be greater than zero")
 	}
 	if opts.authEvents && flags.NArg() != 0 {
 		return options{}, errors.New("auth-events mode does not accept positional arguments")
@@ -71,6 +89,11 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 
 type sourceFunc func(context.Context, authcache.Config) (oauth2.TokenSource, error)
 type serveFunc func(context.Context, proxy.Config) error
+type ownedResourcePackCache interface {
+	minecraft.ResourcePackCache
+	Close() error
+}
+type resourcePackCacheFactory func(string, ...packcache.Option) (ownedResourcePackCache, error)
 
 func execute(ctx context.Context, args []string, stdout, stderr io.Writer, source sourceFunc, serve serveFunc) int {
 	if err := run(ctx, args, stdout, stderr, source, serve); err != nil {
@@ -81,6 +104,19 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer, sourc
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, source sourceFunc, serve serveFunc) error {
+	return runWithResourcePackCacheFactory(ctx, args, stdout, stderr, source, serve, func(root string, options ...packcache.Option) (ownedResourcePackCache, error) {
+		return packcache.New(root, options...)
+	})
+}
+
+func runWithResourcePackCacheFactory(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	source sourceFunc,
+	serve serveFunc,
+	openCache resourcePackCacheFactory,
+) error {
 	opts, err := parseFlags(args, stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -93,7 +129,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, source so
 		if opts.authCache == "" {
 			return errors.New("auth-events mode requires -auth-cache")
 		}
-		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" {
+		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{Path: opts.authCache, Writer: stdout})
@@ -111,6 +147,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, source so
 	}
 	logger.Info("authentication ready", "mode", authentication)
 	if opts.catalogFile != "" {
+		if opts.resourcePackCacheDir != "" {
+			return errors.New("catalog mode cannot be combined with resource-pack cache options")
+		}
 		if tokenSource == nil {
 			return errors.New("catalog mode requires -auth-cache")
 		}
@@ -120,12 +159,46 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, source so
 		logger.Info("launcher catalog written", "path", opts.catalogFile)
 		return nil
 	}
-	return serve(ctx, proxy.Config{
-		SocketDir:   opts.socketDir,
-		Upstream:    opts.upstream,
-		TokenSource: tokenSource,
-		Logger:      logger,
+	var resourcePackCache minecraft.ResourcePackCache
+	var closeResourcePackCache func() error
+	if opts.resourcePackCacheDir != "" {
+		cache, cacheErr := openCache(opts.resourcePackCacheDir, packcache.WithQuota(opts.resourcePackCacheQuota))
+		if cacheErr != nil {
+			return errors.New("initialize resource pack cache: unavailable")
+		}
+		resourcePackCache = cache
+		closeResourcePackCache = cache.Close
+	}
+	serveErr := serve(ctx, proxy.Config{
+		SocketDir:         opts.socketDir,
+		Upstream:          opts.upstream,
+		TokenSource:       tokenSource,
+		Logger:            logger,
+		ResourcePackCache: resourcePackCache,
+		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
+			logger.Info("RESOURCE_PACK_ADMISSION",
+				"attempt_id", snapshot.AttemptID,
+				"offer", snapshot.Offer,
+				"pack_count", snapshot.PackCount,
+				"total_bytes", snapshot.TotalBytes,
+				"acquisition", snapshot.Acquisition,
+				"cache_loads", snapshot.CacheLoads,
+				"cache_hits", snapshot.CacheHits,
+				"cache_misses", snapshot.CacheMisses,
+				"cache_stores", snapshot.CacheStores,
+				"cache_errors", snapshot.CacheErrors,
+				"downstream_outcome", snapshot.DownstreamOutcome,
+				"application", snapshot.Application,
+			)
+		},
 	})
+	if closeResourcePackCache == nil {
+		return serveErr
+	}
+	if closeErr := closeResourcePackCache(); closeErr != nil {
+		return errors.Join(serveErr, errors.New("close resource pack cache: unavailable"))
+	}
+	return serveErr
 }
 
 func newLifecycleLogger(writer io.Writer) *slog.Logger {

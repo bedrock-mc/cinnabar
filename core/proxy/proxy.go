@@ -28,6 +28,11 @@ type Config struct {
 	Upstream    string
 	TokenSource oauth2.TokenSource
 	Logger      *slog.Logger
+	// ResourcePackCache is an optional process-owned cache. Serve never closes it.
+	ResourcePackCache minecraft.ResourcePackCache
+	// ResourcePackAdmission receives one secret-safe final snapshot per upstream
+	// preparation attempt. Callbacks must return promptly.
+	ResourcePackAdmission func(ResourcePackAdmissionSnapshot)
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -60,6 +65,8 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	defer cancel()
 	sessionErr := make(chan error, 1)
 	prepared := newPreparedConnections(cfg.Upstream, cfg.TokenSource, logger)
+	prepared.resourcePackCache = cfg.ResourcePackCache
+	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
@@ -378,6 +385,16 @@ func newUpstreamDialerWithCacheTelemetry(
 	tokenSource oauth2.TokenSource,
 	cacheTelemetry *cacheBoundaryTelemetry,
 ) minecraft.Dialer {
+	return newUpstreamDialerForAdmission(downstream, tokenSource, cacheTelemetry, nil, nil)
+}
+
+func newUpstreamDialerForAdmission(
+	downstream dialerDownstream,
+	tokenSource oauth2.TokenSource,
+	cacheTelemetry *cacheBoundaryTelemetry,
+	resourcePackCache minecraft.ResourcePackCache,
+	packAdmission *resourcePackAdmissionTelemetry,
+) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:           downstream.ClientData(),
 		DownloadResourcePack: acceptResourcePack,
@@ -387,12 +404,20 @@ func newUpstreamDialerWithCacheTelemetry(
 		// downstream capability is not available at this boundary. Keep the
 		// upstream cache disabled until a later, explicit capability seam exists.
 		EnableClientCache: false,
-		ErrorLog:          slog.Default().With("component", "upstream-dialer"),
+		ErrorLog:          secretSafeResourcePackLogger(),
 		Protocol:          downstream.Proto(),
 		TokenSource:       tokenSource,
+		ResourcePackCache: resourcePackCache,
 	}
-	if cacheTelemetry != nil {
-		dialer.PacketFunc = cacheTelemetry.observeUpstreamPacket
+	if cacheTelemetry != nil || packAdmission != nil {
+		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
+			if cacheTelemetry != nil {
+				cacheTelemetry.observeUpstreamPacket(header, payload, source, destination)
+			}
+			if packAdmission != nil && header.PacketID == packet.IDResourcePacksInfo {
+				packAdmission.observeNegotiation()
+			}
+		}
 	}
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
