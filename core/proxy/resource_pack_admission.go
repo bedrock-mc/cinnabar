@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -56,12 +57,14 @@ const packAdmissionDisconnectMessage = "This server requires resource packs that
 // optional offer is downloaded under explicit bounds by the upstream Dialer,
 // retained with that upstream session, and stripped from the downstream offer.
 // A non-empty required offer is rejected because Cinnabar cannot apply it yet.
-func configureResourcePackOffer(downstream resourcePackOfferConnection, upstream upstreamSession) error {
-	packs := upstream.ResourcePacks()
-	if upstream.TexturePacksRequired() && len(packs) != 0 {
+func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
+	if stack == nil {
+		return errResourcePackStackUnavailable
+	}
+	if stack.required && len(stack.packs) != 0 {
 		admissionErr := &PackAdmissionError{
 			Reason:    PackAdmissionRequiredUnsupported,
-			PackCount: len(packs),
+			PackCount: len(stack.packs),
 		}
 		writeErr := downstream.WritePacketImmediate(&packet.Disconnect{
 			Reason:                  packet.DisconnectReasonResourcePackProblem,
@@ -73,6 +76,70 @@ func configureResourcePackOffer(downstream resourcePackOfferConnection, upstream
 	return downstream.ConfigureResourcePackOffer(nil, false)
 }
 
+var (
+	errResourcePackStackUnavailable = errors.New("proxy: validated resource-pack stack unavailable")
+	errResourcePackStackInvalid     = errors.New("proxy: validated resource-pack stack is invalid")
+)
+
+// resourcePackStackSource is the post-negotiation seam implemented by a
+// gophertunnel Dialer connection. ResourcePacks is deliberately not used here:
+// it is offer/download telemetry, not the server-selected application stack.
+type resourcePackStackSource interface {
+	ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bool)
+}
+
+// selectedResourcePackStack owns immutable pack clones in exact application
+// order until the prepared connection is released.
+type selectedResourcePackStack struct {
+	packs    []*resource.Pack
+	required bool
+}
+
+func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResourcePackStack, error) {
+	source, ok := upstream.(resourcePackStackSource)
+	if !ok {
+		return nil, errResourcePackStackUnavailable
+	}
+	snapshot, ok := source.ResourcePackStack()
+	if !ok {
+		return nil, errResourcePackStackUnavailable
+	}
+	return newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
+}
+
+type resourcePackSizer func(*resource.Pack) (uint64, bool)
+
+func resourcePackSize(pack *resource.Pack) (uint64, bool) {
+	size := pack.Size()
+	return uint64(size), size >= 0
+}
+
+func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf resourcePackSizer) (*selectedResourcePackStack, error) {
+	if len(packs) > minecraft.DefaultResourcePackMaxPacks || sizeOf == nil {
+		return nil, errResourcePackStackInvalid
+	}
+	owned := make([]*resource.Pack, len(packs))
+	var total uint64
+	for index, pack := range packs {
+		if pack == nil {
+			return nil, errResourcePackStackInvalid
+		}
+		size, ok := sizeOf(pack)
+		if !ok || size > math.MaxUint64-total || total+size > minecraft.DefaultResourcePackMaxTotalBytes {
+			return nil, errResourcePackStackInvalid
+		}
+		total += size
+		owned[index] = pack.Clone()
+	}
+	return &selectedResourcePackStack{packs: owned, required: required}, nil
+}
+
+func (stack *selectedResourcePackStack) release() {
+	if stack != nil {
+		stack.packs = nil
+	}
+}
+
 // preparedConnection owns every resource created while preparing one exact
 // downstream connection. close is idempotent so cancellation and listener
 // shutdown cannot double-close an upstream session or target.
@@ -82,6 +149,7 @@ type preparedConnection struct {
 	telemetry     *cacheBoundaryTelemetry
 	logger        *slog.Logger
 	packAdmission *resourcePackAdmissionTelemetry
+	packStack     *selectedResourcePackStack
 
 	closeOnce sync.Once
 	closeErr  error
@@ -108,6 +176,7 @@ func (prepared *preparedConnection) finish(shutdownUpstream bool) error {
 			prepared.logger,
 		)
 		prepared.packAdmission.reportFinal()
+		prepared.packStack.release()
 	})
 	return prepared.closeErr
 }
@@ -164,6 +233,7 @@ type preparedConnections struct {
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
+	captureResourcePackStack    func(upstreamSession) (*selectedResourcePackStack, error)
 	resourcePackCache           minecraft.ResourcePackCache
 	resourcePackAdmission       func(ResourcePackAdmissionSnapshot)
 	resourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
@@ -200,6 +270,7 @@ func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSour
 			return dialer.DialContextNetwork(ctx, target.network, address)
 		})
 	}
+	connections.captureResourcePackStack = captureSelectedResourcePackStack
 	return connections
 }
 
@@ -247,11 +318,11 @@ func (connections *preparedConnections) prepareConnection(
 			err = errors.Join(err, prepared.close())
 		}
 	}()
-	if err = configureResourcePackOffer(downstream, prepared.upstream); err != nil {
-		prepared.packAdmission.observePolicyOutcome(false)
+	if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
+		prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
 		return err
 	}
-	prepared.packAdmission.observePolicyOutcome(true)
+	prepared.packAdmission.observePolicyOutcome(prepared.packStack, true)
 	if err = connections.store(ctx, key, prepared); err != nil {
 		return err
 	}
@@ -265,6 +336,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	packAdmission.setUpdateCallback(connections.resourcePackAdmissionUpdate)
 	var target *resolvedUpstreamTarget
 	var upstream upstreamSession
+	var packStack *selectedResourcePackStack
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("preparing upstream connection", recovered)
@@ -273,6 +345,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		if result != nil {
 			return
 		}
+		packStack.release()
 		packAdmission.observeFailure(ctx)
 		packAdmission.reportFinal()
 		var releaseTarget func() error
@@ -304,6 +377,10 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if err != nil {
 		return nil, err
 	}
+	packStack, err = connections.captureResourcePackStack(upstream)
+	if err != nil {
+		return nil, err
+	}
 	packAdmission.observeOffer(upstream)
 	result = &preparedConnection{
 		upstream:      upstream,
@@ -311,6 +388,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		telemetry:     telemetry,
 		logger:        connections.logger,
 		packAdmission: packAdmission,
+		packStack:     packStack,
 	}
 	return result, nil
 }

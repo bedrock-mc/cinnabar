@@ -71,15 +71,18 @@ func TestUpstreamDialerReceivesOnlyResourcePackCacheInterface(t *testing.T) {
 func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *testing.T) {
 	pack := testAdmissionPack(t)
 	for _, test := range []struct {
-		name       string
-		packs      []*resource.Pack
-		required   bool
-		wantOffer  ResourcePackOffer
-		wantResult ResourcePackDownstreamOutcome
+		name             string
+		packs            []*resource.Pack
+		required         bool
+		selected         []*resource.Pack
+		selectedRequired bool
+		wantOffer        ResourcePackOffer
+		wantResult       ResourcePackDownstreamOutcome
 	}{
 		{name: "none", wantOffer: ResourcePackOfferNone, wantResult: ResourcePackDownstreamNone},
-		{name: "optional", packs: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamStrippedOptional},
-		{name: "required", packs: []*resource.Pack{pack}, required: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamRejectedRequired},
+		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamStrippedOptional},
+		{name: "required", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamRejectedRequired},
+		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamNone},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var snapshots []ResourcePackAdmissionSnapshot
@@ -89,7 +92,7 @@ func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *te
 			upstream := newFakeUpstream(nil)
 			upstream.packs, upstream.required = test.packs, test.required
 			telemetry.observeOffer(upstream)
-			telemetry.observePolicyOutcome(true)
+			telemetry.observePolicyOutcome(&selectedResourcePackStack{packs: test.selected, required: test.selectedRequired}, true)
 			telemetry.reportFinal()
 			telemetry.reportFinal()
 			if len(snapshots) != 1 {

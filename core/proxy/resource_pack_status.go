@@ -150,20 +150,20 @@ func (telemetry *resourcePackAdmissionTelemetry) observeFailure(ctx context.Cont
 	telemetry.mu.Unlock()
 }
 
-func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(configured bool) {
+func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *selectedResourcePackStack, configured bool) {
 	if telemetry == nil {
 		return
 	}
 	telemetry.mu.Lock()
-	switch telemetry.offer {
-	case ResourcePackOfferOptional:
+	switch {
+	case stack == nil || len(stack.packs) == 0:
+		telemetry.downstream = ResourcePackDownstreamNone
+	case stack.required:
+		telemetry.downstream = ResourcePackDownstreamRejectedRequired
+	default:
 		if configured {
 			telemetry.downstream = ResourcePackDownstreamStrippedOptional
 		}
-	case ResourcePackOfferRequired:
-		telemetry.downstream = ResourcePackDownstreamRejectedRequired
-	default:
-		telemetry.downstream = ResourcePackDownstreamNone
 	}
 	telemetry.mu.Unlock()
 }
