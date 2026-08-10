@@ -16,6 +16,12 @@ use valentine::protocol::wire;
 
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
+mod request;
+pub use request::{
+    PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
+    item_stack_request_packet,
+};
+
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
 pub const MAX_STACK_RESPONSES: usize = 512;
@@ -146,6 +152,17 @@ pub enum InventoryEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InventoryPacketError {
+    #[error("item stack request ID must be positive")]
+    InvalidStackRequestId,
+    #[error("item stack request amount must be positive")]
+    InvalidStackRequestAmount,
+    #[error("item stack request slot {slot} is invalid for {container:?}")]
+    InvalidStackRequestSlot {
+        container: StackRequestContainer,
+        slot: u8,
+    },
+    #[error("item stack request network ID {0} is invalid")]
+    InvalidRequestStackNetworkId(i32),
     #[error("armor equipment actor runtime ID {0} is invalid")]
     InvalidArmorRuntimeId(i64),
     #[error("inventory slot {0} is outside 0..{MAX_CONTAINER_SLOTS}")]

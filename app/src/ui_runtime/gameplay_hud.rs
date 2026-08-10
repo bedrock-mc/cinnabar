@@ -152,6 +152,10 @@ impl GameplayHudState {
 
     /// One authoritative player-inventory stack. Bedrock window `0` exposes
     /// the nine hotbar cells first, followed by the 27 storage cells.
+    #[allow(
+        dead_code,
+        reason = "retained for focused HUD authority tests while inventory presentation uses the gesture ledger"
+    )]
     #[must_use]
     pub fn inventory_stack(&self, slot: usize) -> Option<&NetworkItemStack> {
         self.inventory

@@ -57,6 +57,7 @@ pub(crate) struct HudFrame {
     /// registry immediately before presentation.
     pub hotbar_icons: [Option<IconRef>; 9],
     pub inventory_icons: InventoryIcons,
+    pub cursor_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
     pub offhand_icon: Option<IconRef>,
     /// Geometry-rendered offhand carrier; the original icon remains reserved

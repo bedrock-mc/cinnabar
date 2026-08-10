@@ -268,6 +268,7 @@ mod cohort_epoch;
 mod core;
 mod finish;
 mod inventory;
+mod inventory_schedule;
 mod phase2_evidence;
 mod phase4_presentation;
 mod publication;
