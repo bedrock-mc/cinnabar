@@ -493,6 +493,7 @@ impl<'a> Parser<'a> {
                             | "query.modified_move_speed"
                             | "query.ground_speed"
                             | "query.is_on_ground"
+                            | "query.is_riding"
                             | "query.is_moving"
                             | "query.is_sprinting"
                             | "query.is_sneaking"

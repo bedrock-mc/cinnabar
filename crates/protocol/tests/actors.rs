@@ -1,12 +1,13 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadataValue, ActorPositionOrigin, ActorProperty, PlayerListEntry,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_40::{
-    ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData, DataItemEntry,
-    DataItemEntryPayload, DataItemFloatPayload, DataItemFloatPayloadType, DataItemStringPayload,
-    DataItemStringPayloadType, MoveActorAbsoluteData, MoveActorAbsolutePacket, MoveActorDeltaData,
-    MoveActorDeltaPacket, PlayerInputTick, PlayerListPacket, PlayerListPacketEntriesItem,
+    ActorLink, ActorLinkType as VendorActorLinkType, ActorRuntimeId, ActorUniqueId, AddActorPacket,
+    AddPlayerPacket, AttributeData, DataItemEntry, DataItemEntryPayload, DataItemFloatPayload,
+    DataItemFloatPayloadType, DataItemStringPayload, DataItemStringPayloadType,
+    MoveActorAbsoluteData, MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket,
+    PlayerInputTick, PlayerListPacket, PlayerListPacketEntriesItem,
     PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry, PropertySyncData,
     PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
     RemoveActorPacket, SerializedAbilitiesData, SerializedSkinRef, SetActorDataPacket, SkinImage,
@@ -61,6 +62,32 @@ fn add_entity_normalizes_to_a_vendor_neutral_actor_spawn() {
         rotation: Vec2 { x: 15.0, y: 90.0 },
         y_head_rotation: 80.0,
         y_body_rotation: 70.0,
+        actor_links: vec![
+            ActorLink {
+                target_a: ActorUniqueId {
+                    actor_unique_id: 90,
+                },
+                target_b: ActorUniqueId {
+                    actor_unique_id: -17,
+                },
+                type_: VendorActorLinkType::Riding,
+                immediate: true,
+                passenger_initiated: false,
+                vehicle_angular_velocity: 0.0,
+            },
+            ActorLink {
+                target_a: ActorUniqueId {
+                    actor_unique_id: 91,
+                },
+                target_b: ActorUniqueId {
+                    actor_unique_id: -18,
+                },
+                type_: VendorActorLinkType::Unknown(9),
+                immediate: false,
+                passenger_initiated: true,
+                vehicle_angular_velocity: 0.0,
+            },
+        ],
         ..Default::default()
     }
     .into();
@@ -89,6 +116,11 @@ fn add_entity_normalizes_to_a_vendor_neutral_actor_spawn() {
     assert!(spawn.metadata.is_empty());
     assert!(spawn.attributes.is_empty());
     assert!(spawn.properties.is_empty());
+    assert_eq!(spawn.links.len(), 2);
+    assert_eq!(spawn.links[0].dimension, 2);
+    assert_eq!(spawn.links[0].link_type, ActorLinkType::Rider);
+    assert_eq!(spawn.links[1].link_type, ActorLinkType::Unknown(9));
+    assert!(spawn.links[1].rider_initiated);
 }
 
 #[test]
@@ -111,6 +143,18 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
             y: 2.0,
             z: 3.0,
         },
+        actor_links: vec![ActorLink {
+            target_a: ActorUniqueId {
+                actor_unique_id: 77,
+            },
+            target_b: ActorUniqueId {
+                actor_unique_id: -9,
+            },
+            type_: VendorActorLinkType::Passenger,
+            immediate: false,
+            passenger_initiated: true,
+            vehicle_angular_velocity: 0.0,
+        }],
         ..Default::default()
     }
     .into();
@@ -128,6 +172,8 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     };
     assert_eq!(spawn.unique_id, -9);
     assert_eq!(spawn.runtime_id, 55);
+    assert_eq!(spawn.links[0].link_type, ActorLinkType::Passenger);
+    assert_eq!(spawn.links[0].ridden_unique_id, 77);
     assert_eq!(
         spawn.kind,
         ActorKind::Player {
@@ -544,7 +590,20 @@ fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
         ..Default::default()
     }
     .into();
+    let too_many_links = AddActorPacket {
+        actor_type: "minecraft:bee".to_owned(),
+        actor_links: vec![ActorLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
+        ..Default::default()
+    }
+    .into();
+    let too_many_player_links = AddPlayerPacket {
+        actor_links: vec![ActorLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
+        ..Default::default()
+    }
+    .into();
 
     assert!(into_world_event(too_long, 0).is_err());
     assert!(into_world_event(non_finite, 0).is_err());
+    assert!(into_world_event(too_many_links, 0).is_err());
+    assert!(into_world_event(too_many_player_links, 0).is_err());
 }

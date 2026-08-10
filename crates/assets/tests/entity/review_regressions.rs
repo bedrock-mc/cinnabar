@@ -198,6 +198,7 @@ fn carrier_v4_rejects_unlisted_queries_and_assignment_opcodes() {
         "query.modified_move_speed",
         "query.ground_speed",
         "query.is_on_ground",
+        "query.is_riding",
         "query.is_moving",
         "query.is_sprinting",
         "query.is_sneaking",

@@ -105,6 +105,22 @@ fn animation_reset_clock_is_distinct_from_actor_lifetime() {
 }
 
 #[test]
+fn riding_query_reads_only_the_authoritative_tick_input() {
+    let actor = actor_with_metadata(HashMap::new());
+    let mut history = VecDeque::from([ActorTickInput {
+        velocity: [0.0; 3],
+        on_ground: false,
+        body_yaw: 0.0,
+        head_yaw: 0.0,
+        pitch: 0.0,
+        is_riding: true,
+    }]);
+    assert_eq!(query(&actor, &history, 0, 0, "query.is_riding"), 1.0);
+    history.back_mut().unwrap().is_riding = false;
+    assert_eq!(query(&actor, &history, 0, 0, "query.is_riding"), 0.0);
+}
+
+#[test]
 fn operation_work_and_transition_budgets_are_aggregate() {
     let mut world_left = 1;
     let mut budget = EvalBudget {

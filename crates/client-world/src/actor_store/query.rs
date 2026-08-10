@@ -3,6 +3,10 @@ use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 impl ActorStore {
+    pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
+        self.rider_to_ridden.get(&rider_unique_id).copied()
+    }
+
     pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         let actor = self.actors.get(&runtime_id)?;
         let ActorKind::Player { uuid, .. } = &actor.kind else {

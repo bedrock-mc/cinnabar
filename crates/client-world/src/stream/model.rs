@@ -405,7 +405,7 @@ pub enum CommittedUiEvent {
         sequence: u64,
         event: Box<protocol::ArmorEquipmentEvent>,
     },
-    /// The local player's authoritative mount after a SetActorLink change.
+    /// The local player's authoritative mount after a link or actor-lifetime change.
     /// `None` means the player is no longer riding anything.
     LocalMount {
         sequence: u64,

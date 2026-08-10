@@ -27,6 +27,7 @@ fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
         metadata: Arc::from([]),
         attributes: Arc::from([]),
         properties: Arc::from([]),
+        links: Arc::from([]),
     })
 }
 
