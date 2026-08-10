@@ -22,52 +22,44 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
 
 type dialerTestDownstream struct {
-	identity           login.IdentityData
-	client             login.ClientData
-	protocol           minecraft.Protocol
-	clientCacheEnabled bool
+	identity login.IdentityData
+	client   login.ClientData
+	protocol minecraft.Protocol
 }
 
 func (d dialerTestDownstream) IdentityData() login.IdentityData { return d.identity }
 func (d dialerTestDownstream) ClientData() login.ClientData     { return d.client }
 func (d dialerTestDownstream) Proto() minecraft.Protocol        { return d.protocol }
-func (d dialerTestDownstream) ClientCacheEnabled() bool         { return d.clientCacheEnabled }
-
-func TestNewUpstreamDialerPreservesClientCacheCapability(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
-			downstream := dialerTestDownstream{
-				protocol:           minecraft.DefaultProtocol,
-				clientCacheEnabled: enabled,
-			}
-
-			dialer := newUpstreamDialer(downstream, nil)
-			if dialer.EnableClientCache != enabled {
-				t.Fatalf("EnableClientCache = %t, want downstream capability %t", dialer.EnableClientCache, enabled)
-			}
-		})
+func TestNewUpstreamDialerDefersClientCacheCapability(t *testing.T) {
+	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
+	if dialer.EnableClientCache {
+		t.Fatal("EnableClientCache = true before downstream ClientCacheStatus is available")
 	}
 }
 
-func TestNewUpstreamDialerDeclinesEveryResourcePack(t *testing.T) {
-	// A nil DownloadResourcePack makes the dial block until every upstream pack
-	// has been downloaded, which cost 20s+ on servers with large packs and hung
-	// the join outright on others. Nothing consumes the packs, so the dialer has
-	// to decline them.
+func TestNewUpstreamDialerAcceptsResourcePacksUnderExplicitBounds(t *testing.T) {
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
 	if dialer.DownloadResourcePack == nil {
-		t.Fatal("DownloadResourcePack is nil, so every upstream pack would be downloaded and discarded")
+		t.Fatal("DownloadResourcePack is nil, want explicit admission callback")
 	}
 	for _, total := range []int{1, 8} {
 		for index := range total {
-			if dialer.DownloadResourcePack(uuid.New(), "1.0.0", index, total) {
-				t.Fatalf("pack %d/%d accepted, want every pack declined", index, total)
+			if !dialer.DownloadResourcePack(uuid.New(), "1.0.0", index, total) {
+				t.Fatalf("pack %d/%d declined, want bounded download before policy decision", index, total)
 			}
 		}
+	}
+	want := boundedResourcePackDownload()
+	if dialer.ResourcePackDownload != want {
+		t.Fatalf("ResourcePackDownload = %#v, want explicit bounds %#v", dialer.ResourcePackDownload, want)
+	}
+	if dialer.ResourcePackDownload.AllowHTTPDownloads {
+		t.Fatal("AllowHTTPDownloads = true, want server-provided HTTP downloads disabled")
 	}
 }
 
@@ -108,7 +100,7 @@ func TestProtocol2168RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *tes
 func TestCacheBoundaryObserverRecordsUpstreamStatusWithoutRetainingOrMutatingPayload(t *testing.T) {
 	telemetry := new(cacheBoundaryTelemetry)
 	dialer := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol, clientCacheEnabled: true},
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
 		telemetry,
 	)
@@ -171,13 +163,13 @@ func TestCacheBoundaryObserverSeesActualUpstreamLoginStatus(t *testing.T) {
 		}
 		status := new(packet.ClientCacheStatus)
 		status.Marshal(minecraft.DefaultProtocol.NewReader(buffer, 0, true))
-		if !status.Enabled {
-			return errors.New("upstream ClientCacheStatus disabled the cache")
+		if status.Enabled {
+			return errors.New("upstream ClientCacheStatus enabled cache before downstream capability was available")
 		}
 		return nil
 	})
 	dialer := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol, clientCacheEnabled: true},
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
 		telemetry,
 	)
@@ -195,8 +187,8 @@ func TestCacheBoundaryObserverSeesActualUpstreamLoginStatus(t *testing.T) {
 		t.Fatalf("scripted cache status server: %v (dial error: %v)", scriptErr, err)
 	}
 	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
-		t.Fatalf("actual upstream cache status snapshot = %#v, want seen enabled=true", snapshot)
+	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
+		t.Fatalf("actual upstream cache status snapshot = %#v, want seen enabled=false", snapshot)
 	}
 }
 
@@ -1343,8 +1335,10 @@ func (s *fakeDownstream) StartGameContext(ctx context.Context, data minecraft.Ga
 
 type fakeUpstream struct {
 	fakeSession
-	spawn func(context.Context) error
-	data  minecraft.GameData
+	spawn    func(context.Context) error
+	data     minecraft.GameData
+	packs    []*resource.Pack
+	required bool
 }
 
 func newFakeUpstream(spawn func(context.Context) error) *fakeUpstream {
@@ -1356,6 +1350,8 @@ func newFakeUpstream(spawn func(context.Context) error) *fakeUpstream {
 
 func (s *fakeUpstream) DoSpawnContext(ctx context.Context) error { return s.spawn(ctx) }
 func (s *fakeUpstream) GameData() minecraft.GameData             { return s.data }
+func (s *fakeUpstream) ResourcePacks() []*resource.Pack          { return slices.Clone(s.packs) }
+func (s *fakeUpstream) TexturePacksRequired() bool               { return s.required }
 
 type errorCloser struct{ err error }
 

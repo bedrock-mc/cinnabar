@@ -18,6 +18,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
 
@@ -55,18 +56,25 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if cfg.Upstream == "" {
 		return errors.New("proxy: upstream address is required")
 	}
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sessionErr := make(chan error, 1)
+	prepared := newPreparedConnections(cfg.Upstream, cfg.TokenSource, logger)
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
 		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
+		PrepareResourcePackOffer: func(ctx context.Context, conn *minecraft.Conn) error {
+			prepareErr := prepared.prepare(ctx, conn)
+			reportPreparationError(sessionErr, prepareErr, serveCtx)
+			return prepareErr
+		},
 	}).ListenNetwork(streamnet.New(cfg.SocketDir), "")
 	if err != nil {
-		return fmt.Errorf("proxy: listen: %w", err)
+		return errors.Join(fmt.Errorf("proxy: listen: %w", err), prepared.shutdown())
 	}
 	reportListenerReady(logger, cfg.SocketDir)
-
-	serveCtx, cancel := context.WithCancel(ctx)
 
 	accepted := make(chan acceptResult)
 	acceptDone := make(chan error, 1)
@@ -74,7 +82,6 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		acceptDone <- runAcceptLoop(serveCtx, listener, accepted)
 	}()
 
-	sessionErr := make(chan error, 1)
 	var sessions sync.WaitGroup
 	var stopOnce sync.Once
 	var stopErr error
@@ -84,7 +91,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		})
 		return stopErr
 	}
-	defer func() { err = errors.Join(err, stop()) }()
+	defer func() { err = errors.Join(err, shutdownPreparedServer(prepared, stop)) }()
 	for {
 		select {
 		case <-ctx.Done():
@@ -101,13 +108,17 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 				cleanupErr := cleanupHandoffConnection(result.conn)
 				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
 			}
-			reportLocalClientAccepted(logger, cfg.SocketDir, downstream.ClientCacheEnabled())
+			upstream, handoffErr := takePreparedAfterAccept(prepared, downstream)
+			if handoffErr != nil {
+				return handoffErr
+			}
+			if upstream == nil {
+				continue
+			}
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
-				err := callWithoutPanic(func() error {
-					return handleConnection(serveCtx, downstream, cfg.Upstream, cfg.TokenSource, logger)
-				})
+				err := serveAcceptedConnection(serveCtx, downstream, upstream, cfg.SocketDir, logger)
 				if err != nil && !isOrdinaryClose(err) {
 					select {
 					case sessionErr <- err:
@@ -118,6 +129,73 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		case err := <-sessionErr:
 			return err
 		}
+	}
+}
+
+type acceptedDownstreamSession interface {
+	downstreamSession
+	ClientCacheEnabled() bool
+}
+
+func serveAcceptedConnection(
+	ctx context.Context,
+	downstream acceptedDownstreamSession,
+	prepared *preparedConnection,
+	socketDir string,
+	logger *slog.Logger,
+) (err error) {
+	serveStarted := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = errors.Join(err, panicTypeError("starting prepared downstream session", recovered))
+		}
+		if !serveStarted {
+			err = errors.Join(err, shutdownSession(downstream), prepared.close())
+		}
+	}()
+	reportLocalClientAccepted(logger, socketDir, downstream.ClientCacheEnabled())
+	serveStarted = true
+	return servePreparedConnection(ctx, downstream, prepared)
+}
+
+func shutdownPreparedServer(prepared *preparedConnections, stop func() error) error {
+	prepared.beginShutdown()
+	stopErr := stop()
+	return errors.Join(stopErr, prepared.finishShutdown())
+}
+
+func takePreparedAfterAccept(prepared *preparedConnections, downstream *minecraft.Conn) (*preparedConnection, error) {
+	upstream, ok := prepared.take(downstream)
+	if ok {
+		return upstream, nil
+	}
+	peerErr := downstream.Context().Err()
+	cleanupErr := cleanupHandoffConnection(downstream)
+	if peerErr != nil {
+		return nil, nil
+	}
+	return nil, errors.Join(errors.New("proxy: accepted connection has no prepared upstream"), cleanupErr)
+}
+
+func shouldSurfacePreparationError(err error, serveCtx context.Context) bool {
+	if err == nil || serveCtx.Err() != nil {
+		return false
+	}
+	var admissionErr *PackAdmissionError
+	if errors.As(err, &admissionErr) {
+		return false
+	}
+	var cancellationErr *preparationCancellationError
+	return !errors.As(err, &cancellationErr)
+}
+
+func reportPreparationError(sessionErr chan<- error, err error, serveCtx context.Context) {
+	if !shouldSurfacePreparationError(err, serveCtx) {
+		return
+	}
+	select {
+	case sessionErr <- fmt.Errorf("proxy: prepare upstream: %w", err):
+	default:
 	}
 }
 
@@ -188,43 +266,6 @@ func reportListenerReady(logger *slog.Logger, socketDir string) {
 	logger.Info("listener ready; waiting for local Rust client", attributes...)
 }
 
-func handleConnection(ctx context.Context, downstream *minecraft.Conn, upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) error {
-	cacheTelemetry := new(cacheBoundaryTelemetry)
-	defer cacheTelemetry.report(logger)
-	dialer := newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, cacheTelemetry)
-	var target *resolvedUpstreamTarget
-	defer func() {
-		if target != nil {
-			_ = target.close()
-		}
-	}()
-	return dialAndServeWithCacheTelemetry(ctx, downstream, func(ctx context.Context) (upstreamSession, error) {
-		var err error
-		target, err = resolveUpstreamTarget(ctx, upstreamAddress, tokenSource, logger)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			if target != nil {
-				_ = target.close()
-			}
-		}()
-		if target.xbl != nil {
-			dialer.XBLClient = target.xbl
-		}
-		if target.playFab != nil {
-			dialer.PlayFabClient = target.playFab
-		}
-		if target.clientData.nonce != "" {
-			dialer.ClientData.Nonce = target.clientData.nonce
-		}
-		resolved := target
-		return connectUpstream(ctx, resolved.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialer.DialContextNetwork(ctx, resolved.network, address)
-		})
-	}, cacheTelemetry)
-}
-
 func authenticationMode(tokenSource oauth2.TokenSource) string {
 	if tokenSource == nil {
 		return "offline"
@@ -238,15 +279,35 @@ func connectUpstream(
 	authentication string,
 	logger *slog.Logger,
 	dial func(context.Context, string) (upstreamSession, error),
-) (upstreamSession, error) {
+) (result upstreamSession, err error) {
+	var owned upstreamSession
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = errors.Join(err, panicTypeError("reporting upstream connection status", recovered))
+			result = nil
+		}
+		if result == nil && owned != nil {
+			err = errors.Join(err, finishPreparedResources(true, owned, nil, nil, nil))
+		}
+	}()
 	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
-	upstream, err := dialFollowingTransfers(ctx, address, dial)
+	upstream, err := dialFollowingTransfers(ctx, address, func(ctx context.Context, address string) (upstreamSession, error) {
+		upstream, dialErr := dial(ctx, address)
+		if dialErr != nil && upstream != nil {
+			dialErr = errors.Join(dialErr, finishPreparedResources(true, upstream, nil, nil, nil))
+			upstream = nil
+		}
+		return upstream, dialErr
+	})
 	if err != nil {
 		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
 		return nil, err
 	}
+	owned = upstream
 	logger.Info("upstream connected", "target", address, "authentication", authentication)
-	return upstream, nil
+	result = upstream
+	owned = nil
+	return result, nil
 }
 
 func dialFollowingTransfers(
@@ -306,23 +367,11 @@ type dialerDownstream interface {
 	IdentityData() login.IdentityData
 	ClientData() login.ClientData
 	Proto() minecraft.Protocol
-	ClientCacheEnabled() bool
 }
 
 func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
 	return newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, nil)
 }
-
-// declineResourcePack refuses every upstream texture and behaviour pack.
-//
-// The dial blocks until every accepted pack has been downloaded, and large
-// packs push that well past a minute on some servers. Nothing consumes them:
-// the client renders from pinned vanilla assets and the local listener
-// advertises no packs of its own, so an accepted pack is downloaded and
-// discarded. Declining is a supported path — the connection proceeds straight
-// to the pack stack and StartGame, and the stack check treats a declined pack
-// as satisfied.
-func declineResourcePack(uuid.UUID, string, int, int) bool { return false }
 
 func newUpstreamDialerWithCacheTelemetry(
 	downstream dialerDownstream,
@@ -331,12 +380,16 @@ func newUpstreamDialerWithCacheTelemetry(
 ) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:           downstream.ClientData(),
-		DownloadResourcePack: declineResourcePack,
+		DownloadResourcePack: acceptResourcePack,
+		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
-		EnableClientCache:    downstream.ClientCacheEnabled(),
-		ErrorLog:             slog.Default().With("component", "upstream-dialer"),
-		Protocol:             downstream.Proto(),
-		TokenSource:          tokenSource,
+		// ClientCacheStatus is sent after the Listener preparation hook, so the
+		// downstream capability is not available at this boundary. Keep the
+		// upstream cache disabled until a later, explicit capability seam exists.
+		EnableClientCache: false,
+		ErrorLog:          slog.Default().With("component", "upstream-dialer"),
+		Protocol:          downstream.Proto(),
+		TokenSource:       tokenSource,
 	}
 	if cacheTelemetry != nil {
 		dialer.PacketFunc = cacheTelemetry.observeUpstreamPacket
@@ -349,6 +402,21 @@ func newUpstreamDialerWithCacheTelemetry(
 		}
 	}
 	return dialer
+}
+
+func acceptResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return true }
+
+func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
+	return minecraft.ResourcePackDownloadConfig{
+		MaxInFlightChunks:  minecraft.DefaultResourcePackMaxInFlightChunks,
+		MaxPacks:           minecraft.DefaultResourcePackMaxPacks,
+		MaxPackBytes:       minecraft.DefaultResourcePackMaxPackBytes,
+		MaxTotalBytes:      minecraft.DefaultResourcePackMaxTotalBytes,
+		MaxChunkBytes:      minecraft.DefaultResourcePackMaxChunkBytes,
+		MaxChunks:          minecraft.DefaultResourcePackMaxChunks,
+		ResponseTimeout:    minecraft.DefaultResourcePackResponseTimeout,
+		AllowHTTPDownloads: false,
+	}
 }
 
 func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {
@@ -411,6 +479,8 @@ type upstreamSession interface {
 	packetSession
 	DoSpawnContext(context.Context) error
 	GameData() minecraft.GameData
+	ResourcePacks() []*resource.Pack
+	TexturePacksRequired() bool
 }
 
 func serveConnections(ctx context.Context, downstream downstreamSession, upstream upstreamSession) (err error) {
