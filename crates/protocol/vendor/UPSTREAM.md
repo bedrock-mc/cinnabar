@@ -9,7 +9,7 @@ Machine-checked provenance:
 - Dependency resolution: local vendored paths
 - Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
 - Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
-- Generated 1.26.40 source revision: `b32ab0ae8e07c391afd7430da11466f721293a72`
+- Generated 1.26.40 source revision: `5e041d6e7da49949356527ca3f1c3cb9c5f8abcc`
 - Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
 The copied surface contains the shared codec/runtime, the generated protocol
@@ -44,10 +44,6 @@ growth and byte storage through fallible allocation. Unknown-width and
 zero-width elements grow fallibly without trusting a wire count for eager
 capacity. These checks do not impose a global collection ceiling; valid larger
 values remain accepted where the field contract permits them.
-
-`LevelChunkPacketView::serialized_chunk_data` remains owned rather than
-zero-copy. This is an acknowledged generator follow-up and does not change its
-wire framing.
 
 Content registries are maintained independently of the generated wire schema.
 The protocol crate uses reviewed retail item and biome allowlists under
