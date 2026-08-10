@@ -1,6 +1,6 @@
 use sim::{
-    Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, PredictionError,
-    PredictionHistory, Simulator, Vec3, WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MovementEffects, MovementInput, PlayerState,
+    PredictionError, PredictionHistory, Simulator, Vec3, WorldQueryError,
 };
 
 struct Floor;
@@ -105,6 +105,48 @@ fn traced_replay_returns_each_fresh_tick_result_in_order() {
             .all(|tick| tick.world_identity == ticks[0].world_identity)
     );
     assert_eq!(ticks.last().unwrap().position, state.position);
+}
+
+#[test]
+fn correction_replay_retains_each_ticks_historical_effect_snapshot() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(8).unwrap();
+    let inputs = [
+        MovementInput::default(),
+        MovementInput {
+            jumping: true,
+            jump_pressed: true,
+            effects: MovementEffects {
+                jump_boost: Some(1),
+                ..MovementEffects::default()
+            },
+            ..MovementInput::default()
+        },
+        MovementInput {
+            effects: MovementEffects {
+                slow_falling: true,
+                ..MovementEffects::default()
+            },
+            ..MovementInput::default()
+        },
+    ];
+    for input in inputs {
+        history
+            .predict(&mut state, input, &simulator, &Floor)
+            .unwrap();
+    }
+
+    let mut corrected = history.state_at(1).unwrap().clone();
+    corrected.position.x = 0.25;
+    history
+        .rewind_and_replay(&mut state, corrected.clone(), &simulator, &Floor)
+        .unwrap();
+
+    let mut expected = corrected;
+    simulator.tick(&mut expected, inputs[1], &Floor).unwrap();
+    simulator.tick(&mut expected, inputs[2], &Floor).unwrap();
+    assert_eq!(state, expected);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 mod collision;
+mod effects;
 mod environment;
 mod input;
 mod state;
@@ -10,6 +11,7 @@ use crate::{
 use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
+pub use effects::MovementEffects;
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
@@ -126,7 +128,13 @@ impl Simulator {
         );
 
         if input.jump_pressed && next.on_ground && next.jump_delay == 0 {
-            next.velocity.y = next.velocity.y.max(DEFAULT_JUMP_HEIGHT);
+            next.velocity.y = next.velocity.y.max(
+                DEFAULT_JUMP_HEIGHT
+                    + input
+                        .effects
+                        .jump_boost
+                        .map_or(0.0, |amplifier| 0.1 * (f64::from(amplifier) + 1.0)),
+            );
             next.jump_delay = JUMP_DELAY_TICKS;
             if input.sprinting {
                 let yaw = input.yaw_degrees.to_radians();
@@ -227,13 +235,30 @@ impl Simulator {
 
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                NORMAL_GRAVITY,
+                NORMAL_GRAVITY_MULTIPLIER,
+            );
         } else if sampled.movement.in_water || sampled.movement.in_lava {
             let drag = if sampled.movement.in_lava { 0.5 } else { 0.8 };
             next.velocity.x *= drag;
-            next.velocity.y = (next.velocity.y - 0.02) * drag;
+            next.velocity.y *= drag;
             next.velocity.z *= drag;
+            effects::apply_vertical(&mut next.velocity.y, input.effects, 0.02, 1.0);
         } else {
-            next.velocity.y = (next.velocity.y - NORMAL_GRAVITY) * NORMAL_GRAVITY_MULTIPLIER;
+            let gravity = if input.effects.slow_falling && next.velocity.y < 0.0 {
+                0.01
+            } else {
+                NORMAL_GRAVITY
+            };
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                gravity,
+                NORMAL_GRAVITY_MULTIPLIER,
+            );
             next.velocity.x *= friction;
             next.velocity.z *= friction;
         }

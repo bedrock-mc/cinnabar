@@ -1,6 +1,6 @@
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
-    MovementInput, PlayerState, Simulator, SurfaceResponse, Vec3, WorldQueryError,
+    MovementEffects, MovementInput, PlayerState, Simulator, SurfaceResponse, Vec3, WorldQueryError,
 };
 
 #[derive(Clone, Copy)]
@@ -108,6 +108,41 @@ fn water_applies_flowless_buoyancy_and_drag_while_lava_is_slower() {
         lava_state.velocity.horizontal_length_squared()
             < water_state.velocity.horizontal_length_squared()
     );
+}
+
+#[test]
+fn liquid_vertical_order_is_drag_then_gravity_or_levitation() {
+    for (flags, drag) in [
+        (BlockPhysicsFlags::WATER, 0.8),
+        (BlockPhysicsFlags::LAVA, 0.5),
+    ] {
+        let world = fluid(flags, SurfaceResponse::None);
+
+        let mut gravity = submerged();
+        Simulator::default()
+            .tick(&mut gravity, MovementInput::default(), &world)
+            .unwrap();
+        let expected_gravity = -0.3 * drag - 0.02;
+        assert!((gravity.velocity.y - expected_gravity).abs() <= 1.0e-12);
+
+        let mut levitation = submerged();
+        Simulator::default()
+            .tick(
+                &mut levitation,
+                MovementInput {
+                    effects: MovementEffects {
+                        levitation: Some(0),
+                        ..MovementEffects::default()
+                    },
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        let after_drag = -0.3 * drag;
+        let expected_levitation = after_drag + (0.05 - after_drag) * 0.2;
+        assert!((levitation.velocity.y - expected_levitation).abs() <= 1.0e-12);
+    }
 }
 
 #[test]

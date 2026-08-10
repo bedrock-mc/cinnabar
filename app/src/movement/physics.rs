@@ -20,6 +20,21 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// catch-up spike. Outbound movement remains independently disabled.
 pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 8;
 
+pub(crate) trait MovementEffectSource {
+    fn snapshot(&self) -> sim::MovementEffects;
+    fn commit_successful_tick(&mut self);
+}
+
+struct NoMovementEffects;
+
+impl MovementEffectSource for NoMovementEffects {
+    fn snapshot(&self) -> sim::MovementEffects {
+        sim::MovementEffects::default()
+    }
+
+    fn commit_successful_tick(&mut self) {}
+}
+
 pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
     matches!(
         error,
@@ -50,6 +65,7 @@ pub fn physics_movement_input(
         jump_pressed: false,
         sprinting,
         sneaking,
+        effects: sim::MovementEffects::default(),
     }
 }
 
@@ -405,9 +421,26 @@ impl LocalPhysicsController {
     pub fn advance_with_context(
         &mut self,
         elapsed: Duration,
+        input: MovementInput,
+        context: PhysicsSampleContext,
+        world: &impl CollisionWorld,
+    ) -> LocalPhysicsFrame {
+        self.advance_with_context_and_effects(
+            elapsed,
+            input,
+            context,
+            world,
+            &mut NoMovementEffects,
+        )
+    }
+
+    pub(crate) fn advance_with_context_and_effects(
+        &mut self,
+        elapsed: Duration,
         mut input: MovementInput,
         context: PhysicsSampleContext,
         world: &impl CollisionWorld,
+        effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
@@ -447,9 +480,11 @@ impl LocalPhysicsController {
                 && state.jump_delay == 0
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
+            input.effects = effects.snapshot();
             let before = state.position;
             match self.history.predict(state, input, &self.simulator, world) {
                 Ok(result) => {
+                    effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());

@@ -78,6 +78,81 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
 }
 
 #[test]
+fn local_effect_commits_to_movement_control_and_ui_together() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let effect = protocol::ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 42,
+        action: protocol::ActorEffectAction::Add,
+        effect_id: 27,
+        amplifier: 0,
+        particles: true,
+        ambient: false,
+        duration_ticks: 40,
+        tick: 99,
+    };
+
+    stream.submit(1, WorldEvent::ActorEffect(effect)).unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![CommittedControlEvent::LocalMovementEffect {
+            sequence: 1,
+            event: effect,
+        }]
+    );
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalEffect {
+            sequence: 1,
+            event: effect,
+        }]
+    );
+}
+
+#[test]
+fn remote_or_wrong_dimension_effect_does_not_reach_local_movement() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, runtime_id, dimension) in [(1, 7, 0), (2, 42, 1)] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::ActorEffect(protocol::ActorEffectEvent {
+                    dimension,
+                    actor_runtime_id: runtime_id,
+                    action: protocol::ActorEffectAction::Add,
+                    effect_id: 8,
+                    amplifier: 0,
+                    particles: true,
+                    ambient: false,
+                    duration_ticks: 40,
+                    tick: 99,
+                }),
+            )
+            .unwrap();
+    }
+
+    assert!(stream.take_committed_controls().is_empty());
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,

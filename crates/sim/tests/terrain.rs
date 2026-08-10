@@ -239,6 +239,7 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
                         jump_pressed: true,
                         sprinting: true,
                         sneaking: true,
+                        effects: sim::MovementEffects::default(),
                     };
                     assert!(matches!(
                         simulator.tick(&mut state, input, &world),

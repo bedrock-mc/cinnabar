@@ -331,6 +331,13 @@ pub enum ForcedRemeshManifestState {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
+    /// A MobEffect change for the local movement simulator. Its packet tick is
+    /// retained as correlation metadata, not used as a local expiry clock.
+    /// The same event is also retained in [`CommittedUiEvent::LocalEffect`].
+    LocalMovementEffect {
+        sequence: u64,
+        event: protocol::ActorEffectEvent,
+    },
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,

@@ -1,6 +1,6 @@
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
-    MovementInput, PlayerState, Simulator, SurfaceResponse, Vec3, WorldQueryError,
+    MovementEffects, MovementInput, PlayerState, Simulator, SurfaceResponse, Vec3, WorldQueryError,
 };
 
 #[derive(Clone, Copy)]
@@ -56,7 +56,68 @@ fn cobweb_scales_each_axis_and_stops_residual_motion_after_move() {
     assert!((tick.movement.x - 0.2).abs() <= 1.0e-12);
     assert!((tick.movement.y + 0.04).abs() <= 1.0e-12);
     assert!((tick.movement.z - 0.2).abs() <= 1.0e-12);
-    assert_eq!(state.velocity, Vec3::ZERO);
+    assert_eq!(state.velocity.x, 0.0);
+    assert!((state.velocity.y + 0.0784).abs() <= 1.0e-12);
+    assert_eq!(state.velocity.z, 0.0);
+}
+
+#[test]
+fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
+    let mut world = surface(SurfaceResponse::None);
+    world.floor = false;
+    world.facts.flags = BlockPhysicsFlags::COBWEB;
+
+    for (effects, expected_y) in [
+        (MovementEffects::default(), -0.0784),
+        (
+            MovementEffects {
+                slow_falling: true,
+                ..MovementEffects::default()
+            },
+            -0.0784,
+        ),
+        (
+            MovementEffects {
+                levitation: Some(0),
+                ..MovementEffects::default()
+            },
+            0.01,
+        ),
+        (
+            MovementEffects {
+                levitation: Some(0),
+                slow_falling: true,
+                ..MovementEffects::default()
+            },
+            0.01,
+        ),
+        (
+            MovementEffects {
+                levitation: Some(-2),
+                slow_falling: true,
+                ..MovementEffects::default()
+            },
+            -0.01,
+        ),
+    ] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        state.velocity = Vec3::new(0.8, -0.8, 0.8);
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    effects,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+
+        assert!(tick.environment.in_cobweb);
+        assert_eq!(state.velocity.x, 0.0);
+        assert!((state.velocity.y - expected_y).abs() <= 1.0e-12);
+        assert_eq!(state.velocity.z, 0.0);
+    }
 }
 
 #[test]

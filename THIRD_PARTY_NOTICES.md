@@ -6,6 +6,39 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## BedSim
+
+- Source: https://github.com/oomph-ac/bedsim
+- Commit: `28403153ffb5f8da0d170ce523d04f2c60ad58a5`
+- License: MIT
+- Copyright: Copyright (c) 2026 Oomph AC
+- Upstream license SHA-256:
+  `f9b70c22e3d853012404e41d51beae215592bbe6f94414e05c6e284c263bfacc`
+
+<!-- BEGIN BEDSIM-MIT -->
+MIT License
+
+Copyright (c) 2026 Oomph AC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+<!-- END BEDSIM-MIT -->
+
 ## Monocraft
 
 - Source: https://github.com/IdreesInc/Monocraft

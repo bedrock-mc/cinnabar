@@ -45,8 +45,8 @@ use crate::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
     },
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
-        reconcile_candidate_physics_correction,
+        LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
+        PhysicsCollisionRegistries, PhysicsCorrectionMode, reconcile_candidate_physics_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -235,6 +235,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
+    pub(crate) movement_effects: ResMut<'w, LocalMovementEffectTimeline>,
     pub(crate) collisions: Res<'w, PhysicsCollisionRegistries>,
     pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
@@ -327,6 +328,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut weather,
         mut movement,
         mut local_physics,
+        mut movement_effects,
         collisions,
         time,
         ..
@@ -361,6 +363,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
+        if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
+            movement_effects.apply(clock.session_generation(), sequence, event);
+            continue;
+        }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
@@ -519,7 +525,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             CommittedControlEvent::SetTime { .. }
             | CommittedControlEvent::DaylightCycle { .. }
-            | CommittedControlEvent::Weather { .. } => {
+            | CommittedControlEvent::Weather { .. }
+            | CommittedControlEvent::LocalMovementEffect { .. } => {
                 unreachable!("environment-only controls return before spatial reconciliation")
             }
         };
@@ -961,7 +968,8 @@ pub(crate) fn apply_committed_control(
         }
         CommittedControlEvent::SetTime { .. }
         | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. } => return,
+        | CommittedControlEvent::Weather { .. }
+        | CommittedControlEvent::LocalMovementEffect { .. } => return,
     };
     view.set_eye_translation(Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;

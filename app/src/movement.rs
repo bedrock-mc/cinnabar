@@ -8,11 +8,13 @@ use protocol::{
 };
 
 mod authority;
+mod effects;
 mod encoding;
 mod evidence;
 mod physics;
 mod runtime_system;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
+pub(crate) use effects::LocalMovementEffectTimeline;
 use encoding::{input_flags, normalize_move_vector, subtract};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -971,5 +973,7 @@ mod tests;
 
 #[cfg(test)]
 mod correction_tests;
+#[cfg(test)]
+mod effects_tests;
 #[cfg(test)]
 mod integration_tests;
