@@ -1,0 +1,249 @@
+package proxy
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"math"
+	"strings"
+	"sync"
+	"sync/atomic"
+
+	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
+)
+
+type ResourcePackOffer string
+
+const (
+	ResourcePackOfferNone     ResourcePackOffer = "none"
+	ResourcePackOfferOptional ResourcePackOffer = "optional"
+	ResourcePackOfferRequired ResourcePackOffer = "required"
+)
+
+type ResourcePackAcquisition string
+
+const (
+	ResourcePackAcquisitionNone      ResourcePackAcquisition = "none"
+	ResourcePackAcquisitionComplete  ResourcePackAcquisition = "complete"
+	ResourcePackAcquisitionFailed    ResourcePackAcquisition = "failed"
+	ResourcePackAcquisitionCancelled ResourcePackAcquisition = "cancelled"
+)
+
+type ResourcePackDownstreamOutcome string
+
+const (
+	ResourcePackDownstreamNone             ResourcePackDownstreamOutcome = "none"
+	ResourcePackDownstreamStrippedOptional ResourcePackDownstreamOutcome = "stripped_optional"
+	ResourcePackDownstreamRejectedRequired ResourcePackDownstreamOutcome = "rejected_required"
+)
+
+const ResourcePackApplicationUnavailable = "unavailable"
+
+// ResourcePackAdmissionSnapshot deliberately contains no pack identity,
+// version, source, content key, digest, or filesystem location.
+type ResourcePackAdmissionSnapshot struct {
+	AttemptID         uint64
+	Offer             ResourcePackOffer
+	PackCount         uint32
+	TotalBytes        uint64
+	Acquisition       ResourcePackAcquisition
+	CacheLoads        uint64
+	CacheHits         uint64
+	CacheMisses       uint64
+	CacheStores       uint64
+	CacheErrors       uint64
+	DownstreamOutcome ResourcePackDownstreamOutcome
+	Application       string
+}
+
+type resourcePackAdmissionTelemetry struct {
+	attemptID uint64
+	callback  func(ResourcePackAdmissionSnapshot)
+	report    sync.Once
+
+	mu          sync.Mutex
+	offer       ResourcePackOffer
+	packCount   uint32
+	totalBytes  uint64
+	acquisition ResourcePackAcquisition
+	downstream  ResourcePackDownstreamOutcome
+	negotiation bool
+	loads       atomic.Uint64
+	hits        atomic.Uint64
+	misses      atomic.Uint64
+	stores      atomic.Uint64
+	errors      atomic.Uint64
+}
+
+func newResourcePackAdmissionTelemetry(id uint64, callback func(ResourcePackAdmissionSnapshot)) *resourcePackAdmissionTelemetry {
+	return &resourcePackAdmissionTelemetry{
+		attemptID: id, callback: callback, offer: ResourcePackOfferNone,
+		acquisition: ResourcePackAcquisitionNone, downstream: ResourcePackDownstreamNone,
+	}
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) observeOffer(upstream upstreamSession) {
+	packs := upstream.ResourcePacks()
+	count := len(packs)
+	if count > math.MaxUint32 {
+		count = math.MaxUint32
+	}
+	var total uint64
+	for _, pack := range packs {
+		if pack == nil {
+			continue
+		}
+		size := uint64(pack.Size())
+		if size > math.MaxUint64-total {
+			total = math.MaxUint64
+			break
+		}
+		total += size
+	}
+	offer := ResourcePackOfferNone
+	acquisition := ResourcePackAcquisitionNone
+	if len(packs) != 0 {
+		offer = ResourcePackOfferOptional
+		acquisition = ResourcePackAcquisitionComplete
+		if upstream.TexturePacksRequired() {
+			offer = ResourcePackOfferRequired
+		}
+	}
+	telemetry.mu.Lock()
+	telemetry.offer, telemetry.packCount, telemetry.totalBytes = offer, uint32(count), total
+	telemetry.acquisition = acquisition
+	telemetry.mu.Unlock()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) observeNegotiation() {
+	telemetry.mu.Lock()
+	telemetry.negotiation = true
+	telemetry.mu.Unlock()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) observeFailure(ctx context.Context) {
+	telemetry.mu.Lock()
+	if !telemetry.negotiation {
+		telemetry.mu.Unlock()
+		return
+	}
+	if ctx.Err() != nil {
+		telemetry.acquisition = ResourcePackAcquisitionCancelled
+	} else {
+		telemetry.acquisition = ResourcePackAcquisitionFailed
+	}
+	telemetry.mu.Unlock()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(configured bool) {
+	if telemetry == nil {
+		return
+	}
+	telemetry.mu.Lock()
+	switch telemetry.offer {
+	case ResourcePackOfferOptional:
+		if configured {
+			telemetry.downstream = ResourcePackDownstreamStrippedOptional
+		}
+	case ResourcePackOfferRequired:
+		telemetry.downstream = ResourcePackDownstreamRejectedRequired
+	default:
+		telemetry.downstream = ResourcePackDownstreamNone
+	}
+	telemetry.mu.Unlock()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) snapshot() ResourcePackAdmissionSnapshot {
+	telemetry.mu.Lock()
+	snapshot := ResourcePackAdmissionSnapshot{
+		AttemptID: telemetry.attemptID, Offer: telemetry.offer, PackCount: telemetry.packCount,
+		TotalBytes: telemetry.totalBytes, Acquisition: telemetry.acquisition,
+		DownstreamOutcome: telemetry.downstream, Application: ResourcePackApplicationUnavailable,
+	}
+	telemetry.mu.Unlock()
+	snapshot.CacheLoads = telemetry.loads.Load()
+	snapshot.CacheHits = telemetry.hits.Load()
+	snapshot.CacheMisses = telemetry.misses.Load()
+	snapshot.CacheStores = telemetry.stores.Load()
+	snapshot.CacheErrors = telemetry.errors.Load()
+	return snapshot
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) reportFinal() {
+	if telemetry == nil || telemetry.callback == nil {
+		return
+	}
+	telemetry.report.Do(func() {
+		defer func() { _ = recover() }()
+		telemetry.callback(telemetry.snapshot())
+	})
+}
+
+type observedResourcePackCache struct {
+	cache     minecraft.ResourcePackCache
+	telemetry *resourcePackAdmissionTelemetry
+}
+
+var errResourcePackCacheUnavailable = errors.New("resource pack cache unavailable")
+
+func (cache observedResourcePackCache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*resource.Pack, error) {
+	atomicSaturatingIncrement(&cache.telemetry.loads)
+	pack, err := cache.cache.Load(ctx, key)
+	if err != nil {
+		atomicSaturatingIncrement(&cache.telemetry.errors)
+		return nil, errResourcePackCacheUnavailable
+	}
+	if pack == nil {
+		atomicSaturatingIncrement(&cache.telemetry.misses)
+	} else {
+		atomicSaturatingIncrement(&cache.telemetry.hits)
+	}
+	return pack, nil
+}
+
+func (cache observedResourcePackCache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, pack *resource.Pack) error {
+	atomicSaturatingIncrement(&cache.telemetry.stores)
+	if err := cache.cache.Store(ctx, key, pack); err != nil {
+		atomicSaturatingIncrement(&cache.telemetry.errors)
+		return errResourcePackCacheUnavailable
+	}
+	return nil
+}
+
+func secretSafeResourcePackLogger() *slog.Logger {
+	return slog.New(secretSafeResourcePackHandler{next: slog.Default().Handler()}).With("component", "upstream-dialer")
+}
+
+type secretSafeResourcePackHandler struct{ next slog.Handler }
+
+func (handler secretSafeResourcePackHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return handler.next.Enabled(ctx, level)
+}
+
+func (handler secretSafeResourcePackHandler) Handle(ctx context.Context, record slog.Record) error {
+	clean := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	record.Attrs(func(attr slog.Attr) bool {
+		key := strings.ToLower(attr.Key)
+		if key != "uuid" && key != "version" && key != "url" && key != "content_key" && key != "digest" && key != "path" {
+			clean.AddAttrs(attr)
+		}
+		return true
+	})
+	return handler.next.Handle(ctx, clean)
+}
+
+func (handler secretSafeResourcePackHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	clean := make([]slog.Attr, 0, len(attrs))
+	for _, attr := range attrs {
+		key := strings.ToLower(attr.Key)
+		if key != "uuid" && key != "version" && key != "url" && key != "content_key" && key != "digest" && key != "path" {
+			clean = append(clean, attr)
+		}
+	}
+	return secretSafeResourcePackHandler{next: handler.next.WithAttrs(clean)}
+}
+
+func (handler secretSafeResourcePackHandler) WithGroup(name string) slog.Handler {
+	return secretSafeResourcePackHandler{next: handler.next.WithGroup(name)}
+}

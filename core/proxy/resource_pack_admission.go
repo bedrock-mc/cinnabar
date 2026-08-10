@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -80,6 +81,7 @@ type preparedConnection struct {
 	releaseTarget func() error
 	telemetry     *cacheBoundaryTelemetry
 	logger        *slog.Logger
+	packAdmission *resourcePackAdmissionTelemetry
 
 	closeOnce sync.Once
 	closeErr  error
@@ -105,6 +107,7 @@ func (prepared *preparedConnection) finish(shutdownUpstream bool) error {
 			prepared.telemetry,
 			prepared.logger,
 		)
+		prepared.packAdmission.reportFinal()
 	})
 	return prepared.closeErr
 }
@@ -156,11 +159,14 @@ type preparedSlot struct {
 // preparedConnections retains a prepared upstream by the exact downstream
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
-	tokenSource     oauth2.TokenSource
-	logger          *slog.Logger
-	connectPrepared func(context.Context, dialerDownstream) (*preparedConnection, error)
-	resolveTarget   func(context.Context) (*resolvedUpstreamTarget, error)
-	dialTarget      func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
+	tokenSource           oauth2.TokenSource
+	logger                *slog.Logger
+	connectPrepared       func(context.Context, dialerDownstream) (*preparedConnection, error)
+	resolveTarget         func(context.Context) (*resolvedUpstreamTarget, error)
+	dialTarget            func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
+	resourcePackCache     minecraft.ResourcePackCache
+	resourcePackAdmission func(ResourcePackAdmissionSnapshot)
+	attempts              atomic.Uint64
 
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
@@ -241,8 +247,10 @@ func (connections *preparedConnections) prepareConnection(
 		}
 	}()
 	if err = configureResourcePackOffer(downstream, prepared.upstream); err != nil {
+		prepared.packAdmission.observePolicyOutcome(false)
 		return err
 	}
+	prepared.packAdmission.observePolicyOutcome(true)
 	if err = connections.store(ctx, key, prepared); err != nil {
 		return err
 	}
@@ -252,6 +260,7 @@ func (connections *preparedConnections) prepareConnection(
 
 func (connections *preparedConnections) connect(ctx context.Context, downstream dialerDownstream) (result *preparedConnection, err error) {
 	telemetry := new(cacheBoundaryTelemetry)
+	packAdmission := newResourcePackAdmissionTelemetry(connections.attempts.Add(1), connections.resourcePackAdmission)
 	var target *resolvedUpstreamTarget
 	var upstream upstreamSession
 	defer func() {
@@ -262,6 +271,8 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		if result != nil {
 			return
 		}
+		packAdmission.observeFailure(ctx)
+		packAdmission.reportFinal()
 		var releaseTarget func() error
 		if target != nil {
 			releaseTarget = target.close
@@ -273,7 +284,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if err != nil {
 		return nil, err
 	}
-	dialer := newUpstreamDialerWithCacheTelemetry(downstream, connections.tokenSource, telemetry)
+	var cache minecraft.ResourcePackCache
+	if connections.resourcePackCache != nil {
+		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
+	}
+	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission)
 	if target.xbl != nil {
 		dialer.XBLClient = target.xbl
 	}
@@ -287,11 +302,13 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if err != nil {
 		return nil, err
 	}
+	packAdmission.observeOffer(upstream)
 	result = &preparedConnection{
 		upstream:      upstream,
 		releaseTarget: target.close,
 		telemetry:     telemetry,
 		logger:        connections.logger,
+		packAdmission: packAdmission,
 	}
 	return result, nil
 }
