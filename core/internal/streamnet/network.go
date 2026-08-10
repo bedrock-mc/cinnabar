@@ -81,7 +81,7 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 			cleanup = func() error { return removePublishedAddress(path, address) }
 		}
 	} else {
-		path := filepath.Join(n.socketDir, unixEndpointName)
+		path := unixEndpointPath(n.socketDir)
 		if err = prepareUnixEndpoint(path); err == nil {
 			inner, err = net.Listen("unix", path)
 		}

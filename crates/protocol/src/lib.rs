@@ -63,7 +63,7 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, parse_raw_text,
 };
-pub use socket_transport::SocketTransport;
+pub use socket_transport::{SocketTransport, bridge_endpoint_path};
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,

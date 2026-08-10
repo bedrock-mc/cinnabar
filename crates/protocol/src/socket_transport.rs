@@ -9,6 +9,12 @@ use bytes::Bytes;
 use futures::{Sink, Stream};
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 
+/// Returns the local transport endpoint for a logical socket directory.
+#[must_use]
+pub fn bridge_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+    bridge::endpoint_path(socket_dir)
+}
+
 /// Jolyne transport over the local length-framed bridge.
 pub struct SocketTransport {
     stream: FramedStream,

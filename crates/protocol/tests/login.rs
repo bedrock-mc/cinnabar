@@ -114,7 +114,7 @@ async fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result
     #[cfg(windows)]
     let endpoint = socket_dir.join("game.addr");
     #[cfg(unix)]
-    let endpoint = socket_dir.join("game.sock");
+    let endpoint = protocol::bridge_endpoint_path(&socket_dir);
 
     let deadline = Instant::now() + ENDPOINT_TIMEOUT;
     loop {

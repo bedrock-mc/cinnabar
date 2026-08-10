@@ -30,11 +30,7 @@ async fn go_frame_echo_round_trips_binary_payloads_and_cleans_up() -> Result<()>
 
     build_fixture(&core_dir, &executable)?;
     let mut child = ChildGuard::spawn(&executable, &socket_dir)?;
-    let endpoint = socket_dir.join(if cfg!(windows) {
-        "game.addr"
-    } else {
-        "game.sock"
-    });
+    let endpoint = bridge::endpoint_path(&socket_dir);
     wait_for_publication(&mut child, &endpoint).await?;
 
     let mut stream = tokio::time::timeout(IO_TIMEOUT, bridge::connect(&socket_dir))
