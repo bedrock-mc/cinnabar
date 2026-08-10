@@ -183,8 +183,7 @@ go -C tools/registrygen run . `
   -physics-breg ../../crates/assets/data/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 ```
 
 `PREG1001` contains one explicit bounded physics record for each of the 16,913
