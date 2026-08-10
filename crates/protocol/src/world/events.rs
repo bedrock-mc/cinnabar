@@ -9,7 +9,7 @@ use std::sync::Arc;
 use valentine::bedrock::version::v1_26_40::MovePlayerPacketPositionMode;
 
 use crate::{
-    ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, BlockCrackEvent,
+    ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
     EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
 };
 
@@ -319,6 +319,7 @@ pub enum WorldEvent {
     SetTime(SetTimeEvent),
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
+    Audio(AudioEvent),
     Actor(ActorEvent),
     ActorEffect(ActorEffectEvent),
     ActorLink(ActorLinkEvent),

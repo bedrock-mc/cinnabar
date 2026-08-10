@@ -413,6 +413,13 @@ pub enum CommittedUiEvent {
     },
 }
 
+/// One packet-order-preserving audio command committed by the world stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedAudioEvent {
+    pub sequence: u64,
+    pub event: AudioEvent,
+}
+
 #[cfg(test)]
 impl WorldMeshChange {
     #[must_use]
@@ -579,6 +586,7 @@ pub struct WorldStreamStats {
     pub terminal_light_failures: usize,
     pub admitted_world_events: usize,
     pub admitted_heavy_events: usize,
+    pub committed_audio_events: usize,
     pub queued_decode_jobs: usize,
     pub in_flight_decode_jobs: usize,
     pub completed_decode_results: usize,

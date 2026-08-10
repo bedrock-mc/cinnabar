@@ -262,6 +262,7 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+mod audio;
 mod camera;
 mod camera_controls;
 mod cohort_epoch;

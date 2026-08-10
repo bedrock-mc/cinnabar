@@ -1,3 +1,4 @@
+pub(crate) mod audio;
 pub(crate) mod endpoint;
 pub(crate) mod network;
 pub(crate) mod phase2_evidence;

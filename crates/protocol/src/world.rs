@@ -15,6 +15,7 @@ use crate::{
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
     },
+    audio::{normalize_level_sound, normalize_play_sound, normalize_stop_sound},
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
         normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
@@ -207,6 +208,19 @@ pub enum WorldPacketError {
         field: &'static str,
     },
 
+    #[error("{field} has {bytes} UTF-8 bytes, exceeding {max}")]
+    AudioIdentifierTooLong {
+        field: &'static str,
+        bytes: usize,
+        max: usize,
+    },
+
+    #[error("{field} is not valid UTF-8")]
+    InvalidAudioIdentifierUtf8 { field: &'static str },
+
+    #[error("{field} is non-finite")]
+    NonFiniteAudioField { field: &'static str },
+
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
 
@@ -351,6 +365,13 @@ pub fn into_world_event(
         McpePacketData::AnimatePacket(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
         McpePacketData::AnimateEntityPacket(packet) => {
             WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
+        }
+        McpePacketData::PlaySoundPacket(packet) => {
+            WorldEvent::Audio(normalize_play_sound(*packet)?)
+        }
+        McpePacketData::StopSoundPacket(packet) => WorldEvent::Audio(normalize_stop_sound(packet)?),
+        McpePacketData::LevelSoundEventPacket(packet) => {
+            WorldEvent::Audio(normalize_level_sound(*packet)?)
         }
         McpePacketData::BiomeDefinitionListPacket(packet) => {
             // 1.26.40 renames the packet's two collections and splits each

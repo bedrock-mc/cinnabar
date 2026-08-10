@@ -616,6 +616,10 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced weather commits through submit");
                 self.push_committed_control(CommittedControlEvent::Weather { sequence, update });
             }
+            WorldEvent::Audio(event) => {
+                let sequence = sequence.expect("sequenced audio events commit through submit");
+                self.push_committed_audio(CommittedAudioEvent { sequence, event });
+            }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
@@ -801,6 +805,13 @@ impl WorldStream {
             "UI admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_ui.push_back(event);
+    }
+    pub(super) fn push_committed_audio(&mut self, event: CommittedAudioEvent) {
+        assert!(
+            self.committed_audio.len() < COMMITTED_AUDIO_CAPACITY,
+            "audio admission invariant exceeded bounded commit-delta capacity"
+        );
+        self.committed_audio.push_back(event);
     }
 
     fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {

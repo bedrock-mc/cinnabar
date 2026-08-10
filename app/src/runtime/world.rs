@@ -18,13 +18,17 @@ use bevy::{
     app::AppExit,
     ecs::system::SystemParam,
     log::{debug, info, warn},
-    prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+    prelude::{
+        MessageReader, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With,
+    },
     time::Real,
 };
 use client_world::{
     CommittedControlEvent, CommittedUiEvent, ViewCohortStatus, WorldMeshChange, WorldStream,
     WorldStreamPoll,
 };
+
+use super::audio::{SequencedAudioEvent, drain_committed_audio};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -321,6 +325,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut interaction: ResMut<InteractionOriginSnapshot>,
     mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
+    mut audio: MessageWriter<SequencedAudioEvent>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -353,6 +358,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
         .committed_view_cohort()
         .map(|target| stream.cohort_status(target));
     let controls = stream.take_committed_controls();
+    drain_committed_audio(stream, |event| {
+        audio.write(event);
+    });
     if let Some(error) = stream.take_fatal_error() {
         movement.deactivate();
         local_physics.deactivate();

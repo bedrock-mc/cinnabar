@@ -744,6 +744,9 @@ fn decode_world_raw_with(
             | McpePacketName::SetTimePacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
+            | McpePacketName::PlaySoundPacket
+            | McpePacketName::StopSoundPacket
+            | McpePacketName::LevelSoundEventPacket
     ) {
         return Ok(None);
     }
@@ -756,6 +759,15 @@ fn decode_world_raw_with(
     crate::inventory::validate_raw_inventory_packet(&raw)
         .map_err(crate::world::WorldPacketError::from)?;
     crate::codec::validate_raw_ui_frame(raw.inner_frame()).map_err(demote_ui_semantic_rejection)?;
+    if matches!(
+        raw.id,
+        McpePacketName::PlaySoundPacket
+            | McpePacketName::StopSoundPacket
+            | McpePacketName::LevelSoundEventPacket
+    ) {
+        let borrowed = raw.clone().decode_borrowed()?;
+        crate::audio::validate_borrowed_audio_packet(&borrowed.data)?;
+    }
     if raw.id == McpePacketName::MobEquipmentPacket
         && let Some(equipment) = decode_empty_mob_equipment(&raw)?
     {
