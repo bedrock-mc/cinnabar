@@ -423,6 +423,62 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "InventoryTransactionAttackActor",
+			file: "inventory_transaction_attack_actor.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemOnEntityTransactionData{
+					TargetEntityRuntimeID: 0x0102_0304_0506_0708,
+					ActionType:            protocol.UseItemOnEntityActionAttack,
+					HotBarSlot:            8,
+					HeldItem:              inventoryItem(7, 1, 13),
+					Position:              mgl32.Vec3{10.25, 65.625, -4.75},
+					ClickedPosition:       mgl32.Vec3{0.375, 1.25, -0.125},
+				},
+			},
+		},
+		{
+			name: "InventoryTransactionAttackActorEmptyHand",
+			file: "inventory_transaction_attack_actor_empty_hand.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemOnEntityTransactionData{
+					TargetEntityRuntimeID: ^uint64(0),
+					ActionType:            protocol.UseItemOnEntityActionAttack,
+					HotBarSlot:            0,
+					HeldItem:              protocol.ItemInstance{},
+					Position:              mgl32.Vec3{-12.5, 70, 31.75},
+					ClickedPosition:       mgl32.Vec3{-0.5, 0.625, 1.5},
+				},
+			},
+		},
+		{
+			name: "InventoryTransactionInteractActor",
+			file: "inventory_transaction_interact_actor.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemOnEntityTransactionData{
+					TargetEntityRuntimeID: 123_456_789,
+					ActionType:            protocol.UseItemOnEntityActionInteract,
+					HotBarSlot:            3,
+					HeldItem:              inventoryItem(8, 4, 14),
+					Position:              mgl32.Vec3{2.5, 63.875, 9.125},
+					ClickedPosition:       mgl32.Vec3{0.25, 0.75, 0.5},
+				},
+			},
+		},
+		{
+			name: "InventoryTransactionInteractActorEmptyHand",
+			file: "inventory_transaction_interact_actor_empty_hand.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemOnEntityTransactionData{
+					TargetEntityRuntimeID: 1,
+					ActionType:            protocol.UseItemOnEntityActionInteract,
+					HotBarSlot:            6,
+					HeldItem:              protocol.ItemInstance{},
+					Position:              mgl32.Vec3{-1.25, 80.5, -16.75},
+					ClickedPosition:       mgl32.Vec3{1.125, -0.25, 0.875},
+				},
+			},
+		},
+		{
 			name: "ContainerClose",
 			file: "container_close.bin",
 			pk: &packet.ContainerClose{

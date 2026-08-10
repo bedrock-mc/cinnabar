@@ -47,6 +47,26 @@ func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
 		t.Fatalf("empty held item = %+v, want canonical empty item", emptyData.HeldItem)
 	}
 
+	attack := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_attack_actor.bin"))
+	assertActorUseTransaction(t, attack, 0x0102_0304_0506_0708, protocol.UseItemOnEntityActionAttack,
+		8, mgl32.Vec3{10.25, 65.625, -4.75}, mgl32.Vec3{0.375, 1.25, -0.125})
+	assertFixtureItem(t, attack.TransactionData.(*protocol.UseItemOnEntityTransactionData).HeldItem, 7, 1, 13)
+
+	attackEmpty := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_attack_actor_empty_hand.bin"))
+	assertActorUseTransaction(t, attackEmpty, ^uint64(0), protocol.UseItemOnEntityActionAttack,
+		0, mgl32.Vec3{-12.5, 70, 31.75}, mgl32.Vec3{-0.5, 0.625, 1.5})
+	assertFixtureItem(t, attackEmpty.TransactionData.(*protocol.UseItemOnEntityTransactionData).HeldItem, 0, 0, 0)
+
+	interact := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_interact_actor.bin"))
+	assertActorUseTransaction(t, interact, 123_456_789, protocol.UseItemOnEntityActionInteract,
+		3, mgl32.Vec3{2.5, 63.875, 9.125}, mgl32.Vec3{0.25, 0.75, 0.5})
+	assertFixtureItem(t, interact.TransactionData.(*protocol.UseItemOnEntityTransactionData).HeldItem, 8, 4, 14)
+
+	interactEmpty := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_interact_actor_empty_hand.bin"))
+	assertActorUseTransaction(t, interactEmpty, 1, protocol.UseItemOnEntityActionInteract,
+		6, mgl32.Vec3{-1.25, 80.5, -16.75}, mgl32.Vec3{1.125, -0.25, 0.875})
+	assertFixtureItem(t, interactEmpty.TransactionData.(*protocol.UseItemOnEntityTransactionData).HeldItem, 0, 0, 0)
+
 	closed := decodeClientPacket(t, filepath.Join(out, "container_close.bin"))
 	closePacket, ok := closed.(*packet.ContainerClose)
 	if !ok {
@@ -54,6 +74,30 @@ func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
 	}
 	if closePacket.WindowID != 5 || closePacket.ContainerType != 0 || closePacket.ServerSide {
 		t.Fatalf("container close = %+v, want client close for window 5/type 0", closePacket)
+	}
+}
+
+func assertActorUseTransaction(t *testing.T, transaction *packet.InventoryTransaction, runtimeID uint64,
+	action, slot int32, player, hit mgl32.Vec3) {
+	t.Helper()
+	if transaction.LegacyRequestID != 0 || len(transaction.LegacySetItemSlots) != 0 || len(transaction.Actions) != 0 {
+		t.Fatalf("legacy/actions = (%d, %d, %d), want all empty", transaction.LegacyRequestID,
+			len(transaction.LegacySetItemSlots), len(transaction.Actions))
+	}
+	data, ok := transaction.TransactionData.(*protocol.UseItemOnEntityTransactionData)
+	if !ok {
+		t.Fatalf("transaction data = %T, want use-item-on-entity", transaction.TransactionData)
+	}
+	if data.TargetEntityRuntimeID != runtimeID || data.ActionType != action || data.HotBarSlot != slot ||
+		data.Position != player || data.ClickedPosition != hit {
+		t.Fatalf("actor-use data = %+v", data)
+	}
+}
+
+func assertFixtureItem(t *testing.T, item protocol.ItemInstance, networkID int32, count uint16, stackNetworkID int32) {
+	t.Helper()
+	if item.Stack.NetworkID != networkID || item.Stack.Count != count || item.StackNetworkID != stackNetworkID {
+		t.Fatalf("held item = %+v, want network=%d count=%d stack=%d", item, networkID, count, stackNetworkID)
 	}
 }
 
@@ -159,9 +203,13 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ItemStackResponse",
 		"InventoryTransactionClickBlock",
 		"InventoryTransactionClickBlockEmptyHand",
+		"InventoryTransactionAttackActor",
+		"InventoryTransactionAttackActorEmptyHand",
+		"InventoryTransactionInteractActor",
+		"InventoryTransactionInteractActorEmptyHand",
 		"ContainerClose",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 47}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 47}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -183,6 +231,10 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0xb2, 0x48},
 		{0xb0, 0x48},
 		{0x94, 0x49},
+		{0x9e, 0x48},
+		{0x9e, 0x48},
+		{0x9e, 0x48},
+		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0xaf, 0x48},

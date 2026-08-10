@@ -156,6 +156,34 @@
     "sha256": "3bd736915819b4881fd040e3b712d552700c838f321194d4c37510c93d9c0695"
   },
   {
+    "name": "InventoryTransactionAttackActor",
+    "file": "inventory_transaction_attack_actor.bin",
+    "id": 30,
+    "byte_length": 83,
+    "sha256": "ec2abc3efb538843c79a3d78fde41da434a324803b3206652c5252ff8a3393e3"
+  },
+  {
+    "name": "InventoryTransactionAttackActorEmptyHand",
+    "file": "inventory_transaction_attack_actor_empty_hand.bin",
+    "id": 30,
+    "byte_length": 54,
+    "sha256": "6f724c6d702922e19f5c10f99d6bc580e3bec76de53a07ddbed51092a9caf665"
+  },
+  {
+    "name": "InventoryTransactionInteractActor",
+    "file": "inventory_transaction_interact_actor.bin",
+    "id": 30,
+    "byte_length": 78,
+    "sha256": "2f5898b884a85f7233931cc91256d5ab44eca71ad9b1f9397821b5af5e4e6eef"
+  },
+  {
+    "name": "InventoryTransactionInteractActorEmptyHand",
+    "file": "inventory_transaction_interact_actor_empty_hand.bin",
+    "id": 30,
+    "byte_length": 45,
+    "sha256": "082c255cba3e55ae10b4033c937911e67cff39fce20d539d2b87a59f50a8ac32"
+  },
+  {
     "name": "ContainerClose",
     "file": "container_close.bin",
     "id": 47,
