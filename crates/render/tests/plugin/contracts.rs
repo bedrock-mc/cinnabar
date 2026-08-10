@@ -21,6 +21,37 @@ fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_prob
 }
 
 #[test]
+fn graphics_runtime_metadata_bundles_world_inputs_but_keeps_platform_thread_marker() {
+    let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
+    assert!(source.contains(
+        "#[derive(SystemParam)]\npub(in crate::chunk) struct GraphicsRuntimeMetadataInputs"
+    ));
+    let start = source
+        .find("pub(in crate::chunk) fn publish_graphics_runtime_metadata(")
+        .expect("metadata publication system must remain registered");
+    let signature = &source[start
+        ..start
+            + source[start..]
+                .find(") {")
+                .expect("metadata publication system must retain a function body")];
+    assert!(signature.contains("NonSendMarker"));
+    assert!(signature.contains("inputs: GraphicsRuntimeMetadataInputs"));
+    for unbundled in [
+        "windows: Res<",
+        "render_instance: Res<",
+        "render_adapter: Res<",
+        "policy: Option<Res<",
+        "input: Res<",
+        "diagnostics: Res<",
+    ] {
+        assert!(
+            !signature.contains(unbundled),
+            "metadata publication signature leaked bundled input {unbundled}"
+        );
+    }
+}
+
+#[test]
 fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
     let source = CHUNK_RENDERER_SOURCE;
     for binding in [7, 8] {

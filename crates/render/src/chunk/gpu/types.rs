@@ -292,16 +292,29 @@ fn metadata_requires_automatic_immediate(
     })
 }
 
+#[derive(SystemParam)]
+pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
+    windows: Res<'w, ExtractedWindows>,
+    render_instance: Res<'w, RenderInstance>,
+    render_adapter: Res<'w, RenderAdapter>,
+    policy: Option<Res<'w, Dx12PresentModePolicy>>,
+    input: Res<'w, VisibilityDiagnosticsInput>,
+    diagnostics: Res<'w, VisibilityDiagnostics>,
+}
+
 pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
-    windows: Res<ExtractedWindows>,
-    render_instance: Res<RenderInstance>,
-    render_adapter: Res<RenderAdapter>,
-    policy: Option<Res<Dx12PresentModePolicy>>,
-    input: Res<VisibilityDiagnosticsInput>,
-    diagnostics: Res<VisibilityDiagnostics>,
+    inputs: GraphicsRuntimeMetadataInputs,
     mut publication: Local<GraphicsMetadataPublicationState>,
 ) {
+    let GraphicsRuntimeMetadataInputs {
+        windows,
+        render_instance,
+        render_adapter,
+        policy,
+        input,
+        diagnostics,
+    } = inputs;
     if !input.enabled() || *publication == GraphicsMetadataPublicationState::Published {
         return;
     }
