@@ -248,21 +248,19 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "rust-mcbe-socket-resolution-{}-{unique}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir()
+        .join(format!(
+            "rust-mcbe-socket-resolution-{}-{unique}",
+            std::process::id()
+        ))
+        .join("long-launch-path-segment".repeat(3));
     let current_dir = root.join("launcher");
     let executable = root.join("project/target/debug/bedrock-client.exe");
     let expected = root.join("project/.local/run");
     std::fs::create_dir_all(&current_dir).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let endpoint_name = if cfg!(windows) {
-        "game.addr"
-    } else {
-        "game.sock"
-    };
-    std::fs::write(expected.join(endpoint_name), "endpoint").unwrap();
+    let project_endpoint = bridge_endpoint_path(&expected);
+    std::fs::write(&project_endpoint, "endpoint").unwrap();
 
     assert_eq!(
         resolve_socket_dir_from(
@@ -273,6 +271,7 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
         expected
     );
 
+    let _ = std::fs::remove_file(project_endpoint);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -282,25 +281,39 @@ fn bridge_endpoint_exists_only_for_the_platform_marker() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "rust-mcbe-platform-endpoint-{}-{unique}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir()
+        .join(format!(
+            "rust-mcbe-platform-endpoint-{}-{unique}",
+            std::process::id()
+        ))
+        .join("long-platform-path-segment".repeat(3));
     std::fs::create_dir_all(&root).unwrap();
-    let (expected, wrong) = if cfg!(windows) {
-        ("game.addr", "game.sock")
+    let wrong = if cfg!(windows) {
+        "game.sock"
     } else {
-        ("game.sock", "game.addr")
+        "game.addr"
     };
+    let expected = bridge_endpoint_path(&root);
 
     std::fs::write(root.join(wrong), "wrong platform").unwrap();
+    #[cfg(unix)]
+    {
+        let obsolete_direct = root.join("game.sock");
+        assert_ne!(expected, obsolete_direct);
+        assert_eq!(expected.parent(), Some(Path::new("/tmp")));
+        let name = expected.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with("cinnabar-"));
+        assert!(name.ends_with(".sock"));
+        std::fs::write(obsolete_direct, "obsolete direct marker").unwrap();
+    }
     assert!(!bridge_endpoint_exists(&root));
     preflight_bridge_endpoint(&root)
         .expect_err("a wrong-platform marker must not pass startup preflight");
 
-    std::fs::write(root.join(expected), "expected platform").unwrap();
+    std::fs::write(&expected, "expected platform").unwrap();
     assert!(bridge_endpoint_exists(&root));
 
+    let _ = std::fs::remove_file(expected);
     let _ = std::fs::remove_dir_all(root);
 }
 
