@@ -102,19 +102,9 @@ fn available_commands_rejects_malformed_shared_count() {
     ));
 }
 
-/// A count above gophertunnel's slice ceiling must still fail the read.
-///
-/// REGRESSION - see the module header of `world_collection_bounds.rs`. Under
-/// protocol 1001 this failed with `DecodeError::ArrayLengthExceeded { declared:
-/// 4097, available: 4096 }` *before* allocating, matching gophertunnel's
-/// `maxSliceLength = 4096` guard in `minecraft/protocol/io.go`
-/// (`limit.SliceLength(l, maxSliceLength)` at commit
-/// be6713da4dc051a4197f897d04835e89e9c54321). The 1.26.40 generated crate emits
-/// no collection ceilings at all, so the count is reserved with
-/// `Vec::with_capacity` first and the read only fails once the strings turn out
-/// to be absent. Restoring the ceiling in valentine_gen trips the
-/// `ArrayLengthExceeded` arm below, which is the signal to restore the stricter
-/// declared/available assertion.
+/// An impossible count fails against the minimum one-byte string prefix before
+/// the decoder attempts to reserve its collection. This is a remaining-bytes
+/// feasibility check, not a global element ceiling.
 #[test]
 fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     let error = raw_available_commands_body(&[0x81, 0x20])
@@ -123,15 +113,13 @@ fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     let JolyneError::PacketDecode { source, .. } = &error else {
         panic!("unexpected error: {error:?}");
     };
-    match source {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the \
-             `declared: 4_097, available: {MAX_COMMAND_VALUES}` assertion here"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(matches!(
+        source,
+        DecodeError::ArrayLengthExceeded {
+            declared: 4_097,
+            available: 0
+        }
+    ));
 }
 
 /// Tripwire for the missing *encode*-side slice ceiling.

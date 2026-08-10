@@ -45,10 +45,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ActorDataFlagComponentVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -372,10 +377,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SkinImageView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -871,10 +881,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AttributeDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(15),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AttributeModifierView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -1037,10 +1052,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -1334,10 +1354,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadChainedSubcommandRelationshipView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -1489,10 +1514,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadParamDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -1610,10 +1640,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -1635,10 +1670,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadOverloadDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -1761,10 +1801,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -1847,10 +1892,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketPa
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -1935,10 +1985,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -2299,10 +2354,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeCappedSurfaceDataVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2324,10 +2384,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeCappedSurfaceDataVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -2574,10 +2639,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeConditionalTransform
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -2786,10 +2856,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeScatterParamDataView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(15),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeCoordinateDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -2989,10 +3064,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeConsolidatedFeatures
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(23),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeConsolidatedFeatureDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3328,10 +3408,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeSurfaceMaterialAdjus
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(42),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeElementDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3509,10 +3594,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3534,10 +3624,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3559,10 +3654,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3584,10 +3684,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3609,10 +3714,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeConditionalTransformationDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3634,10 +3744,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeConditionalTransformationDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3659,10 +3774,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeOverworldGenRulesDat
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeWeightedTemperatureDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3862,10 +3982,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeLegacyWorldGenRulesD
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeConditionalTransformationDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -3954,10 +4079,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeReplacementDataView 
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -4053,10 +4183,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeReplacementsDataView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(17),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeReplacementDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -4319,10 +4454,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesV12630NoiseDes
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -4411,10 +4551,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeNoiseGradientSurface
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -4436,10 +4581,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeNoiseGradientSurface
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(17),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SerializedNoiseBlockSpecifierView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -4969,10 +5119,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeTagsDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -5186,10 +5341,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeStringListView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -6756,10 +6916,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(12),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <Vec3View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         buf,
@@ -6780,10 +6945,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CameraInstructionOptionsSplineInstructionSplineProgressOptionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -6805,10 +6975,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(17),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CameraInstructionOptionsSplineInstructionSplineRotationOptionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -7836,10 +8011,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraPresetsView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(22),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12190CameraPresetView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -8640,10 +8820,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputMessageView 
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -8738,10 +8923,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CommandOutputMessageView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -9049,10 +9239,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -10564,13 +10759,20 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ExperimentsView {
         let _ = &buf;
         let _ = _args;
         let toggles = {
-            let len = <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0 as usize;
-            let mut values = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_unsigned_len(
+                (<crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as u128,
+            )?;
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerExperimentsAnonExperimentToggleView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -10656,10 +10858,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for FeatureRegistryFeatureBin
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -10944,10 +11151,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -11118,10 +11330,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for InventoryTransactionView 
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(22),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <InventoryActionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -13006,10 +13223,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseContaine
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ItemStackResponseSlotInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -13154,10 +13376,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseInfoView
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(3),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <ItemStackResponseContainerInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -13496,10 +13723,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LegacySetSlotView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -14285,10 +14517,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataReservedEntry
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CraftingDataReservedEntryOutputView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -14423,10 +14660,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MissingBlobDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -15298,10 +15540,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PackedItemUseLegacyInvent
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(2),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <LegacySetSlotView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -16307,10 +16554,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PropertySyncDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <PropertySyncDataPropertySyncIntEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -16332,10 +16584,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PropertySyncDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <PropertySyncDataPropertySyncFloatEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -16626,10 +16883,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -16973,10 +17235,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SerializedAbilitiesDataVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(22),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SerializedAbilitiesDataSerializedLayerView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -17695,10 +17962,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerRecipeIngredientSerializedDataDescriptorItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -17812,10 +18084,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(3),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <CerealizerRecipeIngredientSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -17955,10 +18232,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ShapedRecipePayloadView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerRecipeIngredientSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -17980,10 +18262,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ShapedRecipePayloadView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerNetworkItemInstanceDescriptorSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18159,10 +18446,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ShapelessRecipePayloadVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerRecipeIngredientSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18184,10 +18476,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ShapelessRecipePayloadVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerNetworkItemInstanceDescriptorSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18363,10 +18660,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -18382,10 +18684,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -18401,10 +18708,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -18420,10 +18732,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -18567,10 +18884,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -18586,10 +18908,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerRecipeIngredientSerializedDataDescriptorItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18806,10 +19133,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18831,10 +19163,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18856,10 +19193,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -18881,10 +19223,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryPrioritiesEntitiesItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -19306,10 +19653,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesV1260CameraSpl
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(12),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV1260CameraSplineControlPointView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -19331,10 +19683,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesV1260CameraSpl
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV1260CameraSplineProgressKeyFrameView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -19356,10 +19713,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesV1260CameraSpl
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(17),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV1260CameraSplineRotationKeyFrameView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -20644,10 +21006,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <TimeMarkerDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -20755,10 +21122,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for WorldClockDataView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <TimeMarkerDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -20850,10 +21222,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(5),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <WorldClockDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -20944,10 +21321,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <crate::bedrock::codec::VarLong as crate::bedrock::codec::BedrockCodec>::decode(
@@ -21030,10 +21412,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SyncWorldClockStateDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -21409,10 +21796,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketPayloadMessageA
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -21771,10 +22163,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for UpdateSubChunkBlocksChang
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <UpdateSubChunkNetworkBlockInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -21796,10 +22193,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for UpdateSubChunkBlocksChang
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <UpdateSubChunkNetworkBlockInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -21932,10 +22334,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesSerializableCe
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -22035,10 +22442,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesSerializableVo
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -22060,10 +22472,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesSerializableVo
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -22085,10 +22502,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesSerializableVo
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -22225,10 +22647,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LoginPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -22444,10 +22871,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePacksInfoPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(32),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <PackInfoDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -22549,10 +22981,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackStackPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <PackInstanceIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -23601,10 +24038,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for UpdateAttributesPacketVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(26),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AttributeDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -24766,10 +25208,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for InventoryContentPacketVie
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CerealizerNetworkItemStackDescriptorSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25118,10 +25565,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(26),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ShapedRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25143,10 +25595,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(23),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ShapelessRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25168,10 +25625,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(17),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <MultiRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25193,10 +25655,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(23),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ShapelessRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25218,10 +25685,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(23),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ShapelessRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25243,10 +25715,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(26),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ShapedRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25268,10 +25745,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(18),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SmithingTransformRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25293,10 +25775,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(12),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SmithingTrimRecipePayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25318,10 +25805,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <PotionMixDataEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25343,10 +25835,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ContainerMixDataEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25368,10 +25865,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CraftingDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CraftingDataReservedEntryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25716,10 +26218,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LevelChunkPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <LevelChunkPacketPayloadSubChunkMetadataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -25741,10 +26248,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LevelChunkPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -26233,10 +26745,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientboundMapItemDataPac
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(1),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <ActorUniqueIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -26272,10 +26789,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientboundMapItemDataPac
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(6),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <MapItemTrackedActorUniqueIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -26302,10 +26824,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientboundMapItemDataPac
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(9),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <MapDecorationView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -26376,10 +26903,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientboundMapItemDataPac
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(4),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
@@ -26525,13 +27057,20 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MapInfoRequestPacketView 
                 (),
             )?;
         let client_pixels_list = {
-            let len = <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0 as usize;
-            let mut values = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_unsigned_len(
+                (<crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as u128,
+            )?;
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(6),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <MapInfoRequestPacketAnonClientPixelsProxyView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -26999,10 +27538,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -27018,10 +27562,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -27037,10 +27586,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -27056,10 +27610,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadEnumDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -27081,10 +27640,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadChainedSubcommandDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -27106,10 +27670,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(11),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadCommandDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -27131,10 +27700,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadSoftEnumDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -27156,10 +27730,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AvailableCommandsPacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <AvailableCommandsPacketPayloadConstrainedValueDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -27655,10 +28234,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackDataInfoPacke
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -27765,10 +28349,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackChunkDataPack
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -28458,10 +29047,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PurchaseReceiptPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -28529,10 +29123,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SubClientLoginPacketView 
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -29276,10 +29875,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SetScoreboardIdentityPack
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ScoreboardIdentityPacketInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -29413,10 +30017,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for UpdateSoftEnumPacketView 
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -29680,13 +30289,20 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for NetworkChunkPublisherUpda
             )?
             .0;
         let server_built_chunks_list = {
-            let len = <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?
-            .0 as usize;
-            let mut values = Vec::with_capacity(len);
+            let len = crate::bedrock::codec::checked_unsigned_len(
+                (<crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as u128,
+            )?;
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <ChunkPosView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         buf,
@@ -29823,10 +30439,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BiomeDefinitionListPacket
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(31),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BiomeDefinitionListPacketMapofBiomenamestodataItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -30417,10 +31038,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientCacheBlobStatusPack
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -30442,10 +31068,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientCacheBlobStatusPack
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -30523,10 +31154,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientCacheMissResponsePa
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <MissingBlobDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -30965,10 +31601,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CreativeContentPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CreativeGroupInfoPayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -30990,10 +31631,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CreativeContentPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(8),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CreativeItemEntryPayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -31074,10 +31720,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponsePacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(4),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ItemStackResponseInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -31150,10 +31801,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PlayerArmorDamagePacketVi
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ArmorSlotAndDamagePairView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -31301,10 +31957,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for EmoteListPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(16),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -31495,10 +32156,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for DebugInfoPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -31738,10 +32404,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for AnimateEntityPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <ActorRuntimeIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -31911,10 +32582,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PlayerFogPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -32087,10 +32763,12 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemRegistryPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values =
+                crate::bedrock::codec::prepare_decode_vec(len, bytes::Buf::remaining(&*buf), None)?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <ItemDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                         buf,
@@ -32545,10 +33223,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SubChunkRequestPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SubChunkPacketPayloadSubChunkPosOffsetView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -32701,10 +33384,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ScriptMessagePacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -32870,10 +33558,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for DimensionDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(21),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <DimensionDataPacketDefinitionsItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -33328,10 +34021,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for DeathInfoPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -33418,10 +34116,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for EditorNetworkPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(<u8 as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
@@ -33501,10 +34204,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for FeatureRegistryPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <FeatureRegistryFeatureBinaryJsonFormatView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -33944,10 +34652,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for UnlockedRecipesPacketView
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -34070,10 +34783,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TrimDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <TrimPatternView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34095,10 +34813,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TrimDataPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <TrimMaterialView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34380,10 +35103,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SetHudPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(
                     <SetHudPacketHudElementItem as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
@@ -34770,10 +35498,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ServerboundDiagnosticsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <MemoryMemoryCategoryCounterView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34795,10 +35528,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ServerboundDiagnosticsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(11),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <EcsProfilingDiagnosticsEntityDiagnosticTimingInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34820,10 +35558,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ServerboundDiagnosticsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(18),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <EcsProfilingDiagnosticsSystemDiagnosticTimingInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34847,10 +35590,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ServerboundDiagnosticsPac
                             value: raw,
                         });
                     }
-                    raw as usize
+                    crate::bedrock::codec::checked_signed_len(raw as i128)?
                 };
-                let mut values = Vec::with_capacity(len);
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    Some(9),
+                )?;
                 for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
                     values
                         .push(
                             <EcsProfilingDiagnosticsSystemCategoryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -34875,10 +35623,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ServerboundDiagnosticsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(26),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <BedrockProfileWhiskerDiagnosticsScopeDataSummaryView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -35101,10 +35854,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ContainerRegistryCleanupP
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(2),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <FullContainerNameView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -35263,10 +36021,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraAimAssistPresetsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV12150CameraAimAssistCategoryDefinitionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -35288,10 +36051,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraAimAssistPresetsPac
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV121120CameraAimAssistPresetDefinitionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -35651,10 +36419,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for GraphicsOverrideParameter
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(16),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <GraphicsOverrideParameterPacketParameterKeyframeValuesItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -35997,10 +36770,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ClientboundTextureShiftPa
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(1),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values.push(crate::bedrock::borrowed::take_varint_prefixed_string(buf)?);
             }
             values
@@ -36170,10 +36948,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(7),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <VoxelShapesSerializableVoxelShapeView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -36195,10 +36978,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for VoxelShapesPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(3),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <VoxelShapesPacketNameMapItemView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -36288,10 +37076,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraSplinePacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(9),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <SharedTypesV1260CameraSplineDefinitionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -36366,10 +37159,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraAimAssistActorPrior
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(16),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <CameraAimAssistActorPriorityPriorityDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
@@ -36478,10 +37276,15 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LocatorBarPacketView {
                 if raw < 0 {
                     return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
                 }
-                raw as usize
+                crate::bedrock::codec::checked_signed_len(raw as i128)?
             };
-            let mut values = Vec::with_capacity(len);
+            let mut values = crate::bedrock::codec::prepare_decode_vec(
+                len,
+                bytes::Buf::remaining(&*buf),
+                Some(28),
+            )?;
             for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
                         <LocatorBarWaypointPayloadView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(

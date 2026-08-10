@@ -9,7 +9,7 @@ Machine-checked provenance:
 - Dependency resolution: local vendored paths
 - Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
 - Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
-- Generated 1.26.40 source revision: `781dfcb0ab443476b62df3c983750c0c1527a95a`
+- Generated 1.26.40 source revision: `b32ab0ae8e07c391afd7430da11466f721293a72`
 - Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
 The copied surface contains the shared codec/runtime, the generated protocol
@@ -38,10 +38,12 @@ Wire behaviour and byte fixtures use the project pin
 
 ## Generated-code caveats
 
-The generated 1.26.40 decoders do not add collection-allocation guards before
-every eager vector allocation. Cinnabar's pre-decode gates bound the exposed
-login, inventory, and text surfaces; dedicated tests pin the current EOF
-behaviour where generator-level bounds remain future work.
+The generated 1.26.40 decoders validate signed and platform-sized lengths, use
+remaining-byte lower bounds where the schema proves one, and route collection
+growth and byte storage through fallible allocation. Unknown-width and
+zero-width elements grow fallibly without trusting a wire count for eager
+capacity. These checks do not impose a global collection ceiling; valid larger
+values remain accepted where the field contract permits them.
 
 `LevelChunkPacketView::serialized_chunk_data` remains owned rather than
 zero-copy. This is an acknowledged generator follow-up and does not change its
