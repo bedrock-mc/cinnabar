@@ -75,8 +75,9 @@ Local worlds run dragonfly behind the same core, over the same client path.
 ## Current integration snapshot (2026-08-10)
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
-below without deleting their historical evidence. The code audit compares the Bedrock
-1.26.40 migration at `e7901ae` with the fork-repin closure at `a5c327d`.
+below without deleting their historical evidence. The code audit covers the Bedrock
+1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
+runtime state through `32cb3f98`.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
@@ -116,24 +117,31 @@ Current implementation state:
   correction-safe history. A bounded collision-shape-aware block interaction ray query has
   also landed, but neither tranche closes the remaining movement strata, outbound block
   transactions, gameplay reach, or live server-authoritative acceptance.
-- Actor CPU/GPU rig foundations have landed, but non-player families, held items, dropped
+- Actor CPU/GPU rig foundations have landed. Spawn and incremental actor links now feed a
+  bounded, lifetime-safe riding-authority ledger; remote animation evaluation receives
+  authoritative `query.is_riding`, and local mount changes reach the existing UI authority
+  path. Rider attachment and pose completion, non-player families, held items, dropped
   items, and live actor acceptance remain open.
 - The Go core now performs one bounded upstream pack negotiation before downstream login.
   Optional offers may be downloaded under explicit limits and are then declined downstream;
-  non-empty required offers fail with a typed pre-login reason. Persistent cache integration,
-  resource-pack application, content-key handoff, and resource-pack JSON UI remain absent.
-  A separately reviewed owner-only persistent cache implementation has landed, but it is not
-  yet wired into admission. Neither foundation is a claim that a server pack is usable.
+  non-empty required offers fail with a typed pre-login reason. The owner-only persistent
+  verified cache is now wired into upstream admission behind explicit directory and quota
+  configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed
+  cache setup. A separate opt-in read-only Status v1 control endpoint and strict Rust bridge
+  reader expose secret-safe lifecycle and latest pack-admission state. Pack validation and
+  application, content-key handoff, resource-pack-driven UI, app presentation of status, and
+  live pack acceptance remain absent; no server pack is yet usable.
 - A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
   the 36 player slots and cursor have landed, including rollback, full-authority recovery,
   transport admission, and pointer routing. The same single-flight authority now supports a
   neutral type-0 generic storage surface with exact 27/54-slot bounds, close correlation, and
   server-authoritative recovery. Crafting, furnace roles, advanced gestures, and live
   container acceptance remain open. Receive-side crack presentation remains read-only.
-- Exact protocol-2168 click-block and client-close fixtures plus a strict block-use packet
-  builder have landed. The application does not send those transactions yet: gameplay reach,
-  packet-position provenance, ability authority, selected-stack correlation, and live evidence
-  must close before wiring the authoritative ray query to the builder.
+- Exact protocol-2168 click-block, client-close, actor-attack, and actor-interact fixtures plus
+  strict block-use and actor-use packet builders have landed. The application sends none of
+  those transactions yet: target selection and hit testing, gameplay reach, packet-position
+  provenance, ability authority, selected-stack correlation, and live evidence must close
+  before wiring app senders.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
   evidence remain open. Local worlds, audio, and packaging are absent.
@@ -158,14 +166,15 @@ Immediate execution order:
    carriers only as one coherent, verified set. Keep conformance and adversarial coverage green.
 2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
    then validate the device-code and cached-account UX with explicit native/live evidence.
-3. **Resource packs:** integrate the bounded persistent cache with the existing admission
-   owner, add a versioned/correlated status-control surface, then validate and apply server
-   packs including their resource-pack-driven UI contracts. Required packs must remain
-   truthfully rejected until application exists.
-4. **Interactions:** use the landed protocol-2168 block-use builder only after the frozen
-   ray/position/reach/ability/selected-stack authorities are proven. Add exact entity-use,
-   break, and placement fixtures before their app senders. Extend the landed player plus
-   bounded generic-storage ledger to later container/crafting roles without weakening
+3. **Resource packs:** the bounded persistent cache admission and versioned/correlated Status
+   v1 control surface are closed; do not redo them. Validate and apply server packs, hand off
+   content keys safely, consume status in the app where needed, and implement
+   resource-pack-driven UI contracts. Required packs must remain truthfully rejected until
+   application exists.
+4. **Interactions:** use the landed protocol-2168 block-use and actor-use builders only after
+   the frozen target, ray, position, reach, ability, and selected-stack authorities are proven.
+   Add exact break and placement fixtures before their app senders. Extend the landed player
+   plus bounded generic-storage ledger to later container and crafting roles without weakening
    single-flight reconciliation.
 5. **Actors and UI:** complete non-player/held/dropped rendering and actor live gates, then
    interactive forms and the remaining HUD/menu/UI acceptance work.
