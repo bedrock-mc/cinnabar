@@ -172,6 +172,9 @@ func TestInterruptedTempIgnoredAndRemovedOnRestart(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := secureCreatedPath(root, true); err != nil {
+		t.Fatal(err)
+	}
 	temp := filepath.Join(root, tempPrefix+"interrupted")
 	if err := os.WriteFile(temp, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)

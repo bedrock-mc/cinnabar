@@ -56,7 +56,10 @@ func TestNewAcceptsMacOSStandardTemporaryDirectoryAlias(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS standard temporary-directory alias regression")
 	}
-	raw := filepath.Join(t.TempDir(), "objects")
+	// testing.TempDir creates its numbered child with 0777 before umask. The
+	// hosted macOS umask leaves that parent at 0755, so apply the same explicit
+	// owner-only setup required of a production cache parent.
+	raw := filepath.Join(secureTempDir(t), "objects")
 	cache, err := New(raw)
 	if err != nil {
 		t.Fatalf("New() through standard macOS temporary alias: %v", err)
@@ -68,6 +71,26 @@ func TestNewAcceptsMacOSStandardTemporaryDirectoryAlias(t *testing.T) {
 	})
 	if strings.HasPrefix(raw, "/var/") && strings.HasPrefix(cache.root, "/var/") {
 		t.Fatalf("cache root retained the /var alias: %q", cache.root)
+	}
+}
+
+func TestSecureCreatedPathRepairsPermissiveUnixDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerOnlyPath(dir, info) {
+		t.Fatal("permissive directory unexpectedly passed owner-only validation")
+	}
+	if err := secureCreatedPath(dir, true); err != nil {
+		t.Fatalf("secureCreatedPath() error = %v", err)
+	}
+	if err := validateOwnerOnlyPath(dir, true); err != nil {
+		t.Fatalf("secured directory did not pass owner-only validation: %v", err)
 	}
 }
 
@@ -108,8 +131,13 @@ func TestCanonicalizeTopLevelAliasLeavesNestedLinkForValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalizeTopLevelAlias() error = %v", err)
 	}
-	if canonical != raw {
-		t.Fatalf("canonicalizeTopLevelAlias() = %q, want nested alias retained as %q", canonical, raw)
+	canonicalRoot, err := canonicalizeTopLevelAlias(root)
+	if err != nil {
+		t.Fatalf("canonicalizeTopLevelAlias(root) error = %v", err)
+	}
+	want := filepath.Join(canonicalRoot, "nested-alias", "objects")
+	if canonical != want {
+		t.Fatalf("canonicalizeTopLevelAlias() = %q, want nested alias retained as %q", canonical, want)
 	}
 	if err := validatePathComponents(filepath.Dir(canonical), true); err == nil {
 		t.Fatal("validatePathComponents() accepted the retained nested alias")
