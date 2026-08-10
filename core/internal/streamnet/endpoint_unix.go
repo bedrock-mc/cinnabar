@@ -21,10 +21,14 @@ import (
 const maxUnixEndpointPathBytes = 103
 
 func unixEndpointPath(socketDir string) string {
+	return unixEndpointPathNamed(socketDir, unixEndpointName)
+}
+
+func unixEndpointPathNamed(socketDir, endpointName string) string {
 	// filepath.Clean is the cross-language contract: normalize separators and
 	// dot components lexically, without resolving anything in the filesystem,
 	// before measuring or hashing the endpoint bytes.
-	direct := filepath.Clean(filepath.Join(socketDir, unixEndpointName))
+	direct := filepath.Clean(filepath.Join(socketDir, endpointName))
 	if len(direct) <= maxUnixEndpointPathBytes {
 		return direct
 	}

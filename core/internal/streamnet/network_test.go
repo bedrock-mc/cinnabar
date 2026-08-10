@@ -96,6 +96,68 @@ func TestResolveAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGameAndControlEndpointsCoexistAndCloseIndependently(t *testing.T) {
+	dir := t.TempDir()
+	game, err := New(dir).Listen("")
+	if err != nil {
+		t.Fatalf("listen game: %v", err)
+	}
+	defer game.Close()
+	control, err := ListenControl(dir)
+	if err != nil {
+		t.Fatalf("listen control: %v", err)
+	}
+
+	gameNetwork, gameAddress, err := Resolve(dir)
+	if err != nil {
+		t.Fatalf("resolve game: %v", err)
+	}
+	controlNetwork, controlAddress, err := ResolveControl(dir)
+	if err != nil {
+		t.Fatalf("resolve control: %v", err)
+	}
+	if gameAddress == controlAddress {
+		t.Fatalf("game and control endpoints collide at %q", gameAddress)
+	}
+	controlConn, err := net.Dial(controlNetwork, controlAddress)
+	if err != nil {
+		t.Fatalf("dial control: %v", err)
+	}
+	_ = controlConn.Close()
+	if err := control.Close(); err != nil {
+		t.Fatalf("close control: %v", err)
+	}
+	if _, _, err := ResolveControl(dir); err == nil {
+		t.Fatal("closed control endpoint still resolves")
+	}
+	gameConn, err := net.Dial(gameNetwork, gameAddress)
+	if err != nil {
+		t.Fatalf("game endpoint broken by control close: %v", err)
+	}
+	_ = gameConn.Close()
+}
+
+func TestControlEndpointLeaseAllowsOneOwnerAndThenSuccessor(t *testing.T) {
+	dir := t.TempDir()
+	first, err := ListenControl(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ListenControl(dir); err == nil {
+		t.Fatal("second control listener acquired live lease")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := ListenControl(dir)
+	if err != nil {
+		t.Fatalf("successor control listener: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolveRejectsNonLoopbackAddress(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("game.addr is Windows-only")

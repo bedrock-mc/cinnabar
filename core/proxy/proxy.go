@@ -33,6 +33,9 @@ type Config struct {
 	// ResourcePackAdmission receives one secret-safe final snapshot per upstream
 	// preparation attempt. Callbacks must return promptly.
 	ResourcePackAdmission func(ResourcePackAdmissionSnapshot)
+	// ResourcePackAdmissionUpdate receives an initial reset snapshot and the
+	// final snapshot for each attempt. It is intended for latest-status stores.
+	ResourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -67,6 +70,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared := newPreparedConnections(cfg.Upstream, cfg.TokenSource, logger)
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
+	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,

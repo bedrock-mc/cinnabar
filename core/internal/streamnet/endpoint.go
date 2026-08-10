@@ -13,26 +13,46 @@ import (
 )
 
 const (
-	unixEndpointName    = "game.sock"
-	windowsEndpointName = "game.addr"
+	unixEndpointName           = "game.sock"
+	windowsEndpointName        = "game.addr"
+	controlUnixEndpointName    = "control.sock"
+	controlWindowsEndpointName = "control.addr"
+)
+
+type endpointNames struct {
+	unix, windows, lease string
+}
+
+var (
+	gameEndpoint    = endpointNames{unix: unixEndpointName, windows: windowsEndpointName, lease: "game.lock"}
+	controlEndpoint = endpointNames{unix: controlUnixEndpointName, windows: controlWindowsEndpointName, lease: "control.lock"}
 )
 
 // Resolve discovers the local bridge endpoint in socketDir. On Unix it
 // returns the fixed Unix-domain socket; on Windows it validates the published
 // loopback TCP address.
 func Resolve(socketDir string) (network, address string, err error) {
+	return resolveEndpoint(socketDir, gameEndpoint)
+}
+
+// ResolveControl discovers the separately published control endpoint.
+func ResolveControl(socketDir string) (network, address string, err error) {
+	return resolveEndpoint(socketDir, controlEndpoint)
+}
+
+func resolveEndpoint(socketDir string, names endpointNames) (network, address string, err error) {
 	if socketDir == "" {
 		return "", "", errors.New("streamnet: socket directory is empty")
 	}
 	if runtime.GOOS != "windows" {
-		address = unixEndpointPath(socketDir)
+		address = unixEndpointPathNamed(socketDir, names.unix)
 		if err := validateUnixEndpoint(address); err != nil {
 			return "", "", err
 		}
 		return "unix", address, nil
 	}
 
-	path := filepath.Join(socketDir, windowsEndpointName)
+	path := filepath.Join(socketDir, names.windows)
 	address, err = readPublishedAddress(path)
 	if err != nil {
 		return "", "", err
@@ -41,6 +61,13 @@ func Resolve(socketDir string) (network, address string, err error) {
 }
 
 func readPublishedAddress(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("streamnet: inspect %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("streamnet: endpoint publication is not a regular file")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("streamnet: read %s: %w", path, err)
@@ -63,6 +90,9 @@ func readPublishedAddress(path string) (string, error) {
 	}
 	if host != "127.0.0.1" {
 		return "", fmt.Errorf("streamnet: published endpoint is not 127.0.0.1: %q", host)
+	}
+	if len(portText) > 1 && portText[0] == '0' {
+		return "", fmt.Errorf("streamnet: published port is not canonical")
 	}
 	port, err := strconv.ParseUint(portText, 10, 16)
 	if err != nil || port == 0 {
@@ -95,8 +125,12 @@ func ensureSocketDir(socketDir string) error {
 }
 
 func publishAddress(socketDir, address string) (string, error) {
-	path := filepath.Join(socketDir, windowsEndpointName)
-	temp, err := os.CreateTemp(socketDir, windowsEndpointName+".tmp-")
+	return publishAddressNamed(socketDir, windowsEndpointName, address)
+}
+
+func publishAddressNamed(socketDir, endpointName, address string) (string, error) {
+	path := filepath.Join(socketDir, endpointName)
+	temp, err := os.CreateTemp(socketDir, endpointName+".tmp-")
 	if err != nil {
 		return "", fmt.Errorf("streamnet: create endpoint publication: %w", err)
 	}
@@ -124,7 +158,11 @@ func publishAddress(socketDir, address string) (string, error) {
 }
 
 func preparePublishedAddress(socketDir string) error {
-	path := filepath.Join(socketDir, windowsEndpointName)
+	return preparePublishedAddressNamed(socketDir, windowsEndpointName)
+}
+
+func preparePublishedAddressNamed(socketDir, endpointName string) error {
+	path := filepath.Join(socketDir, endpointName)
 	address, err := readPublishedAddress(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

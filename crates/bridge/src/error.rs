@@ -27,6 +27,30 @@ pub enum BridgeError {
     #[error("bridge I/O error: {0}")]
     Io(#[from] io::Error),
 
+    /// A control request or response was not valid JSON.
+    #[error("invalid control JSON: {0}")]
+    ControlJson(#[from] serde_json::Error),
+
+    /// A control response violated the Status v1 or JSON-RPC contract.
+    #[error("invalid control response: {reason}")]
+    InvalidControlResponse {
+        /// Contract violation detected by the client.
+        reason: &'static str,
+    },
+
+    /// The control endpoint closed before returning a response.
+    #[error("control endpoint closed before returning a response")]
+    ControlClosed,
+
+    /// The control endpoint returned a JSON-RPC error.
+    #[error("control request failed with JSON-RPC error {code}: {message}")]
+    ControlRpc {
+        /// Standard or server-defined JSON-RPC error code.
+        code: i64,
+        /// Human-readable JSON-RPC error message.
+        message: String,
+    },
+
     /// Empty frames are not part of the bridge protocol.
     #[error("bridge frame length must be positive")]
     ZeroLengthFrame,

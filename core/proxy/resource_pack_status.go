@@ -43,23 +43,24 @@ const ResourcePackApplicationUnavailable = "unavailable"
 // ResourcePackAdmissionSnapshot deliberately contains no pack identity,
 // version, source, content key, digest, or filesystem location.
 type ResourcePackAdmissionSnapshot struct {
-	AttemptID         uint64
-	Offer             ResourcePackOffer
-	PackCount         uint32
-	TotalBytes        uint64
-	Acquisition       ResourcePackAcquisition
-	CacheLoads        uint64
-	CacheHits         uint64
-	CacheMisses       uint64
-	CacheStores       uint64
-	CacheErrors       uint64
-	DownstreamOutcome ResourcePackDownstreamOutcome
-	Application       string
+	AttemptID         uint64                        `json:"attempt_id"`
+	Offer             ResourcePackOffer             `json:"offer"`
+	PackCount         uint32                        `json:"pack_count"`
+	TotalBytes        uint64                        `json:"total_bytes"`
+	Acquisition       ResourcePackAcquisition       `json:"acquisition"`
+	CacheLoads        uint64                        `json:"cache_loads"`
+	CacheHits         uint64                        `json:"cache_hits"`
+	CacheMisses       uint64                        `json:"cache_misses"`
+	CacheStores       uint64                        `json:"cache_stores"`
+	CacheErrors       uint64                        `json:"cache_errors"`
+	DownstreamOutcome ResourcePackDownstreamOutcome `json:"downstream_outcome"`
+	Application       string                        `json:"application"`
 }
 
 type resourcePackAdmissionTelemetry struct {
 	attemptID uint64
 	callback  func(ResourcePackAdmissionSnapshot)
+	update    func(ResourcePackAdmissionSnapshot)
 	report    sync.Once
 
 	mu          sync.Mutex
@@ -74,6 +75,19 @@ type resourcePackAdmissionTelemetry struct {
 	misses      atomic.Uint64
 	stores      atomic.Uint64
 	errors      atomic.Uint64
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) setUpdateCallback(callback func(ResourcePackAdmissionSnapshot)) {
+	telemetry.update = callback
+	telemetry.publishUpdate()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) publishUpdate() {
+	if telemetry == nil || telemetry.update == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	telemetry.update(telemetry.snapshot())
 }
 
 func newResourcePackAdmissionTelemetry(id uint64, callback func(ResourcePackAdmissionSnapshot)) *resourcePackAdmissionTelemetry {
@@ -171,10 +185,14 @@ func (telemetry *resourcePackAdmissionTelemetry) snapshot() ResourcePackAdmissio
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) reportFinal() {
-	if telemetry == nil || telemetry.callback == nil {
+	if telemetry == nil || telemetry.callback == nil && telemetry.update == nil {
 		return
 	}
 	telemetry.report.Do(func() {
+		telemetry.publishUpdate()
+		if telemetry.callback == nil {
+			return
+		}
 		defer func() { _ = recover() }()
 		telemetry.callback(telemetry.snapshot())
 	})

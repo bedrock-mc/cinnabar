@@ -12,9 +12,37 @@ use tokio::net::UnixStream;
 use crate::BridgeError;
 
 #[cfg(any(unix, test))]
-const UNIX_ENDPOINT_NAME: &str = "game.sock";
+const GAME_UNIX_ENDPOINT_NAME: &str = "game.sock";
+#[cfg(unix)]
+const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
 #[cfg(windows)]
-const WINDOWS_ENDPOINT_NAME: &str = "game.addr";
+const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
+#[cfg(windows)]
+const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
+
+#[derive(Clone, Copy)]
+pub(crate) enum EndpointKind {
+    Game,
+    Control,
+}
+
+impl EndpointKind {
+    #[cfg(unix)]
+    const fn unix_name(self) -> &'static str {
+        match self {
+            Self::Game => GAME_UNIX_ENDPOINT_NAME,
+            Self::Control => CONTROL_UNIX_ENDPOINT_NAME,
+        }
+    }
+
+    #[cfg(windows)]
+    const fn windows_name(self) -> &'static str {
+        match self {
+            Self::Game => GAME_WINDOWS_ENDPOINT_NAME,
+            Self::Control => CONTROL_WINDOWS_ENDPOINT_NAME,
+        }
+    }
+}
 
 pub(crate) enum PlatformStream {
     #[cfg(unix)]
@@ -62,15 +90,15 @@ fn clean_unix_path_bytes(path: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(any(unix, test))]
-fn unix_endpoint_path_bytes(socket_dir: &[u8]) -> Vec<u8> {
+fn unix_endpoint_path_bytes(socket_dir: &[u8], endpoint_name: &str) -> Vec<u8> {
     use sha2::{Digest, Sha256};
 
-    let mut joined = Vec::with_capacity(socket_dir.len() + 1 + UNIX_ENDPOINT_NAME.len());
+    let mut joined = Vec::with_capacity(socket_dir.len() + 1 + endpoint_name.len());
     joined.extend_from_slice(socket_dir);
     if !socket_dir.is_empty() {
         joined.push(b'/');
     }
-    joined.extend_from_slice(UNIX_ENDPOINT_NAME.as_bytes());
+    joined.extend_from_slice(endpoint_name.as_bytes());
     let direct = clean_unix_path_bytes(&joined);
     if direct.len() <= MAX_UNIX_ENDPOINT_PATH_BYTES {
         return direct;
@@ -79,32 +107,38 @@ fn unix_endpoint_path_bytes(socket_dir: &[u8]) -> Vec<u8> {
     format!("/tmp/cinnabar-{}.sock", &digest[..32]).into_bytes()
 }
 
-pub(crate) fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+pub(crate) fn endpoint_path(socket_dir: &Path, kind: EndpointKind) -> std::path::PathBuf {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
-        std::ffi::OsString::from_vec(unix_endpoint_path_bytes(socket_dir.as_os_str().as_bytes()))
-            .into()
+        std::ffi::OsString::from_vec(unix_endpoint_path_bytes(
+            socket_dir.as_os_str().as_bytes(),
+            kind.unix_name(),
+        ))
+        .into()
     }
 
     #[cfg(windows)]
     {
-        socket_dir.join(WINDOWS_ENDPOINT_NAME)
+        socket_dir.join(kind.windows_name())
     }
 }
 
-pub(crate) async fn connect(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
+pub(crate) async fn connect(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
     validate_socket_dir(socket_dir)?;
 
     #[cfg(unix)]
     {
-        connect_unix(socket_dir).await
+        connect_unix(socket_dir, kind).await
     }
 
     #[cfg(windows)]
     {
-        connect_windows(socket_dir).await
+        connect_windows(socket_dir, kind).await
     }
 }
 
@@ -116,10 +150,13 @@ fn validate_socket_dir(socket_dir: &Path) -> Result<(), BridgeError> {
 }
 
 #[cfg(unix)]
-async fn connect_unix(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
+async fn connect_unix(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-    let path = endpoint_path(socket_dir);
+    let path = endpoint_path(socket_dir, kind);
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .map_err(|source| endpoint_read(&path, source))?;
@@ -137,8 +174,11 @@ async fn connect_unix(socket_dir: &Path) -> Result<PlatformStream, BridgeError> 
 }
 
 #[cfg(windows)]
-async fn connect_windows(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
-    let path = socket_dir.join(WINDOWS_ENDPOINT_NAME);
+async fn connect_windows(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
+    let path = socket_dir.join(kind.windows_name());
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .map_err(|source| endpoint_read(&path, source))?;
@@ -286,8 +326,8 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
 
         let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
-        let first = super::endpoint_path(&directory);
-        let second = super::endpoint_path(&directory);
+        let first = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let second = super::endpoint_path(&directory, super::EndpointKind::Game);
 
         assert_eq!(first, second);
         assert_eq!(
@@ -334,8 +374,28 @@ mod tests {
         ];
 
         for (socket_dir, expected) in vectors {
-            assert_eq!(super::unix_endpoint_path_bytes(&socket_dir), expected);
+            assert_eq!(
+                super::unix_endpoint_path_bytes(&socket_dir, super::GAME_UNIX_ENDPOINT_NAME),
+                expected
+            );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn control_endpoint_is_distinct_and_length_safe() {
+        let direct = Path::new("/tmp/cinnabar-control-test");
+        assert_eq!(
+            super::endpoint_path(direct, super::EndpointKind::Control),
+            direct.join("control.sock")
+        );
+
+        let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
+        let game = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let control = super::endpoint_path(&directory, super::EndpointKind::Control);
+        assert_ne!(game, control);
+        assert!(control.to_string_lossy().starts_with("/tmp/cinnabar-"));
+        assert!(control.to_string_lossy().ends_with(".sock"));
     }
 
     #[cfg(windows)]

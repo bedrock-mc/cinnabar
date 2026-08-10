@@ -14,6 +14,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -54,6 +55,7 @@ type options struct {
 	resourcePackCacheDir      string
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
+	controlStatus             bool
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -67,6 +69,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
+	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -129,7 +132,7 @@ func runWithResourcePackCacheFactory(
 		if opts.authCache == "" {
 			return errors.New("auth-events mode requires -auth-cache")
 		}
-		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" {
+		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.controlStatus {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{Path: opts.authCache, Writer: stdout})
@@ -169,6 +172,21 @@ func runWithResourcePackCacheFactory(
 		resourcePackCache = cache
 		closeResourcePackCache = cache.Close
 	}
+	var statusStore *control.Store
+	var controlServer *control.Server
+	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
+	if opts.controlStatus {
+		statusStore = control.NewStore()
+		controlServer, err = control.Start(opts.socketDir, statusStore)
+		if err != nil {
+			if closeResourcePackCache != nil {
+				_ = closeResourcePackCache()
+			}
+			return fmt.Errorf("start control endpoint: %w", err)
+		}
+		statusStore.SetLifecycle(control.LifecycleRunning)
+		resourcePackAdmissionUpdate = statusStore.Observe
+	}
 	serveErr := serve(ctx, proxy.Config{
 		SocketDir:         opts.socketDir,
 		Upstream:          opts.upstream,
@@ -191,7 +209,11 @@ func runWithResourcePackCacheFactory(
 				"application", snapshot.Application,
 			)
 		},
+		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 	})
+	if controlServer != nil {
+		serveErr = errors.Join(serveErr, controlServer.Close())
+	}
 	if closeResourcePackCache == nil {
 		return serveErr
 	}

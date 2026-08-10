@@ -159,14 +159,15 @@ type preparedSlot struct {
 // preparedConnections retains a prepared upstream by the exact downstream
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
-	tokenSource           oauth2.TokenSource
-	logger                *slog.Logger
-	connectPrepared       func(context.Context, dialerDownstream) (*preparedConnection, error)
-	resolveTarget         func(context.Context) (*resolvedUpstreamTarget, error)
-	dialTarget            func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
-	resourcePackCache     minecraft.ResourcePackCache
-	resourcePackAdmission func(ResourcePackAdmissionSnapshot)
-	attempts              atomic.Uint64
+	tokenSource                 oauth2.TokenSource
+	logger                      *slog.Logger
+	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
+	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
+	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
+	resourcePackCache           minecraft.ResourcePackCache
+	resourcePackAdmission       func(ResourcePackAdmissionSnapshot)
+	resourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
+	attempts                    atomic.Uint64
 
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
@@ -261,6 +262,7 @@ func (connections *preparedConnections) prepareConnection(
 func (connections *preparedConnections) connect(ctx context.Context, downstream dialerDownstream) (result *preparedConnection, err error) {
 	telemetry := new(cacheBoundaryTelemetry)
 	packAdmission := newResourcePackAdmissionTelemetry(connections.attempts.Add(1), connections.resourcePackAdmission)
+	packAdmission.setUpdateCallback(connections.resourcePackAdmissionUpdate)
 	var target *resolvedUpstreamTarget
 	var upstream upstreamSession
 	defer func() {
