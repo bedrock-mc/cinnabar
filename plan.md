@@ -101,7 +101,10 @@ content corpus. Their retail projection is internally deterministic and fail-clo
 does not make them current 1.26.40 content. Current 1.26.40 identity inputs contain 17,499
 states; migration must produce versioned `v2168` BREG/LREG/BIOREG carriers first, then close
 current physics and dependent visual evidence before switching any production default.
-Cross-version carrier fallback is forbidden.
+Cross-version carrier fallback is forbidden. The tracked protocol-2168 foundation manifest
+currently validates as blocked: public retail block projection, numeric biome projection, and
+authoritative light projection evidence are still absent. It emits no carrier or checksum and
+is not wired into the production asset targets.
 
 Current implementation state:
 
