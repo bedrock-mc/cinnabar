@@ -48,11 +48,12 @@ ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/a
 VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh
 REGISTRYGEN_INPUTS := tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/*.go)
 BLOCK_DATA_FETCH_INPUTS := $(BLOCK_DATA_MANIFEST) tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/cmd/datafetch/*.go)
-VALENTINE_PALETTE := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin
-VALENTINE_BLOCKS := crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+BLOCK_COVERAGE_MANIFEST := assets/block-coverage-v1001.json
+BIOME_COVERAGE_MANIFEST := assets/biome-coverage-v1001.json
 BLOCK_DATA_FETCH = $(GO) -C tools/registrygen run ./cmd/datafetch -manifest "$(abspath $(BLOCK_DATA_MANIFEST))" -out "$(abspath $(BLOCK_DATA_DIR))"
 PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
-PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -valentine-palette "$(abspath $(VALENTINE_PALETTE))" -valentine-blocks "$(abspath $(VALENTINE_BLOCKS))"
+PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -coverage "$(abspath $(BLOCK_COVERAGE_MANIFEST))"
+BIOME_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -biome-out "$(abspath $(BIOME_REGISTRY))" -biome-coverage "$(abspath $(BIOME_COVERAGE_MANIFEST))"
 WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
@@ -131,8 +132,11 @@ physics-assets: $(PHYSICS_REGISTRY)
 $(BLOCK_DATA_SENTINEL): $(BLOCK_DATA_FETCH_INPUTS)
 	$(BLOCK_DATA_FETCH)
 
-$(PHYSICS_REGISTRY): $(BLOCK_DATA_SENTINEL) $(REGISTRYGEN_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(VALENTINE_PALETTE) $(VALENTINE_BLOCKS)
+$(PHYSICS_REGISTRY): $(BLOCK_DATA_SENTINEL) $(REGISTRYGEN_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BLOCK_COVERAGE_MANIFEST)
 	$(PHYSICS_REGISTRY_COMPILE)
+
+$(BIOME_REGISTRY): $(REGISTRYGEN_INPUTS) $(BIOME_COVERAGE_MANIFEST)
+	$(BIOME_REGISTRY_COMPILE)
 
 $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)
 	$(VANILLA_ASSET_FETCH)

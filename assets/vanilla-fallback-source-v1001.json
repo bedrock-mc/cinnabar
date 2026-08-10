@@ -1,8 +1,8 @@
 {
   "schema": "cinnabar-vanilla-fallback-source-v1",
   "protocol": 1001,
-  "states": 2397,
-  "names": 487,
+  "states": 2031,
+  "names": 335,
   "zero_volume_envelopes": 5,
   "status": "provisional-vanilla-fallback",
   "inventory": {
@@ -10,11 +10,11 @@
     "schema": "CVFB1001",
     "version": 1,
     "entry_bytes": 25,
-    "sha256": "6f6f5e8b956a2c2334360b012c5d843ff1dba9a75871667bc8559d0943670bc2"
+    "sha256": "31cfbf7b51dd1f37a904f73092212f209029570abead458db10ace05a16064b2"
   },
   "registry": {
     "path": "crates/assets/data/block-registry-v1001.bin",
-    "sha256": "922d287a9a195543644542e84f0d948264bff6cd48b8430024107245fa2e1b73"
+    "sha256": "2247b37058ac42a65a601dbc246da6f215caf80b79b4aaf439cc3361911d2f1b"
   },
   "bedrock_pack": {
     "release": "v1.26.30.32-preview",

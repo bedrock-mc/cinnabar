@@ -310,11 +310,14 @@ cargo test -p render -p bedrock-client -p world --locked
 Run DX12 on the approved stable paths with local compiled assets. Require all target receipts and clean process teardown. Store screenshots only under `%TEMP%` and inspect them only when presentation capture succeeds.
 
 ```powershell
+$ProjectRoot = (git rev-parse --show-toplevel).Trim()
+$BdsDir = Join-Path $ProjectRoot '.local\bds\bedrock-server-1.26.32.2'
+$BdsRuntimeDirectory = Join-Path $ProjectRoot '.local\bds-runtime\bedrock-server-1.26.32.2'
 $env:WGPU_BACKEND='dx12'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance.ps1 `
   -DurationSeconds 60 `
-  -BdsDir 'C:\Users\Hashim\projects\rust-mcbe\.local\bds\bedrock-server-1.26.32.2' `
-  -BdsRuntimeDirectory 'C:\Users\Hashim\Documents\Codex\2026-07-09\computer-plugin-computer-use-openai-bundled\cinnabar-work\.local\bds-runtime\bedrock-server-1.26.32.2' `
+  -BdsDir $BdsDir `
+  -BdsRuntimeDirectory $BdsRuntimeDirectory `
   -MetricsOut '.local\acceptance\block-entity-static-logical-metrics.json' `
   -Assets '.local\assets\compiled\vanilla-v1001.mcbea' `
   -VisualFixturePose BlockEntityStaticLogicalGallery `

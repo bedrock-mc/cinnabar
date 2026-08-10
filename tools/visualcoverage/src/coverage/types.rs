@@ -5,9 +5,10 @@ pub const REPORT_SCHEMA: &str = "cinnabar-visual-coverage-report-v2";
 pub const STRICT_REPORT_SCHEMA: &str = "cinnabar-visual-coverage-strict-v1";
 pub const GALLERY_INVENTORY_SCHEMA: &str = "cinnabar-gallery-inventory-v2";
 pub const GALLERY_PAGE_CAPACITY: usize = 256;
+pub const PUBLIC_TARGET_COUNT: usize = 16_530;
 pub const PROTOCOL: u32 = 1001;
 pub const PROTOCOL_1001_COUNTS: Counts = Counts {
-    names: 1_356,
+    names: 1_188,
     states: 16_913,
     air: 1,
 };

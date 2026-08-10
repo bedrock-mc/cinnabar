@@ -8,7 +8,7 @@ const ALPHA_CUTOUT: u8 = 1;
 const ALPHA_BLEND: u8 = 2;
 const HEADER_BYTES: usize = 16;
 const ENTRY_BYTES: usize = 25;
-const ENTRY_COUNT: usize = 2_397;
+const ENTRY_COUNT: usize = 2_031;
 const FALLBACK_BYTES: &[u8] = include_bytes!("../../../data/vanilla-fallback-v1001.bin");
 const _: () = assert!(FALLBACK_BYTES.len() == HEADER_BYTES + ENTRY_COUNT * ENTRY_BYTES);
 
@@ -187,8 +187,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 2_397);
-        assert_eq!(names.len(), 487);
+        assert_eq!(matched.len(), 2_031);
+        assert_eq!(names.len(), 335);
         assert!(
             matched
                 .iter()

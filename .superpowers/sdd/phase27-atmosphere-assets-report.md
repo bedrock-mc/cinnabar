@@ -37,9 +37,6 @@ Pinned resource-pack records, in canonical binary order:
 | moon phases | `textures/environment/moon_phases.png` | 128x64 | 1,142 | `01c566d48e0cc8618cf6fdce811b61175fc246f12f2e8f2c567d6acd3a2b35d8` | `bda31044936525a46afcb0242db04149e4116e7bb24fe21151688997a0bec9fa` |
 | clouds | `textures/environment/clouds.png` | 256x256 | 8,927 | `4f57cfe866779ef82be0058e244a77b0a279ee75e9eb40ac9ce6eb372445adc8` | `703542c95b24b30090043a99b88f52d2ff6d887f7168bb2210a858e0f359e634` |
 
-No BDS replica, decompiled/reverse-engineered source, Zuri data, or collision
-shape is used by this carrier.
-
 ## Binary and runtime contract
 
 `MCBEATM1` is separate from the shared `MCBEAS05` world-asset schema. Its

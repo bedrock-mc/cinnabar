@@ -50,10 +50,10 @@ pitfalls, and Mojang mapping gaps are recorded in
   `main` commit (merged PR #3), not a stale local checkout.
 - PMMP BedrockData commit `bdb44a48fb6beffb6e9f6864f06d2232eb62b6a3`
   targets Bedrock 1.26.30 / protocol 1001 exactly. Its 1,356 block-property
-  records, 16,913 canonical state metadata entries, and 88 biome definitions
-  match the current generated registry/blob cardinalities. It is a strong CC0
-  palette, property, and biome authority, but contains no textures or render
-  geometry.
+  records and 16,913 canonical state metadata entries match the current generated
+  registry/blob cardinalities. Its 88 source biome definitions are projected to
+  the reviewed 87-record public-retail registry. It is a strong CC0 palette,
+  property, and biome authority, but contains no textures or render geometry.
 - PrismarineJS minecraft-data commit
   `6ec59288287e4045331eaa47ee8fb104278f6b98`, which is the exact submodule pin
   used by Axolotl, contains a Bedrock 1.26.30 `blockCollisionShapes.json`. It maps

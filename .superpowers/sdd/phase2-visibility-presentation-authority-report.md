@@ -69,7 +69,7 @@ effective FIFO as an invalid no-vsync A/B. They do not depend on Bevy INFO logs.
   metadata test passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1`:
   passed.
-- `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh`: passed.
+- `bash scripts/tests/acceptance_test.sh`: passed.
 - `cargo test -p render --locked`: passed (151 unit tests plus all render
   integration and doc-test targets).
 - `cargo test -p bedrock-client --locked`: passed (263 unit tests, one existing
@@ -96,7 +96,7 @@ unsupported `Immediate` request could therefore be accepted incorrectly.
   failed with four `E0425` errors because the capability resolver did not exist.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1`
   failed with `runtime metadata without present-mode proof was accepted`.
-- `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh` exited 1
+- `bash scripts/tests/acceptance_test.sh` exited 1
   while the harness still contained the suppressible fallback-log dependency and
   relabeled dry-run requests as effective modes.
 - `cargo test -p bedrock-client runtime_metadata_marker_records_build_presentation_and_adapter_identity --locked`
@@ -111,7 +111,7 @@ unsupported `Immediate` request could therefore be accepted incorrectly.
   1 focused test passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1`:
   passed with `acceptance.ps1 dry-run tests: PASS`.
-- `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh`: passed with
+- `bash scripts/tests/acceptance_test.sh`: passed with
   `acceptance.sh dry-run tests: PASS`.
 - `cargo test -p render --locked`: passed (152 unit tests and all integration/doc
   targets).

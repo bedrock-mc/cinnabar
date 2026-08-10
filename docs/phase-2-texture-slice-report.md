@@ -212,9 +212,7 @@ alpha-blended face materials. Palette-native meshing suppresses shared faces
 only when both neighbours carry that semantic and their six-face material
 identities match. Different colours retain both boundary faces; full opaque
 neighbours hide the glass face without losing their own face; glass remains
-cave-open; and the rule crosses all six subchunk boundaries. Education
-`hard_*` glass, stained-glass panes, copper grates, slime, all legacy flags-zero
-records, and `minecraft:invisible_bedrock` remain excluded.
+cave-open; and the rule crosses all six subchunk boundaries.
 
 The subsequent copper-grate run removes exactly eight diagnostics with zero
 additions: `minecraft:copper_grate`, `minecraft:exposed_copper_grate`,

@@ -38,17 +38,22 @@ pub fn baseline_from_snapshot(
             });
         }
     }
+    let diagnostic_sequential_ids = snapshot
+        .diagnostic_states
+        .iter()
+        .chain(&snapshot.fallback_states)
+        .chain(&snapshot.air_states)
+        .map(|state| state.sequential_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let baseline = Baseline {
         schema: BASELINE_SCHEMA.to_owned(),
         protocol: snapshot.protocol,
         registry_sha256: snapshot.registry_sha256.clone(),
         counts: snapshot.counts,
         states: snapshot.states.clone(),
-        diagnostic_sequential_ids: snapshot
-            .diagnostic_states
-            .iter()
-            .map(|state| state.sequential_id)
-            .collect(),
+        diagnostic_sequential_ids,
         invisible_allowlist,
         expected_vine_diagnostic_masks: snapshot.vine_diagnostic_masks.clone(),
     };

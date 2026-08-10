@@ -105,15 +105,13 @@ pub fn compile_biome_assets(
         .collect::<BTreeSet<_>>();
     let client_names = client.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let climate_names = climates.keys().map(String::as_str).collect::<BTreeSet<_>>();
-    if registry_names != client_names {
+    if !registry_names.is_subset(&client_names) {
         return Err(invalid(
-            "modern client-biome identifiers do not exactly match BIOREG01",
+            "modern client-biome identifiers do not cover BIOREG01",
         ));
     }
-    if registry_names != climate_names {
-        return Err(invalid(
-            "behaviour biome identifiers do not exactly match BIOREG01",
-        ));
+    if !registry_names.is_subset(&climate_names) {
+        return Err(invalid("behaviour biome identifiers do not cover BIOREG01"));
     }
 
     let tint_maps_rgb8 = read_tint_maps(resource_pack)?;

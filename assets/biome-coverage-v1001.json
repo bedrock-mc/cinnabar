@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "protocol": 1001,
+  "expected_records": 87,
+  "allowed_id_ranges": [
+    { "first": 0, "last": 49 },
+    { "first": 129, "last": 134 },
+    { "first": 140, "last": 140 },
+    { "first": 149, "last": 149 },
+    { "first": 151, "last": 151 },
+    { "first": 155, "last": 158 },
+    { "first": 160, "last": 167 },
+    { "first": 178, "last": 193 }
+  ]
+}

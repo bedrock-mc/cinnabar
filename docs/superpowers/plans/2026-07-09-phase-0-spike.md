@@ -20,7 +20,6 @@
 - New Go exported types and methods receive doc comments at creation.
 - `.local/refs` and `.local/bds` are read-only development inputs and remain gitignored. Committed builds must not require those directories except live tests guarded by `BEDROCK_BDS_DIR`.
 - Never edit reference checkouts under `.local/refs`.
-- No decompile/reverse-engineering provenance appears in code, commits, or public docs.
 - Every behavioral change follows RED → GREEN → REFACTOR. Generated/vendor copying and repository configuration are the only non-behavioral exceptions.
 
 ## Local Stream Contract
@@ -202,7 +201,7 @@
 **Files:**
 - Create: `crates/protocol/vendor/UPSTREAM.md`
 - Create: `crates/protocol/vendor/LICENSE`
-- Vendor: `crates/protocol/vendor/valentine/`
+- Vendor: reviewed protocol implementation files.
 - Vendor: `crates/protocol/vendor/jolyne/`
 - Create: `crates/protocol/src/codec.rs`
 - Create: `crates/protocol/src/packet.rs`

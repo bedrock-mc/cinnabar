@@ -229,7 +229,7 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
     ))
     .unwrap();
     for record in &mut records {
-        if !record.flags.contains(BlockFlags::AIR) {
+        if !record.flags.contains(BlockFlags::AIR) && record.name.as_ref() != "cinnabar:reserved" {
             record.model_family = ModelFamily::Cube;
         }
     }
@@ -239,6 +239,8 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
         .map(|record| {
             if record.flags.contains(BlockFlags::AIR) {
                 strict_no_draw(BlockFlags::AIR, ContributorRole::Air)
+            } else if record.name.as_ref() == "cinnabar:reserved" {
+                strict_diagnostic(BlockFlags::empty(), ContributorRole::Primary)
             } else {
                 strict_cube([1; 6])
             }
@@ -260,5 +262,5 @@ fn strict_bytes_computes_and_binds_production_input_hashes() {
 
     assert_eq!(report.registry_sha256, expected_registry_hash);
     assert_eq!(report.assets_sha256, expected_assets_hash);
-    assert_eq!(report.routes.len(), 16_913);
+    assert_eq!(report.routes.len(), 16_530);
 }

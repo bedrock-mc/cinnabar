@@ -38,8 +38,7 @@ go run ./tools/registrygen `
   -out crates/assets/data/block-registry-v1001.bin `
   -pmmp <PINNED_PMMP> `
   -prismarine <PINNED_PRISMARINE> `
-  -valentine-palette crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage assets/block-coverage-v1001.json
 
 cargo run -p asset-compiler --bin assetc --locked -- compile `
   --pack <PINNED_VANILLA_PACK> `

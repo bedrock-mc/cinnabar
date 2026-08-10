@@ -7,9 +7,6 @@ Remove the diagnostic visual from the 16 ordinary protocol-1001
 translucency, same-colour internal-face suppression, cross-colour boundaries,
 open cave connectivity, and the existing bounded chunk-render architecture.
 
-This tranche does not include Education `hard_*` glass, stained-glass panes,
-copper grates, slime, or any legacy flags-zero record.
-
 ## Considered approaches
 
 1. **Shared transparent model pipeline (selected).** Compile each exact stateless

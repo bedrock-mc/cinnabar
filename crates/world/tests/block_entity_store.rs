@@ -81,7 +81,7 @@ fn uniform_biome(id: u32) -> Vec<u8> {
 }
 
 #[test]
-fn chunk_tail_requires_zero_border_prefix_and_in_scope_unique_positions() {
+fn chunk_tail_requires_zero_reserved_prefix_and_in_scope_unique_positions() {
     let chunk = ChunkKey::new(0, -2, 3);
     let first_key = BlockEntityKey::new(0, -31, 64, 49);
     let second_key = BlockEntityKey::new(0, -18, -1, 63);
@@ -99,7 +99,7 @@ fn chunk_tail_requires_zero_border_prefix_and_in_scope_unique_positions() {
 
     assert_eq!(
         DecodedBlockEntities::decode_level_chunk_tail(chunk, &[1]),
-        Err(BlockEntityError::UnsupportedBorderBlocks { count: 1 })
+        Err(BlockEntityError::UnsupportedReservedEntries { count: 1 })
     );
 
     let mut duplicate = vec![0];

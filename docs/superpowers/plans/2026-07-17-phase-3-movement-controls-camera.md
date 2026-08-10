@@ -162,8 +162,7 @@ go -C tools/registrygen run . `
   -physics-breg ../../crates/assets/data/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 go -C tools/registrygen run . `
   -out ../../.local/phase3/block-registry-v1001-second.bin `
   -light-out ../../.local/phase3/block-light-registry-v1001-second.bin `
@@ -172,8 +171,7 @@ go -C tools/registrygen run . `
   -physics-breg ../../crates/assets/data/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 Get-FileHash .local/assets/block-physics-v1001.bin -Algorithm SHA256
 Get-FileHash .local/assets/block-physics-v1001-second.bin -Algorithm SHA256
 ```

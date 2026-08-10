@@ -57,7 +57,7 @@ enum Command {
         #[arg(long = "out")]
         out: PathBuf,
     },
-    /// Compiles the exact 67-page protocol target inventory for GPU gallery acceptance.
+    /// Compiles the exact 65-page public target inventory for GPU gallery acceptance.
     GalleryInventory {
         #[arg(long)]
         registry: PathBuf,

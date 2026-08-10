@@ -20,11 +20,11 @@ visualcoverage.
 
 - Follow `docs/superpowers/specs/2026-07-14-copper-grates-design.md`.
 - Admit exactly eight stateless primary Cube-family grate records.
-- Slime and every other glass/copper/legacy/invisible record stay excluded.
+- Admit only the exact eight-name retail allowlist above.
 - Add no pipeline, bind group, texture page, Bevy object, or flat block array.
 - Never track Mojang assets or the compiled blob.
-- Pinned pack:
-  `C:\Users\Hashim\Projects\rust-mcbe\.worktrees\phase2-textures\.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack`.
+- Pinned pack: `$ProjectRoot/.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack`,
+  where `$ProjectRoot` is the active worktree root.
 
 ---
 
@@ -76,7 +76,8 @@ diagnostic materials, incompatible flags, wrong count, and malformed topology.
 Run focused tests and observe RED:
 
 ```powershell
-$env:PINNED_VANILLA_PACK='C:\Users\Hashim\Projects\rust-mcbe\.worktrees\phase2-textures\.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack'
+$ProjectRoot = (git rev-parse --show-toplevel).Trim()
+$env:PINNED_VANILLA_PACK = Join-Path $ProjectRoot '.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack'
 cargo test -p assets copper_grate --locked -- --nocapture
 ```
 

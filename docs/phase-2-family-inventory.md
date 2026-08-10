@@ -23,10 +23,10 @@ The audit used these pinned inputs:
 - the locally acquired, ignored Mojang 1.26.30 sample resource pack described
   by `assets/vanilla-source.json`.
 
-The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`.
-It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
-Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
+The current audited `BREG1003` export is 4,647,994 bytes with SHA-256
+`2247b37058ac42a65a601dbc246da6f215caf80b79b4aaf439cc3361911d2f1b`.
+It decoded exactly to EOF and reported 1,188 names, 16,913 states, 1,153
+overlap names, 15,845 overlap states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
 `redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
 records. The 2026-07-14 regenerations additionally assign the dedicated
@@ -54,8 +54,7 @@ go test ./...
 go run . -out ../../.local/task2/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 Pop-Location
 
 Get-FileHash -Algorithm SHA256 `
@@ -251,7 +250,6 @@ Known false negatives:
 - `iron_bars` and eight copper-bar names are missed by a pane-only suffix rule;
 - all walls (32 names/5,184 states), controls (31/440), rails (4/46), torches
   (10/60), and the bed (1/16) are otherwise left unknown;
-- `colored_torch_*` does not end in `_torch`;
 - most modern flower names do not end in `_flower`; and
 - melon and pumpkin stems are absent from the original crop allowlist.
 
@@ -332,9 +330,8 @@ changed status.
 The original 412-name/2,860-state planning residual was bounded and
 attributable:
 
-- 229 names/812 states have full-cube collision. This is only a candidate set:
-  it also contains shulker boxes, pistons, chorus flower, azalea, Education
-  workstations, spawners, and other visible exceptions.
+- Full-cube collision remains only a candidate signal; visible exceptions need
+  independent family-level admission.
 - 23 names/477 states have entirely empty collision: ground overlays, powder
   snow, portals/gateway, vines/lichen/sculk vein, item frames, banners,
   redstone/tripwire, scaffolding, sea pickle, small dripleaf, frog spawn,
@@ -354,21 +351,11 @@ authority.
 ## Mojang mapping gaps
 
 The pinned pack has 1,231 real `blocks.json` entries and 1,300 terrain keys.
-Direct canonical-name lookup covers 1,181 names; 175 require aliases, special
-handling, or sourced engine-only treatment:
-
-- 146 residual names, dominated by 119 Education `element_*` names and
-  Education workstations/hard-glass blocks;
-- 17 hard-glass pane names;
-- five colored/underwater torch names;
-- five engine-only names without block entries; and
-- `grass_block` and `sea_lantern`, which are ordinary alias cases.
-
-Hard glass can reuse reviewed glass/stained-glass aliases. The standard sample
-pack has no direct terrain keys for Education elements, underwater TNT,
-colored/underwater torches, chemical heat, or material reducer. Zero-diagnostic
-coverage needs explicit reviewed aliases or sourced engine-only handling; it
-cannot be inferred from collision or `blocks.json`.
+Direct canonical-name lookup covers the retail inventory wherever the pinned
+pack supplies an exact route. `grass_block` and `sea_lantern` use reviewed
+legacy aliases. Any remaining retail zero-diagnostic coverage needs an explicit
+reviewed alias or authoritative family treatment; it cannot be inferred from
+collision or `blocks.json`.
 
 ## High-impact implementation order
 

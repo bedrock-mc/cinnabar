@@ -77,10 +77,7 @@ Tests and script contracts were added before production changes.
 
 3. Bash script contract:
 
-   Git Bash was used because `C:\Windows\System32\bash.exe` is a WSL launcher
-   and this host has no installed WSL distribution.
-
-   `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh`
+   `bash scripts/tests/acceptance_test.sh`
 
    RED: the script stopped at the intentionally missing
    `read_world_publication_snapshots` function.
@@ -113,11 +110,8 @@ Tests and script contracts were added before production changes.
 - The required Pester wrapper was also verified through its result object:
   `Invoke-Pester scripts/tests/acceptance.Tests.ps1 -PassThru` reported
   `PESTER_FAILED_COUNT=0`.
-- `C:\Program Files\Git\bin\bash.exe scripts/tests/acceptance_test.sh` passed
-  and printed `acceptance.sh dry-run tests: PASS`. Because this Windows host's
-  `python3.exe` entries are empty Microsoft Store aliases, the run used an
-  isolated Python 3.12.8 embeddable interpreter under `%TEMP%`; no repository
-  file or dependency was added.
+- `bash scripts/tests/acceptance_test.sh` passed and printed
+  `acceptance.sh dry-run tests: PASS`.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` passed for
   the full workspace.
 - `cargo fmt --all -- --check` and `git diff --check` passed.

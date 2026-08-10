@@ -25,14 +25,12 @@ chunk meshing, Bevy/wgpu transparent model phase, visualcoverage.
 - Admit only the 16 ordinary `minecraft:<colour>_stained_glass` records with
   canonical state `{}`, `ModelFamily::Cube`, and contributor role
   `Primary`.
-- Education hard glass, panes, copper grates, slime, invisible bedrock, and
-  legacy flags-zero records remain diagnostic.
 - Use the existing one-bind-group transparent model phase; add no Bevy
   `Mesh`, material object, render phase, texture page, or per-subchunk object.
 - Preserve paletted runtime data and compact model/draw records.
 - Never track Mojang assets or the compiled `.mcbea` blob.
-- Pinned pack:
-  `C:\Users\Hashim\Projects\rust-mcbe\.worktrees\phase2-textures\.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack`.
+- Pinned pack: `$ProjectRoot/.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack`,
+  where `$ProjectRoot` is the active worktree root.
 
 ---
 
@@ -82,7 +80,8 @@ slime, and invisible bedrock.
 Run:
 
 ```powershell
-$env:PINNED_VANILLA_PACK='C:\Users\Hashim\Projects\rust-mcbe\.worktrees\phase2-textures\.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack'
+$ProjectRoot = (git rev-parse --show-toplevel).Trim()
+$env:PINNED_VANILLA_PACK = Join-Path $ProjectRoot '.local\assets\bedrock-samples\v1.26.30.32-preview\full\resource_pack'
 cargo test -p assets --test compiler stained_glass_cube --locked -- --nocapture
 ```
 
