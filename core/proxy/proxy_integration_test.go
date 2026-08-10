@@ -309,20 +309,46 @@ func (c *testCore) status() string {
 }
 
 type lockedBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu      sync.Mutex
+	b       bytes.Buffer
+	changed chan struct{}
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.b.Write(p)
+	written, err := b.b.Write(p)
+	if b.changed != nil {
+		close(b.changed)
+		b.changed = nil
+	}
+	return written, err
 }
 
 func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.b.String()
+}
+
+func (b *lockedBuffer) waitFor(ctx context.Context, substring string) bool {
+	for {
+		b.mu.Lock()
+		if strings.Contains(b.b.String(), substring) {
+			b.mu.Unlock()
+			return true
+		}
+		if b.changed == nil {
+			b.changed = make(chan struct{})
+		}
+		changed := b.changed
+		b.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 type testBDS struct {

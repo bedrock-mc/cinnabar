@@ -88,6 +88,10 @@ func New(root string, options ...Option) (*Cache, error) {
 	if err != nil || strings.TrimSpace(root) == "" {
 		return nil, errors.New("packcache: invalid root")
 	}
+	abs, err = canonicalizeTopLevelAlias(abs)
+	if err != nil {
+		return nil, fmt.Errorf("packcache: canonical root: %w", err)
+	}
 	processMu.Lock()
 	defer processMu.Unlock()
 	if err := prepareRoot(abs); err != nil {

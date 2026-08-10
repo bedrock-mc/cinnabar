@@ -67,6 +67,79 @@ func TestWindowsRejectsReparseParent(t *testing.T) {
 	}
 }
 
+func TestWindowsOwnerOnlySecurityTakesCurrentUserOwnership(t *testing.T) {
+	user, err := currentUserSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err = applyOwnerOnlySecurity("unused", true, user, func(
+		path string,
+		objectType windows.SE_OBJECT_TYPE,
+		securityInfo windows.SECURITY_INFORMATION,
+		owner, group *windows.SID,
+		dacl, sacl *windows.ACL,
+	) error {
+		called = true
+		if path != "unused" || objectType != windows.SE_FILE_OBJECT {
+			t.Fatalf("security target = (%q, %v)", path, objectType)
+		}
+		wantInfo := windows.SECURITY_INFORMATION(windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
+		if securityInfo != wantInfo {
+			t.Fatalf("security information = %#x, want %#x", securityInfo, wantInfo)
+		}
+		if owner == nil || !owner.Equals(user) {
+			t.Fatal("current user SID was not installed as owner")
+		}
+		if group != nil || dacl == nil || sacl != nil {
+			t.Fatalf("security values = owner %v group %v dacl %v sacl %v", owner, group, dacl, sacl)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("security setter was not called")
+	}
+}
+
+func TestWindowsSecureCreatedPathRemovesPermissiveInheritedACL(t *testing.T) {
+	base := t.TempDir()
+	everyone, err := windows.CreateWellKnownSid(windows.WinWorldSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.SET_ACCESS,
+		Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
+			TrusteeValue: windows.TrusteeValueFromSID(everyone),
+		},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(base, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(base, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if ownerOnlyPath(child, nil) {
+		t.Fatal("permissive inherited child unexpectedly passed owner-only validation")
+	}
+	if err := secureCreatedPath(child, true); err != nil {
+		t.Fatalf("secureCreatedPath() error = %v", err)
+	}
+	if !ownerOnlyPath(child, nil) {
+		t.Fatal("secured child did not pass owner-only validation")
+	}
+}
+
 func setEveryoneDACL(t *testing.T, path string) {
 	t.Helper()
 	everyone, err := windows.CreateWellKnownSid(windows.WinWorldSid)
