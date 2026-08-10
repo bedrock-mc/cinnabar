@@ -547,6 +547,50 @@ pub(crate) fn receive_network_events(
                 network.record_readiness_event_consumed(&sequenced.event);
                 sequenced
             }
+            session::WorldIngress::LevelChunk {
+                session_generation,
+                sequence,
+                event,
+                payload,
+            } => {
+                network.record_level_chunk_consumed();
+                if session_generation != ui_runtime.session_id() {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!(
+                            "world ingress crossed a session boundary: expected {}, got {session_generation}",
+                            ui_runtime.session_id()
+                        ),
+                    );
+                    continue;
+                }
+                let Some(stream) = client_world.stream.as_mut() else {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        "received LevelChunk before StartGame bootstrap".to_owned(),
+                    );
+                    continue;
+                };
+                let observed_at = Instant::now();
+                let metadata = WorldEvent::LevelChunk(event.clone());
+                acceptance.observe_mutation(&metadata, observed_at);
+                if acceptance.observe_full_view_teleport_ingress(
+                    &metadata,
+                    sequence,
+                    observed_at,
+                    stream.current_dimension(),
+                    metrics.0.frame_count(),
+                ) {
+                    stream.schedule_source_capture(sequence);
+                }
+                if let Err(error) = stream.submit_level_chunk_bytes(sequence, event, payload) {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!("world FIFO rejected LevelChunk: {error}"),
+                    );
+                }
+                continue;
+            }
             session::WorldIngress::FastTransferBarrier {
                 session_generation,
                 sequence,

@@ -32,9 +32,13 @@ use p384::{PublicKey, SecretKey};
 use protocol::{BedrockSession, ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use valentine::bedrock::codec::BedrockCodec;
 use valentine::protocol::wire;
 
 type Aes256Ctr = ctr::Ctr32BE<Aes256>;
+
+#[path = "login_state/level_chunk_wire_failure.rs"]
+mod level_chunk_wire_failure;
 
 const RUNTIME_ID: i64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: i64 = 0x7654_3210;
@@ -78,6 +82,8 @@ enum CachePlayScript {
     ResolveValid,
     TruncatedMissResponse,
     InvalidMissResponseThenTraffic,
+    MalformedLevelChunk,
+    TrailingLevelChunk,
 }
 
 struct ScriptTransport {
@@ -427,12 +433,58 @@ impl ServerScript {
                         }
                     ]
                 ));
-                if self.cache_enabled {
+                if self.cache_enabled
+                    && matches!(
+                        self.cache_play_script,
+                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                    )
+                {
+                    let hash = protocol::client_blob_hash(b"pending-before-wire-failure");
+                    self.enqueue_encrypted(&[
+                        McpePacket::from(cached_level_chunk(6, -7, vec![hash], b"pending")),
+                        McpePacket::from(SetTimePacket { time: 45_678 }),
+                    ]);
+                }
+                if matches!(self.cache_play_script, CachePlayScript::MalformedLevelChunk) {
+                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &[0xff]);
+                } else if matches!(self.cache_play_script, CachePlayScript::TrailingLevelChunk) {
+                    let mut body = BytesMut::new();
+                    LevelChunkPacket::default()
+                        .encode(&mut body)
+                        .expect("encode trailing LevelChunk body");
+                    body.extend_from_slice(&[0xaa]);
+                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &body);
+                }
+                if self.cache_enabled
+                    && matches!(
+                        self.cache_play_script,
+                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                    )
+                {
+                    self.enqueue_encrypted(&[McpePacket::from(LevelChunkPacket {
+                        chunk_position: ChunkPos { x: 7, z: -8 },
+                        dimension_id: DimensionType { value: 0 },
+                        subchunks_count: 0,
+                        serialized_chunk_data: vec![0x4d; 4096],
+                        ..Default::default()
+                    })]);
+                } else if !matches!(
+                    self.cache_play_script,
+                    CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                ) && self.cache_enabled
+                {
                     match self.cache_play_script {
                         CachePlayScript::ResolveValid => {
                             let payload = b"cached-column";
                             let hash = protocol::client_blob_hash(payload);
                             self.enqueue_encrypted(&[
+                                McpePacket::from(LevelChunkPacket {
+                                    chunk_position: ChunkPos { x: 8, z: -10 },
+                                    dimension_id: DimensionType { value: 0 },
+                                    subchunks_count: 0,
+                                    serialized_chunk_data: vec![0x6b; 1024 * 1024],
+                                    ..Default::default()
+                                }),
                                 McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
                                 McpePacket::from(SetTimePacket { time: 34_567 }),
                             ]);
@@ -452,6 +504,8 @@ impl ServerScript {
                                 b"",
                             ))]);
                         }
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
                     }
                 } else {
                     // A malformed world packet (invalid sub-chunk count) must be
@@ -461,6 +515,13 @@ impl ServerScript {
                     self.enqueue_encrypted(&[
                         McpePacket::from(LevelChunkPacket {
                             subchunks_count: -3,
+                            ..Default::default()
+                        }),
+                        McpePacket::from(LevelChunkPacket {
+                            chunk_position: ChunkPos { x: 7, z: -9 },
+                            dimension_id: DimensionType { value: 0 },
+                            subchunks_count: 0,
+                            serialized_chunk_data: vec![0x5a; 1024 * 1024],
                             ..Default::default()
                         }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
@@ -481,6 +542,8 @@ impl ServerScript {
                         CachePlayScript::TruncatedMissResponse => {
                             panic!("truncated response script sends no cached request")
                         }
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => return,
                     };
                     assert!(matches!(
                         packets.as_slice(),
@@ -500,6 +563,8 @@ impl ServerScript {
                             b"semantic-response-poison".as_slice()
                         }
                         CachePlayScript::TruncatedMissResponse => unreachable!(),
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
                     };
                     let mut response = vec![McpePacket::from(ClientCacheMissResponsePacket {
                         missing_blobs: vec![MissingBlobData {
@@ -827,13 +892,23 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     .expect("initial chunk radius acknowledgement must decode in Play");
     assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
 
-    let post_spawn_time = tokio::time::timeout(
+    let chunk = tokio::time::timeout(
         std::time::Duration::from_secs(1),
-        session.recv_world_event(0),
+        session.recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload))),
     )
     .await
-    .expect("post-spawn SetTime was discarded")
-    .expect("post-spawn SetTime must normalize in Play");
+    .expect("uncached LevelChunk was discarded")
+    .expect("uncached LevelChunk must normalize in Play")
+    .expect("mapped ingress must select LevelChunk bytes");
+    assert_eq!((chunk.0.x, chunk.0.z), (7, -9));
+    assert!(chunk.0.payload.is_empty());
+    assert_eq!(chunk.1.len(), 1024 * 1024);
+    assert!(chunk.1.iter().all(|byte| *byte == 0x5a));
+
+    let post_spawn_time = session
+        .recv_world_event(0)
+        .await
+        .expect("post-spawn SetTime must normalize in Play");
     assert_eq!(
         post_spawn_time,
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
@@ -915,6 +990,16 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
         );
     }
 
+    let (ordinary, ordinary_payload) = session
+        .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
+        .await
+        .expect("resolver-enabled ordinary LevelChunk")
+        .expect("ordinary LevelChunk must use byte ingress");
+    assert_eq!((ordinary.x, ordinary.z), (8, -10));
+    assert!(ordinary.payload.is_empty());
+    assert_eq!(ordinary_payload.len(), 1024 * 1024);
+    assert!(ordinary_payload.iter().all(|byte| *byte == 0x6b));
+
     assert_eq!(
         session
             .recv_world_event(0)
@@ -923,15 +1008,14 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
 
-    let chunk = session
-        .recv_world_event(0)
+    let (chunk, payload) = session
+        .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
         .await
-        .expect("resolved cached chunk");
-    let WorldEvent::LevelChunk(chunk) = chunk else {
-        panic!("cached transaction must resolve after its miss response")
-    };
+        .expect("resolved cached chunk")
+        .expect("cached transaction must resolve through byte ingress");
     assert_eq!((chunk.x, chunk.z), (9, -11));
-    assert_eq!(chunk.payload, b"cached-columntail");
+    assert!(chunk.payload.is_empty());
+    assert_eq!(payload, b"cached-columntail".as_slice());
 
     let stats = session.blob_cache_stats();
     assert_eq!(stats.hashes_classified, 1);

@@ -50,7 +50,7 @@ pub(super) fn reconstruct(
     cache: &ClientBlobCache,
     transaction: &PendingTransaction,
     stats: &mut BlobCacheStats,
-) -> Result<BlobCacheReady, BlobCacheError> {
+) -> Result<ResolverReady, BlobCacheError> {
     match &transaction.packet {
         PendingPacket::LevelChunk(packet) => {
             let mut packet = (**packet).clone();
@@ -80,7 +80,7 @@ pub(super) fn reconstruct(
             packet.cache_enabled = false;
             packet.cache_metadata.clear();
             stats.reconstructed_level_chunks = stats.reconstructed_level_chunks.saturating_add(1);
-            Ok(BlobCacheReady::Packet(packet.into()))
+            Ok(ResolverReady::Packet(packet.into()))
         }
         PendingPacket::SubChunk(packet) => {
             let mut packet = (**packet).clone();
@@ -116,7 +116,7 @@ pub(super) fn reconstruct(
             }
             packet.cache_enabled = false;
             stats.reconstructed_sub_chunks = stats.reconstructed_sub_chunks.saturating_add(1);
-            Ok(BlobCacheReady::Packet(packet.into()))
+            Ok(ResolverReady::Packet(packet.into()))
         }
     }
 }

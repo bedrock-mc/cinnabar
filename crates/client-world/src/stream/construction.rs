@@ -253,6 +253,26 @@ impl WorldStream {
     }
 
     pub fn submit(&mut self, sequence: u64, event: WorldEvent) -> Result<(), WorldStreamError> {
+        self.submit_with_level_chunk_payload(sequence, event, None)
+    }
+
+    /// Additive zero-copy ingress used by the app's private LevelChunk lane.
+    pub fn submit_level_chunk_bytes(
+        &mut self,
+        sequence: u64,
+        mut event: LevelChunkEvent,
+        payload: Bytes,
+    ) -> Result<(), WorldStreamError> {
+        event.payload.clear();
+        self.submit_with_level_chunk_payload(sequence, WorldEvent::LevelChunk(event), Some(payload))
+    }
+
+    fn submit_with_level_chunk_payload(
+        &mut self,
+        sequence: u64,
+        event: WorldEvent,
+        mut level_chunk_payload: Option<Bytes>,
+    ) -> Result<(), WorldStreamError> {
         if sequence < self.ordered.next_sequence() || self.submitted.contains(&sequence) {
             return Err(SequenceError::DuplicateOrPast {
                 sequence,
@@ -316,7 +336,7 @@ impl WorldStream {
 
         match event {
             WorldEvent::LevelChunk(
-                event @ LevelChunkEvent {
+                mut event @ LevelChunkEvent {
                     mode: LevelChunkMode::Inline { count },
                     ..
                 },
@@ -332,6 +352,9 @@ impl WorldStream {
                 };
                 self.enqueue_decode_job(DecodeJob::InlineLevelChunk {
                     sequence,
+                    payload: level_chunk_payload
+                        .take()
+                        .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
                     base_sub_chunk_y: range.base_sub_chunk_y,
                     count,
@@ -339,7 +362,7 @@ impl WorldStream {
                 });
             }
             WorldEvent::LevelChunk(
-                event @ LevelChunkEvent {
+                mut event @ LevelChunkEvent {
                     mode: LevelChunkMode::LimitedRequests { .. } | LevelChunkMode::LimitlessRequests,
                     ..
                 },
@@ -353,6 +376,9 @@ impl WorldStream {
                 };
                 self.enqueue_decode_job(DecodeJob::RequestLevelChunk {
                     sequence,
+                    payload: level_chunk_payload
+                        .take()
+                        .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
                     biome_base_sub_chunk_y: range.base_sub_chunk_y,
                     biome_storage_count: range.sub_chunk_count,

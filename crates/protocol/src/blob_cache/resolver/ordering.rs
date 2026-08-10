@@ -36,8 +36,15 @@ fn pending_sub_chunk_column(packet: &SubChunkPacket, dx: i8, dz: i8) -> ColumnKe
     }
 }
 
-pub(super) fn ready_value_columns(value: &BlobCacheReady) -> Vec<ColumnKey> {
-    let BlobCacheReady::WorldEvent(event) = value else {
+pub(super) fn ready_value_columns(value: &ResolverReady) -> Vec<ColumnKey> {
+    if let ResolverReady::LevelChunkBytes(event, _) = value {
+        return vec![ColumnKey {
+            dimension: event.dimension,
+            x: event.x,
+            z: event.z,
+        }];
+    }
+    let ResolverReady::WorldEvent(event) = value else {
         return Vec::new();
     };
     match event {

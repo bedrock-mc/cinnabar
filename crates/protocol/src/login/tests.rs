@@ -1,6 +1,7 @@
 use std::cell::Cell;
 
 use super::*;
+use crate::BlobCacheReady;
 
 #[test]
 fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_overflow() {

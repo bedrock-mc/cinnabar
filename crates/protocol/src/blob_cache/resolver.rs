@@ -129,7 +129,7 @@ impl BlobCacheResolver {
         packet: Packet,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
-        self.accept_immediate(BlobCacheReady::Packet(packet), accounted_bytes)
+        self.accept_immediate(ResolverReady::Packet(packet), accounted_bytes)
     }
 
     /// Makes a normalized hash-free event ready independently of blob-cache pressure.
@@ -138,12 +138,24 @@ impl BlobCacheResolver {
         event: WorldEvent,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
-        self.accept_immediate(BlobCacheReady::WorldEvent(event), accounted_bytes)
+        self.accept_immediate(ResolverReady::WorldEvent(event), accounted_bytes)
+    }
+
+    pub(crate) fn accept_level_chunk_bytes(
+        &mut self,
+        event: crate::LevelChunkEvent,
+        payload: bytes::Bytes,
+        accounted_bytes: usize,
+    ) -> Result<(), BlobCacheError> {
+        self.accept_immediate(
+            ResolverReady::LevelChunkBytes(event, payload),
+            accounted_bytes,
+        )
     }
 
     fn accept_immediate(
         &mut self,
-        value: BlobCacheReady,
+        value: ResolverReady,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
         let retained_bytes = self
@@ -535,10 +547,12 @@ impl BlobCacheResolver {
     }
 
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
+        self.pop_ready_ingress().map(ResolverReady::into_public)
+    }
+
+    pub(crate) fn pop_ready_ingress(&mut self) -> Option<ResolverReady> {
         if let Some(recovery) = self.pop_recovery_ready() {
-            return Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(
-                recovery,
-            )));
+            return Some(ResolverReady::WorldEvent(WorldEvent::ChunkResync(recovery)));
         }
         let cached_sequence = self
             .ready

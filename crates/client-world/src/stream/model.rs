@@ -733,6 +733,7 @@ pub(super) enum DecodeJob {
     InlineLevelChunk {
         sequence: u64,
         event: LevelChunkEvent,
+        payload: Bytes,
         base_sub_chunk_y: i32,
         count: usize,
         biome_storage_count: usize,
@@ -740,6 +741,7 @@ pub(super) enum DecodeJob {
     RequestLevelChunk {
         sequence: u64,
         event: LevelChunkEvent,
+        payload: Bytes,
         biome_base_sub_chunk_y: i32,
         biome_storage_count: usize,
     },

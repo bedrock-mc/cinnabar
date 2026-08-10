@@ -28,6 +28,43 @@ use world::{
 use super::*;
 use crate::server_position;
 
+#[test]
+fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let payload = bytes::Bytes::from(vec![0x6b; 1024 * 1024]);
+    let pointer = payload.as_ptr();
+    stream
+        .submit_level_chunk_bytes(
+            1,
+            LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 0 },
+                payload: Vec::new(),
+            },
+            payload,
+        )
+        .expect("admit LevelChunk bytes");
+
+    let Some(QueuedDecodeJob {
+        job: DecodeJob::InlineLevelChunk { payload, .. },
+        ..
+    }) = stream.pending_decode.front()
+    else {
+        panic!("inline LevelChunk must enqueue one decode job")
+    };
+    assert_eq!(payload.as_ptr(), pointer);
+}
+
 mod light_scheduler;
 
 mod mesh_dependency;
@@ -392,13 +429,13 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
         let (sequence, event) = match job.job {
             super::DecodeJob::InlineLevelChunk {
                 sequence,
-                mut event,
+                event,
+                payload,
                 base_sub_chunk_y,
                 count,
                 biome_storage_count,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                let payload = std::mem::take(&mut event.payload);
                 (
                     sequence,
                     super::PreparedWorldEvent::InlineLevelChunk {
@@ -417,12 +454,12 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
             }
             super::DecodeJob::RequestLevelChunk {
                 sequence,
-                mut event,
+                event,
+                payload,
                 biome_base_sub_chunk_y,
                 biome_storage_count,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                let payload = std::mem::take(&mut event.payload);
                 (
                     sequence,
                     super::PreparedWorldEvent::RequestLevelChunk {

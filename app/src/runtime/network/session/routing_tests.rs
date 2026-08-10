@@ -1,4 +1,42 @@
 use super::*;
+use crate::runtime::network::session::{InboundWorldEvent, wrap_inbound_world_event};
+
+#[test]
+fn level_chunk_private_ingress_preserves_payload_allocation_and_fifo_sequence() {
+    let payload = bytes::Bytes::from(vec![0x5a; 1024 * 1024]);
+    let pointer = payload.as_ptr();
+    let counter = ReadinessIngressCounter::default();
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
+
+    let ingress = wrap_inbound_world_event(
+        &mut sequencer,
+        &counter,
+        InboundWorldEvent::LevelChunk {
+            event: protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 3,
+                z: 4,
+                mode: protocol::LevelChunkMode::Inline { count: 0 },
+                payload: Vec::new(),
+            },
+            payload,
+        },
+    );
+
+    let WorldIngress::LevelChunk {
+        session_generation,
+        sequence,
+        payload,
+        ..
+    } = ingress
+    else {
+        panic!("LevelChunk must use the private byte ingress lane")
+    };
+    assert_eq!(session_generation, 7);
+    assert_eq!(sequence, 1);
+    assert_eq!(payload.as_ptr(), pointer);
+    assert_eq!(counter.pending(), 1);
+}
 
 #[test]
 fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {

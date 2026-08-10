@@ -1,5 +1,36 @@
 use super::*;
 
+#[test]
+fn private_level_chunk_ready_lane_aliases_bytes_while_public_pop_returns_independent_vec() {
+    let event = crate::LevelChunkEvent {
+        dimension: 0,
+        x: 1,
+        z: 2,
+        mode: crate::LevelChunkMode::Inline { count: 0 },
+        payload: Vec::new(),
+    };
+    let payload = bytes::Bytes::from(vec![0x7c; 1024 * 1024]);
+    let pointer = payload.as_ptr();
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_level_chunk_bytes(event.clone(), payload, 1024 * 1024)
+        .expect("admit private LevelChunk bytes");
+    let Some(ResolverReady::LevelChunkBytes(_, payload)) = resolver.pop_ready_ingress() else {
+        panic!("private pop must retain the byte-bearing variant")
+    };
+    assert_eq!(payload.as_ptr(), pointer);
+
+    resolver
+        .accept_level_chunk_bytes(event, payload, 1024 * 1024)
+        .expect("readmit private LevelChunk bytes");
+    let Some(BlobCacheReady::WorldEvent(WorldEvent::LevelChunk(legacy))) = resolver.pop_ready()
+    else {
+        panic!("public pop must preserve the legacy WorldEvent surface")
+    };
+    assert_ne!(legacy.payload.as_ptr(), pointer);
+    assert_eq!(legacy.payload, vec![0x7c; 1024 * 1024]);
+}
+
 /// Builds a cache-enabled LevelChunk for one column referencing `hashes`.
 ///
 /// 1.26.40 writes the blob hashes unconditionally and states cache
@@ -77,7 +108,10 @@ fn ready_subchunk_accounting_uses_retained_entry_and_payload_capacities() {
         .into(),
     );
 
-    assert_eq!(ready_value_accounted_bytes(&value), Ok(expected));
+    assert_eq!(
+        ready_value_accounted_bytes(&ResolverReady::from(value)),
+        Ok(expected)
+    );
 }
 
 #[test]

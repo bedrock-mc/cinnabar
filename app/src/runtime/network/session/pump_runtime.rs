@@ -162,7 +162,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                     && !send_event_or_cancel(
                                         &world_event_tx,
                                         &mut shutdown_rx,
-                                        WorldIngress::Event(pending),
+                                        pending,
                                     )
                                     .await
                                 {
@@ -227,11 +227,11 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                 None => break,
             },
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Ok(permit))) => {
-                permit.send(WorldIngress::Event(
+                permit.send(
                     pending_world_event
                         .take()
                         .expect("world capacity is reserved only for a pending event"),
-                ));
+                );
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
@@ -241,7 +241,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     &control_event_tx,
                     &mut last_blob_cache_stats,
                 );
-                pending_world_event = Some(wrap_readiness_tracked_event(
+                pending_world_event = Some(wrap_inbound_world_event(
                     &mut sequencer,
                     &readiness_ingress,
                     *event,

@@ -481,6 +481,7 @@ dependencies = [
  "arboard",
  "assets",
  "bevy",
+ "bytes",
  "client-world",
  "crossbeam-channel",
  "image",
@@ -1500,6 +1501,7 @@ name = "client-world"
 version = "0.1.0"
 dependencies = [
  "assets",
+ "bytes",
  "crossbeam-channel",
  "hashbrown 0.16.1",
  "meshing",

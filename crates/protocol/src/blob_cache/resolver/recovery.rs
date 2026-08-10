@@ -81,8 +81,8 @@ pub(super) fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResync
     }
 }
 
-fn ready_value_recovery(value: &BlobCacheReady) -> Vec<ChunkResyncEvent> {
-    let BlobCacheReady::Packet(packet) = value else {
+fn ready_value_recovery(value: &ResolverReady) -> Vec<ChunkResyncEvent> {
+    let ResolverReady::Packet(packet) = value else {
         return Vec::new();
     };
     match &packet.data {
