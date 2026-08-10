@@ -484,7 +484,7 @@ if ($identity.build_commit -isnot [string] -or
 if ($identity.target -isnot [string] -or [string]$identity.target -cne $ExpectedTarget) {
     throw 'identity target does not match the exact requested server target'
 }
-Assert-Integer $identity.protocol 'identity.protocol' 1001 1001
+Assert-Integer $identity.protocol 'identity.protocol' 2168 2168
 Assert-Integer $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
 foreach ($hash in @(
     @('preg_sha256', $ExpectedPregSha256),

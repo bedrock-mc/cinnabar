@@ -1,3 +1,53 @@
+function Get-PinnedGophertunnelCommit {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit
+    )
+
+    $output = @(& go -C $ProjectRoot list -m -json github.com/sandertv/gophertunnel 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "go list -m failed while resolving gophertunnel: $($output -join [Environment]::NewLine)"
+    }
+    $encoded = $output -join [Environment]::NewLine
+    if ([Text.Encoding]::UTF8.GetByteCount($encoded) -gt 65536) {
+        throw 'go list -m gophertunnel output exceeds the 64 KiB provenance bound'
+    }
+    try { $module = $encoded | ConvertFrom-Json }
+    catch { throw 'go list -m returned malformed gophertunnel JSON' }
+    if ([string]$module.Path -cne 'github.com/sandertv/gophertunnel' -or
+        $null -eq $module.Replace -or
+        [string]$module.Replace.Path -cne 'github.com/hashimthearab/gophertunnel' -or
+        [string]$module.Replace.Version -cne $ExpectedVersion) {
+        throw 'go list -m resolved a different gophertunnel module or replacement version'
+    }
+    if ($ExpectedCommit -cnotmatch '^[0-9a-f]{40}$' -or
+        $ExpectedVersion -cnotmatch '-(?<revision>[0-9a-f]{12})$' -or
+        [string]$Matches.revision -cne $ExpectedCommit.Substring(0, 12)) {
+        throw 'gophertunnel replacement version does not identify the expected exact commit'
+    }
+    $replacementQuery = '{0}@{1}' -f [string]$module.Replace.Path, [string]$module.Replace.Version
+    $downloadOutput = @(& go -C $ProjectRoot mod download -json $replacementQuery 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "go mod download failed while verifying gophertunnel origin: $($downloadOutput -join [Environment]::NewLine)"
+    }
+    $downloadEncoded = $downloadOutput -join [Environment]::NewLine
+    if ([Text.Encoding]::UTF8.GetByteCount($downloadEncoded) -gt 65536) {
+        throw 'go mod download gophertunnel output exceeds the 64 KiB provenance bound'
+    }
+    try { $download = $downloadEncoded | ConvertFrom-Json }
+    catch { throw 'go mod download returned malformed gophertunnel JSON' }
+    if ([string]$download.Path -cne [string]$module.Replace.Path -or
+        [string]$download.Version -cne [string]$module.Replace.Version -or
+        $null -eq $download.Origin -or
+        [string]$download.Origin.VCS -cne 'git' -or
+        [string]$download.Origin.URL -cne 'https://github.com/hashimthearab/gophertunnel' -or
+        [string]$download.Origin.Hash -cne $ExpectedCommit) {
+        throw 'resolved gophertunnel module origin does not match the expected exact commit'
+    }
+    return $ExpectedCommit
+}
+
 function ConvertFrom-TransparentSortCommittedMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
@@ -213,7 +263,7 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_40', 'bedrock_1_26_30')
+        valentine = @('bedrock_1_26_40')
         jolyne = @('client', 'bedrock_1_26_40')
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {

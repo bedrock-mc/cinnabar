@@ -1,9 +1,7 @@
 $script:AcceptanceExecutionPhase = {
     try {
         New-Item -ItemType Directory -Path $RunDirectory -Force | Out-Null
-        if ($isLeafEvidence) {
-            $sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld
-        }
+        $sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld
         $repoCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
         if ($LASTEXITCODE -ne 0) {
             throw 'failed to resolve repository commit'
@@ -180,7 +178,7 @@ $script:AcceptanceExecutionPhase = {
         New-Item -ItemType Directory -Path (Split-Path -Parent $MetricsOut) -Force | Out-Null
         $lockPath = $RuntimeDirectory + '.lock'
         $lease = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
-        $BdsExecutable = Set-StableRuntime -SourceDirectory $BdsDir -RuntimeDirectory $RuntimeDirectory -ExecutableName $BdsExecutableName
+        $BdsExecutable = Set-StableRuntime -SourceDirectory $BdsDir -RuntimeDirectory $RuntimeDirectory -ExecutableName $BdsExecutableName; $null = Assert-BdsExecutableSha256 -Path $BdsExecutable -ExpectedSha256 $ExpectedBdsSha256
         if ($VisualFixturePose -ne 'None' -or $LeafForestBaseline -or $LeafForestFullView) {
             $runtimeWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $RuntimeDirectory -AllowMissingWorld
             if ($null -eq $runtimeWorldIdentity) {
@@ -214,6 +212,7 @@ $script:AcceptanceExecutionPhase = {
                             -Port $bootstrapPort `
                             -TimeoutMilliseconds 500
                     }.GetNewClosure()
+                    $null = Wait-BdsRelease -Handle $bdsHandle -ExpectedRelease $ExpectedBdsRelease
                     $null = Wait-ProcessOutputMarker `
                         -Handle $bdsHandle `
                         -Marker 'Server started.' `
@@ -287,6 +286,7 @@ $script:AcceptanceExecutionPhase = {
                 -Port $bdsPort `
                 -TimeoutMilliseconds 500
         }.GetNewClosure()
+        $null = Wait-BdsRelease -Handle $bdsHandle -ExpectedRelease $ExpectedBdsRelease
         $null = Wait-ProcessOutputMarker `
             -Handle $bdsHandle `
             -Marker 'Server started.' `

@@ -4,6 +4,19 @@ $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55
 
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
 
+$resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
+    -ProjectRoot $ProjectRoot `
+    -ExpectedVersion 'v1.25.3-0.20260807205305-56a0f77dbbb2' `
+    -ExpectedCommit '56a0f77dbbb2fb006b081ec38bb4bedf9cb95088'
+Assert-Equal '56a0f77dbbb2fb006b081ec38bb4bedf9cb95088' $resolvedGophertunnelCommit `
+    'gophertunnel commit was not derived from the resolved Go module replacement'
+Assert-ThrowsLike {
+    Get-PinnedGophertunnelCommit `
+        -ProjectRoot $ProjectRoot `
+        -ExpectedVersion 'v1.25.3-0.20260807205305-000000000000' `
+        -ExpectedCommit ('0' * 40)
+} '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted a stale expected replacement'
+
 $PinnedValentineForkCommit = $expectedForkRevision
 $PinnedValentineUpstreamCommit = $expectedUpstreamRevision
 $PinnedValentineLicenseSha256 = $expectedLicenseSha256
@@ -85,15 +98,15 @@ $jolyneDecoy = (Get-Content -Raw -LiteralPath $jolyneDecoyManifest).Replace(
 Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
 $canonicalStringDecoys = @'
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
 ).Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }'
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40"] }'
 ).Replace(
     'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }',
     '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_40"] }'
@@ -107,19 +120,19 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
 '@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*valentine*exactly once*' 'protocol provenance accepted an additional target-table Valentine declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }',
     '# active Valentine declaration removed'
 ) + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
 '@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {

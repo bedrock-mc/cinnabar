@@ -25,6 +25,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
+const (
+	expectedBDSExecutableSHA256 = "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372"
+	expectedBDSRelease          = "1.26.40.8"
+	deterministicWorldSeed      = "2168"
+)
+
 func TestProxyJoin(t *testing.T) {
 	socketDir := filepath.Join(t.TempDir(), "socket")
 	harness := startLiveProxyHarness(t, socketDir)
@@ -41,8 +47,8 @@ func TestProxyJoin(t *testing.T) {
 	if err := client.DoSpawnContext(harness.ctx); err != nil {
 		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, harness.bds.output())
 	}
-	if got := client.Proto().ID(); got != 1001 {
-		t.Fatalf("protocol ID = %d, want %d", got, 1001)
+	if got := client.Proto().ID(); got != 2168 {
+		t.Fatalf("protocol ID = %d, want %d", got, 2168)
 	}
 	if got := client.GameData().EntityRuntimeID; got == 0 {
 		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
@@ -149,7 +155,7 @@ func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
 		t.Fatalf("BEDROCK_BDS_DIR %q is not a directory: %v", sourceDir, err)
 	}
 
-	runDir, err := stableRuntimeDirectory(sourceDir)
+	runDir, err := stableRuntimeDirectory()
 	if err != nil {
 		t.Fatalf("resolve stable BDS runtime: %v", err)
 	}
@@ -162,8 +168,12 @@ func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
 			t.Errorf("release stable BDS runtime lease: %v", err)
 		}
 	})
-	if _, err := prepareStableRuntime(sourceDir, runDir, bedrockExecutableName()); err != nil {
+	executable, err := prepareStableRuntime(sourceDir, runDir, bedrockExecutableName())
+	if err != nil {
 		t.Fatalf("prepare stable BDS runtime: %v", err)
+	}
+	if err := validateBDSExecutableIdentity(executable, expectedBDSExecutableSHA256); err != nil {
+		t.Fatalf("validate stable BDS executable: %v", err)
 	}
 	port := reserveUDPPort(t)
 	portV6 := reserveUDPPort(t)
@@ -177,6 +187,9 @@ func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
 			t.Errorf("stop BDS cleanly: %v\nBDS output:\n%s", err, bds.output())
 		}
 	})
+	if err := bds.waitRelease(45 * time.Second); err != nil {
+		t.Fatalf("validate BDS startup release: %v\nBDS output:\n%s", err, bds.output())
+	}
 	if err := bds.waitReady(45 * time.Second); err != nil {
 		t.Fatalf("wait for BDS: %v\nBDS output:\n%s", err, bds.output())
 	}
@@ -313,15 +326,17 @@ func (b *lockedBuffer) String() string {
 }
 
 type testBDS struct {
-	stdin     io.WriteCloser
-	process   *os.Process
-	ready     chan struct{}
-	done      chan error
-	readyOnce sync.Once
-	stopOnce  sync.Once
-	stopErr   error
-	outputMu  sync.Mutex
-	lines     []string
+	stdin       io.WriteCloser
+	process     *os.Process
+	ready       chan struct{}
+	release     chan struct{}
+	done        chan error
+	readyOnce   sync.Once
+	releaseOnce sync.Once
+	stopOnce    sync.Once
+	stopErr     error
+	outputMu    sync.Mutex
+	lines       []string
 }
 
 func startTestBDS(t *testing.T, runDir string) *testBDS {
@@ -340,9 +355,10 @@ func startTestBDS(t *testing.T, runDir string) *testBDS {
 	}
 	cmd.Stderr = cmd.Stdout
 	bds := &testBDS{
-		stdin: stdin,
-		ready: make(chan struct{}),
-		done:  make(chan error, 1),
+		stdin:   stdin,
+		ready:   make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan error, 1),
 	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start BDS: %v", err)
@@ -358,6 +374,9 @@ func startTestBDS(t *testing.T, runDir string) *testBDS {
 			bds.outputMu.Unlock()
 			if strings.Contains(line, "Server started.") {
 				bds.readyOnce.Do(func() { close(bds.ready) })
+			}
+			if isExpectedBDSReleaseLine(line) {
+				bds.releaseOnce.Do(func() { close(bds.release) })
 			}
 		}
 	}()
@@ -446,6 +465,7 @@ func TestConfigureServerProperties(t *testing.T) {
 		"online-mode=true",
 		"allow-list=true",
 		"enable-lan-visibility=true",
+		"level-seed=",
 		"motd=keep me",
 		"",
 	}, "\n")
@@ -466,6 +486,7 @@ func TestConfigureServerProperties(t *testing.T) {
 		"online-mode=false",
 		"allow-list=false",
 		"enable-lan-visibility=false",
+		"level-seed=2168",
 		"motd=keep me",
 	} {
 		if !strings.Contains(got, line+"\n") {
@@ -483,6 +504,142 @@ func TestConfigureServerPropertiesRequiresEveryProperty(t *testing.T) {
 	err := configureServerProperties(path, 20001, 20002)
 	if err == nil || !strings.Contains(err.Error(), "enable-lan-visibility") {
 		t.Fatalf("configureServerProperties() error = %v, want missing-property error", err)
+	}
+}
+
+func (b *testBDS) waitRelease(timeout time.Duration) error {
+	select {
+	case <-b.release:
+		return nil
+	case err := <-b.done:
+		b.done <- err
+		return fmt.Errorf("BDS exited before reporting release %s: %w", expectedBDSRelease, err)
+	case <-time.After(timeout):
+		return fmt.Errorf("timed out waiting for BDS release %s", expectedBDSRelease)
+	}
+}
+
+func TestStableRuntimeDirectoryRequiresExplicitAbsoluteOverride(t *testing.T) {
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", "")
+	if _, err := stableRuntimeDirectory(); err == nil {
+		t.Fatal("stableRuntimeDirectory() accepted a missing override")
+	}
+
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", filepath.Join("relative", "runtime"))
+	if _, err := stableRuntimeDirectory(); err == nil {
+		t.Fatal("stableRuntimeDirectory() accepted a relative override")
+	}
+
+	want := filepath.Join(t.TempDir(), "stable-runtime")
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", want)
+	got, err := stableRuntimeDirectory()
+	if err != nil {
+		t.Fatalf("stableRuntimeDirectory() error = %v", err)
+	}
+	wantCanonical, err := canonicalPathThroughExistingParent(want)
+	if err != nil {
+		t.Fatalf("canonicalize expected runtime: %v", err)
+	}
+	if got != wantCanonical {
+		t.Fatalf("stableRuntimeDirectory() = %q, want %q", got, wantCanonical)
+	}
+
+	nonDirectoryParent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(nonDirectoryParent, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", filepath.Join(nonDirectoryParent, "runtime"))
+	if _, err := stableRuntimeDirectory(); err == nil {
+		t.Fatal("stableRuntimeDirectory() accepted a non-directory existing parent")
+	}
+}
+
+func TestStableRuntimeDirectoryCanonicalizesAliasesBeforeLeasing(t *testing.T) {
+	root := t.TempDir()
+	realParent := filepath.Join(root, "real-parent")
+	if err := os.Mkdir(realParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(root, "alias-parent")
+	createDirectoryAlias(t, aliasParent, realParent)
+
+	realRuntime := filepath.Join(realParent, "stable-runtime")
+	if err := os.Mkdir(realRuntime, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", realRuntime)
+	direct, err := stableRuntimeDirectory()
+	if err != nil {
+		t.Fatalf("canonicalize direct runtime: %v", err)
+	}
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", filepath.Join(aliasParent, "stable-runtime"))
+	aliased, err := stableRuntimeDirectory()
+	if err != nil {
+		t.Fatalf("canonicalize aliased runtime: %v", err)
+	}
+	if direct != aliased {
+		t.Fatalf("runtime aliases differ: direct=%q aliased=%q", direct, aliased)
+	}
+
+	first, err := acquireRuntimeLease(direct+".lock", time.Second)
+	if err != nil {
+		t.Fatalf("acquire canonical runtime lease: %v", err)
+	}
+	if _, err := acquireRuntimeLease(aliased+".lock", 25*time.Millisecond); err == nil {
+		t.Fatal("alias spelling acquired a second runtime lease")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("release canonical runtime lease: %v", err)
+	}
+	second, err := acquireRuntimeLease(aliased+".lock", time.Second)
+	if err != nil {
+		t.Fatalf("acquire canonical runtime lease after release: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("release alias runtime lease: %v", err)
+	}
+
+	nonexistent := filepath.Join(aliasParent, "missing", "runtime")
+	t.Setenv("BEDROCK_BDS_RUNTIME_DIR", nonexistent)
+	canonicalMissing, err := stableRuntimeDirectory()
+	if err != nil {
+		t.Fatalf("canonicalize nonexistent descendant: %v", err)
+	}
+	wantMissing, err := canonicalPathThroughExistingParent(filepath.Join(realParent, "missing", "runtime"))
+	if err != nil {
+		t.Fatalf("canonicalize expected nonexistent runtime: %v", err)
+	}
+	if canonicalMissing != wantMissing {
+		t.Fatalf("canonical nonexistent runtime = %q, want %q", canonicalMissing, wantMissing)
+	}
+}
+
+func TestBDSReleaseLineRequiresExactPinnedRelease(t *testing.T) {
+	if !isExpectedBDSReleaseLine("[INFO] Version: 1.26.40.8") {
+		t.Fatal("exact pinned BDS release line was rejected")
+	}
+	for _, line := range []string{
+		"[INFO] Version: 1.26.40.80",
+		"[INFO] Version: 1.26.40.8-preview",
+		"[INFO] Server started.",
+	} {
+		if isExpectedBDSReleaseLine(line) {
+			t.Fatalf("non-pinned BDS release line was accepted: %q", line)
+		}
+	}
+}
+
+func TestValidateBDSExecutableIdentityRequiresExactDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bedrock_server.test")
+	if err := os.WriteFile(path, []byte("fixture executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("fixture executable"))
+	if err := validateBDSExecutableIdentity(path, fmt.Sprintf("%x", digest)); err != nil {
+		t.Fatalf("validateBDSExecutableIdentity() exact digest: %v", err)
+	}
+	if err := validateBDSExecutableIdentity(path, strings.Repeat("0", 64)); err == nil {
+		t.Fatal("validateBDSExecutableIdentity() accepted a different digest")
 	}
 }
 
@@ -687,16 +844,19 @@ func bedrockExecutableName() string {
 	return "bedrock_server"
 }
 
-func stableRuntimeDirectory(sourceDir string) (string, error) {
-	if configured := os.Getenv("RUST_MCBE_BDS_RUNTIME_DIR"); configured != "" {
-		return filepath.Abs(configured)
+func stableRuntimeDirectory() (string, error) {
+	configured := os.Getenv("BEDROCK_BDS_RUNTIME_DIR")
+	if configured == "" {
+		return "", errors.New("BEDROCK_BDS_RUNTIME_DIR is required when BEDROCK_BDS_DIR is set")
 	}
-	source, err := filepath.Abs(sourceDir)
+	if !filepath.IsAbs(configured) {
+		return "", fmt.Errorf("BEDROCK_BDS_RUNTIME_DIR must be absolute: %s", configured)
+	}
+	canonical, err := canonicalPathThroughExistingParent(configured)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("canonicalize BEDROCK_BDS_RUNTIME_DIR: %w", err)
 	}
-	localDir := filepath.Dir(filepath.Dir(source))
-	return filepath.Join(localDir, "bds-runtime", filepath.Base(source)), nil
+	return canonical, nil
 }
 
 func acquireRuntimeLease(path string, timeout time.Duration) (io.Closer, error) {
@@ -741,6 +901,13 @@ func canonicalPathThroughExistingParent(path string) (string, error) {
 	missing := make([]string, 0, 4)
 	for {
 		if _, err := os.Lstat(current); err == nil {
+			info, err := os.Stat(current)
+			if err != nil {
+				return "", err
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("existing runtime path component is not a directory: %s", current)
+			}
 			resolved, err := canonicalExistingPath(current)
 			if err != nil {
 				return "", err
@@ -954,18 +1121,47 @@ func filesEqual(first, second string) (bool, error) {
 	return bytes.Equal(firstHash.Sum(nil), secondHash.Sum(nil)), nil
 }
 
+func validateBDSExecutableIdentity(path, expectedSHA256 string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open BDS executable: %w", err)
+	}
+	digest := sha256.New()
+	_, copyErr := io.Copy(digest, file)
+	closeErr := file.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		return fmt.Errorf("hash BDS executable: %w", err)
+	}
+	actual := fmt.Sprintf("%x", digest.Sum(nil))
+	if actual != expectedSHA256 {
+		return fmt.Errorf("BDS executable SHA-256 = %s, want %s", actual, expectedSHA256)
+	}
+	return nil
+}
+
+func isExpectedBDSReleaseLine(line string) bool {
+	fields := strings.Fields(line)
+	for index := 0; index+1 < len(fields); index++ {
+		if fields[index] == "Version:" && fields[index+1] == expectedBDSRelease {
+			return true
+		}
+	}
+	return false
+}
+
 func configureServerProperties(path string, port, portV6 int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	required := []string{"server-port", "server-portv6", "online-mode", "allow-list", "enable-lan-visibility"}
+	required := []string{"server-port", "server-portv6", "online-mode", "allow-list", "enable-lan-visibility", "level-seed"}
 	want := map[string]string{
 		"server-port":           strconv.Itoa(port),
 		"server-portv6":         strconv.Itoa(portV6),
 		"online-mode":           "false",
 		"allow-list":            "false",
 		"enable-lan-visibility": "false",
+		"level-seed":            deterministicWorldSeed,
 	}
 	found := make(map[string]int, len(required))
 	lines := strings.Split(string(data), "\n")

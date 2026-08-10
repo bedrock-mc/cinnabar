@@ -27,7 +27,7 @@ Describe 'Phase 3 production marker evidence validation' {
         $script:AppSha256 = '44' * 32
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-phase3-identity-v1'; build_commit = $script:BuildCommit
-            target = 'Bds'; protocol = 1001; session_generation = 7
+            target = 'Bds'; protocol = 2168; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true
             source_dirty = $false; run_id = $script:RunId; endpoint = $script:Endpoint
@@ -327,10 +327,11 @@ Describe 'Phase 3 production marker evidence validation' {
         ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
     }
 
-    It 'uses the mandated stable Windows debug client path and non-release Cargo build' {
+    It 'keeps visual movement evidence on debug while reserving release for the binding transfer witness' {
         $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launcher.ps1')
-        $launcher | Should Match 'target\\debug\\bedrock-client'
-        $launcher | Should Not Match "'build', '--release'"
+        $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
+        $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
+        $launcher | Should Match "appBuildArguments \+= '--release'"
         $launcher | Should Match "'build', '--locked', '-p', 'bedrock-client'"
         $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'

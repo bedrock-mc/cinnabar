@@ -18,6 +18,7 @@ function Set-ServerProperties {
         'player-idle-timeout' = '0'
         'default-player-permission-level' = 'operator'
         'client-side-chunk-generation-enabled' = 'false'
+        'level-seed' = '2168'
     }
     $lines = @([IO.File]::ReadAllLines($Path))
     foreach ($key in $wanted.Keys) {
@@ -33,6 +34,43 @@ function Set-ServerProperties {
         $lines[$matchingIndices[0]] = "$key=$($wanted[$key])"
     }
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
+}
+
+function Assert-BdsReleaseMarker {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)][string]$ExpectedRelease
+    )
+
+    $pattern = '(?:^|\s)Version:\s+' + [regex]::Escape($ExpectedRelease) + '(?:\s|$)'
+    if ($Line -cnotmatch $pattern) {
+        throw "BDS startup did not report exact release $ExpectedRelease"
+    }
+    return $Line
+}
+
+function Assert-BdsExecutableSha256 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    if ($actual -cne $ExpectedSha256) {
+        throw "BDS executable SHA-256 is $actual, want $ExpectedSha256"
+    }
+    return $Path
+}
+
+function Wait-BdsRelease {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)][string]$ExpectedRelease
+    )
+
+    $evidence = Wait-ProcessOutputMarker -Handle $Handle -Marker "Version: $ExpectedRelease" `
+        -TimeoutSeconds 120 -PassThruEvidence
+    return Assert-BdsReleaseMarker -Line ([string]$evidence.Line) -ExpectedRelease $ExpectedRelease
 }
 
 function Get-BdsWorldIdentityChild {

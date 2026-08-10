@@ -119,6 +119,12 @@ $script:AcceptanceValidationPhase = {
     if (-not (Test-Path -LiteralPath $BdsSourceExecutable -PathType Leaf)) {
         throw "BDS executable does not exist: $BdsSourceExecutable"
     }
+    if (-not $DryRun) {
+        $actualBdsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
+        if ($actualBdsSha256 -cne $ExpectedBdsSha256) {
+            throw "BDS executable SHA-256 is $actualBdsSha256, want $ExpectedBdsSha256"
+        }
+    }
     
     $ProjectRoot = (Resolve-Path (Join-Path $script:AcceptanceEntryRoot '..')).Path
     $null = Assert-ProtocolDependencyProvenance `

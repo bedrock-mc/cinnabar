@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'
+expected_gophertunnel_commit='56a0f77dbbb2fb006b081ec38bb4bedf9cb95088'
+expected_gophertunnel_version='v1.25.3-0.20260807205305-56a0f77dbbb2'
+expected_bds_sha256='e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
+expected_bds_release='1.26.40.8'
 pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'
 pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
 pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
@@ -54,6 +57,76 @@ sha256_file() {
     else
         sha256sum "$1" | awk '{print $1}'
     fi
+}
+
+resolve_pinned_gophertunnel_commit() {
+    local root=$1
+    python3 - "$root" "$expected_gophertunnel_version" "$expected_gophertunnel_commit" <<'PY'
+import json, re, subprocess, sys
+
+root, expected_version, expected_commit = sys.argv[1:]
+try:
+    result = subprocess.run(
+        ["go", "-C", root, "list", "-m", "-json", "github.com/sandertv/gophertunnel"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit("go list -m timed out while resolving gophertunnel") from error
+if len(result.stdout) > 65536 or len(result.stderr) > 65536:
+    raise SystemExit("go list -m gophertunnel output exceeds the 64 KiB provenance bound")
+if result.returncode:
+    raise SystemExit("go list -m failed while resolving gophertunnel: " + result.stderr.decode("utf-8", "replace"))
+try:
+    module = json.loads(result.stdout, object_pairs_hook=lambda pairs: (
+        (_ for _ in ()).throw(ValueError("duplicate JSON field"))
+        if len({key for key, _ in pairs}) != len(pairs) else dict(pairs)
+    ))
+except (UnicodeDecodeError, ValueError) as error:
+    raise SystemExit(f"go list -m returned malformed gophertunnel JSON: {error}") from error
+replacement = module.get("Replace")
+if (
+    module.get("Path") != "github.com/sandertv/gophertunnel"
+    or not isinstance(replacement, dict)
+    or replacement.get("Path") != "github.com/hashimthearab/gophertunnel"
+    or replacement.get("Version") != expected_version
+):
+    raise SystemExit("go list -m resolved a different gophertunnel module or replacement version")
+match = re.search(r"-([0-9a-f]{12})$", expected_version)
+if not re.fullmatch(r"[0-9a-f]{40}", expected_commit) or not match or match.group(1) != expected_commit[:12]:
+    raise SystemExit("gophertunnel replacement version does not identify the expected exact commit")
+try:
+    download_result = subprocess.run(
+        ["go", "-C", root, "mod", "download", "-json", replacement["Path"] + "@" + replacement["Version"]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit("go mod download timed out while verifying gophertunnel origin") from error
+if len(download_result.stdout) > 65536 or len(download_result.stderr) > 65536:
+    raise SystemExit("go mod download gophertunnel output exceeds the 64 KiB provenance bound")
+if download_result.returncode:
+    raise SystemExit("go mod download failed while verifying gophertunnel origin: " + download_result.stderr.decode("utf-8", "replace"))
+try:
+    download = json.loads(download_result.stdout)
+except (UnicodeDecodeError, ValueError) as error:
+    raise SystemExit(f"go mod download returned malformed gophertunnel JSON: {error}") from error
+origin = download.get("Origin")
+if (
+    download.get("Path") != replacement["Path"]
+    or download.get("Version") != replacement["Version"]
+    or not isinstance(origin, dict)
+    or origin.get("VCS") != "git"
+    or origin.get("URL") != "https://github.com/hashimthearab/gophertunnel"
+    or origin.get("Hash") != expected_commit
+):
+    raise SystemExit("resolved gophertunnel module origin does not match the expected exact commit")
+print(expected_commit)
+PY
 }
 
 assert_protocol_dependency_provenance() {
@@ -131,7 +204,7 @@ if len(protocol_packages) != 1:
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
 expected_dependencies = {
-    "valentine": ["bedrock_1_26_40", "bedrock_1_26_30"],
+    "valentine": ["bedrock_1_26_40"],
     "jolyne": ["client", "bedrock_1_26_40"],
 }
 for dependency_name, expected_features in expected_dependencies.items():
@@ -348,6 +421,7 @@ configure_server_properties() {
             want["online-mode"] = "false"
             want["allow-list"] = "false"
             want["enable-lan-visibility"] = "false"
+            want["level-seed"] = "2168"
         }
         {
             line = $0
@@ -560,6 +634,7 @@ if [[ -n $upstream ]]; then
 fi
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+pinned_gophertunnel_commit=$(resolve_pinned_gophertunnel_commit "$project_root") || die 'gophertunnel module provenance validation failed'
 assert_protocol_dependency_provenance "$project_root" || die 'protocol dependency provenance validation failed'
 metrics_out=$(absolute_path "$metrics_out")
 exe_suffix=''
@@ -612,6 +687,11 @@ if [[ $dry_run == true ]]; then
     fi
     printf 'EFFECTIVE_PRESENT_MODE=UNPROVEN\n'
     exit 0
+fi
+
+if [[ -n $bds_dir ]]; then
+    source_bds_hash=$(sha256_file "$bds_dir/$bds_executable_name")
+    [[ $source_bds_hash == "$expected_bds_sha256" ]] || die "BDS executable SHA-256 is $source_bds_hash, want $expected_bds_sha256"
 fi
 
 if [[ -n $upstream ]]; then
@@ -856,6 +936,8 @@ if [[ -n $bds_dir ]]; then
     lease_error="$run_dir/bds-runtime-lease.stderr.log"
     start_runtime_lease_helper "$runtime_dir.lock" "$lease_control" "$lease_output" "$lease_error"
     bds_executable=$(prepare_stable_runtime "$bds_dir" "$runtime_dir" "$bds_executable_name")
+    runtime_bds_hash=$(sha256_file "$bds_executable")
+    [[ $runtime_bds_hash == "$expected_bds_sha256" ]] || die "stable BDS executable SHA-256 is $runtime_bds_hash, want $expected_bds_sha256"
 
     port_control="$run_dir/port-reservation.control"
     port_output="$run_dir/port-reservation.out"
@@ -889,6 +971,15 @@ if [[ -n $bds_dir ]]; then
     bds_pid=$!
     exec 9>"$bds_stdin"
     bds_fd_open=true
+    wait_for_marker "$run_dir/bds.stdout.log" "Version: $expected_bds_release" 120 "$bds_pid"
+    python3 - "$run_dir/bds.stdout.log" "$expected_bds_release" <<'PY' || die 'BDS startup did not report the exact pinned release'
+import re, sys
+path, release = sys.argv[1:]
+pattern = re.compile(r"(?:^|\s)Version:\s+" + re.escape(release) + r"(?:\s|$)")
+with open(path, encoding="utf-8", errors="strict") as source:
+    if not any(pattern.search(line) for line in source):
+        raise SystemExit(1)
+PY
     wait_for_marker "$run_dir/bds.stdout.log" 'Server started.' 120 "$bds_pid"
 else
     wait_for_external_bds "$upstream" "$run_dir/bds.stdout.log" "$run_dir/bds.stderr.log" || die "external BDS did not become ready (log: $run_dir/bds.stderr.log)"

@@ -26,7 +26,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$PinnedGophertunnelCommit = 'bbe6cfdeed39713c2b20103a1294e609d5841615'
+$ExpectedGophertunnelCommit = '56a0f77dbbb2fb006b081ec38bb4bedf9cb95088'
+$ExpectedGophertunnelVersion = 'v1.25.3-0.20260807205305-56a0f77dbbb2'
+$ExpectedBdsSha256 = 'e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
+$ExpectedBdsRelease = '1.26.40.8'
 $PinnedValentineForkCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
 $PinnedValentineUpstreamCommit = '6f6806e821a579c183c44d786f76d9b358a2b825'
 $PinnedValentineLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
@@ -44,6 +47,11 @@ $LeafForestLoadAreaSettleMilliseconds = 8000
 foreach ($libraryPath in Get-AcceptanceLibraryPaths -EntryPath $PSCommandPath) {
     . $libraryPath
 }
+$ProjectRootForDependencyResolution = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$PinnedGophertunnelCommit = Get-PinnedGophertunnelCommit `
+    -ProjectRoot $ProjectRootForDependencyResolution `
+    -ExpectedVersion $ExpectedGophertunnelVersion `
+    -ExpectedCommit $ExpectedGophertunnelCommit
 
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return
