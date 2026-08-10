@@ -6,6 +6,10 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod raycast;
+
+pub use raycast::BlockHit;
+
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;
 /// Maximum width, height, or depth of a collision query in blocks.
 pub const MAX_COLLISION_QUERY_EXTENT: f64 = 128.0;
@@ -257,6 +261,7 @@ pub struct CollisionRegistry {
     identity: CollisionRegistryIdentity,
     blocks: BTreeMap<u32, BlockPhysics>,
     air_runtime_id: u32,
+    collision_halo: [(i32, i32); 3],
 }
 
 #[derive(Debug)]
@@ -313,6 +318,7 @@ impl CollisionRegistry {
             identity,
             blocks: BTreeMap::new(),
             air_runtime_id: 0,
+            collision_halo: [(0, 0); 3],
         }
     }
 
@@ -391,6 +397,16 @@ impl CollisionRegistry {
             flags,
             surface_response,
         )?;
+        for shape in &shapes {
+            for (axis, range) in self.collision_halo.iter_mut().enumerate() {
+                if shape.max[axis] > 1.0 {
+                    range.0 = -1;
+                }
+                if shape.min[axis] < 0.0 {
+                    range.1 = 1;
+                }
+            }
+        }
         self.blocks.insert(
             runtime_id,
             BlockPhysics {
@@ -523,6 +539,16 @@ pub enum WorldQueryError {
     UnloadedChunk(ChunkKey),
     #[error("runtime ID {runtime_id} at {block:?} has no authoritative physics metadata")]
     UnknownRuntimeId { runtime_id: u32, block: [i32; 3] },
+    #[error("block interaction ray origin is non-finite or outside the supported block range")]
+    InvalidRayOrigin,
+    #[error("block interaction ray direction must be finite and non-zero")]
+    InvalidRayDirection,
+    #[error("block interaction ray distance must be finite, positive, and query-bounded")]
+    InvalidRayDistance,
+    #[error("collision identity is stale or does not cover chunk {chunk:?}")]
+    StaleCollisionIdentity { chunk: ChunkKey },
+    #[error("block interaction ray exceeded its checked inspected-block bound")]
+    RayInspectionLimitExceeded,
 }
 
 pub trait CollisionWorld {
