@@ -6,7 +6,11 @@
 //! no-argument path is light, keyboard/controller friendly, and uses exactly
 //! the same font, safe-area, and pointer coordinates as the gameplay HUD.
 
+mod account;
+pub(crate) mod auth;
 mod input;
+
+use auth::{AuthState, AuthSupervisor};
 
 pub(crate) use input::{drive_menu_connection, drive_menu_input, recover_menu_session_failure};
 
@@ -70,6 +74,8 @@ pub(crate) enum MenuAction {
     DismissDialog,
     SelectServerTab(MenuServerTab),
     RefreshCatalog,
+    StartSignIn,
+    CancelSignIn,
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),
@@ -157,6 +163,7 @@ pub(crate) struct MenuView {
     pub(crate) profile_icon: Option<IconRef>,
     pub(crate) catalog_loading: bool,
     pub(crate) catalog_message: Option<String>,
+    pub(crate) auth_state: AuthState,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -230,6 +237,7 @@ pub(crate) struct MenuRuntime {
     catalog_started: bool,
     catalog_path: PathBuf,
     catalog_process: Option<Child>,
+    auth_process: Option<AuthSupervisor>,
 }
 
 impl MenuRuntime {
@@ -273,6 +281,7 @@ impl MenuRuntime {
                 std::process::id()
             )),
             catalog_process: None,
+            auth_process: None,
         }
     }
 
@@ -293,6 +302,15 @@ impl MenuRuntime {
     }
 
     pub(crate) fn view(&self) -> MenuView {
+        let auth_state = self
+            .auth_process
+            .as_ref()
+            .map_or(AuthState::SignedOut, |process| process.state().clone());
+        let catalog_loading = matches!(
+            &auth_state,
+            AuthState::Checking | AuthState::AwaitingCode { .. }
+        ) || (auth_state == AuthState::Authenticated
+            && (!self.catalog_started || self.catalog_process.is_some()));
         MenuView {
             visible: self.visible,
             screen: self.screen,
@@ -318,8 +336,9 @@ impl MenuRuntime {
             friend_icon: None,
             saved_icon: None,
             profile_icon: None,
-            catalog_loading: !self.catalog_started || self.catalog_process.is_some(),
+            catalog_loading,
             catalog_message: self.catalog_message.clone(),
+            auth_state,
         }
     }
 
@@ -404,6 +423,8 @@ impl MenuRuntime {
                 self.catalog_started = false;
                 self.catalog_message = None;
             }
+            MenuAction::StartSignIn => self.start_sign_in(),
+            MenuAction::CancelSignIn => self.stop_sign_in(),
             MenuAction::PlayAddServer => {
                 self.name.clear();
                 self.address.clear();
@@ -632,7 +653,20 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Profile => nav(),
+            MenuScreen::Profile => {
+                let mut actions = nav();
+                actions.push(
+                    if matches!(
+                        self.auth_process.as_ref().map(AuthSupervisor::state),
+                        Some(AuthState::Checking | AuthState::AwaitingCode { .. })
+                    ) {
+                        MenuAction::CancelSignIn
+                    } else {
+                        MenuAction::StartSignIn
+                    },
+                );
+                actions
+            }
             MenuScreen::Settings => {
                 let mut actions = nav();
                 actions.extend([
@@ -727,85 +761,11 @@ impl MenuRuntime {
         self.pending_connect = Some(address);
         self.mark_connecting();
     }
-
-    fn start_catalog(&mut self) {
-        if self.catalog_started || !self.visible || self.connecting {
-            return;
-        }
-        self.catalog_started = true;
-        let _ = fs::remove_file(&self.catalog_path);
-        let Some(auth_cache) = auth_cache_path() else {
-            self.catalog_message =
-                Some("Sign in to load Realms, Friends, and featured servers.".to_owned());
-            return;
-        };
-        let Some(executable) = core_executable() else {
-            self.catalog_message = Some(
-                "bedrock-core executable was not found; server catalog unavailable.".to_owned(),
-            );
-            return;
-        };
-        let mut command = Command::new(executable);
-        command
-            .arg("-catalog-file")
-            .arg(&self.catalog_path)
-            .arg("-auth-cache")
-            .arg(auth_cache)
-            // Keep the core's lifecycle context alive until the one-shot
-            // catalog request finishes; bedrock-core treats stdin EOF as a
-            // shutdown signal for long-running proxy sessions.
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        match command.spawn() {
-            Ok(child) => self.catalog_process = Some(child),
-            Err(error) => {
-                self.catalog_message = Some(format!("Could not start account catalog: {error}"));
-            }
-        }
-    }
-
-    fn poll_catalog(&mut self) {
-        self.start_catalog();
-        let Some(child) = self.catalog_process.as_mut() else {
-            return;
-        };
-        if let Ok(bytes) = fs::read(&self.catalog_path) {
-            match serde_json::from_slice::<CatalogFile>(&bytes) {
-                Ok(catalog) => {
-                    self.featured = catalog.featured;
-                    self.gatherings = catalog.gatherings;
-                    self.realms = catalog.realms;
-                    self.friends = catalog.friends.into_iter().map(Into::into).collect();
-                    self.catalog_message = catalog.errors.first().cloned();
-                    let _ = child.wait();
-                    self.catalog_process = None;
-                    let _ = fs::remove_file(&self.catalog_path);
-                }
-                Err(error) => {
-                    self.catalog_message = Some(format!("Could not read account catalog: {error}"))
-                }
-            }
-            return;
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            self.catalog_process = None;
-            if !status.success() {
-                self.catalog_message = Some("The account catalog could not be loaded.".to_owned());
-            }
-        }
-    }
-
-    fn stop_catalog(&mut self) {
-        if let Some(mut child) = self.catalog_process.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
 }
 
 impl Drop for MenuRuntime {
     fn drop(&mut self) {
+        self.stop_sign_in();
         self.stop_catalog();
         let _ = fs::remove_file(&self.catalog_path);
     }
@@ -916,10 +876,13 @@ fn core_executable() -> Option<PathBuf> {
 }
 
 fn auth_cache_path() -> Option<PathBuf> {
+    Some(configured_auth_cache_path()).filter(|path| path.is_file())
+}
+
+fn configured_auth_cache_path() -> PathBuf {
     std::env::current_dir()
-        .ok()
-        .map(|directory| directory.join(".local/auth/microsoft-token.json"))
-        .filter(|path| path.is_file())
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".local/auth/microsoft-token.json")
 }
 
 /// Condenses a runtime error into something that fits the menu message area.

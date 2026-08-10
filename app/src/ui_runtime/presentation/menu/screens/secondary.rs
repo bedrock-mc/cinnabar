@@ -1,6 +1,6 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
-use crate::menu::{MenuAction, MenuField, MenuView};
+use crate::menu::{MenuAction, MenuField, MenuView, auth::AuthState};
 
 use super::{
     super::{
@@ -14,7 +14,7 @@ use super::{
 pub(super) fn profile(
     view: &MenuView,
     nodes: &mut Vec<UiNode>,
-    _hits: &mut Vec<(MenuAction, UiRect)>,
+    hits: &mut Vec<(MenuAction, UiRect)>,
     next_id: &mut u32,
     layouts: &mut TextLayoutCache,
     font: &assets::RuntimeFontCatalog,
@@ -30,7 +30,7 @@ pub(super) fn profile(
         metrics,
         solid_page,
         "Profile & Character",
-        "Your authenticated Bedrock identity and client-side appearance",
+        "Account sign-in and client-side appearance",
         [area.left, area.top],
         area.width,
     )?;
@@ -47,7 +47,7 @@ pub(super) fn profile(
         area.left,
         top,
         identity_width,
-        268.0,
+        320.0,
     )?;
     if let Some(icon) = view.profile_icon {
         nodes.push(
@@ -69,6 +69,13 @@ pub(super) fn profile(
         );
         *next_id = next_id.saturating_add(1);
     }
+    let (account_status, status_color) = match &view.auth_state {
+        AuthState::SignedOut => ("Not signed in", MUTED),
+        AuthState::Checking => ("Checking saved account…", MUTED),
+        AuthState::AwaitingCode { .. } => ("Waiting for Microsoft sign-in", MUTED),
+        AuthState::Authenticated => ("Microsoft account connected", SUCCESS),
+        AuthState::Failed(message) => (message.as_str(), DANGER),
+    };
     text(
         nodes,
         next_id,
@@ -88,11 +95,58 @@ pub(super) fn profile(
         font,
         metrics,
         solid_page,
-        "Microsoft account connected",
+        account_status,
         [area.left + 142.0, top + 78.0],
         identity_width - 166.0,
-        SUCCESS,
+        status_color,
     )?;
+    let action = if matches!(
+        view.auth_state,
+        AuthState::Checking | AuthState::AwaitingCode { .. }
+    ) {
+        MenuAction::CancelSignIn
+    } else {
+        MenuAction::StartSignIn
+    };
+    let label = match &view.auth_state {
+        AuthState::Checking => "Cancel account check",
+        AuthState::AwaitingCode { .. } => "Cancel sign-in",
+        AuthState::Authenticated => "Check account again",
+        AuthState::Failed(_) => "Try sign-in again",
+        AuthState::SignedOut => "Sign in with Microsoft",
+    };
+    button(
+        view,
+        nodes,
+        hits,
+        next_id,
+        layouts,
+        font,
+        metrics,
+        solid_page,
+        action,
+        usize::MAX,
+        label,
+        area.left + 142.0,
+        top + 104.0,
+        (identity_width - 166.0).max(1.0),
+        CONTROL_HEIGHT,
+        SafeArea::ZERO,
+    )?;
+    if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            &format!("Open {uri} and enter {code}"),
+            [area.left + SPACE_LG, top + 154.0],
+            identity_width - SPACE_LG * 2.0,
+            TEXT,
+        )?;
+    }
     text(
         nodes,
         next_id,
@@ -106,14 +160,14 @@ pub(super) fn profile(
             view.friends.len(),
             view.featured.len() + view.gatherings.len()
         ),
-        [area.left + SPACE_LG, top + 186.0],
+        [area.left + SPACE_LG, top + 238.0],
         identity_width - SPACE_LG * 2.0,
         MUTED,
     )?;
     if !area.compact {
         let right = area.left + identity_width + SPACE_MD;
         let right_width = area.width - identity_width - SPACE_MD;
-        panel(nodes, next_id, solid_page, right, top, right_width, 268.0)?;
+        panel(nodes, next_id, solid_page, right, top, right_width, 320.0)?;
         section_heading(
             nodes,
             next_id,
