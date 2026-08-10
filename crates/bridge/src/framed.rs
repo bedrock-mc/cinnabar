@@ -11,21 +11,28 @@ use crate::{BridgeError, MAX_FRAME_LEN};
 pub(crate) struct BridgeCodec {
     inner: LengthDelimitedCodec,
     expected_payload: Option<usize>,
+    maximum: usize,
 }
 
 impl BridgeCodec {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
+        Self::with_max(MAX_FRAME_LEN)
+    }
+
+    pub(crate) fn with_max(maximum: usize) -> Self {
         let inner = LengthDelimitedCodec::builder()
             .big_endian()
             .length_field_offset(0)
             .length_field_type::<u32>()
             .length_adjustment(0)
             .num_skip(4)
-            .max_frame_length(MAX_FRAME_LEN)
+            .max_frame_length(maximum)
             .new_codec();
         Self {
             inner,
             expected_payload: None,
+            maximum,
         }
     }
 }
@@ -41,7 +48,7 @@ impl Decoder for BridgeCodec {
             }
             let length = u32::from_be_bytes(source[..4].try_into().expect("four-byte header"));
             let length = length as usize;
-            validate_frame_length(length)?;
+            validate_frame_length(length, self.maximum)?;
             self.expected_payload = Some(length);
         }
 
@@ -78,22 +85,19 @@ impl Encoder<Bytes> for BridgeCodec {
     type Error = BridgeError;
 
     fn encode(&mut self, item: Bytes, destination: &mut BytesMut) -> Result<(), Self::Error> {
-        validate_frame_length(item.len())?;
+        validate_frame_length(item.len(), self.maximum)?;
         self.inner
             .encode(item, destination)
             .map_err(BridgeError::Io)
     }
 }
 
-fn validate_frame_length(length: usize) -> Result<(), BridgeError> {
+fn validate_frame_length(length: usize, maximum: usize) -> Result<(), BridgeError> {
     if length == 0 {
         return Err(BridgeError::ZeroLengthFrame);
     }
-    if length > MAX_FRAME_LEN {
-        return Err(BridgeError::FrameTooLarge {
-            length,
-            maximum: MAX_FRAME_LEN,
-        });
+    if length > maximum {
+        return Err(BridgeError::FrameTooLarge { length, maximum });
     }
     Ok(())
 }
@@ -105,8 +109,12 @@ pub struct FramedStream {
 
 impl FramedStream {
     pub(crate) fn new(stream: PlatformStream) -> Self {
+        Self::with_max(stream, MAX_FRAME_LEN)
+    }
+
+    pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
         Self {
-            inner: Framed::new(stream, BridgeCodec::new()),
+            inner: Framed::new(stream, BridgeCodec::with_max(maximum)),
         }
     }
 }
@@ -256,7 +264,23 @@ mod tests {
 
     #[test]
     fn maximum_frame_length_is_accepted() {
-        assert!(validate_frame_length(MAX_FRAME_LEN).is_ok());
+        assert!(validate_frame_length(MAX_FRAME_LEN, MAX_FRAME_LEN).is_ok());
+    }
+
+    #[test]
+    fn endpoint_specific_limit_rejects_a_larger_frame() {
+        let mut codec = BridgeCodec::with_max(64 * 1024);
+        let mut wire = BytesMut::new();
+        wire.put_u32(64 * 1024 + 1);
+
+        let error = codec.decode(&mut wire).expect_err("frame must fail");
+        assert!(matches!(
+            error,
+            BridgeError::FrameTooLarge {
+                length: 65_537,
+                maximum: 65_536
+            }
+        ));
     }
 
     #[test]

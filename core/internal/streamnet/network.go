@@ -52,12 +52,37 @@ func (n *network) PingContext(context.Context, string) ([]byte, error) {
 }
 
 func (n *network) Listen(string) (minecraft.NetworkListener, error) {
-	if err := ensureSocketDir(n.socketDir); err != nil {
+	inner, cleanup, lease, err := openEndpoint(n.socketDir, gameEndpoint)
+	if err != nil {
 		return nil, err
 	}
-	lease, err := lockfile.Acquire(filepath.Join(n.socketDir, "game.lock"), 0)
+	result := &listener{
+		Listener:    inner,
+		id:          randomListenerID(),
+		cleanup:     cleanup,
+		lease:       lease,
+		connections: make(map[*FramedConn]struct{}),
+	}
+	return result, nil
+}
+
+// ListenControl opens the distinct raw control endpoint. The caller owns the
+// accepted connections and must close them before closing the listener.
+func ListenControl(socketDir string) (net.Listener, error) {
+	inner, cleanup, lease, err := openEndpoint(socketDir, controlEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("streamnet: acquire endpoint lease: %w", err)
+		return nil, err
+	}
+	return &rawEndpointListener{Listener: inner, cleanup: cleanup, lease: lease}, nil
+}
+
+func openEndpoint(socketDir string, names endpointNames) (net.Listener, func() error, io.Closer, error) {
+	if err := ensureSocketDir(socketDir); err != nil {
+		return nil, nil, nil, err
+	}
+	lease, err := lockfile.Acquire(filepath.Join(socketDir, names.lease), 0)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("streamnet: acquire endpoint lease: %w", err)
 	}
 	releaseOnError := true
 	defer func() {
@@ -71,17 +96,17 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 		cleanup func() error
 	)
 	if runtime.GOOS == "windows" {
-		if err = preparePublishedAddress(n.socketDir); err == nil {
+		if err = preparePublishedAddressNamed(socketDir, names.windows); err == nil {
 			inner, err = net.Listen("tcp", "127.0.0.1:0")
 		}
 		if err == nil {
 			address := inner.Addr().String()
 			var path string
-			path, err = publishAddress(n.socketDir, address)
+			path, err = publishAddressNamed(socketDir, names.windows, address)
 			cleanup = func() error { return removePublishedAddress(path, address) }
 		}
 	} else {
-		path := unixEndpointPath(n.socketDir)
+		path := unixEndpointPathNamed(socketDir, names.unix)
 		if err = prepareUnixEndpoint(path); err == nil {
 			inner, err = net.Listen("unix", path)
 		}
@@ -89,18 +114,18 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 			unix, ok := inner.(*net.UnixListener)
 			if !ok {
 				_ = inner.Close()
-				return nil, fmt.Errorf("streamnet: Unix listener has type %T", inner)
+				return nil, nil, nil, fmt.Errorf("streamnet: Unix listener has type %T", inner)
 			}
 			unix.SetUnlinkOnClose(false)
 			identity, identityErr := unixEndpointIdentityAt(path)
 			if identityErr != nil {
 				_ = inner.Close()
-				return nil, identityErr
+				return nil, nil, nil, identityErr
 			}
 			if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
 				_ = inner.Close()
 				_ = removeUnixEndpoint(path, identity)
-				return nil, fmt.Errorf("streamnet: secure Unix endpoint: %w", chmodErr)
+				return nil, nil, nil, fmt.Errorf("streamnet: secure Unix endpoint: %w", chmodErr)
 			}
 			cleanup = func() error { return removeUnixEndpoint(path, identity) }
 		}
@@ -109,18 +134,25 @@ func (n *network) Listen(string) (minecraft.NetworkListener, error) {
 		if inner != nil {
 			_ = inner.Close()
 		}
-		return nil, err
-	}
-
-	result := &listener{
-		Listener:    inner,
-		id:          randomListenerID(),
-		cleanup:     cleanup,
-		lease:       lease,
-		connections: make(map[*FramedConn]struct{}),
+		return nil, nil, nil, err
 	}
 	releaseOnError = false
-	return result, nil
+	return inner, cleanup, lease, nil
+}
+
+type rawEndpointListener struct {
+	net.Listener
+	cleanup func() error
+	lease   io.Closer
+	once    sync.Once
+	err     error
+}
+
+func (listener *rawEndpointListener) Close() error {
+	listener.once.Do(func() {
+		listener.err = errors.Join(listener.Listener.Close(), listener.cleanup(), listener.lease.Close())
+	})
+	return listener.err
 }
 
 type listener struct {

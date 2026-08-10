@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -122,6 +123,36 @@ func TestResourcePackCacheFlagsAreOptInAndBounded(t *testing.T) {
 		if _, err := parseFlags(args, io.Discard); err == nil {
 			t.Fatalf("parseFlags(%v) succeeded", args)
 		}
+	}
+}
+
+func TestControlStatusIsOptInAndOwnedByCoreRun(t *testing.T) {
+	disabled, err := parseFlags(nil, io.Discard)
+	if err != nil || disabled.controlStatus {
+		t.Fatalf("disabled control options = %#v, %v", disabled, err)
+	}
+	dir := t.TempDir()
+	err = run(
+		context.Background(),
+		[]string{"-socket-dir", dir, "-upstream", "localhost:19132", "-control-status"},
+		io.Discard,
+		io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if cfg.ResourcePackAdmissionUpdate == nil {
+				t.Fatal("proxy did not receive latest-status callback")
+			}
+			if _, _, resolveErr := streamnet.ResolveControl(dir); resolveErr != nil {
+				t.Fatalf("control endpoint was not available during Serve: %v", resolveErr)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("run() = %v", err)
+	}
+	if _, _, err := streamnet.ResolveControl(dir); err == nil {
+		t.Fatal("control endpoint remained after core shutdown")
 	}
 }
 

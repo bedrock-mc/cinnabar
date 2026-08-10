@@ -183,6 +183,31 @@ func TestResourcePackAdmissionCallbackPanicDoesNotEscapeCleanup(t *testing.T) {
 	telemetry.reportFinal()
 }
 
+func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
+	var updates []ResourcePackAdmissionSnapshot
+	telemetry := newResourcePackAdmissionTelemetry(11, nil)
+	telemetry.setUpdateCallback(func(snapshot ResourcePackAdmissionSnapshot) {
+		updates = append(updates, snapshot)
+	})
+	telemetry.mu.Lock()
+	telemetry.offer = ResourcePackOfferOptional
+	telemetry.packCount = 2
+	telemetry.acquisition = ResourcePackAcquisitionComplete
+	telemetry.downstream = ResourcePackDownstreamStrippedOptional
+	telemetry.mu.Unlock()
+	telemetry.reportFinal()
+
+	if len(updates) != 2 {
+		t.Fatalf("updates = %d, want reset and final", len(updates))
+	}
+	if reset := updates[0]; reset.AttemptID != 11 || reset.Offer != ResourcePackOfferNone || reset.Application != ResourcePackApplicationUnavailable {
+		t.Fatalf("reset = %+v", reset)
+	}
+	if final := updates[1]; final.AttemptID != 11 || final.Offer != ResourcePackOfferOptional || final.PackCount != 2 || final.DownstreamOutcome != ResourcePackDownstreamStrippedOptional {
+		t.Fatalf("final = %+v", final)
+	}
+}
+
 func testAdmissionPack(t *testing.T) *resource.Pack {
 	t.Helper()
 	var archive bytes.Buffer

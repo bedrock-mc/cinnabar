@@ -3,16 +3,27 @@
 mod endpoint;
 mod error;
 mod framed;
+mod status;
 
 use std::path::Path;
 
 pub use error::BridgeError;
 pub use framed::FramedStream;
+pub use status::{
+    Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
+    StatusV1, read_status,
+};
 
 /// Returns the platform endpoint used for the logical socket directory.
 #[must_use]
 pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
-    endpoint::endpoint_path(socket_dir)
+    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Game)
+}
+
+/// Returns the platform control endpoint used for the logical socket directory.
+#[must_use]
+pub fn control_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Control)
 }
 
 /// Largest payload accepted by the local bridge framing protocol.
@@ -20,7 +31,7 @@ pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 /// Connects to the local Go core endpoint published in `socket_dir`.
 pub async fn connect(socket_dir: &Path) -> anyhow::Result<FramedStream> {
-    let stream = endpoint::connect(socket_dir).await?;
+    let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Game).await?;
     Ok(FramedStream::new(stream))
 }
 
