@@ -26,6 +26,10 @@ func TestGophertunnelResourcePackTransportAPI(t *testing.T) {
 	var _ func(*minecraft.Conn, []*resource.Pack, bool) error = (*minecraft.Conn).ConfigureResourcePackOffer
 	var _ func(*minecraft.Conn) []*resource.Pack = (*minecraft.Conn).ResourcePacks
 	var _ func(*minecraft.Conn) bool = (*minecraft.Conn).TexturePacksRequired
+	var _ func(*minecraft.Conn) (minecraft.ResourcePackStackSnapshot, bool) = (*minecraft.Conn).ResourcePackStack
+	var _ func(minecraft.ResourcePackStackSnapshot) []*resource.Pack = minecraft.ResourcePackStackSnapshot.Packs
+	var _ func(minecraft.ResourcePackStackSnapshot) bool = minecraft.ResourcePackStackSnapshot.Required
+	var _ func(*resource.Pack) *resource.Pack = (*resource.Pack).Clone
 
 	download := minecraft.ResourcePackDownloadConfig{
 		MaxInFlightChunks:  7,

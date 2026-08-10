@@ -178,7 +178,7 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
 /// Pins gophertunnel's two adjacent strings for the generated redactable type.
 ///
 /// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ 0f3bd7e6f748ca972da664130af63244d625a6b8)
+/// (`minecraft/protocol/item_stack.go` @ c31450ff6e54b163acd72a95583ccaa71c001e6b)
 /// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent strings.
 #[test]
 fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
