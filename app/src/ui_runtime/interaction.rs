@@ -270,12 +270,26 @@ pub(crate) fn drive_inventory_ui_actions(
     let physical_size = [window.physical_width(), window.physical_height()];
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
-    let hit = gui
-        .and_then(|gui| presentation.inventory_slot_hit(gui, physical_size, window.scale_factor()));
+    let hit = gui.and_then(|gui| {
+        presentation.inventory_cell_hit(
+            gui,
+            physical_size,
+            window.scale_factor(),
+            runtime.inventory_ledger().storage_slot_count(),
+        )
+    });
     if mouse_buttons.just_pressed(MouseButton::Left)
         && let Some(slot) = hit
     {
-        let _ = runtime.inventory_ledger_mut().begin_click(slot);
+        let ledger = runtime.inventory_ledger_mut();
+        let _ = match slot {
+            presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
+                ledger.begin_click(slot)
+            }
+            presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
+                ledger.begin_storage_click(slot)
+            }
+        };
     }
 }
 

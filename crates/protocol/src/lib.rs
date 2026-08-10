@@ -41,10 +41,10 @@ pub use inventory::{
     MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, PLAYER_INVENTORY_SLOTS,
     SelectedSlotEvent, SlotIdentity, StackRequestAction, StackRequestContainer, StackRequestSlot,
     StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
-    VerifiedNetworkItemStack, item_stack_request_packet, normalize_authority,
-    normalize_container_close, normalize_container_data, normalize_container_open,
-    normalize_content, normalize_hotbar, normalize_response, normalize_slot,
-    validate_item_nbt_size,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_packet,
+    normalize_authority, normalize_container_close, normalize_container_data,
+    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+    normalize_slot, validate_item_nbt_size,
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,

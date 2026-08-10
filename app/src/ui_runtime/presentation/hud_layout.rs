@@ -23,6 +23,7 @@ mod inventory;
 mod pinned;
 mod player;
 
+pub(super) use inventory::StorageIcons;
 use pinned::{
     BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
     LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS,
@@ -50,13 +51,12 @@ pub(crate) struct HudFrame {
     pub first_person: bool,
     /// Authoritative `(current, maximum)` health of the ridden actor.
     pub mount_health: Option<(f32, f32)>,
-    /// Remaining-durability fraction per hotbar slot, resolved this frame.
     pub hotbar_durability: [Option<f32>; 9],
     pub offhand_durability: Option<f32>,
-    /// Item icon atlas references resolved against the authoritative item
-    /// registry immediately before presentation.
+    /// Item icons resolved from the authoritative registry this frame.
     pub hotbar_icons: [Option<IconRef>; 9],
     pub inventory_icons: InventoryIcons,
+    pub storage_icons: StorageIcons,
     pub cursor_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
     pub offhand_icon: Option<IconRef>,

@@ -1,6 +1,6 @@
 use protocol::{
     BedrockSession, InventoryPacketError, StackRequestAction, StackRequestContainer,
-    StackRequestSlot, encode, item_stack_request_packet,
+    StackRequestSlot, container_close_packet, encode, item_stack_request_packet,
 };
 
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
@@ -58,6 +58,51 @@ fn take_place_and_swap_have_exact_protocol_2168_wire() {
             destination: cursor,
         }),
         hex("fe1a9301010e0102020c00045b0000003b0000ffffffff00ffffffff")
+    );
+}
+
+#[test]
+fn level_entity_take_and_client_close_match_captured_protocol_2168_wire() {
+    let storage = slot(
+        StackRequestContainer::LevelEntity { dynamic_id: None },
+        2,
+        91,
+    );
+    let cursor = slot(StackRequestContainer::Cursor, 0, -1);
+    assert_eq!(
+        body(StackRequestAction::Take {
+            amount: 3,
+            source: storage,
+            destination: cursor,
+        }),
+        hex("fe1b9301010e010000030700025b0000003b0000ffffffff00ffffffff")
+    );
+    assert_eq!(
+        encode(
+            &container_close_packet(1, 0).expect("valid close"),
+            &BedrockSession { shield_item_id: 0 },
+        )
+        .unwrap()
+        .to_vec(),
+        hex("fe042f010000")
+    );
+    assert_eq!(
+        encode(
+            &container_close_packet(-1, 0).expect("signed raw close"),
+            &BedrockSession { shield_item_id: 0 },
+        )
+        .unwrap()
+        .to_vec(),
+        hex("fe042fff0000")
+    );
+    assert_eq!(
+        encode(
+            &container_close_packet(-128, 0).expect("lowest signed raw close"),
+            &BedrockSession { shield_item_id: 0 },
+        )
+        .unwrap()
+        .to_vec(),
+        hex("fe042f800000")
     );
 }
 
