@@ -120,6 +120,12 @@ allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
+name = "dist-local"
+path = "tools/dist"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
 name = "phase2-evidence"
 path = "tools/phase2-evidence"
 allowed_dependencies = []

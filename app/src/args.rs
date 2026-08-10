@@ -17,7 +17,7 @@ Usage: bedrock-client [OPTIONS]
 
 Options:
   --address <HOST:PORT>       Directly launch the Go core and join a server
-  --socket-dir <PATH>          Core socket directory (default: .local/run)
+  --socket-dir <PATH>          Override the platform runtime socket directory
   --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: RustMCBE)
   --acceptance-seconds <N>     Exit after N seconds and write metrics

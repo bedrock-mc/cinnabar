@@ -1,9 +1,4 @@
-use std::{
-    ffi::OsStr,
-    fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{ffi::OsStr, fs, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -48,6 +43,7 @@ use crate::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame,
     },
+    install_layout::InstallLayout,
     local_player::{
         LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
         resolve_camera_pose,
@@ -103,7 +99,6 @@ use crate::{
 
 use crate::acceptance::model_witness::drive_model_witness;
 
-const PHYSICS_REGISTRY_PATH: &str = ".local/assets/block-physics-v1001.bin";
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v1001.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
@@ -309,9 +304,12 @@ fn render_plugin() -> RenderPlugin {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let connection_requested = args.connection_requested();
     let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
-        PathBuf::from(format!(".local/cinnabar/direct-{}", std::process::id()))
+        layout.session_socket_dir("direct", std::process::id(), 1)
+    } else if !args.socket_dir_explicit {
+        layout.runtime_root.clone()
     } else {
         resolve_socket_dir(&args.socket_dir)
     };
@@ -323,7 +321,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 socket_dir.display()
             )
         })?;
-        let child = spawn_core_for_address(&socket_dir, address)
+        let child = spawn_core_for_address(&layout, &socket_dir, address)
             .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
         wait_for_core(&socket_dir)
@@ -332,7 +330,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         preflight_bridge_endpoint(&socket_dir)?;
     }
 
-    let selected_assets = select_asset_path_from_environment(args.assets.as_deref());
+    let selected_assets =
+        select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
     let loaded_assets =
         load_runtime_assets(selected_assets).context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
@@ -397,7 +396,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let collision_records = assets::read_registry(collision_breg)
         .context("decode checked-in protocol-1001 collision registry")?;
     let collision_preg =
-        read_verified_physics_registry(Path::new(PHYSICS_REGISTRY_PATH), PHYSICS_REGISTRY_SHA256)?;
+        read_verified_physics_registry(&layout.physics_registry, PHYSICS_REGISTRY_SHA256)?;
     let collision_registries = PhysicsCollisionRegistries::from_assets(
         collision_breg,
         &collision_records,
@@ -516,10 +515,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         } else {
             PhysicsAuthorityGate::ProductionEnabled
         })
-        .insert_resource(MenuRuntime::new(
+        .insert_resource(MenuRuntime::new_with_layout(
             !connection_requested,
             args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
             args.display_name.clone(),
+            layout,
         ))
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())

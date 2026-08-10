@@ -5,7 +5,7 @@ impl MenuRuntime {
         if self.catalog_started || !self.visible || self.connecting {
             return;
         }
-        if self.should_auto_start_sign_in(auth_cache_path().is_some()) {
+        if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
             self.start_sign_in();
             return;
         }
@@ -23,12 +23,12 @@ impl MenuRuntime {
         }
         self.catalog_started = true;
         let _ = fs::remove_file(&self.catalog_path);
-        let Some(auth_cache) = auth_cache_path() else {
+        let Some(auth_cache) = auth_cache_path(&self.layout) else {
             self.catalog_message =
                 Some("Sign in to load Realms, Friends, and featured servers.".to_owned());
             return;
         };
-        let Some(executable) = core_executable() else {
+        let Some(executable) = core_executable(&self.layout) else {
             self.catalog_message = Some(
                 "bedrock-core executable was not found; server catalog unavailable.".to_owned(),
             );
@@ -108,13 +108,13 @@ impl MenuRuntime {
     }
 
     fn spawn_sign_in(&mut self) {
-        let Some(executable) = core_executable() else {
+        let Some(executable) = core_executable(&self.layout) else {
             self.auth_process = None;
             self.message =
                 Some("bedrock-core executable was not found; sign-in unavailable.".to_owned());
             return;
         };
-        match AuthSupervisor::spawn(&executable, &configured_auth_cache_path()) {
+        match AuthSupervisor::spawn(&executable, &self.layout.auth_cache()) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;

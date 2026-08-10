@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::fs;
 
 use bevy::{
     input::{
@@ -135,13 +135,13 @@ pub(crate) fn drive_menu_connection(
         // Namespaced by process id like the `--address` path: a bare
         // generation counter restarts at the same value every launch, so a
         // previous run's directory would be reused for this session.
-        let socket_dir = PathBuf::from(format!(
-            ".local/cinnabar/connect-{}-{generation}",
-            std::process::id()
-        ));
+        let socket_dir = menu
+            .layout
+            .session_socket_dir("connect", std::process::id(), generation);
         if let Err(error) = fs::create_dir_all(&socket_dir)
             .and_then(|_| {
-                spawn_core_for_address(&socket_dir, &address).map_err(std::io::Error::other)
+                spawn_core_for_address(&menu.layout, &socket_dir, &address)
+                    .map_err(std::io::Error::other)
             })
             .and_then(|child| {
                 guard.replace(child);

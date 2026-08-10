@@ -8,6 +8,13 @@ SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
+DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
+DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-client.exe,bedrock-client)
+DIST_CORE ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-core.exe,bedrock-core)
+DIST_OUT ?= .local/dist/$(DIST_PLATFORM)
+DIST_TARGET ?= $(shell rustc --print host-tuple)
+DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
+DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
@@ -74,7 +81,7 @@ VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
 RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
-.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -97,6 +104,7 @@ help:
 	@echo make client-linux    - Run with automatic Wayland/X11 selection
 	@echo make client-wayland  - Run on Wayland
 	@echo make client-x11      - Run on X11/XWayland
+	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
@@ -202,3 +210,6 @@ client-wayland:
 
 client-x11:
 	env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET $(MAKE) client
+
+dist-local:
+	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --assets "$(dir $(ASSET_BLOB))" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"

@@ -26,13 +26,13 @@ use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    install_layout::InstallLayout,
     runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
     ui_runtime::presentation::IconRef,
 };
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
-const DEFAULT_SERVER_FILE: &str = ".local/cinnabar/servers.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuScreen {
@@ -240,11 +240,27 @@ pub(crate) struct MenuRuntime {
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
+    layout: InstallLayout,
 }
 
 impl MenuRuntime {
+    #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
-        let config_path = PathBuf::from(DEFAULT_SERVER_FILE);
+        Self::new_with_layout(
+            visible,
+            gui_scale,
+            display_name,
+            InstallLayout::discover().expect("test executable must have a development layout"),
+        )
+    }
+
+    pub(crate) fn new_with_layout(
+        visible: bool,
+        gui_scale: u8,
+        display_name: String,
+        layout: InstallLayout,
+    ) -> Self {
+        let config_path = layout.server_file();
         let servers = load_servers(&config_path);
         Self {
             // The launcher owns the session lifecycle only when the client
@@ -278,14 +294,12 @@ impl MenuRuntime {
             friends: Vec::new(),
             catalog_message: None,
             catalog_started: false,
-            catalog_path: PathBuf::from(format!(
-                ".local/cinnabar/catalog-{}.json",
-                std::process::id()
-            )),
+            catalog_path: layout.catalog_file(std::process::id()),
             catalog_process: None,
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,
+            layout,
         }
     }
 
@@ -800,10 +814,15 @@ impl Drop for CoreProcessGuard {
     }
 }
 
-pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result<Child> {
-    let executable = core_executable().ok_or_else(|| {
+pub(crate) fn spawn_core_for_address(
+    layout: &InstallLayout,
+    socket_dir: &Path,
+    address: &str,
+) -> Result<Child> {
+    let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
-            "bedrock-core executable was not found beside the client or in target/debug/target/release"
+            "bedrock-core executable was not found at {}",
+            layout.core_executable.display()
         )
     })?;
     clear_stale_bridge_endpoint(socket_dir)?;
@@ -816,7 +835,7 @@ pub(crate) fn spawn_core_for_address(socket_dir: &Path, address: &str) -> Result
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let auth_cache = auth_cache_path();
+    let auth_cache = auth_cache_path(layout);
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
     }
@@ -855,38 +874,15 @@ pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
     )
 }
 
-fn core_executable() -> Option<PathBuf> {
-    let filename = if cfg!(windows) {
-        "bedrock-core.exe"
-    } else {
-        "bedrock-core"
-    };
-    let current = std::env::current_exe().ok();
-    let working = std::env::current_dir().ok();
-    let candidates = [
-        current
-            .as_ref()
-            .and_then(|path| path.parent())
-            .map(|path| path.join(filename)),
-        working.as_ref().map(|path| path.join(filename)),
-        working
-            .as_ref()
-            .map(|path| path.join("target/debug").join(filename)),
-        working
-            .as_ref()
-            .map(|path| path.join("target/release").join(filename)),
-    ];
-    candidates.into_iter().flatten().find(|path| path.is_file())
+fn core_executable(layout: &InstallLayout) -> Option<PathBuf> {
+    layout
+        .core_executable
+        .is_file()
+        .then(|| layout.core_executable.clone())
 }
 
-fn auth_cache_path() -> Option<PathBuf> {
-    Some(configured_auth_cache_path()).filter(|path| path.is_file())
-}
-
-fn configured_auth_cache_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".local/auth/microsoft-token.json")
+fn auth_cache_path(layout: &InstallLayout) -> Option<PathBuf> {
+    Some(layout.auth_cache()).filter(|path| path.is_file())
 }
 
 /// Condenses a runtime error into something that fits the menu message area.
