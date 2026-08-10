@@ -20,8 +20,8 @@ pub use simulator::{
     MovementInput, PlayerState, SimulationError, Simulator, TICKS_PER_SECOND, TickResult,
 };
 pub use world::{
-    BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace, CollisionQuery,
-    CollisionRegistry, CollisionRegistryIdentity, CollisionWorld, MAX_COLLISION_IDENTITY_CHUNKS,
-    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError, SurfaceResponse,
-    WorldCollisionIdentity, WorldQueryError,
+    BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
+    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
+    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError,
+    SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
 };
