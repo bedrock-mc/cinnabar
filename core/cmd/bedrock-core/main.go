@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"golang.org/x/oauth2"
@@ -34,7 +35,8 @@ func main() {
 
 func catalogMode(args []string) bool {
 	for _, arg := range args {
-		if arg == "-catalog-file" || len(arg) > len("-catalog-file=") && arg[:len("-catalog-file=")] == "-catalog-file=" {
+		if arg == "-auth-events" ||
+			arg == "-catalog-file" || len(arg) > len("-catalog-file=") && arg[:len("-catalog-file=")] == "-catalog-file=" {
 			return true
 		}
 	}
@@ -42,10 +44,11 @@ func catalogMode(args []string) bool {
 }
 
 type options struct {
-	socketDir string
-	upstream  string
-	authCache string
+	socketDir   string
+	upstream    string
+	authCache   string
 	catalogFile string
+	authEvents  bool
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -56,8 +59,12 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
+	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
+	}
+	if opts.authEvents && flags.NArg() != 0 {
+		return options{}, errors.New("auth-events mode does not accept positional arguments")
 	}
 	return opts, nil
 }
@@ -82,6 +89,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, source so
 		return err
 	}
 	logger := newLifecycleLogger(stderr)
+	if opts.authEvents {
+		if opts.authCache == "" {
+			return errors.New("auth-events mode requires -auth-cache")
+		}
+		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" {
+			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
+		}
+		return authflow.Run(ctx, authflow.Config{Path: opts.authCache, Writer: stdout})
+	}
 	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", opts.upstream)
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource

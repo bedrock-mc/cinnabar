@@ -161,6 +161,41 @@ func TestRunAuthenticatedPassesTokenSourceToProxy(t *testing.T) {
 	}
 }
 
+func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
+	for _, args := range [][]string{
+		{"-auth-events"},
+		{"-auth-events", "-auth-cache", "token.json", "-upstream", "example.test:19132"},
+		{"-auth-events", "-auth-cache", "token.json", "-catalog-file", "catalog.json"},
+	} {
+		err := run(context.Background(), args, io.Discard, io.Discard,
+			func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+				t.Fatal("normal auth source called in auth-events mode")
+				return nil, nil
+			},
+			func(context.Context, proxy.Config) error {
+				t.Fatal("proxy called in auth-events mode")
+				return nil
+			})
+		if err == nil {
+			t.Fatalf("run(%v) succeeded", args)
+		}
+	}
+}
+
+func TestOneShotModesDoNotBindTheirLifetimeToStdin(t *testing.T) {
+	for _, args := range [][]string{
+		{"-auth-events", "-auth-cache", "token.json"},
+		{"-catalog-file", "catalog.json", "-auth-cache", "token.json"},
+	} {
+		if !catalogMode(args) {
+			t.Fatalf("catalogMode(%v) = false", args)
+		}
+	}
+	if catalogMode([]string{"-auth-cache", "token.json"}) {
+		t.Fatal("long-running proxy was classified as one-shot")
+	}
+}
+
 func TestRunOfflineSkipsAuthSource(t *testing.T) {
 	serveCalls := 0
 	err := run(
