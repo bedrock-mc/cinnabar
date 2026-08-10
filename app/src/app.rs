@@ -160,11 +160,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                drive_menu_input,
                 drive_chat_ui_actions,
                 drain_inventory_authority,
-                drive_inventory_ui_actions,
                 drive_chat_keyboard_input,
+                drive_menu_input,
+                drive_inventory_ui_actions,
                 drive_menu_connection,
                 synchronize_semantic_input_authority,
             )

@@ -1,10 +1,10 @@
 use valentine::bedrock::version::v1_26_40::{
-    FullContainerName, FullContainerNameContainerName, ItemStackRequestCerealPlaceActionData,
-    ItemStackRequestCerealPlaceActionDataActiontype, ItemStackRequestCerealSlotInfoData,
-    ItemStackRequestCerealSwapActionData, ItemStackRequestCerealSwapActionDataActiontype,
-    ItemStackRequestCerealTakeActionData, ItemStackRequestCerealTakeActionDataActiontype,
-    ItemStackRequestPacket, ItemStackRequestPacketDataRequestData,
-    ItemStackRequestPacketDataRequestDataActionsItem,
+    ContainerClosePacket, FullContainerName, FullContainerNameContainerName,
+    ItemStackRequestCerealPlaceActionData, ItemStackRequestCerealPlaceActionDataActiontype,
+    ItemStackRequestCerealSlotInfoData, ItemStackRequestCerealSwapActionData,
+    ItemStackRequestCerealSwapActionDataActiontype, ItemStackRequestCerealTakeActionData,
+    ItemStackRequestCerealTakeActionDataActiontype, ItemStackRequestPacket,
+    ItemStackRequestPacketDataRequestData, ItemStackRequestPacketDataRequestDataActionsItem,
     ItemStackRequestPacketDataRequestDataStringsToFilterOrigin,
     TypedClientNetIdStructItemStackRequestIdTagInt32T0,
 };
@@ -17,6 +17,7 @@ pub const PLAYER_INVENTORY_SLOTS: u8 = 36;
 pub enum StackRequestContainer {
     PlayerInventory,
     Cursor,
+    LevelEntity { dynamic_id: Option<u32> },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -124,6 +125,9 @@ fn request_slot(
         StackRequestContainer::Cursor if slot.slot == 0 => {
             FullContainerNameContainerName::CursorContainer
         }
+        StackRequestContainer::LevelEntity { .. } => {
+            FullContainerNameContainerName::LevelEntityContainer
+        }
         _ => {
             return Err(InventoryPacketError::InvalidStackRequestSlot {
                 container: slot.container,
@@ -139,9 +143,33 @@ fn request_slot(
     Ok(ItemStackRequestCerealSlotInfoData {
         fullcontainername: FullContainerName {
             container_name,
-            dynamic_id: None,
+            dynamic_id: match slot.container {
+                StackRequestContainer::LevelEntity { dynamic_id } => dynamic_id,
+                _ => None,
+            },
         },
         slot: slot.slot,
         net_id_variant: slot.stack_network_id,
     })
+}
+
+pub fn container_close_packet(
+    window_id: i32,
+    window_type: i8,
+) -> Result<crate::Packet, InventoryPacketError> {
+    let container_id = match window_id {
+        -128..=-1 => (window_id as i8).to_ne_bytes()[0],
+        0..=255 => window_id as u8,
+        _ => {
+            return Err(InventoryPacketError::InvalidContainerCloseWindowId(
+                window_id,
+            ));
+        }
+    };
+    Ok(ContainerClosePacket {
+        container_id,
+        container_type: window_type.to_ne_bytes()[0],
+        server_initiated_close: false,
+    }
+    .into())
 }

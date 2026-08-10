@@ -197,6 +197,8 @@ pub struct UiRuntime {
 
 impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
+        let mut inventory_ledger = PlayerInventoryLedger::default();
+        inventory_ledger.begin_session(session_id);
         Self {
             session_id,
             last_fifo_sequence: None,
@@ -241,7 +243,7 @@ impl UiRuntime {
             local_selected_slot: None,
             server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
-            inventory_ledger: PlayerInventoryLedger::default(),
+            inventory_ledger,
             inventory_pointer_gui: None,
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
@@ -665,7 +667,7 @@ impl UiRuntime {
         self.local_selected_slot = None;
         self.server_selected_slot = None;
         self.gameplay_hud.clear();
-        self.inventory_ledger = PlayerInventoryLedger::default();
+        self.inventory_ledger.begin_session(session_id);
         self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
         self.last_selected_identity_change_millis = None;
@@ -696,7 +698,12 @@ impl UiRuntime {
 
     pub fn toggle_inventory(&mut self) -> UiAuthorityTransition {
         self.chat_focused = false;
-        self.inventory_open = !self.inventory_open;
+        if self.inventory_ledger.storage_generation().is_some() {
+            self.inventory_ledger.request_storage_close();
+            self.inventory_open = false;
+        } else {
+            self.inventory_open = !self.inventory_open;
+        }
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: if self.inventory_open {
@@ -708,6 +715,7 @@ impl UiRuntime {
     }
 
     pub fn close_inventory(&mut self) -> UiAuthorityTransition {
+        self.inventory_ledger.request_storage_close();
         self.inventory_open = false;
         UiAuthorityTransition {
             consumes_text: false,

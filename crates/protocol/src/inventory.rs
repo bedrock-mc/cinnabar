@@ -19,7 +19,7 @@ use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 mod request;
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
-    item_stack_request_packet,
+    container_close_packet, item_stack_request_packet,
 };
 
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -163,6 +163,8 @@ pub enum InventoryPacketError {
     },
     #[error("item stack request network ID {0} is invalid")]
     InvalidRequestStackNetworkId(i32),
+    #[error("container close window ID {0} is outside 0..=255")]
+    InvalidContainerCloseWindowId(i32),
     #[error("armor equipment actor runtime ID {0} is invalid")]
     InvalidArmorRuntimeId(i64),
     #[error("inventory slot {0} is outside 0..{MAX_CONTAINER_SLOTS}")]

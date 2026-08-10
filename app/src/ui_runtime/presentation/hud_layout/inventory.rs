@@ -13,12 +13,24 @@ use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 const PANEL_SIZE: [f32; 2] = [176.0, 166.0];
 const SLOT_SIZE: f32 = 18.0;
 
+#[derive(Clone, Debug)]
+pub(crate) struct StorageIcons(pub(crate) [Option<IconRef>; 54]);
+
+impl Default for StorageIcons {
+    fn default() -> Self {
+        Self([None; 54])
+    }
+}
+
 impl HudLayout<'_> {
     pub(super) fn inventory_screen(
         &mut self,
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
+        if let Some(slot_count @ (27 | 54)) = runtime.inventory_ledger().storage_slot_count() {
+            return self.storage_screen(runtime, frame, slot_count);
+        }
         let g = self.geometry;
         self.solid_gui([0.0, 0.0], [g.gui_width, g.gui_height], [0, 0, 0, 150])?;
         let origin = [
@@ -123,6 +135,100 @@ impl HudLayout<'_> {
             runtime.inventory_pointer_gui(),
         ) {
             self.inventory_item(icon, [pointer[0] - 8.0, pointer[1] - 8.0], Some(stack))?;
+        }
+        Ok(())
+    }
+
+    fn storage_screen(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+        slot_count: usize,
+    ) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        self.solid_gui([0.0, 0.0], [g.gui_width, g.gui_height], [0, 0, 0, 150])?;
+        let rows = slot_count / 9;
+        let panel_size = [176.0, 114.0 + rows as f32 * SLOT_SIZE];
+        let origin = [
+            ((g.gui_width - panel_size[0]) * 0.5).floor(),
+            ((g.gui_height - panel_size[1]) * 0.5).floor(),
+        ];
+        self.panel(origin, panel_size)?;
+        self.inventory_label("Container", [origin[0] + 8.0, origin[1] + 6.0])?;
+        for index in 0..slot_count {
+            let slot = [
+                origin[0] + 8.0 + (index % 9) as f32 * SLOT_SIZE,
+                origin[1] + 18.0 + (index / 9) as f32 * SLOT_SIZE,
+            ];
+            self.inventory_slot(slot)?;
+            if let (Some(icon), Some(stack)) = (
+                frame.storage_icons.0[index],
+                runtime.inventory_ledger().storage_stack(index as u8),
+            ) {
+                self.inventory_item(icon, slot, Some(stack))?;
+            }
+            if runtime.inventory_ledger().storage_slot_pending(index as u8) {
+                self.solid_gui(
+                    [slot[0] + 1.0, slot[1] + 1.0],
+                    [16.0, 16.0],
+                    [255, 255, 255, 48],
+                )?;
+            }
+        }
+        let player_y = origin[1] + 32.0 + rows as f32 * SLOT_SIZE;
+        self.inventory_label("Inventory", [origin[0] + 8.0, player_y - 12.0])?;
+        for row in 0..3 {
+            for column in 0..9 {
+                let index = 9 + row * 9 + column;
+                self.storage_player_slot(
+                    runtime,
+                    frame,
+                    index,
+                    [
+                        origin[0] + 8.0 + column as f32 * SLOT_SIZE,
+                        player_y + row as f32 * SLOT_SIZE,
+                    ],
+                )?;
+            }
+        }
+        for column in 0..9 {
+            self.storage_player_slot(
+                runtime,
+                frame,
+                column,
+                [origin[0] + 8.0 + column as f32 * SLOT_SIZE, player_y + 58.0],
+            )?;
+        }
+        if let (Some(icon), Some(stack), Some(pointer)) = (
+            frame.cursor_icon,
+            runtime.inventory_ledger().cursor_stack(),
+            runtime.inventory_pointer_gui(),
+        ) {
+            self.inventory_item(icon, [pointer[0] - 8.0, pointer[1] - 8.0], Some(stack))?;
+        }
+        Ok(())
+    }
+
+    fn storage_player_slot(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+        index: usize,
+        slot: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        self.inventory_slot(slot)?;
+        if let (Some(icon), Some(stack)) = (
+            frame.inventory_icons.0[index],
+            runtime.inventory_ledger().displayed_stack(index as u8),
+        ) {
+            self.inventory_item(icon, slot, Some(stack))?;
+        }
+        if runtime.inventory_ledger().slot_pending(index as u8) {
+            self.solid_gui(
+                [slot[0] + 1.0, slot[1] + 1.0],
+                [16.0, 16.0],
+                [255, 255, 255, 48],
+            )?;
         }
         Ok(())
     }

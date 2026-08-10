@@ -239,6 +239,29 @@ impl UiRuntime {
     pub(crate) fn drain_pending_inventory(&mut self) {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
             self.inventory_ledger.apply(&sequenced.event);
+            match &sequenced.event {
+                InventoryEvent::Open(_) => {
+                    self.inventory_open = self.inventory_ledger.storage_generation().is_some();
+                    if self.inventory_open {
+                        self.chat_focused = false;
+                    }
+                }
+                InventoryEvent::Content(content)
+                    if content.container.slot_type
+                        == Some(super::inventory_ledger::GENERIC_STORAGE_SLOT_TYPE) =>
+                {
+                    self.inventory_open = self.inventory_ledger.storage_slot_count().is_some();
+                    if self.inventory_open {
+                        self.chat_focused = false;
+                    }
+                }
+                InventoryEvent::Close(_) => {
+                    if self.inventory_ledger.storage_generation().is_none() {
+                        self.inventory_open = false;
+                    }
+                }
+                _ => {}
+            }
             if let InventoryEvent::SelectedSlot(selected) = &sequenced.event
                 && selected.select_slot
                 && selected.slot < protocol::HOTBAR_SLOT_COUNT

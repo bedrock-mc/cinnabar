@@ -235,6 +235,14 @@ pub(crate) fn refresh_hud_frame(
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
         }
     }
+    let mut storage_icons = super::hud_layout::StorageIcons::default();
+    for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
+        if let Some(stack) = runtime.inventory_ledger().storage_stack(slot as u8) {
+            *icon = resolve_identifier(stack)
+                .as_deref()
+                .and_then(|id| presentation.item_icon(id, stack.metadata));
+        }
+    }
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
@@ -300,6 +308,7 @@ pub(crate) fn refresh_hud_frame(
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
     frame.inventory_icons = inventory_icons;
+    frame.storage_icons = storage_icons;
     frame.cursor_icon = cursor_icon;
     frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
