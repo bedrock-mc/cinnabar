@@ -1,6 +1,7 @@
 //! Bounded Bedrock resource-pack source readers.
 
 mod atmosphere;
+mod audio;
 mod biome;
 mod blob;
 mod compiled;
@@ -25,6 +26,12 @@ pub use atmosphere::{
     FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_IDENTIFIER_BYTES,
     MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog, RuntimeAtmosphereAssets,
     composite_celestial, encode_atmosphere_blob,
+};
+pub use audio::{
+    AUDIO_CARRIER_MAGIC, AudioAlternative, AudioCatalogError, AudioDefinition,
+    MAX_AUDIO_ALTERNATIVES, MAX_AUDIO_ALTERNATIVES_PER_DEFINITION, MAX_AUDIO_CARRIER_BYTES,
+    MAX_AUDIO_CATEGORY_BYTES, MAX_AUDIO_DEFINITIONS, MAX_AUDIO_IDENTIFIER_BYTES,
+    MAX_AUDIO_PATH_BYTES, MAX_AUDIO_SUBTITLE_BYTES, RuntimeAudioCatalog, encode_audio_catalog,
 };
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,

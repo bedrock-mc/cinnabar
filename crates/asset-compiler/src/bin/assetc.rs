@@ -19,6 +19,8 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "assetc/audio_command.rs"]
+mod audio_command;
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
 #[path = "assetc/icon_command.rs"]
@@ -28,6 +30,7 @@ mod lang_command;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
 
+use audio_command::compile_audio_assets_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
 use lang_command::compile_lang_assets_command;
@@ -38,7 +41,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nDormant sound-definition lookup:\n  assetc audio-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeaud --report <IGNORED_DIR>/audio-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -125,6 +128,21 @@ enum Command {
         source_manifest: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile the pinned vanilla sound definitions into a dormant lookup catalog.
+    AudioAssets {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEAUD1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
         #[arg(long)]
         report: PathBuf,
     },
@@ -337,6 +355,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_lang_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::AudioAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_audio_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::OutlineFontAssets {
             font,
