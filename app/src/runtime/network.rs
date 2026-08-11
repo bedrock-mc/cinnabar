@@ -58,6 +58,7 @@ use crate::{
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
 
+pub(crate) use resource_packs::ResourcePackAdmissionState;
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
     spawn_network,
@@ -262,6 +263,7 @@ fn consume_equipment_route(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
+    mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
@@ -308,6 +310,7 @@ pub(crate) fn receive_network_events(
                 player_game_mode,
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
+                resource_packs,
             } => {
                 if !bootstrap_session_generation_is_expected(
                     ui_runtime.session_id(),
@@ -351,6 +354,7 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 };
+                resource_pack_admission.replace_if_newer(session_generation, resource_packs);
                 ui_runtime.publish_inventory_authority(authority);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
@@ -992,4 +996,5 @@ pub(crate) fn publish_actor_render_frame(
     });
 }
 
+mod resource_packs;
 pub(crate) mod session;

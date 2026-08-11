@@ -42,6 +42,12 @@ allowed_dependencies = ["bridge"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
+name = "resource-pack"
+path = "crates/resource-pack"
+allowed_dependencies = ["protocol"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
+[[crates]]
 name = "world"
 path = "crates/world"
 allowed_dependencies = []
@@ -86,7 +92,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "semantic-input", "sim", "ui", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "resource-pack", "semantic-input", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
