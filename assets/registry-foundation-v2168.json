@@ -28,7 +28,11 @@
   },
   "missing": [
     "retail_block_projection",
-    "numeric_biome_projection",
     "authoritative_light_projection"
-  ]
+  ],
+  "projection_bindings": {
+    "biome": {
+      "sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"
+    }
+  }
 }

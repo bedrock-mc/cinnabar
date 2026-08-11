@@ -56,9 +56,9 @@ type bdsSource struct {
 }
 
 type projectionBindings struct {
-	Block projectionBinding `json:"block"`
-	Biome projectionBinding `json:"biome"`
-	Light projectionBinding `json:"light"`
+	Block *projectionBinding `json:"block,omitempty"`
+	Biome *projectionBinding `json:"biome,omitempty"`
+	Light *projectionBinding `json:"light,omitempty"`
 }
 
 type projectionBinding struct {
@@ -159,20 +159,25 @@ func validate(value manifest) error {
 	}
 	wantMissing := []string{
 		"retail_block_projection",
-		"numeric_biome_projection",
 		"authoritative_light_projection",
 	}
 	switch value.Status {
 	case "blocked":
 		if strings.Join(value.Missing, "\x00") != strings.Join(wantMissing, "\x00") {
-			return errors.New("blocked foundation must name exactly the three missing projections")
+			return errors.New("blocked foundation must name exactly the block and light projections")
 		}
-		if value.ProjectionBindings != nil {
-			return errors.New("blocked foundation must not claim projection bindings")
+		if value.ProjectionBindings == nil || value.ProjectionBindings.Block != nil ||
+			value.ProjectionBindings.Light != nil || value.ProjectionBindings.Biome == nil ||
+			value.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			return errors.New("blocked foundation must bind only the exact biome projection")
 		}
 	case "ready":
-		if len(value.Missing) != 0 || value.ProjectionBindings == nil {
+		if len(value.Missing) != 0 || value.ProjectionBindings == nil || value.ProjectionBindings.Block == nil ||
+			value.ProjectionBindings.Biome == nil || value.ProjectionBindings.Light == nil {
 			return errors.New("ready foundation requires three projection bindings and no missing entries")
+		}
+		if value.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			return errors.New("ready foundation must preserve the exact biome projection binding")
 		}
 		for _, digest := range []string{
 			value.ProjectionBindings.Block.SHA256,

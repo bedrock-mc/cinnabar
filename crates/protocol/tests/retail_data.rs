@@ -33,13 +33,13 @@ fn retail_item_table_has_the_pinned_projection_fingerprint() {
 fn retail_biome_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
         format!("{:x}", Sha256::digest(canonical_text(RETAIL_BIOMES))),
-        "237d0652f4a218765d52968c7764e4388a8d2372842d0a37a7ce7ba75692f9fc"
+        "df7e18c18e939e21f387838479ee9c79b0d7eb798fb1bd906f51c56963058574"
     );
     let biomes = std::str::from_utf8(RETAIL_BIOMES)
         .expect("biome table must be UTF-8")
         .lines()
         .collect::<HashSet<_>>();
-    assert_eq!(biomes.len(), 87);
+    assert_eq!(biomes.len(), 88);
     assert!(biomes.contains("minecraft:deep_warm_ocean"));
 }
 

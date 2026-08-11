@@ -22,7 +22,6 @@ type MissingProjection string
 
 const (
 	MissingRetailBlockProjection        MissingProjection = "retail_block_projection"
-	MissingNumericBiomeProjection       MissingProjection = "numeric_biome_projection"
 	MissingAuthoritativeLightProjection MissingProjection = "authoritative_light_projection"
 )
 
@@ -82,9 +81,9 @@ type bdsFoundationSource struct {
 }
 
 type projectionBindings struct {
-	Block projectionBinding `json:"block"`
-	Biome projectionBinding `json:"biome"`
-	Light projectionBinding `json:"light"`
+	Block *projectionBinding `json:"block,omitempty"`
+	Biome *projectionBinding `json:"biome,omitempty"`
+	Light *projectionBinding `json:"light,omitempty"`
 }
 
 type projectionBinding struct {
@@ -148,21 +147,26 @@ func validateFoundationFields(foundation registryFoundation) error {
 	case FoundationBlocked:
 		wantMissing := []MissingProjection{
 			MissingRetailBlockProjection,
-			MissingNumericBiomeProjection,
 			MissingAuthoritativeLightProjection,
 		}
 		if !equalMissing(foundation.Missing, wantMissing) {
-			return errors.New("blocked registry foundation must name exactly the three missing projections")
+			return errors.New("blocked registry foundation must name exactly the block and light projections")
 		}
-		if foundation.ProjectionBindings != nil {
-			return errors.New("blocked registry foundation must not claim projection bindings")
+		if foundation.ProjectionBindings == nil || foundation.ProjectionBindings.Block != nil ||
+			foundation.ProjectionBindings.Light != nil || foundation.ProjectionBindings.Biome == nil ||
+			foundation.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			return errors.New("blocked registry foundation must bind only the exact biome projection")
 		}
 	case FoundationReady:
 		if len(foundation.Missing) != 0 {
 			return errors.New("ready registry foundation must not retain missing projections")
 		}
-		if foundation.ProjectionBindings == nil {
+		if foundation.ProjectionBindings == nil || foundation.ProjectionBindings.Block == nil ||
+			foundation.ProjectionBindings.Biome == nil || foundation.ProjectionBindings.Light == nil {
 			return errors.New("ready registry foundation requires three projection bindings")
+		}
+		if foundation.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			return errors.New("ready registry foundation must preserve the exact biome projection binding")
 		}
 		for label, digest := range map[string]string{
 			"block": foundation.ProjectionBindings.Block.SHA256,
