@@ -8,6 +8,7 @@ members = [
     "crates/input",
     "crates/meshing",
     "crates/protocol",
+    "crates/resource-pack",
     "crates/render",
     "crates/sim",
     "crates/ui",

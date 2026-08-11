@@ -5,8 +5,9 @@ use protocol::{
 
 use crate::{
     runtime::network::{
-        EquipmentIngress, bootstrap_session_generation_is_expected, publish_equipment_identity,
-        route_equipment_ingress, route_inventory_ingress, session::SequencedWorldEvent,
+        BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
+        publish_equipment_identity, route_equipment_ingress, route_inventory_ingress,
+        session::SequencedWorldEvent,
     },
     ui_runtime::{MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
 };
@@ -250,9 +251,16 @@ fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
 
 #[test]
 fn bootstrap_generation_must_match_the_next_ui_and_world_session() {
-    assert!(bootstrap_session_generation_is_expected(0, 0, 1));
-    assert!(bootstrap_session_generation_is_expected(7, 7, 8));
-    assert!(!bootstrap_session_generation_is_expected(7, 7, 7));
-    assert!(!bootstrap_session_generation_is_expected(7, 7, 9));
-    assert!(!bootstrap_session_generation_is_expected(6, 7, 8));
+    use BootstrapGenerationDisposition::{Expected, Stale, Unexpected};
+
+    assert_eq!(classify_bootstrap_generation(0, 0, 1), Expected);
+    assert_eq!(classify_bootstrap_generation(7, 7, 8), Expected);
+    // Launcher generation is pre-bound while the world still owns its prior
+    // generation. Gaps cover the first connection and later reconnects.
+    assert_eq!(classify_bootstrap_generation(2, 0, 2), Expected);
+    assert_eq!(classify_bootstrap_generation(8, 3, 8), Expected);
+    assert_eq!(classify_bootstrap_generation(8, 7, 7), Stale);
+    assert_eq!(classify_bootstrap_generation(8, 7, 6), Stale);
+    assert_eq!(classify_bootstrap_generation(7, 7, 9), Unexpected);
+    assert_eq!(classify_bootstrap_generation(6, 7, 8), Unexpected);
 }

@@ -61,8 +61,8 @@ use crate::{
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, publish_actor_render_frame, receive_network_events,
-            spawn_network,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, publish_actor_render_frame,
+            receive_network_events, spawn_network,
         },
         phase3_evidence::{
             Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
@@ -493,6 +493,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(present_mode_runtime)
         .insert_resource(core_process)
         .insert_resource(network)
+        .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(ClientWorld::new_with_entity_assets(
             Arc::clone(&runtime_assets),
             entity_runtime,

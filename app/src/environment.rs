@@ -147,6 +147,16 @@ pub(crate) fn replace_session(
     };
 }
 
+/// Rebinds an accepted StartGame snapshot to its transport session identity.
+pub(crate) fn bind_session_generation(
+    clock: &mut WorldClock,
+    weather: &mut WeatherState,
+    generation: u64,
+) {
+    clock.session_generation = generation;
+    weather.session_generation = generation;
+}
+
 /// Applies one FIFO-committed environment control.
 ///
 /// Returns `true` when the control was environment-only. Spatial controls,
@@ -340,7 +350,7 @@ mod tests {
 
     use super::{
         EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
-        derive_atmosphere_frame, derive_atmosphere_frame_for_medium,
+        bind_session_generation, derive_atmosphere_frame, derive_atmosphere_frame_for_medium,
         derive_profiled_atmosphere_frame, replace_session, visual_world_time,
     };
     use client_world::CommittedControlEvent;
@@ -360,7 +370,6 @@ mod tests {
             lightning_level,
         }
     }
-
     #[test]
     fn start_game_replacement_resets_time_and_replaces_exact_environment_snapshot() {
         let mut clock = WorldClock::default();
@@ -414,8 +423,11 @@ mod tests {
         assert_eq!(weather.rain_level(), 1.0);
         assert_eq!(weather.lightning_level(), 0.0);
         assert_eq!(weather.last_update_sequence(), None);
-    }
 
+        bind_session_generation(&mut clock, &mut weather, 8);
+        assert_eq!(clock.session_generation(), 8);
+        assert_eq!(weather.session_generation(), 8);
+    }
     #[test]
     fn committed_updates_preserve_signed_time_channel_targets_and_order() {
         let mut clock = WorldClock::default();
@@ -468,7 +480,6 @@ mod tests {
         assert_eq!(weather.lightning_level(), 0.75);
         assert_eq!(weather.last_update_sequence(), Some(14));
     }
-
     #[test]
     fn dimension_change_is_not_an_environment_session_replacement() {
         let mut clock = WorldClock::default();
@@ -501,7 +512,6 @@ mod tests {
         assert_eq!(clock, before_clock);
         assert_eq!(weather, before_weather);
     }
-
     #[test]
     fn running_clock_anchors_each_set_time_and_advances_at_twenty_ticks_per_second() {
         let mut clock = WorldClock::default();
@@ -538,7 +548,6 @@ mod tests {
         assert_eq!(clock.server_time(), Some(12_000.0));
         assert_eq!(clock.last_update_sequence(), Some(2));
     }
-
     #[test]
     fn stopped_clock_set_time_replaces_frozen_tick_and_signed_times_use_euclidean_days() {
         let mut clock = WorldClock::default();
@@ -579,7 +588,6 @@ mod tests {
         assert!((frame.day_fraction() - (23_999.0 / 24_000.0)).abs() < 1.0e-6);
         assert_eq!(frame.moon_phase(), 7);
     }
-
     #[test]
     fn daylight_cycle_changes_freeze_current_tick_and_resume_from_that_anchor() {
         let mut clock = WorldClock::default();
@@ -615,7 +623,6 @@ mod tests {
         assert_eq!(visual_world_time(clock, 101.0), 6_070.0);
         assert_eq!(clock.last_update_sequence(), Some(11));
     }
-
     #[test]
     fn cardinal_bedrock_times_drive_exact_sun_quadrants_and_moon_phases() {
         let mut clock = WorldClock::default();
@@ -666,7 +673,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn atmosphere_bounds_weather_and_session_replacement_reanchors_initial_time() {
         let mut clock = WorldClock::default();
@@ -705,7 +711,6 @@ mod tests {
             0
         );
     }
-
     #[test]
     fn active_camera_medium_is_applied_after_clock_and_weather_derivation() {
         let mut clock = WorldClock::default();
@@ -725,7 +730,6 @@ mod tests {
         assert_eq!(frame.thunder_level(), 0.75);
         assert_eq!(frame.sun_direction(), [0.0, 1.0, 0.0]);
     }
-
     #[test]
     fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting_route() {
         let mut clock = WorldClock::default();
@@ -770,7 +774,6 @@ mod tests {
             Some("minecraft:end_lighting")
         );
     }
-
     #[test]
     fn known_camera_biome_takes_precedence_over_dimension_fallback() {
         let context = EnvironmentContext {
@@ -790,7 +793,6 @@ mod tests {
         assert_eq!(route.biome_identifier.as_deref(), Some("minecraft:plains"));
         assert_eq!(frame.fog_end(), 256.0);
     }
-
     #[test]
     fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
         let context = EnvironmentContext {
@@ -810,7 +812,6 @@ mod tests {
         assert_eq!(frame.fog_start(), 235.52);
         assert_eq!(frame.fog_end(), 256.0);
     }
-
     #[test]
     fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
         let context = EnvironmentContext {
@@ -840,7 +841,6 @@ mod tests {
         );
         assert_eq!(frame.fog_end(), 60.0);
     }
-
     #[test]
     fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         let mut clock = WorldClock::default();

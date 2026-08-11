@@ -25,6 +25,7 @@ client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
 meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
+resource-pack = { path = "../crates/resource-pack" }
 rayon.workspace = true
 render = { path = "../crates/render" }
 semantic-input = { path = "../crates/input" }

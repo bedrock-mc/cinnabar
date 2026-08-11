@@ -49,6 +49,7 @@ pub enum NetworkControlEvent {
         player_game_mode: PlayerGameMode,
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
+        resource_packs: resource_pack::PackAdmission,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -519,7 +520,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
                         let _ = send_control_event_or_cancel(
@@ -532,6 +533,18 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         )
                         .await;
                         return;
+                    }
+                };
+                // The login handoff is one-shot. Take and validate it before
+                // publishing any StartGame state; optional semantic rejection
+                // remains a live base-assets session.
+                let handoff = session.take_resource_pack_handoff();
+                let resource_packs = if handoff.is_empty() {
+                    resource_pack::PackAdmission::None
+                } else {
+                    match resource_pack::validate_handoff(handoff) {
+                        Ok(stack) => resource_pack::PackAdmission::Validated(stack),
+                        Err(reason) => resource_pack::PackAdmission::Rejected(reason),
                     }
                 };
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
@@ -553,6 +566,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         player_game_mode,
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
+                        resource_packs,
                     },
                 )
                 .await

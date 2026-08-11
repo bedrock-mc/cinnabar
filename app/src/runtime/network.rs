@@ -32,7 +32,7 @@ use crate::{
         },
     },
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
-    environment::replace_session,
+    environment::{bind_session_generation, replace_session},
     local_player::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
@@ -57,7 +57,9 @@ use crate::{
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
-
+pub(crate) use resource_packs::{
+    BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
+};
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
     spawn_network,
@@ -220,18 +222,6 @@ pub(crate) fn route_inventory_ingress(
     Ok(sequence)
 }
 
-pub(crate) const fn bootstrap_session_generation_is_expected(
-    ui_session_generation: u64,
-    world_session_generation: u64,
-    incoming_session_generation: u64,
-) -> bool {
-    ui_session_generation == world_session_generation
-        && matches!(
-            world_session_generation.checked_add(1),
-            Some(expected) if expected == incoming_session_generation
-        )
-}
-
 fn consume_equipment_route(
     runtime: &mut UiRuntime,
     session_generation: u64,
@@ -262,6 +252,7 @@ fn consume_equipment_route(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
+    mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
@@ -308,21 +299,26 @@ pub(crate) fn receive_network_events(
                 player_game_mode,
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
+                resource_packs,
             } => {
-                if !bootstrap_session_generation_is_expected(
+                match classify_bootstrap_generation(
                     ui_runtime.session_id(),
                     clock.session_generation(),
                     session_generation,
                 ) {
-                    record_fatal_error(
-                        &mut client_world.fatal_error,
-                        format!(
-                            "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
-                            ui_runtime.session_id(),
-                            clock.session_generation()
-                        ),
-                    );
-                    continue;
+                    BootstrapGenerationDisposition::Expected => {}
+                    BootstrapGenerationDisposition::Stale => continue,
+                    BootstrapGenerationDisposition::Unexpected => {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!(
+                                "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
+                                ui_runtime.session_id(),
+                                clock.session_generation()
+                            ),
+                        );
+                        continue;
+                    }
                 }
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
@@ -341,6 +337,7 @@ pub(crate) fn receive_network_events(
                     environment,
                     time.elapsed_secs_f64(),
                 );
+                bind_session_generation(&mut clock, &mut weather, session_generation);
                 ui_runtime.begin_session(session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
@@ -351,6 +348,7 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 };
+                resource_pack_admission.replace_for_generation(session_generation, resource_packs);
                 ui_runtime.publish_inventory_authority(authority);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
@@ -530,6 +528,7 @@ pub(crate) fn receive_network_events(
                 message,
                 decode_error_count,
             } => {
+                resource_pack_admission.clear_current();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -543,6 +542,7 @@ pub(crate) fn receive_network_events(
                 );
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
+                resource_pack_admission.clear_current();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -991,5 +991,5 @@ pub(crate) fn publish_actor_render_frame(
         rejects: frame.rig.rejects,
     });
 }
-
+mod resource_packs;
 pub(crate) mod session;

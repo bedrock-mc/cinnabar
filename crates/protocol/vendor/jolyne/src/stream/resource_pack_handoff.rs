@@ -44,6 +44,24 @@ pub struct ResourcePackArchive {
     pub content_key: ResourcePackContentKey,
 }
 
+impl ResourcePackArchive {
+    /// Builds a locally sourced archive that has no content-encryption key.
+    pub fn unencrypted(
+        pack_id: uuid::Uuid,
+        version: String,
+        sub_pack_name: String,
+        archive: Vec<u8>,
+    ) -> Self {
+        Self {
+            pack_id,
+            version,
+            sub_pack_name,
+            archive,
+            content_key: ResourcePackContentKey(Vec::new()),
+        }
+    }
+}
+
 /// One-shot login handoff. Archives are captured but never parsed or applied.
 #[derive(Default)]
 pub struct ResourcePackHandoff {
@@ -52,6 +70,11 @@ pub struct ResourcePackHandoff {
 
 impl ResourcePackHandoff {
     pub(crate) fn new(archives: Vec<ResourcePackArchive>) -> Self {
+        Self { archives }
+    }
+
+    /// Builds a one-shot handoff from already captured archive carriers.
+    pub fn from_archives(archives: Vec<ResourcePackArchive>) -> Self {
         Self { archives }
     }
 
