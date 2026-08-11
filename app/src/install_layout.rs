@@ -157,6 +157,11 @@ impl InstallLayout {
     }
 
     #[must_use]
+    pub fn resource_pack_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    #[must_use]
     pub fn server_file(&self) -> PathBuf {
         self.user_config_root.join("servers.json")
     }
@@ -384,6 +389,10 @@ mod tests {
             layout.catalog_file(41),
             PathBuf::from("/work/cinnabar/.local/cinnabar/catalog-41.json")
         );
+        assert_eq!(
+            layout.resource_pack_cache_dir(),
+            PathBuf::from("/work/cinnabar/.local/resource-packs/v1/objects")
+        );
     }
 
     #[test]
@@ -401,6 +410,10 @@ mod tests {
         assert_eq!(
             layout.auth_cache(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/microsoft-token.json")
+        );
+        assert_eq!(
+            layout.resource_pack_cache_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/resource-packs/v1/objects")
         );
     }
 
@@ -423,6 +436,10 @@ mod tests {
             layout.runtime_root,
             PathBuf::from("/run/user/1000/cinnabar")
         );
+        assert_eq!(
+            layout.resource_pack_cache_dir(),
+            PathBuf::from("/data/cinnabar/resource-packs/v1/objects")
+        );
     }
 
     #[test]
@@ -442,6 +459,12 @@ mod tests {
         assert_eq!(
             layout.core_executable,
             PathBuf::from("/Applications/Cinnabar.app/Contents/MacOS/bedrock-core")
+        );
+        assert_eq!(
+            layout.resource_pack_cache_dir(),
+            PathBuf::from(
+                "/Users/dev/Library/Application Support/Cinnabar/resource-packs/v1/objects"
+            )
         );
     }
 

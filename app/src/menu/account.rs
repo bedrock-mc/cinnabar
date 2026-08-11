@@ -176,6 +176,22 @@ mod tests {
     };
 
     use super::*;
+    use crate::install_layout::{InstallEnvironment, Platform};
+
+    fn launch_layout_with_spaces() -> InstallLayout {
+        InstallLayout::resolve(
+            Platform::Linux,
+            &InstallEnvironment {
+                executable: PathBuf::from("/opt/Cinnabar Client/bin/bedrock-client"),
+                home: Some(PathBuf::from("/home/Player One")),
+                local_app_data: None,
+                xdg_config_home: Some(PathBuf::from("/cfg/Player One")),
+                xdg_data_home: Some(PathBuf::from("/data/Player One")),
+                xdg_runtime_dir: Some(PathBuf::from("/run/user/1000")),
+            },
+        )
+        .unwrap()
+    }
 
     #[test]
     fn cached_validation_runs_once_but_cancel_is_sticky() {
@@ -260,23 +276,45 @@ mod tests {
 
     #[test]
     fn core_child_args_are_offline_unless_authentication_was_validated() {
+        let layout = launch_layout_with_spaces();
         let offline = core_command_for_address(
+            &layout,
             Path::new("bedrock-core"),
-            Path::new("run"),
+            Path::new("run with spaces"),
             "example.test:19132",
             None,
         );
         let offline_args = offline.get_args().map(OsString::from).collect::<Vec<_>>();
         assert_eq!(
             offline_args,
-            ["-socket-dir", "run", "-upstream", "example.test:19132"].map(OsString::from)
+            [
+                OsString::from("-socket-dir"),
+                OsString::from("run with spaces"),
+                OsString::from("-upstream"),
+                OsString::from("example.test:19132"),
+                OsString::from("-resource-pack-cache-dir"),
+                layout.resource_pack_cache_dir().into_os_string(),
+            ]
+        );
+        assert_eq!(
+            offline_args
+                .iter()
+                .filter(|arg| *arg == "-resource-pack-cache-dir")
+                .count(),
+            1
+        );
+        assert!(
+            !offline_args
+                .iter()
+                .any(|arg| arg == "-resource-pack-cache-quota-bytes")
         );
 
         let authenticated = core_command_for_address(
+            &layout,
             Path::new("bedrock-core"),
-            Path::new("run"),
+            Path::new("run with spaces"),
             "example.test:19132",
-            Some(Path::new("validated-token.json")),
+            Some(Path::new("validated token.json")),
         );
         let authenticated_args = authenticated
             .get_args()
@@ -285,14 +323,15 @@ mod tests {
         assert_eq!(
             authenticated_args,
             [
-                "-socket-dir",
-                "run",
-                "-upstream",
-                "example.test:19132",
-                "-auth-cache",
-                "validated-token.json",
+                OsString::from("-socket-dir"),
+                OsString::from("run with spaces"),
+                OsString::from("-upstream"),
+                OsString::from("example.test:19132"),
+                OsString::from("-resource-pack-cache-dir"),
+                layout.resource_pack_cache_dir().into_os_string(),
+                OsString::from("-auth-cache"),
+                OsString::from("validated token.json"),
             ]
-            .map(OsString::from)
         );
     }
 

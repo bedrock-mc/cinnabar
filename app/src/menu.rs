@@ -848,7 +848,8 @@ pub(crate) fn spawn_core_for_address(
         )
     })?;
     clear_stale_bridge_endpoint(socket_dir)?;
-    let mut command = core_command_for_address(&executable, socket_dir, address, auth_cache);
+    let mut command =
+        core_command_for_address(layout, &executable, socket_dir, address, auth_cache);
     let child = command
         .spawn()
         .with_context(|| format!("spawn {} for {address}", executable.display()))?;
@@ -856,6 +857,7 @@ pub(crate) fn spawn_core_for_address(
 }
 
 fn core_command_for_address(
+    layout: &InstallLayout,
     executable: &Path,
     socket_dir: &Path,
     address: &str,
@@ -867,6 +869,8 @@ fn core_command_for_address(
         .arg(socket_dir)
         .arg("-upstream")
         .arg(address)
+        .arg("-resource-pack-cache-dir")
+        .arg(layout.resource_pack_cache_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
