@@ -270,6 +270,7 @@ $expectedPmmpFiles = [ordered]@{
     "block_state_meta_map.json" = [pscustomobject]@{ Sha256 = "2987cbdf1a2ed2291e5130c4817abcdd3c2e1eed483a94370432bba4b13ad101"; Size = 137947L }
     "block_properties_table.json" = [pscustomobject]@{ Sha256 = "c9eb2a1b7751ba874ddeb04237d2a0013121a1bf03e1d5c75a78a08bae020abd"; Size = 351816L }
     "biome_definitions.json" = [pscustomobject]@{ Sha256 = "1e0e9e0ae95992fb90269a48590eb9b16c262512960e985d793bcd63de511aa2"; Size = 48614L }
+    "biome_id_map.json" = [pscustomobject]@{ Sha256 = "4f27df3f1e58476fc65e337f7cf3e275f65a98b6c40ea46c31b24016b85e0052"; Size = 2279L }
     "LICENSE" = [pscustomobject]@{ Sha256 = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"; Size = 7048L }
 }
 Assert-Equal $expectedPmmpFiles.Count $pmmpFiles.Count "PMMP file inventory changed"

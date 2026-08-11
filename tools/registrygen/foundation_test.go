@@ -37,9 +37,11 @@ const validBlockedFoundation = `{
   },
   "missing": [
     "retail_block_projection",
-    "numeric_biome_projection",
     "authoritative_light_projection"
-  ]
+  ],
+  "projection_bindings": {
+    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+  }
 }`
 
 func TestRegistryFoundationAcceptsExactBlockedEvidence(t *testing.T) {
@@ -52,7 +54,6 @@ func TestRegistryFoundationAcceptsExactBlockedEvidence(t *testing.T) {
 	}
 	want := []MissingProjection{
 		MissingRetailBlockProjection,
-		MissingNumericBiomeProjection,
 		MissingAuthoritativeLightProjection,
 	}
 	if strings.Join(result.MissingStrings(), ",") != strings.Join(missingStrings(want), ",") {
@@ -107,9 +108,11 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 	ready = strings.Replace(ready, `,
   "missing": [
     "retail_block_projection",
-    "numeric_biome_projection",
     "authoritative_light_projection"
-  ]`, ``, 1)
+  ],
+  "projection_bindings": {
+    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+  }`, ``, 1)
 	if _, err := ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
 		t.Fatal("accepted ready foundation without projection bindings")
 	}
@@ -121,6 +124,12 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 	if result.Status != FoundationReady || len(result.Missing) != 0 {
 		t.Fatalf("ready result = %#v", result)
 	}
+	wrongBiome := strings.Replace(ready,
+		"5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
+	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
+		t.Fatal("accepted ready foundation with a different biome projection binding")
+	}
 }
 
 func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
@@ -128,7 +137,6 @@ func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
 	outputs := []string{
 		"crates/assets/data/block-registry-v2168.bin",
 		"crates/assets/data/block-light-registry-v2168.bin",
-		"crates/assets/data/biome-registry-v2168.bin",
 	}
 	for _, output := range outputs {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(output))); !errors.Is(err, os.ErrNotExist) {
@@ -263,16 +271,17 @@ func validReadyFoundation() string {
 	ready = strings.Replace(ready, `,
   "missing": [
     "retail_block_projection",
-    "numeric_biome_projection",
     "authoritative_light_projection"
-  ]`, ``, 1)
-	bindings := `,
+  ],
+  "projection_bindings": {
+    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+  }`, `,
   "projection_bindings": {
     "block": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-    "biome": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"},
     "light": {"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
-  }`
-	return strings.TrimSuffix(ready, "\n}") + bindings + "\n}"
+  }`, 1)
+	return ready
 }
 
 func commandExitCode(err error) int {

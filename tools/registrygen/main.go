@@ -333,6 +333,10 @@ func main() {
 	physicsBREG := flag.String("physics-breg", "", "existing reviewed BREG1003 whose exact bytes the physics registry binds")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	biomeCoverage := flag.String("biome-coverage", "", "reviewed numeric biome coverage manifest")
+	biomeV2168Executable := flag.String("biome-v2168-executable", "", "local exact public BDS executable")
+	biomeV2168PMMP := flag.String("biome-v2168-pmmp", "", "pinned PMMP biome ID map")
+	biomeV2168Allowlist := flag.String("biome-v2168-allowlist", "", "reviewed retail biome allowlist")
+	biomeV2168Manifest := flag.String("biome-v2168-manifest", "", "path to write the v2168 projection manifest")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	coverageManifest := flag.String("coverage", "", "reviewed numeric canonical-state coverage manifest")
@@ -343,6 +347,21 @@ func main() {
 	fallbackBREG := flag.String("fallback-breg", "", "projected BREG1003 used to select fallback exclusions")
 	refreshBindings := flag.Bool("refresh-bindings", false, "bind derived registries to the newly generated BREG")
 	flag.Parse()
+	if *biomeV2168Executable != "" || *biomeV2168PMMP != "" || *biomeV2168Allowlist != "" || *biomeV2168Manifest != "" {
+		if *biomeOut == "" || *biomeV2168Executable == "" || *biomeV2168PMMP == "" || *biomeV2168Allowlist == "" || *biomeV2168Manifest == "" ||
+			*biomeCoverage != "" || *out != "" || *lightOut != "" || *lightBREG != "" || *physicsOut != "" ||
+			*physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" || *prismarineRoot != "" ||
+			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" || *fallbackIn != "" ||
+			*fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
+			fmt.Fprintln(os.Stderr, "registrygen: v2168 biome mode requires only its executable, PMMP map, allowlist, output, and manifest flags")
+			os.Exit(2)
+		}
+		if err := writeV2168BiomeProjection(*biomeV2168Executable, *biomeV2168PMMP, *biomeV2168Allowlist, *biomeOut, *biomeV2168Manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *biomeOut != "" && *out == "" && *lightOut == "" {
 		if *biomeCoverage == "" || *lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" ||
 			*physicsBREG != "" || *pmmpRoot != "" || *prismarineRoot != "" || *coverageManifest != "" ||
