@@ -41,7 +41,7 @@ pub use blob_cache::{
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    click_block_packet, use_actor_packet,
+    click_block_packet, destroy_block_packet, use_actor_packet,
 };
 pub use inventory::{
     ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,

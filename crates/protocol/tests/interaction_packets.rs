@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, NetworkItemStack, VerifiedNetworkItemStack, click_block_packet, decode_batch,
-    encode, use_actor_packet,
+    BlockUseRequest, InventoryPacketError, NetworkItemStack, VerifiedNetworkItemStack,
+    click_block_packet, decode_batch, destroy_block_packet, encode, use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_40::{
@@ -17,6 +17,9 @@ use valentine::bedrock::version::v1_26_40::{
 const CLICK_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_click_block.bin");
 const CLICK_BLOCK_EMPTY_HAND: &[u8] =
     include_bytes!("../fixtures/inventory_transaction_click_block_empty_hand.bin");
+const DESTROY_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_destroy_block.bin");
+const DESTROY_BLOCK_EMPTY_HAND: &[u8] =
+    include_bytes!("../fixtures/inventory_transaction_destroy_block_empty_hand.bin");
 const ATTACK_ACTOR: &[u8] = include_bytes!("../fixtures/inventory_transaction_attack_actor.bin");
 const ATTACK_ACTOR_EMPTY_HAND: &[u8] =
     include_bytes!("../fixtures/inventory_transaction_attack_actor_empty_hand.bin");
@@ -41,6 +44,13 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
 }
 
 fn assert_click_block_constants(packet: &protocol::Packet) {
+    assert_block_use_constants(packet, ItemUseInventoryTransactionActionType::Place);
+}
+
+fn assert_block_use_constants(
+    packet: &protocol::Packet,
+    expected_action: ItemUseInventoryTransactionActionType,
+) {
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
@@ -58,10 +68,7 @@ fn assert_click_block_constants(packet: &protocol::Packet) {
         "actions presence must be true"
     );
     assert!(transaction.actions.actions.is_empty());
-    assert_eq!(
-        transaction.action_type,
-        ItemUseInventoryTransactionActionType::Place
-    );
+    assert_eq!(transaction.action_type, expected_action);
     assert_eq!(
         transaction.trigger_type,
         ItemUseInventoryTransactionTriggerType::PlayerInput
@@ -189,6 +196,14 @@ fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseReque
     assert_eq!(encoded.as_ref(), fixture);
 }
 
+fn assert_destroy_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
+    let mut built = destroy_block_packet(request, &session()).expect("valid destroy-block request");
+    built.header.from_subclient = 1;
+    built.header.to_subclient = 2;
+    let encoded = encode(&built, &session()).expect("encode builder packet");
+    assert_eq!(encoded.as_ref(), fixture);
+}
+
 #[test]
 fn filled_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
     let packet = decode_one(CLICK_BLOCK, McpePacketName::InventoryTransactionPacket);
@@ -224,6 +239,42 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
             selected_item: verified_fixture_item(&packet),
             player_position: [-7.75, 64.5, 21.875],
             relative_hit: [0.75, 0.25, 0.5],
+            block_runtime_id: u64::from(u32::MAX),
+        },
+    );
+}
+
+#[test]
+fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
+    let filled = decode_one(DESTROY_BLOCK, McpePacketName::InventoryTransactionPacket);
+    assert_block_use_constants(&filled, ItemUseInventoryTransactionActionType::Destroy);
+    assert_destroy_builder_matches_fixture(
+        DESTROY_BLOCK,
+        BlockUseRequest {
+            block_position: [24, 68, -41],
+            face: 3,
+            selected_slot: 5,
+            selected_item: verified_fixture_item(&filled),
+            player_position: [24.625, 69.5, -40.125],
+            relative_hit: [0.625, 0.375, 0.875],
+            block_runtime_id: 654_321,
+        },
+    );
+
+    let empty = decode_one(
+        DESTROY_BLOCK_EMPTY_HAND,
+        McpePacketName::InventoryTransactionPacket,
+    );
+    assert_block_use_constants(&empty, ItemUseInventoryTransactionActionType::Destroy);
+    assert_destroy_builder_matches_fixture(
+        DESTROY_BLOCK_EMPTY_HAND,
+        BlockUseRequest {
+            block_position: [-17, 92, 6],
+            face: 1,
+            selected_slot: 0,
+            selected_item: verified_fixture_item(&empty),
+            player_position: [-16.5, 93.625, 6.25],
+            relative_hit: [0.5, 1.0, 0.25],
             block_runtime_id: u64::from(u32::MAX),
         },
     );
@@ -332,6 +383,85 @@ fn click_block_builder_rejects_invalid_face_slot_position_and_runtime_id() {
         click_block_packet(request, &session()).unwrap_err(),
         BlockUsePacketError::BlockRuntimeIdOutOfRange(u64::from(u32::MAX) + 1)
     );
+
+    let mut request = base_request();
+    request.selected_item = oversized_wire_item();
+    assert_eq!(
+        click_block_packet(request, &session()).unwrap_err(),
+        BlockUsePacketError::InvalidSelectedItem(InventoryPacketError::InvalidItemNetworkId(
+            i32::from(i16::MAX) + 1,
+        ))
+    );
+}
+
+fn oversized_wire_item() -> VerifiedNetworkItemStack {
+    let digest: [u8; 32] = Sha256::digest([]).into();
+    VerifiedNetworkItemStack::try_new(
+        NetworkItemStack {
+            network_id: i32::from(i16::MAX) + 1,
+            metadata: 0,
+            stack_network_id: 1,
+            count: 1,
+            nbt_digest: digest,
+            block_runtime_id: 0,
+            extra_data: Arc::from([]),
+        },
+        digest,
+    )
+    .expect("item is valid before conversion to the protocol-2168 i16 carrier")
+}
+
+#[test]
+fn destroy_block_builder_shares_block_use_validation() {
+    let invalid_requests = [
+        {
+            let mut request = base_request();
+            request.face = 6;
+            request
+        },
+        {
+            let mut request = base_request();
+            request.selected_slot = 9;
+            request
+        },
+        {
+            let mut request = base_request();
+            request.player_position[1] = f32::INFINITY;
+            request
+        },
+        {
+            let mut request = base_request();
+            request.relative_hit[2] = f32::NAN;
+            request
+        },
+        {
+            let mut request = base_request();
+            request.block_runtime_id = u64::from(u32::MAX) + 1;
+            request
+        },
+        {
+            let mut request = base_request();
+            request.selected_item = oversized_wire_item();
+            request
+        },
+    ];
+    let expected_errors = [
+        BlockUsePacketError::InvalidFace(6),
+        BlockUsePacketError::InvalidSelectedSlot(9),
+        BlockUsePacketError::NonFinitePlayerPosition,
+        BlockUsePacketError::NonFiniteRelativeHit,
+        BlockUsePacketError::BlockRuntimeIdOutOfRange(u64::from(u32::MAX) + 1),
+        BlockUsePacketError::InvalidSelectedItem(InventoryPacketError::InvalidItemNetworkId(
+            i32::from(i16::MAX) + 1,
+        )),
+    ];
+
+    for (request, expected) in invalid_requests.into_iter().zip(expected_errors) {
+        assert_eq!(
+            destroy_block_packet(request, &session()).unwrap_err(),
+            expected
+        );
+    }
 }
 
 #[test]

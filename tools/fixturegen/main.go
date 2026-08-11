@@ -423,6 +423,48 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "InventoryTransactionDestroyBlock",
+			file: "inventory_transaction_destroy_block.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemTransactionData{
+					ActionType:          protocol.UseItemActionBreakBlock,
+					TriggerType:         protocol.TriggerTypePlayerInput,
+					BlockPosition:       protocol.BlockPos{24, 68, -41},
+					BlockFace:           3,
+					HotBarSlot:          5,
+					HeldItem:            inventoryItem(9, 3, 15),
+					Position:            mgl32.Vec3{24.625, 69.5, -40.125},
+					ClickedPosition:     mgl32.Vec3{0.625, 0.375, 0.875},
+					BlockRuntimeID:      654_321,
+					ClientPrediction:    protocol.ClientPredictionFailure,
+					ClientCooldownState: protocol.ClientCooldownStateOff,
+				},
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "9f42f3679a573fc4b51104569cc4f422036e28ec",
+		},
+		{
+			name: "InventoryTransactionDestroyBlockEmptyHand",
+			file: "inventory_transaction_destroy_block_empty_hand.bin",
+			pk: &packet.InventoryTransaction{
+				TransactionData: &protocol.UseItemTransactionData{
+					ActionType:          protocol.UseItemActionBreakBlock,
+					TriggerType:         protocol.TriggerTypePlayerInput,
+					BlockPosition:       protocol.BlockPos{-17, 92, 6},
+					BlockFace:           1,
+					HotBarSlot:          0,
+					HeldItem:            protocol.ItemInstance{},
+					Position:            mgl32.Vec3{-16.5, 93.625, 6.25},
+					ClickedPosition:     mgl32.Vec3{0.5, 1, 0.25},
+					BlockRuntimeID:      ^uint32(0),
+					ClientPrediction:    protocol.ClientPredictionFailure,
+					ClientCooldownState: protocol.ClientCooldownStateOff,
+				},
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "9f42f3679a573fc4b51104569cc4f422036e28ec",
+		},
+		{
 			name: "InventoryTransactionAttackActor",
 			file: "inventory_transaction_attack_actor.bin",
 			pk: &packet.InventoryTransaction{

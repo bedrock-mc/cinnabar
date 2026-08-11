@@ -32,7 +32,7 @@ func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
 	}
 
 	filled := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_click_block.bin"))
-	assertClickBlockTransaction(t, filled, protocol.BlockPos{13, 71, -29}, 5, 7,
+	assertBlockUseTransaction(t, filled, protocol.UseItemActionClickBlock, protocol.BlockPos{13, 71, -29}, 5, 7,
 		mgl32.Vec3{13.25, 72.625, -28.75}, mgl32.Vec3{0.125, 0.875, 0.625}, 123_456)
 	filledData := filled.TransactionData.(*protocol.UseItemTransactionData)
 	if filledData.HeldItem.Stack.NetworkID != 5 || filledData.HeldItem.Stack.Count != 2 || filledData.HeldItem.StackNetworkID != 11 {
@@ -40,12 +40,22 @@ func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
 	}
 
 	empty := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_click_block_empty_hand.bin"))
-	assertClickBlockTransaction(t, empty, protocol.BlockPos{-8, 63, 21}, 0, 0,
+	assertBlockUseTransaction(t, empty, protocol.UseItemActionClickBlock, protocol.BlockPos{-8, 63, 21}, 0, 0,
 		mgl32.Vec3{-7.75, 64.5, 21.875}, mgl32.Vec3{0.75, 0.25, 0.5}, ^uint32(0))
 	emptyData := empty.TransactionData.(*protocol.UseItemTransactionData)
 	if emptyData.HeldItem.Stack.NetworkID != 0 || emptyData.HeldItem.Stack.Count != 0 || emptyData.HeldItem.StackNetworkID != 0 {
 		t.Fatalf("empty held item = %+v, want canonical empty item", emptyData.HeldItem)
 	}
+
+	destroy := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_destroy_block.bin"))
+	assertBlockUseTransaction(t, destroy, protocol.UseItemActionBreakBlock, protocol.BlockPos{24, 68, -41}, 3, 5,
+		mgl32.Vec3{24.625, 69.5, -40.125}, mgl32.Vec3{0.625, 0.375, 0.875}, 654_321)
+	assertFixtureItem(t, destroy.TransactionData.(*protocol.UseItemTransactionData).HeldItem, 9, 3, 15)
+
+	destroyEmpty := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_destroy_block_empty_hand.bin"))
+	assertBlockUseTransaction(t, destroyEmpty, protocol.UseItemActionBreakBlock, protocol.BlockPos{-17, 92, 6}, 1, 0,
+		mgl32.Vec3{-16.5, 93.625, 6.25}, mgl32.Vec3{0.5, 1, 0.25}, ^uint32(0))
+	assertFixtureItem(t, destroyEmpty.TransactionData.(*protocol.UseItemTransactionData).HeldItem, 0, 0, 0)
 
 	attack := decodeClientFixture(t, filepath.Join(out, "inventory_transaction_attack_actor.bin"))
 	assertActorUseTransaction(t, attack, 0x0102_0304_0506_0708, protocol.UseItemOnEntityActionAttack,
@@ -138,7 +148,7 @@ func decodeClientPacket(t *testing.T, path string) packet.Packet {
 	return decoded
 }
 
-func assertClickBlockTransaction(t *testing.T, transaction *packet.InventoryTransaction, block protocol.BlockPos,
+func assertBlockUseTransaction(t *testing.T, transaction *packet.InventoryTransaction, action uint32, block protocol.BlockPos,
 	face, slot int32, player, click mgl32.Vec3, runtimeID uint32) {
 	t.Helper()
 	if transaction.LegacyRequestID != 0 || len(transaction.LegacySetItemSlots) != 0 || len(transaction.Actions) != 0 {
@@ -149,7 +159,7 @@ func assertClickBlockTransaction(t *testing.T, transaction *packet.InventoryTran
 	if !ok {
 		t.Fatalf("transaction data = %T, want use-item", transaction.TransactionData)
 	}
-	if data.ActionType != protocol.UseItemActionClickBlock || data.TriggerType != protocol.TriggerTypePlayerInput ||
+	if data.ActionType != action || data.TriggerType != protocol.TriggerTypePlayerInput ||
 		data.BlockPosition != block || data.BlockFace != face || data.HotBarSlot != slot || data.Position != player ||
 		data.ClickedPosition != click || data.BlockRuntimeID != runtimeID ||
 		data.ClientPrediction != protocol.ClientPredictionFailure || data.ClientCooldownState != protocol.ClientCooldownStateOff {
@@ -203,13 +213,15 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ItemStackResponse",
 		"InventoryTransactionClickBlock",
 		"InventoryTransactionClickBlockEmptyHand",
+		"InventoryTransactionDestroyBlock",
+		"InventoryTransactionDestroyBlockEmptyHand",
 		"InventoryTransactionAttackActor",
 		"InventoryTransactionAttackActorEmptyHand",
 		"InventoryTransactionInteractActor",
 		"InventoryTransactionInteractActorEmptyHand",
 		"ContainerClose",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 47}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -231,6 +243,8 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0xb2, 0x48},
 		{0xb0, 0x48},
 		{0x94, 0x49},
+		{0x9e, 0x48},
+		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0x9e, 0x48},
@@ -289,6 +303,11 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 			}
 			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "9f42f3679a573fc4b51104569cc4f422036e28ec" {
 				t.Fatalf("biome definition fixture provenance = (%q, %q)", entry.WireAuthority, entry.WireCommit)
+			}
+		}
+		if entry.Name == "InventoryTransactionDestroyBlock" || entry.Name == "InventoryTransactionDestroyBlockEmptyHand" {
+			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "9f42f3679a573fc4b51104569cc4f422036e28ec" {
+				t.Fatalf("destroy-block fixture provenance = (%q, %q)", entry.WireAuthority, entry.WireCommit)
 			}
 		}
 	}

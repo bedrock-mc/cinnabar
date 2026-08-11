@@ -156,6 +156,24 @@
     "sha256": "3bd736915819b4881fd040e3b712d552700c838f321194d4c37510c93d9c0695"
   },
   {
+    "name": "InventoryTransactionDestroyBlock",
+    "file": "inventory_transaction_destroy_block.bin",
+    "id": 30,
+    "byte_length": 85,
+    "sha256": "e340e5c6b18fa3006860d8af2282d3f1fc6ace52b83019a157b6310fc814769a",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
+  },
+  {
+    "name": "InventoryTransactionDestroyBlockEmptyHand",
+    "file": "inventory_transaction_destroy_block_empty_hand.bin",
+    "id": 30,
+    "byte_length": 57,
+    "sha256": "e9c682d90e18ae7de03c0382f25e95b2fbd71184652afe10e4edc88af3501bb0",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
+  },
+  {
     "name": "InventoryTransactionAttackActor",
     "file": "inventory_transaction_attack_actor.bin",
     "id": 30,
