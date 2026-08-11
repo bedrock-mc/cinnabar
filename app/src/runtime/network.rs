@@ -32,7 +32,7 @@ use crate::{
         },
     },
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
-    environment::replace_session,
+    environment::{bind_session_generation, replace_session},
     local_player::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
@@ -337,6 +337,7 @@ pub(crate) fn receive_network_events(
                     environment,
                     time.elapsed_secs_f64(),
                 );
+                bind_session_generation(&mut clock, &mut weather, session_generation);
                 ui_runtime.begin_session(session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
