@@ -1,5 +1,6 @@
 mod animation;
 mod atmosphere;
+mod audio;
 mod biome;
 mod compiler;
 mod entity;
@@ -14,6 +15,10 @@ pub use animation::AnimationInventory;
 pub use assets::BlockFace;
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
+};
+pub use audio::{
+    AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, AudioCompileError, AudioCompileReport,
+    CompiledAudioCarrier, PINNED_SOUND_DEFINITIONS_SHA256, compile_audio_assets,
 };
 pub use biome::compile_biome_assets;
 pub use compiler::{compile_pack, compile_pack_with_biomes, inspect_animation_inventory};
