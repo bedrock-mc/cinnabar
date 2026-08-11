@@ -1,6 +1,26 @@
 use bevy::prelude::Resource;
 use resource_pack::PackAdmission;
 
+pub(crate) const fn bootstrap_session_generation_is_expected(
+    ui_generation: u64,
+    world_generation: u64,
+    incoming_generation: u64,
+) -> bool {
+    ui_generation == world_generation
+        && matches!(
+            world_generation.checked_add(1),
+            Some(expected) if expected == incoming_generation
+        )
+}
+
+pub(crate) const fn bootstrap_session_generation_is_stale(
+    ui_generation: u64,
+    world_generation: u64,
+    incoming_generation: u64,
+) -> bool {
+    incoming_generation <= world_generation || incoming_generation < ui_generation
+}
+
 /// Generation-bound admission for the current session's optional pack stack.
 /// Asset application remains unavailable; this resource only owns validated bytes.
 #[derive(Debug, Resource)]

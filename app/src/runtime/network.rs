@@ -57,7 +57,10 @@ use crate::{
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
-pub(crate) use resource_packs::ResourcePackAdmissionState;
+pub(crate) use resource_packs::{
+    ResourcePackAdmissionState, bootstrap_session_generation_is_expected,
+    bootstrap_session_generation_is_stale,
+};
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
     spawn_network,
@@ -220,18 +223,6 @@ pub(crate) fn route_inventory_ingress(
     Ok(sequence)
 }
 
-pub(crate) const fn bootstrap_session_generation_is_expected(
-    ui_session_generation: u64,
-    world_session_generation: u64,
-    incoming_session_generation: u64,
-) -> bool {
-    ui_session_generation == world_session_generation
-        && matches!(
-            world_session_generation.checked_add(1),
-            Some(expected) if expected == incoming_session_generation
-        )
-}
-
 fn consume_equipment_route(
     runtime: &mut UiRuntime,
     session_generation: u64,
@@ -316,6 +307,13 @@ pub(crate) fn receive_network_events(
                     clock.session_generation(),
                     session_generation,
                 ) {
+                    if bootstrap_session_generation_is_stale(
+                        ui_runtime.session_id(),
+                        clock.session_generation(),
+                        session_generation,
+                    ) {
+                        continue;
+                    }
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         format!(

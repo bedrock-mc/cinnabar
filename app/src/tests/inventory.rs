@@ -5,8 +5,9 @@ use protocol::{
 
 use crate::{
     runtime::network::{
-        EquipmentIngress, bootstrap_session_generation_is_expected, publish_equipment_identity,
-        route_equipment_ingress, route_inventory_ingress, session::SequencedWorldEvent,
+        EquipmentIngress, bootstrap_session_generation_is_expected,
+        bootstrap_session_generation_is_stale, publish_equipment_identity, route_equipment_ingress,
+        route_inventory_ingress, session::SequencedWorldEvent,
     },
     ui_runtime::{MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
 };
@@ -255,4 +256,8 @@ fn bootstrap_generation_must_match_the_next_ui_and_world_session() {
     assert!(!bootstrap_session_generation_is_expected(7, 7, 7));
     assert!(!bootstrap_session_generation_is_expected(7, 7, 9));
     assert!(!bootstrap_session_generation_is_expected(6, 7, 8));
+    assert!(bootstrap_session_generation_is_stale(8, 7, 7));
+    assert!(bootstrap_session_generation_is_stale(8, 7, 6));
+    assert!(!bootstrap_session_generation_is_stale(8, 7, 8));
+    assert!(!bootstrap_session_generation_is_stale(7, 7, 9));
 }

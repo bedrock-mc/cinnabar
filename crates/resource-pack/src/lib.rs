@@ -243,13 +243,54 @@ pub fn validate_handoff(
 
 #[cfg(all(test, feature = "handoff"))]
 mod handoff_tests {
-    use protocol::ResourcePackHandoff;
+    use std::io::{Cursor, Write};
 
-    use super::validate_handoff;
+    use protocol::{ResourcePackArchive, ResourcePackHandoff};
+    use uuid::Uuid;
+    use zip::{ZipWriter, write::SimpleFileOptions};
+
+    use super::{AdmissionError, validate_handoff};
+
+    const PACK_ID: Uuid = Uuid::from_u128(0x11111111_2222_3333_4444_555555555555);
+
+    fn archive(bytes: Vec<u8>) -> ResourcePackArchive {
+        ResourcePackArchive::unencrypted(PACK_ID, "1.2.3".into(), String::new(), bytes)
+    }
+
+    fn valid_zip() -> Vec<u8> {
+        let manifest = format!(
+            r#"{{"format_version":2,"header":{{"name":"test","description":"test","uuid":"{PACK_ID}","version":[1,2,3]}},"modules":[{{"type":"resources","uuid":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","version":[1,2,3]}}]}}"#
+        );
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("manifest.json", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(manifest.as_bytes()).unwrap();
+        writer.finish().unwrap().into_inner()
+    }
 
     #[test]
     fn empty_production_handoff_is_validated_without_archives() {
         let stack = validate_handoff(ResourcePackHandoff::default()).expect("empty handoff");
         assert!(stack.packs().is_empty());
+    }
+
+    #[test]
+    fn nonempty_production_handoff_preserves_selected_metadata() {
+        let handoff = ResourcePackHandoff::from_archives(vec![archive(valid_zip())]);
+        let stack = validate_handoff(handoff).expect("valid handoff");
+        assert_eq!(stack.packs().len(), 1);
+        assert_eq!(stack.packs()[0].pack_id(), PACK_ID);
+        assert_eq!(stack.packs()[0].version(), "1.2.3");
+        assert_eq!(stack.packs()[0].sub_pack_name(), "");
+    }
+
+    #[test]
+    fn nonempty_production_handoff_rejects_malformed_archive_atomically() {
+        let handoff = ResourcePackHandoff::from_archives(vec![archive(vec![0; 32])]);
+        assert!(matches!(
+            validate_handoff(handoff),
+            Err(AdmissionError::InvalidZipFooter)
+        ));
     }
 }
