@@ -7,9 +7,14 @@ use assets::{
     MAX_AUDIO_IDENTIFIER_BYTES, MAX_AUDIO_PATH_BYTES, MAX_AUDIO_SUBTITLE_BYTES,
     encode_audio_catalog,
 };
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, io::Read, path::Path};
 use thiserror::Error;
 
 pub const AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH: &str = "sounds/sound_definitions.json";
@@ -51,22 +56,26 @@ pub fn compile_audio_assets(
     if !root.is_dir() {
         return invalid("audio pack root is not a directory");
     }
-    let path = root.join(AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH);
-    let metadata = fs::symlink_metadata(&path).map_err(|source| AudioCompileError::Read {
-        path: path.display().to_string().into_boxed_str(),
-        source,
+    let directory = Dir::open_ambient_dir(&root, ambient_authority()).map_err(|source| {
+        AudioCompileError::Read {
+            path: root.display().to_string().into_boxed_str(),
+            source,
+        }
     })?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return invalid("sound_definitions.json must be a regular non-symlink file");
-    }
-    let canonical = path
-        .canonicalize()
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = directory
+        .open_with(AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, &options)
         .map_err(|source| AudioCompileError::Read {
-            path: path.display().to_string().into_boxed_str(),
+            path: AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH.into(),
             source,
         })?;
-    if !canonical.starts_with(&root) {
-        return invalid("sound_definitions.json resolves outside the pack root");
+    let metadata = file.metadata().map_err(|source| AudioCompileError::Read {
+        path: AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH.into(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return invalid("sound_definitions.json must be a regular file");
     }
     let source_len = usize::try_from(metadata.len()).map_err(|_| {
         AudioCompileError::Invalid("sound definitions length exceeds platform".into())
@@ -74,10 +83,16 @@ pub fn compile_audio_assets(
     if source_len > MAX_AUDIO_SOURCE_BYTES {
         return invalid("sound definitions source exceeds the 2 MiB bound");
     }
-    let source = fs::read(&canonical).map_err(|source| AudioCompileError::Read {
-        path: canonical.display().to_string().into_boxed_str(),
-        source,
-    })?;
+    let mut source = Vec::with_capacity(source_len);
+    file.take((MAX_AUDIO_SOURCE_BYTES + 1) as u64)
+        .read_to_end(&mut source)
+        .map_err(|source| AudioCompileError::Read {
+            path: AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH.into(),
+            source,
+        })?;
+    if source.len() != source_len {
+        return invalid("sound definitions changed while its open handle was read");
+    }
     compile_audio_source(
         &source,
         source_manifest_sha256,
@@ -301,6 +316,7 @@ fn invalid<T>(detail: impl Into<Box<str>>) -> Result<T, AudioCompileError> {
 mod tests {
     use super::*;
     use assets::RuntimeAudioCatalog;
+    use std::fs;
     use tempfile::tempdir;
 
     fn compile(source: &[u8]) -> Result<CompiledAudioCarrier, AudioCompileError> {
@@ -381,7 +397,44 @@ mod tests {
         fs::create_dir_all(directory.path().join("sounds/sound_definitions.json")).unwrap();
         assert!(matches!(
             compile_audio_assets(directory.path(), manifest),
-            Err(AudioCompileError::Invalid(_))
+            Err(AudioCompileError::Invalid(_) | AudioCompileError::Read { .. })
         ));
+    }
+
+    #[test]
+    fn filesystem_entrypoint_rejects_a_linked_source_directory_without_following_it() {
+        let directory = tempdir().unwrap();
+        let pack = directory.path().join("pack");
+        let outside = directory.path().join("outside");
+        fs::create_dir_all(&pack).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("sound_definitions.json"), b"not the pin").unwrap();
+        create_directory_link(&pack.join("sounds"), &outside).unwrap();
+        let manifest = include_bytes!("../../../assets/vanilla-source.json");
+        assert!(matches!(
+            compile_audio_assets(&pack, manifest),
+            Err(AudioCompileError::Read { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(target, link)
+    }
+
+    #[cfg(windows)]
+    fn create_directory_link(link: &Path, target: &Path) -> std::io::Result<()> {
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "mklink /J failed with {status}"
+            )))
+        }
     }
 }

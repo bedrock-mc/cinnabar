@@ -7,6 +7,8 @@ publish = false
 
 [dependencies]
 assets = { path = "../assets" }
+cap-fs-ext = "3.4.5"
+cap-std = "3.4.5"
 clap = { version = "4", features = ["derive"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "tga"] }
