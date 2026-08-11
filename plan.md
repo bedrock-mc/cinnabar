@@ -77,7 +77,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
-runtime state through `6a4e999a`.
+runtime state through `6653ea56`.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
@@ -99,17 +99,17 @@ runtime identity, canonicalizes runtime lease paths before mutation, and keeps t
 content-carrier `v1001` identity distinct from the wire protocol. No native BDS or client
 acceptance run has been performed for this integration.
 
-The transitional block/light/physics/visual carriers remain bound to the older 16,913-state
-content corpus. Their retail projection is internally deterministic and fail-closed, but it
-does not make them current 1.26.40 content. Current 1.26.40 identity inputs contain 17,499
-states; migration must produce versioned `v2168` BREG/LREG/BIOREG carriers first, then close
-current physics and dependent visual evidence before switching any production default.
-Cross-version carrier fallback is forbidden. A standalone versioned `BIOREG01` carrier now binds
-the exact 88-entry public-retail numeric biome projection while remaining outside all production
-defaults. The tracked protocol-2168 foundation manifest validates as partially complete and is
-blocked only on the public retail block projection and authoritative light projection. It cannot
-authorize a production switch until those remaining bindings and their dependent physics/visual
-evidence close coherently.
+The transitional block/light/physics/visual production carriers remain bound to the older
+16,913-state content corpus. Their retail projection is internally deterministic and fail-closed,
+but it does not make them current 1.26.40 content. Standalone versioned protocol-2168 carriers now
+bind all 17,499 current block identities, their exact block-light table, and the exact 88-entry
+public-retail numeric biome projection. The BREG and LREG hashes are respectively
+`e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8` and
+`88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272`; BIOREG remains
+`5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c`.
+The protocol-2168 foundation manifest is structurally ready, but every production default remains
+on v1001 until current physics and dependent visual evidence close as one coherent switch.
+Cross-version carrier fallback is forbidden.
 
 Current implementation state:
 
@@ -119,8 +119,11 @@ Current implementation state:
   StartGame world clock is separated from the provisional local prediction-tick anchor.
 - Replay-stable local Jump Boost, Levitation, and Slow Falling snapshots have landed with
   correction-safe history. A bounded collision-shape-aware block interaction ray query has
-  also landed, but neither tranche closes the remaining movement strata, outbound block
-  transactions, gameplay reach, or live server-authoritative acceptance.
+  also landed. The pinned simulator's consumable-use slowdown and replay snapshots are now
+  modeled behind an explicitly false production input; activation remains blocked on authoritative
+  consumable classification and item-use lifecycle. None of these tranches closes the remaining
+  movement strata, outbound block transactions, gameplay reach, or live server-authoritative
+  acceptance.
 - Actor CPU/GPU rig foundations have landed. Spawn and incremental actor links now feed a
   bounded, lifetime-safe riding-authority ledger; remote animation evaluation receives
   authoritative `query.is_riding`, and local mount changes reach the existing UI authority
@@ -173,8 +176,8 @@ Current implementation state:
 Immediate execution order:
 
 1. **Protocol/content debt closure:** the generated allocation guards, borrowed packet views,
-   bounded `LevelChunk` retained-byte hot path, and standalone v2168 BIOREG evidence are closed;
-   do not redo them. Finish the versioned protocol-2168 BREG/LREG evidence and switch
+   bounded `LevelChunk` retained-byte hot path, and standalone v2168 BREG/LREG/BIOREG evidence are
+   closed; do not redo them. Produce the dependent current physics and visual evidence, then switch
    block/light/biome/physics carriers only as one coherent, verified set. Keep conformance and
    adversarial coverage green.
 2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
