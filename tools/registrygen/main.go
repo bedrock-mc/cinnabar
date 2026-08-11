@@ -337,6 +337,11 @@ func main() {
 	biomeV2168PMMP := flag.String("biome-v2168-pmmp", "", "pinned PMMP biome ID map")
 	biomeV2168Allowlist := flag.String("biome-v2168-allowlist", "", "reviewed retail biome allowlist")
 	biomeV2168Manifest := flag.String("biome-v2168-manifest", "", "path to write the v2168 projection manifest")
+	blockV2168Source := flag.String("block-v2168-source", "", "pinned Dragonfly block_states.nbt for protocol 2168")
+	blockV2168LegacyBREG := flag.String("block-v2168-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
+	blockV2168LegacyLight := flag.String("block-v2168-legacy-light", "", "reviewed protocol-1001 LREG used for exact-key light projection")
+	blockV2168Allowlist := flag.String("block-v2168-allowlist", "", "reviewed retail item allowlist")
+	blockV2168Manifest := flag.String("block-v2168-manifest", "", "path to write the v2168 block projection manifest")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	coverageManifest := flag.String("coverage", "", "reviewed numeric canonical-state coverage manifest")
@@ -347,6 +352,22 @@ func main() {
 	fallbackBREG := flag.String("fallback-breg", "", "projected BREG1003 used to select fallback exclusions")
 	refreshBindings := flag.Bool("refresh-bindings", false, "bind derived registries to the newly generated BREG")
 	flag.Parse()
+	if *blockV2168Source != "" || *blockV2168LegacyBREG != "" || *blockV2168LegacyLight != "" || *blockV2168Allowlist != "" || *blockV2168Manifest != "" {
+		if *out == "" || *blockV2168Source == "" || *blockV2168LegacyBREG == "" || *blockV2168LegacyLight == "" ||
+			*blockV2168Allowlist == "" || *blockV2168Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
+			*biomeV2168Executable != "" || *biomeV2168PMMP != "" || *biomeV2168Allowlist != "" || *biomeV2168Manifest != "" ||
+			*lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" ||
+			*prismarineRoot != "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
+			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
+			fmt.Fprintln(os.Stderr, "registrygen: v2168 block mode requires its source, legacy registries, allowlist, output, and manifest flags")
+			os.Exit(2)
+		}
+		if err := writeV2168BlockProjection(*blockV2168Source, *blockV2168LegacyBREG, *blockV2168LegacyLight, *blockV2168Allowlist, *out, *lightOut, *blockV2168Manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *biomeV2168Executable != "" || *biomeV2168PMMP != "" || *biomeV2168Allowlist != "" || *biomeV2168Manifest != "" {
 		if *biomeOut == "" || *biomeV2168Executable == "" || *biomeV2168PMMP == "" || *biomeV2168Allowlist == "" || *biomeV2168Manifest == "" ||
 			*biomeCoverage != "" || *out != "" || *lightOut != "" || *lightBREG != "" || *physicsOut != "" ||
@@ -3232,8 +3253,8 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 	if len(records) > maxRecordCount {
 		return nil, fmt.Errorf("too many records: %d exceeds %d", len(records), maxRecordCount)
 	}
-	if metadata.Protocol != registryProtocol {
-		return nil, fmt.Errorf("registry protocol %d does not match %d", metadata.Protocol, registryProtocol)
+	if metadata.Protocol != registryProtocol && metadata.Protocol != v2168BlockProtocol {
+		return nil, fmt.Errorf("registry protocol %d is unsupported", metadata.Protocol)
 	}
 	if metadata.CanonicalStates != uint32(len(records)) {
 		return nil, fmt.Errorf("metadata canonical state count %d does not match %d records", metadata.CanonicalStates, len(records))

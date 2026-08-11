@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use crate::AssetError;
 
 const LIGHT_REGISTRY_MAGIC: &[u8; 8] = b"LREG1001";
-const LIGHT_REGISTRY_PROTOCOL: u32 = 1001;
+const LEGACY_LIGHT_REGISTRY_PROTOCOL: u32 = 1001;
 const LIGHT_REGISTRY_HEADER_BYTES: usize = 48;
 const HASH_BYTES: usize = 32;
 const MAX_LIGHT_RECORDS: usize = 65_536;
@@ -56,6 +56,19 @@ pub fn read_light_registry(
     breg: &[u8],
     expected_count: usize,
 ) -> Result<Box<[LightProperties]>, AssetError> {
+    read_light_registry_for_protocol(bytes, breg, expected_count, LEGACY_LIGHT_REGISTRY_PROTOCOL)
+}
+
+/// Decodes a strict `LREG1001` carrier for one explicit wire protocol.
+pub fn read_light_registry_for_protocol(
+    bytes: &[u8],
+    breg: &[u8],
+    expected_count: usize,
+    expected_protocol: u32,
+) -> Result<Box<[LightProperties]>, AssetError> {
+    if !matches!(expected_protocol, 1001 | 2168) {
+        return Err(invalid("unsupported LREG1001 wire protocol"));
+    }
     if expected_count > MAX_LIGHT_RECORDS {
         return Err(invalid("LREG1001 record count exceeds limit"));
     }
@@ -69,8 +82,7 @@ pub fn read_light_registry(
         ));
     }
     if &bytes[..8] != LIGHT_REGISTRY_MAGIC
-        || u32::from_le_bytes(bytes[8..12].try_into().expect("fixed protocol"))
-            != LIGHT_REGISTRY_PROTOCOL
+        || u32::from_le_bytes(bytes[8..12].try_into().expect("fixed protocol")) != expected_protocol
     {
         return Err(invalid("invalid LREG1001 header"));
     }

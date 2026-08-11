@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use crate::AssetError;
 
 const REGISTRY_MAGIC: &[u8; 8] = b"BREG1003";
-const REGISTRY_PROTOCOL: u32 = 1001;
+const LEGACY_REGISTRY_PROTOCOL: u32 = 1001;
 const RECORD_HEADER_BYTES: usize = 24 + 8 * 4;
 const MAX_REGISTRY_RECORDS: usize = 65_536;
 const MAX_REGISTRY_STATE_BYTES: usize = 1024 * 1024;
@@ -260,11 +260,22 @@ pub struct RegistryRecord {
 
 /// Reads the bounded protocol-1001 BREG1003 block registry.
 pub fn read_registry(bytes: &[u8]) -> Result<Box<[RegistryRecord]>, AssetError> {
+    read_registry_for_protocol(bytes, LEGACY_REGISTRY_PROTOCOL)
+}
+
+/// Reads a bounded `BREG1003` registry for one explicit wire protocol.
+pub fn read_registry_for_protocol(
+    bytes: &[u8],
+    expected_protocol: u32,
+) -> Result<Box<[RegistryRecord]>, AssetError> {
+    if !matches!(expected_protocol, 1001 | 2168) {
+        return Err(AssetError::InvalidRegistryMagic);
+    }
     let mut reader = Reader::new(bytes);
     if reader.read_exact(REGISTRY_MAGIC.len(), "registry magic")? != REGISTRY_MAGIC {
         return Err(AssetError::InvalidRegistryMagic);
     }
-    if reader.read_u32("registry protocol")? != REGISTRY_PROTOCOL {
+    if reader.read_u32("registry protocol")? != expected_protocol {
         return Err(AssetError::InvalidRegistryMagic);
     }
     let name_count = reader.read_u32("canonical name count")? as usize;
