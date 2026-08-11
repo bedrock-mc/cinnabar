@@ -12,12 +12,14 @@ mod cli;
 mod copy;
 mod hashing;
 mod layout;
+mod path;
 pub use cli::parse_args;
 use copy::{copy_validated, executable_destination};
 use hashing::hash_file;
 #[cfg(test)]
 use layout::ASSET_FILES;
 use layout::input_files;
+use path::canonicalize_top_level_alias;
 
 pub(crate) const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 pub(crate) const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
@@ -253,8 +255,9 @@ fn validate_lexical_path(path: &Path) -> Result<(), DistError> {
 }
 
 fn reject_existing_symlinks(path: &Path) -> Result<(), DistError> {
+    let checked = canonicalize_top_level_alias(path)?;
     let mut candidate = PathBuf::new();
-    for component in path.components() {
+    for component in checked.components() {
         candidate.push(component.as_os_str());
         match fs::symlink_metadata(&candidate) {
             Ok(meta) if meta.file_type().is_symlink() => {

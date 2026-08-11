@@ -1,4 +1,6 @@
 use super::{ASSET_FILES, DistError, Options, Platform, input_files, stage};
+#[cfg(unix)]
+use super::{canonicalize_top_level_alias, reject_existing_symlinks};
 use std::{
     fs,
     path::PathBuf,
@@ -138,5 +140,25 @@ fn refuses_output_nested_beneath_asset_input() {
     let (root, mut options) = fixture(Platform::Linux);
     options.output = options.assets.join("nested-output");
     assert!(matches!(stage(&options), Err(DistError::UnsafePath(_))));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn top_level_alias_resolution_preserves_nested_link_rejection() {
+    let root = temp_root();
+    let target = root.join("target");
+    fs::create_dir(&target).unwrap();
+    let nested = root.join("nested-alias");
+    std::os::unix::fs::symlink(&target, &nested).unwrap();
+
+    let raw = nested.join("input.bin");
+    let canonical_root = canonicalize_top_level_alias(&root).unwrap();
+    let canonical = canonicalize_top_level_alias(&raw).unwrap();
+    assert_eq!(canonical, canonical_root.join("nested-alias/input.bin"));
+    assert!(matches!(
+        reject_existing_symlinks(&raw),
+        Err(DistError::NotRegular(_))
+    ));
     fs::remove_dir_all(root).unwrap();
 }
