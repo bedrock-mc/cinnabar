@@ -44,6 +44,14 @@ mod publish;
 mod retained_hud;
 mod startup;
 mod texture_atlas;
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "dormant until presentation owns an exact walk-distance query cadence"
+    )
+)]
+mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
