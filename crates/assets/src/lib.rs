@@ -94,7 +94,7 @@ pub use lang::{
     MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, RuntimeLangCatalog,
     VANILLA_EN_US_LANG_SHA256, encode_lang_catalog,
 };
-pub use light_registry::{LightProperties, read_light_registry};
+pub use light_registry::{LightProperties, read_light_registry, read_light_registry_for_protocol};
 pub use model::{
     ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES, MODEL_QUAD_FLAG_CULL_FACE_MASK,
@@ -111,6 +111,7 @@ pub use physics_registry::{
 pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
+    read_registry_for_protocol,
 };
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
 pub use texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};

@@ -11,6 +11,11 @@ import (
 
 const maxFoundationBytes = 16 * 1024
 
+const (
+	v2168FoundationBlockSHA256 = "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"
+	v2168FoundationLightSHA256 = "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"
+)
+
 type FoundationStatus string
 
 const (
@@ -167,6 +172,10 @@ func validateFoundationFields(foundation registryFoundation) error {
 		}
 		if foundation.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
 			return errors.New("ready registry foundation must preserve the exact biome projection binding")
+		}
+		if foundation.ProjectionBindings.Block.SHA256 != v2168FoundationBlockSHA256 ||
+			foundation.ProjectionBindings.Light.SHA256 != v2168FoundationLightSHA256 {
+			return errors.New("ready registry foundation must bind the exact block and light projections")
 		}
 		for label, digest := range map[string]string{
 			"block": foundation.ProjectionBindings.Block.SHA256,

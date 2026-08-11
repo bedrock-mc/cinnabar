@@ -130,6 +130,11 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
 		t.Fatal("accepted ready foundation with a different biome projection binding")
 	}
+	wrongBlock := strings.Replace(ready, v2168FoundationBlockSHA256,
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBlock)); err == nil {
+		t.Fatal("accepted ready foundation with a different block projection binding")
+	}
 }
 
 func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
@@ -138,17 +143,21 @@ func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
 		"crates/assets/data/block-registry-v2168.bin",
 		"crates/assets/data/block-light-registry-v2168.bin",
 	}
+	before := make(map[string][]byte, len(outputs))
 	for _, output := range outputs {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(output))); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("output unexpectedly exists before validation: %s", output)
+		payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(output)))
+		if err != nil {
+			t.Fatalf("read checked output %s: %v", output, err)
 		}
+		before[output] = payload
 	}
 	if _, err := ValidateRegistryFoundation(strings.NewReader(validBlockedFoundation)); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
 	for _, output := range outputs {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(output))); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("validation created output: %s", output)
+		payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(output)))
+		if err != nil || !bytes.Equal(payload, before[output]) {
+			t.Fatalf("validation changed output: %s", output)
 		}
 	}
 }
@@ -178,8 +187,8 @@ func TestRegistryFoundationCommandExitContract(t *testing.T) {
 		args []string
 		want int
 	}{
-		{name: "valid blocked", args: []string{"-manifest", blocked}, want: 2},
-		{name: "valid blocked expected", args: []string{"-manifest", blocked, "-expect-blocked"}, want: 0},
+		{name: "checked ready", args: []string{"-manifest", blocked}, want: 0},
+		{name: "checked ready expected blocked", args: []string{"-manifest", blocked, "-expect-blocked"}, want: 1},
 		{name: "valid ready", args: []string{"-manifest", ready}, want: 0},
 		{name: "valid ready expected blocked", args: []string{"-manifest", ready, "-expect-blocked"}, want: 1},
 	}
@@ -218,7 +227,7 @@ func TestRegistryFoundationCommandExitContract(t *testing.T) {
 	}
 }
 
-func TestRegistryFoundationMakeTargetIsIsolatedAndBlocked(t *testing.T) {
+func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 	makefile, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
@@ -228,7 +237,7 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndBlocked(t *testing.T) {
 		".DEFAULT_GOAL := help",
 		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2168.json",
 		"registry-foundation-check:",
-		"-expect-blocked",
+		"Validate the exact protocol-2168 registry foundation",
 		"BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin",
 		"LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin",
 		"BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin",
@@ -277,9 +286,9 @@ func validReadyFoundation() string {
     "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
   }`, `,
   "projection_bindings": {
-    "block": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "block": {"sha256": "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"},
     "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"},
-    "light": {"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+    "light": {"sha256": "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"}
   }`, 1)
 	return ready
 }

@@ -179,6 +179,10 @@ func validate(value manifest) error {
 		if value.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
 			return errors.New("ready foundation must preserve the exact biome projection binding")
 		}
+		if value.ProjectionBindings.Block.SHA256 != "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8" ||
+			value.ProjectionBindings.Light.SHA256 != "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272" {
+			return errors.New("ready foundation must bind the exact block and light projections")
+		}
 		for _, digest := range []string{
 			value.ProjectionBindings.Block.SHA256,
 			value.ProjectionBindings.Biome.SHA256,

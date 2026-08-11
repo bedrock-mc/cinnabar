@@ -1,6 +1,6 @@
 {
   "schema": "cinnabar.registry-foundation.v1",
-  "status": "blocked",
+  "status": "ready",
   "game_version": "1.26.40",
   "protocol": 2168,
   "formats": {
@@ -26,13 +26,15 @@
       "overlay_sha256": "c52bbdfa8c92679595b5e342bee556a891a8aab91d5173f8670ff15e47e3efbb"
     }
   },
-  "missing": [
-    "retail_block_projection",
-    "authoritative_light_projection"
-  ],
   "projection_bindings": {
+    "block": {
+      "sha256": "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"
+    },
     "biome": {
       "sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"
+    },
+    "light": {
+      "sha256": "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"
     }
   }
 }
