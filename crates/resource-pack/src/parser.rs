@@ -165,9 +165,11 @@ fn validate_archive_parts(
         return Err(AdmissionError::ManifestTooLarge);
     }
     let mut files = HashMap::with_capacity(physical_entries.len());
+    let mut logical_keys = HashMap::with_capacity(physical_entries.len());
     for (path, entry) in &physical_entries {
         if !is_physical_subpack_path(path) {
             files.insert(path.clone(), entry.clone());
+            logical_keys.insert(path.to_lowercase(), path.clone());
         }
     }
     if !sub_pack_name.is_empty() {
@@ -176,14 +178,12 @@ fn validate_archive_parts(
                 if logical.eq_ignore_ascii_case("manifest.json") || logical.is_empty() {
                     return Err(AdmissionError::InvalidSubpack);
                 }
-                if let Some(root_key) = files
-                    .keys()
-                    .find(|root| root.eq_ignore_ascii_case(logical))
-                    .cloned()
+                let logical: Box<str> = logical.into();
+                if let Some(root_key) = logical_keys.insert(logical.to_lowercase(), logical.clone())
                 {
                     files.remove(root_key.as_ref());
                 }
-                files.insert(logical.into(), entry.clone());
+                files.insert(logical, entry.clone());
             }
         }
     }
@@ -714,7 +714,6 @@ mod tests {
     fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
         validate_archive_parts(PACK_ID, "1.2.3", selected, bytes).map(|(pack, _)| pack)
     }
-
     #[test]
     fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
         let manifest = manifest(
@@ -756,7 +755,6 @@ mod tests {
             ["textures/only.txt", "textures/root.txt"]
         );
     }
-
     #[test]
     fn root_selection_excludes_all_physical_subpacks() {
         let manifest =
@@ -773,7 +771,6 @@ mod tests {
         );
         assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
     }
-
     #[test]
     fn rejects_unsafe_duplicate_and_nonfile_entries() {
         let manifest = manifest("");
@@ -821,7 +818,6 @@ mod tests {
             AdmissionError::NonFileEntry
         );
     }
-
     #[test]
     fn rejects_zip64_sentinel_before_zip_parser_allocation() {
         let manifest = manifest("");
@@ -836,7 +832,6 @@ mod tests {
             Err(AdmissionError::UnsupportedZip64)
         );
     }
-
     #[test]
     fn rejects_zip_encryption_and_unsupported_compression() {
         let manifest = manifest("");
@@ -866,7 +861,6 @@ mod tests {
             AdmissionError::UnsupportedCompression
         );
     }
-
     #[test]
     fn rejects_malformed_jsonc_and_multiple_json_values() {
         for body in [
@@ -961,6 +955,38 @@ mod tests {
         let archive = writer.finish().unwrap().into_inner();
         let pack = validate_fixture(archive, "").expect("reference-scale central directory");
         assert_eq!(pack.entry_count(), REFERENCE_ENTRY_COUNT);
+    }
+
+    #[test]
+    fn maximum_entry_subpack_overlay_uses_bounded_key_index() {
+        let manifest =
+            manifest(r#", "subpacks": [{"folder_name":"high", "name":"High", "memory_tier":2}]"#);
+        let common = format!("assets/{}/", "a".repeat(420));
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("manifest.json", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(manifest.as_bytes()).unwrap();
+        for index in 0..16_383 {
+            writer
+                .start_file(
+                    format!("{common}{index:05}.txt"),
+                    SimpleFileOptions::default(),
+                )
+                .unwrap();
+        }
+        for index in 0..16_384 {
+            writer
+                .start_file(
+                    format!("subpacks/high/{common}{index:05}.txt"),
+                    SimpleFileOptions::default(),
+                )
+                .unwrap();
+        }
+        let archive = writer.finish().unwrap().into_inner();
+        let pack = validate_fixture(archive, "high").expect("maximum-entry selected subpack");
+        assert_eq!(pack.entry_count(), MAX_ENTRIES_PER_PACK);
+        assert_eq!(pack.files_under("assets/").len(), 16_384);
     }
 
     #[test]
