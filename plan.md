@@ -77,20 +77,21 @@ Local worlds run dragonfly behind the same core, over the same client path.
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
-runtime state through `32cb3f98`.
+runtime state through `4b424a2b`.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
 `c31450ff6e54b163acd72a95583ccaa71c001e6b` through module pseudo-version
 `v1.25.3-0.20260810220748-c31450ff6e54`. The two Go consumers and their checked-in
 provenance are synchronized to that public revision; all 27 checked-in fixture `.bin` files
-remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
-pinned wire/tooling baseline and a compile-time witness for the clone-safe negotiated pack-stack
-snapshot API only: it does not hand off or apply packs at runtime, change defaults, or constitute
+remain byte-for-byte unchanged. The Go and protocol test suites passed. The core now retains the
+clone-safe, validated selected pack stack in exact order for the prepared upstream session and
+uses that selected stack, rather than offer order, for optional/required policy. It still does not
+hand archive bytes or content keys to Rust, apply packs, change application defaults, or constitute
 live gameplay, native visual, or performance evidence.
 
 The pushed `dev` integration now also contains the independently reviewed protocol-2168
-wire projection, retail-safe transitional registry projection, exact 87-entry biome
+wire projection, retail-safe transitional registry projection, exact 88-entry biome
 projection, and protocol-2168 acceptance-harness update. The protocol crate exposes only
 the current generated version and preserves unavailable wire values as neutral reserved or
 opaque data. The acceptance harness validates the exact dependency revision and public BDS
@@ -103,10 +104,12 @@ content corpus. Their retail projection is internally deterministic and fail-clo
 does not make them current 1.26.40 content. Current 1.26.40 identity inputs contain 17,499
 states; migration must produce versioned `v2168` BREG/LREG/BIOREG carriers first, then close
 current physics and dependent visual evidence before switching any production default.
-Cross-version carrier fallback is forbidden. The tracked protocol-2168 foundation manifest
-currently validates as blocked: public retail block projection, numeric biome projection, and
-authoritative light projection evidence are still absent. It emits no carrier or checksum and
-is not wired into the production asset targets.
+Cross-version carrier fallback is forbidden. A standalone versioned `BIOREG01` carrier now binds
+the exact 88-entry public-retail numeric biome projection while remaining outside all production
+defaults. The tracked protocol-2168 foundation manifest validates as partially complete and is
+blocked only on the public retail block projection and authoritative light projection. It cannot
+authorize a production switch until those remaining bindings and their dependent physics/visual
+evidence close coherently.
 
 Current implementation state:
 
@@ -129,9 +132,10 @@ Current implementation state:
   verified cache is now wired into upstream admission behind explicit directory and quota
   configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed
   cache setup. A separate opt-in read-only Status v1 control endpoint and strict Rust bridge
-  reader expose secret-safe lifecycle and latest pack-admission state. Pack validation and
-  application, content-key handoff, resource-pack-driven UI, app presentation of status, and
-  live pack acceptance remain absent; no server pack is yet usable.
+  reader expose secret-safe lifecycle and latest pack-admission state. The exact validated selected
+  pack stack is retained with session ownership, but archive/key handoff, Rust-side validation and
+  application, resource-pack-driven UI, app presentation of status, and live pack acceptance remain
+  absent; no server pack is yet usable.
 - A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
   the 36 player slots and cursor have landed, including rollback, full-authority recovery,
   transport admission, and pointer routing. The same single-flight authority now supports a
@@ -145,10 +149,15 @@ Current implementation state:
   before wiring app senders.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
-  evidence remain open. Local worlds, audio, and packaging are absent.
+  evidence remain open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
+  an app same-frame delivery seam, but there is no sound-definition resolver or audible runtime.
+  Local worlds remain absent.
 - Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
-  path derivation have landed. Platform CI remains a continuing gate rather than evidence of
-  native gameplay parity.
+  path derivation have landed. A fallible installed/developer layout owner and unsigned local-only
+  bundle staging tool now produce deterministic Windows, macOS, and Linux layouts without changing
+  public distribution policy. Native installed launch, signing/notarization, installer generation,
+  and redistribution approval remain open. Platform CI remains a continuing gate rather than
+  evidence of native gameplay parity.
 - The open issue/PR sweep is current: obsolete phase trackers and the superseded broad pack
   ingestion branch are closed with recorded reasons. The remaining open items cover pack
   application, measured join latency, combat, and actor animation; none of their old branch
@@ -162,9 +171,10 @@ Current implementation state:
 Immediate execution order:
 
 1. **Protocol/content debt closure:** the generated allocation guards, borrowed packet views,
-   and bounded `LevelChunk` retained-byte hot path are closed; do not redo them. Finish the
-   versioned protocol-2168 BREG/LREG/BIOREG content evidence and switch block/light/physics
-   carriers only as one coherent, verified set. Keep conformance and adversarial coverage green.
+   bounded `LevelChunk` retained-byte hot path, and standalone v2168 BIOREG evidence are closed;
+   do not redo them. Finish the versioned protocol-2168 BREG/LREG evidence and switch
+   block/light/biome/physics carriers only as one coherent, verified set. Keep conformance and
+   adversarial coverage green.
 2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
    then validate the device-code and cached-account UX with explicit native/live evidence.
 3. **Resource packs:** the bounded persistent cache admission and versioned/correlated Status
