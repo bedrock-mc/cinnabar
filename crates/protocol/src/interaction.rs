@@ -86,6 +86,35 @@ pub fn click_block_packet(
     request: BlockUseRequest,
     session: &BedrockSession,
 ) -> Result<crate::Packet, BlockUsePacketError> {
+    block_use_packet(
+        request,
+        session,
+        ItemUseInventoryTransactionActionType::Place,
+    )
+}
+
+/// Builds a protocol-2168 player-input destroy-block transaction.
+///
+/// The packet carries no legacy slot records and no inventory actions. Its wire action is the
+/// public break-block semantic (discriminant 2), prediction is `Failure`, and cooldown is `Off`.
+/// Reach, mining progress, and permission checks remain caller-owned; this function only validates
+/// and encodes one already-authorised block interaction.
+pub fn destroy_block_packet(
+    request: BlockUseRequest,
+    session: &BedrockSession,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    block_use_packet(
+        request,
+        session,
+        ItemUseInventoryTransactionActionType::Destroy,
+    )
+}
+
+fn block_use_packet(
+    request: BlockUseRequest,
+    session: &BedrockSession,
+    action_type: ItemUseInventoryTransactionActionType,
+) -> Result<crate::Packet, BlockUsePacketError> {
     if request.face > 5 {
         return Err(BlockUsePacketError::InvalidFace(request.face));
     }
@@ -121,9 +150,7 @@ pub fn click_block_packet(
                     constant_0: true,
                     actions: Vec::new(),
                 },
-                // The generated spelling `Place` is the protocol-2168 discriminant that the
-                // pinned public implementation calls click-block.
-                action_type: ItemUseInventoryTransactionActionType::Place,
+                action_type,
                 trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
                 position: BlockPos { x, y, z },
                 face: request.face,
