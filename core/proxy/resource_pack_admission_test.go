@@ -25,17 +25,19 @@ import (
 
 type offerTestDownstream struct {
 	dialerTestDownstream
-	configured     bool
-	packs          []*resource.Pack
-	required       bool
-	err            error
-	writes         []packet.Packet
-	writeErr       error
-	writePanic     any
-	configPanic    any
-	writeStarted   chan struct{}
-	writeUnblock   <-chan struct{}
-	writeStartOnce sync.Once
+	configured      bool
+	configuredStack bool
+	stack           minecraft.ResourcePackStackSnapshot
+	packs           []*resource.Pack
+	required        bool
+	err             error
+	writes          []packet.Packet
+	writeErr        error
+	writePanic      any
+	configPanic     any
+	writeStarted    chan struct{}
+	writeUnblock    <-chan struct{}
+	writeStartOnce  sync.Once
 }
 
 func (downstream *offerTestDownstream) WritePacketImmediate(packets ...packet.Packet) error {
@@ -62,7 +64,18 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resou
 	return downstream.err
 }
 
-func TestConfigureResourcePackOfferStripsOptionalOffer(t *testing.T) {
+func (downstream *offerTestDownstream) ConfigureResourcePackStack(stack minecraft.ResourcePackStackSnapshot, required bool) error {
+	if downstream.configPanic != nil {
+		panic(downstream.configPanic)
+	}
+	downstream.configured = true
+	downstream.configuredStack = true
+	downstream.stack = stack
+	downstream.required = required
+	return downstream.err
+}
+
+func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack), new(resource.Pack)}
 	downstream := new(offerTestDownstream)
@@ -74,8 +87,8 @@ func TestConfigureResourcePackOfferStripsOptionalOffer(t *testing.T) {
 	if !downstream.configured {
 		t.Fatal("downstream offer was not configured")
 	}
-	if len(downstream.packs) != 0 || downstream.required {
-		t.Fatalf("downstream offer = (%d packs, required=%t), want empty optional offer", len(downstream.packs), downstream.required)
+	if !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (stack=%t, required=%t), want selected optional stack", downstream.configuredStack, downstream.required)
 	}
 	if got := len(upstream.ResourcePacks()); got != 2 {
 		t.Fatalf("retained upstream pack count = %d, want 2", got)
@@ -201,7 +214,7 @@ func TestSelectedStackPolicyDoesNotSubstituteOfferOrderOrCounts(t *testing.T) {
 	}
 }
 
-func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsStripped(t *testing.T) {
+func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsForwarded(t *testing.T) {
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t)}}
 	downstream := new(offerTestDownstream)
 	if err := configureResourcePackOffer(downstream, stack); err != nil {
@@ -210,8 +223,8 @@ func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsStripped(t *testin
 	if len(stack.packs) != 2 {
 		t.Fatalf("retained selected count = %d, want 2", len(stack.packs))
 	}
-	if !downstream.configured || len(downstream.packs) != 0 || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, count=%d, required=%t), want stripped optional", downstream.configured, len(downstream.packs), downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want selected optional handoff", downstream.configured, downstream.configuredStack, downstream.required)
 	}
 }
 

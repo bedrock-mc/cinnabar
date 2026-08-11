@@ -178,6 +178,7 @@ func shutdownPreparedServer(prepared *preparedConnections, stop func() error) er
 func takePreparedAfterAccept(prepared *preparedConnections, downstream *minecraft.Conn) (*preparedConnection, error) {
 	upstream, ok := prepared.take(downstream)
 	if ok {
+		upstream.packAdmission.observeLocalHandoff(upstream.packStack)
 		return upstream, nil
 	}
 	peerErr := downstream.Context().Err()

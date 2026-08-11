@@ -285,6 +285,12 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePacksInfoPacket {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            if len > 32 {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: 32,
+                });
+            }
             let mut tmp_vec =
                 crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(32))?;
             for _ in 0..len {
@@ -371,6 +377,12 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackStackPacket {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            if len > 39 {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: 39,
+                });
+            }
             let mut tmp_vec =
                 crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(3))?;
             for _ in 0..len {
@@ -6267,6 +6279,12 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackDataInfoPacket {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            if len > 32 {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: 32,
+                });
+            }
             let mut tmp_vec =
                 crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {
@@ -6378,6 +6396,12 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackChunkDataPacket {
                 return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
             }
             let len = crate::bedrock::codec::checked_signed_len(raw as i128)?;
+            if len > 1024 * 1024 {
+                return Err(crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                    declared: len,
+                    available: 1024 * 1024,
+                });
+            }
             let mut tmp_vec =
                 crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), Some(1))?;
             for _ in 0..len {

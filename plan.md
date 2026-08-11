@@ -77,17 +77,20 @@ Local worlds run dragonfly behind the same core, over the same client path.
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
-runtime state through `32cb3f98`.
+runtime state represented by this tree.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
-`c31450ff6e54b163acd72a95583ccaa71c001e6b` through module pseudo-version
-`v1.25.3-0.20260810220748-c31450ff6e54`. The two Go consumers and their checked-in
+`9f42f3679a573fc4b51104569cc4f422036e28ec` through module pseudo-version
+`v1.25.3-0.20260811002754-9f42f3679a57`. The two Go consumers and their checked-in
 provenance are synchronized to that public revision; all 27 checked-in fixture `.bin` files
 remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
-pinned wire/tooling baseline and a compile-time witness for the clone-safe negotiated pack-stack
-snapshot API only: it does not hand off or apply packs at runtime, change defaults, or constitute
-live gameplay, native visual, or performance evidence.
+pinned wire/tooling baseline and a compile-time witness for the clone-safe, sub-pack-preserving
+negotiated stack API. Nonempty optional selections are forwarded to the local client, where the
+ordered archives and memory-only content keys are bounded, validated, and exposed as a one-shot
+handoff. Nonempty required selections remain rejected. Archives are not extracted, parsed, or
+applied, application remains unavailable, and this is not live gameplay, native visual, or
+performance evidence.
 
 The pushed `dev` integration now also contains the independently reviewed protocol-2168
 wire projection, retail-safe transitional registry projection, exact 87-entry biome
@@ -124,14 +127,16 @@ Current implementation state:
   path. Rider attachment and pose completion, non-player families, held items, dropped
   items, and live actor acceptance remain open.
 - The Go core now performs one bounded upstream pack negotiation before downstream login.
-  Optional offers may be downloaded under explicit limits and are then declined downstream;
-  non-empty required offers fail with a typed pre-login reason. The owner-only persistent
+  Nonempty optional selections are forwarded in exact server-selected order, including the
+  selected sub-pack; nonempty required selections fail with a typed pre-login reason. Rust
+  bounds and validates each archive transfer and retains the selected archives and memory-only
+  content keys as a one-shot login handoff. The owner-only persistent
   verified cache is now wired into upstream admission behind explicit directory and quota
   configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed
   cache setup. A separate opt-in read-only Status v1 control endpoint and strict Rust bridge
-  reader expose secret-safe lifecycle and latest pack-admission state. Pack validation and
-  application, content-key handoff, resource-pack-driven UI, app presentation of status, and
-  live pack acceptance remain absent; no server pack is yet usable.
+  reader expose secret-safe lifecycle and latest pack-admission state. Pack-content validation
+  and parsing, archive extraction, application, resource-pack-driven UI, app presentation of
+  status, and live pack acceptance evidence remain absent; no server pack is yet usable.
 - A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
   the 36 player slots and cursor have landed, including rollback, full-authority recovery,
   transport admission, and pointer routing. The same single-flight authority now supports a

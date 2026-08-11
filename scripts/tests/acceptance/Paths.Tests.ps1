@@ -393,7 +393,7 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'c31450ff6e54b163acd72a95583ccaa71c001e6b'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'9f42f3679a573fc4b51104569cc4f422036e28ec'")) 'gophertunnel metadata commit is not the repository pin'
     Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'6cd8087fc3f0b500e41708a8afc94a0fa3291525'")) 'Valentine metadata omitted the reviewed fork revision'
     Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata omitted the upstream snapshot revision'

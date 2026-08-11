@@ -12,6 +12,9 @@ use transport::{BedrockTransport, Transport};
 
 pub mod transport;
 
+mod resource_pack_handoff;
+pub use resource_pack_handoff::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
@@ -123,14 +126,36 @@ pub struct ResourcePacks {
 impl State for ResourcePacks {}
 
 /// State: Connection is initialized, waiting for StartGame packet/processing.
-pub struct StartGame;
+#[derive(Default)]
+pub struct StartGame {
+    resource_pack_handoff: Option<ResourcePackHandoff>,
+}
 impl State for StartGame {}
 
 // --- Main Game State ---
 
 /// Final State: Fully authenticated, in-game. Ready to exchange game packets.
-pub struct Play;
+#[derive(Default)]
+pub struct Play {
+    resource_pack_handoff: Option<ResourcePackHandoff>,
+}
 impl State for Play {}
+
+impl StartGame {
+    fn with_resource_pack_handoff(handoff: ResourcePackHandoff) -> Self {
+        Self {
+            resource_pack_handoff: Some(handoff),
+        }
+    }
+}
+
+impl<R: Role, T: Transport> BedrockStream<Play, R, T> {
+    /// Takes the validated, ordered resource-pack archives captured during login.
+    /// The handoff is one-shot; subsequent calls return an empty collection.
+    pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
+        self.state.resource_pack_handoff.take().unwrap_or_default()
+    }
+}
 
 // --- Roles ---
 

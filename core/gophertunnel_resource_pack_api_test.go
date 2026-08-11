@@ -27,8 +27,12 @@ func TestGophertunnelResourcePackTransportAPI(t *testing.T) {
 	var _ func(*minecraft.Conn) []*resource.Pack = (*minecraft.Conn).ResourcePacks
 	var _ func(*minecraft.Conn) bool = (*minecraft.Conn).TexturePacksRequired
 	var _ func(*minecraft.Conn) (minecraft.ResourcePackStackSnapshot, bool) = (*minecraft.Conn).ResourcePackStack
+	var _ func(*minecraft.Conn, minecraft.ResourcePackStackSnapshot, bool) error = (*minecraft.Conn).ConfigureResourcePackStack
+	var _ func(minecraft.ResourcePackStackSnapshot) []minecraft.ResourcePackStackEntry = minecraft.ResourcePackStackSnapshot.Entries
 	var _ func(minecraft.ResourcePackStackSnapshot) []*resource.Pack = minecraft.ResourcePackStackSnapshot.Packs
 	var _ func(minecraft.ResourcePackStackSnapshot) bool = minecraft.ResourcePackStackSnapshot.Required
+	var _ func(minecraft.ResourcePackStackEntry) *resource.Pack = minecraft.ResourcePackStackEntry.Pack
+	var _ func(minecraft.ResourcePackStackEntry) string = minecraft.ResourcePackStackEntry.SubPackName
 	var _ func(*resource.Pack) *resource.Pack = (*resource.Pack).Clone
 
 	download := minecraft.ResourcePackDownloadConfig{

@@ -63,6 +63,7 @@ pub use item::{
     NetworkItemStack, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use jolyne::GameData;
+pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
     PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
