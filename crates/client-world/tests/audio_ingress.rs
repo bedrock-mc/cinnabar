@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use client_world::{
     COMMITTED_AUDIO_CAPACITY, MAX_ADMITTED_WORLD_EVENTS, WorldStream, WorldStreamError,
@@ -33,49 +36,54 @@ fn audio(name: &str) -> WorldEvent {
 
 #[test]
 fn audio_fifo_survives_interleaved_weather_and_block_updates() {
-    let mut stream = stream();
-    stream.submit(1, audio("first")).unwrap();
-    stream
-        .submit(
-            2,
-            WorldEvent::Weather(WeatherUpdateEvent {
-                channel: WeatherChannel::Rain,
-                level: 1.0,
-            }),
-        )
-        .unwrap();
-    stream
-        .submit(
-            3,
-            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
-                dimension: 0,
-                position: [0, 64, 0],
-                layer: 0,
-                network_id: 1,
-            }]),
-        )
-        .unwrap();
-    stream.submit(4, audio("second")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for attempt in 0..32 {
+        let mut stream = stream();
+        stream.submit(1, audio("first")).unwrap();
+        stream
+            .submit(
+                2,
+                WorldEvent::Weather(WeatherUpdateEvent {
+                    channel: WeatherChannel::Rain,
+                    level: 1.0,
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(
+                3,
+                WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                    dimension: 0,
+                    position: [0, 64, 0],
+                    layer: 0,
+                    network_id: 1,
+                }]),
+            )
+            .unwrap();
+        stream.submit(4, audio("second")).unwrap();
 
-    for _ in 0..1_000 {
-        stream.poll([0.0, 64.0, 0.0], 0);
-        if stream.committed_sequence() == 4 {
-            break;
+        while stream.committed_sequence() != 4 {
+            stream.poll([0.0, 64.0, 0.0], 0);
+            assert!(
+                Instant::now() < deadline,
+                "attempt {attempt} timed out after committing sequence {}; stats: {:?}",
+                stream.committed_sequence(),
+                stream.stats()
+            );
+            std::thread::sleep(Duration::from_millis(1));
         }
-        std::thread::yield_now();
+        let committed = stream.take_committed_audio();
+        assert_eq!(committed.len(), 2);
+        assert_eq!((committed[0].sequence, committed[1].sequence), (1, 4));
+        let AudioEvent::Play(first) = &committed[0].event else {
+            panic!("expected play event")
+        };
+        let AudioEvent::Play(second) = &committed[1].event else {
+            panic!("expected play event")
+        };
+        assert_eq!((&*first.name, &*second.name), ("first", "second"));
+        assert_eq!(stream.take_committed_controls().len(), 1);
     }
-    assert_eq!(stream.committed_sequence(), 4);
-    let committed = stream.take_committed_audio();
-    assert_eq!(committed.len(), 2);
-    assert_eq!((committed[0].sequence, committed[1].sequence), (1, 4));
-    let AudioEvent::Play(first) = &committed[0].event else {
-        panic!("expected play event")
-    };
-    let AudioEvent::Play(second) = &committed[1].event else {
-        panic!("expected play event")
-    };
-    assert_eq!((&*first.name, &*second.name), ("first", "second"));
-    assert_eq!(stream.take_committed_controls().len(), 1);
 }
 
 #[test]
