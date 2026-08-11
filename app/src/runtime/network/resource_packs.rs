@@ -1,24 +1,32 @@
 use bevy::prelude::Resource;
 use resource_pack::PackAdmission;
 
-pub(crate) const fn bootstrap_session_generation_is_expected(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BootstrapGenerationDisposition {
+    Expected,
+    Stale,
+    Unexpected,
+}
+
+pub(crate) const fn classify_bootstrap_generation(
     ui_generation: u64,
     world_generation: u64,
     incoming_generation: u64,
-) -> bool {
-    ui_generation == world_generation
+) -> BootstrapGenerationDisposition {
+    let directly_next = ui_generation == world_generation
         && matches!(
             world_generation.checked_add(1),
             Some(expected) if expected == incoming_generation
-        )
-}
-
-pub(crate) const fn bootstrap_session_generation_is_stale(
-    ui_generation: u64,
-    world_generation: u64,
-    incoming_generation: u64,
-) -> bool {
-    incoming_generation <= world_generation || incoming_generation < ui_generation
+        );
+    let pending_ui_generation =
+        incoming_generation == ui_generation && incoming_generation > world_generation;
+    if directly_next || pending_ui_generation {
+        BootstrapGenerationDisposition::Expected
+    } else if incoming_generation <= world_generation || incoming_generation < ui_generation {
+        BootstrapGenerationDisposition::Stale
+    } else {
+        BootstrapGenerationDisposition::Unexpected
+    }
 }
 
 /// Generation-bound admission for the current session's optional pack stack.

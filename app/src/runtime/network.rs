@@ -58,8 +58,7 @@ use crate::{
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
 pub(crate) use resource_packs::{
-    ResourcePackAdmissionState, bootstrap_session_generation_is_expected,
-    bootstrap_session_generation_is_stale,
+    BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
 };
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
@@ -302,27 +301,24 @@ pub(crate) fn receive_network_events(
                 player_game_mode_uses_world_default,
                 resource_packs,
             } => {
-                if !bootstrap_session_generation_is_expected(
+                match classify_bootstrap_generation(
                     ui_runtime.session_id(),
                     clock.session_generation(),
                     session_generation,
                 ) {
-                    if bootstrap_session_generation_is_stale(
-                        ui_runtime.session_id(),
-                        clock.session_generation(),
-                        session_generation,
-                    ) {
+                    BootstrapGenerationDisposition::Expected => {}
+                    BootstrapGenerationDisposition::Stale => continue,
+                    BootstrapGenerationDisposition::Unexpected => {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!(
+                                "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
+                                ui_runtime.session_id(),
+                                clock.session_generation()
+                            ),
+                        );
                         continue;
                     }
-                    record_fatal_error(
-                        &mut client_world.fatal_error,
-                        format!(
-                            "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
-                            ui_runtime.session_id(),
-                            clock.session_generation()
-                        ),
-                    );
-                    continue;
                 }
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
