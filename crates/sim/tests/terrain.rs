@@ -91,6 +91,48 @@ fn grounded(position: Vec3) -> PlayerState {
 }
 
 #[test]
+fn consumable_use_scales_ground_and_air_input_before_sneak_and_impulse() {
+    let world = TerrainWorld::floor(Vec3::new(-16.0, 0.0, -16.0), Vec3::new(16.0, 1.0, 16.0));
+    for (on_ground, sneaking, expected_factor) in [
+        (true, false, 0.1225),
+        (true, true, 0.03675),
+        (false, false, 0.1225),
+        (false, true, 0.03675),
+    ] {
+        let mut baseline = PlayerState::new(Vec3::new(0.0, if on_ground { 1.0 } else { 4.0 }, 0.0));
+        baseline.on_ground = on_ground;
+        let baseline_tick = Simulator::default()
+            .tick(
+                &mut baseline,
+                MovementInput {
+                    forward: 1.0,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        let mut state = PlayerState::new(Vec3::new(0.0, if on_ground { 1.0 } else { 4.0 }, 0.0));
+        state.on_ground = on_ground;
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    sneaking,
+                    using_consumable: true,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!(
+            (tick.movement.z - baseline_tick.movement.z * expected_factor).abs() <= 1.0e-12,
+            "{tick:?}"
+        );
+    }
+}
+
+#[test]
 fn flat_and_diagonal_motion_are_normalized_and_bind_world_identity() {
     let world = TerrainWorld::floor(Vec3::new(-16.0, 0.0, -16.0), Vec3::new(16.0, 1.0, 16.0));
     let mut straight = grounded(Vec3::new(0.0, 1.0, 0.0));
@@ -326,6 +368,7 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
                         jump_pressed: true,
                         sprinting: true,
                         sneaking: true,
+                        using_consumable: true,
                         movement_speed: None,
                         effects: sim::MovementEffects::default(),
                     };

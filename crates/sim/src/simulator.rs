@@ -31,6 +31,7 @@ const DEFAULT_AIR_SPEED: f64 = 0.02;
 const SPRINT_AIR_SPEED: f64 = 0.026;
 const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
 const SNEAK_INPUT_MULTIPLIER: f64 = 0.3;
+const CONSUMABLE_INPUT_MULTIPLIER: f64 = 0.1225;
 const INPUT_IMPULSE_MULTIPLIER: f64 = 0.98;
 const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 const JUMP_DELAY_TICKS: u8 = 10;
@@ -106,11 +107,14 @@ impl Simulator {
             DEFAULT_AIR_SPEED
         };
 
-        let max_input = if input.sneaking {
-            SNEAK_INPUT_MULTIPLIER
+        let mut max_input = if input.using_consumable {
+            CONSUMABLE_INPUT_MULTIPLIER
         } else {
             1.0
         };
+        if input.sneaking {
+            max_input *= SNEAK_INPUT_MULTIPLIER;
+        }
         apply_relative_movement(
             &mut next.velocity,
             input.strafe.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,

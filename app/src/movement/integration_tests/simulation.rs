@@ -466,16 +466,20 @@ fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
 
 #[test]
 fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
-    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true);
+    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, true);
     assert_eq!(active.strafe, -1.0, "D is bedsim's negative strafe");
     assert_eq!(active.forward, 1.0);
     assert_eq!(active.yaw_degrees, 180.0);
     assert!(active.jumping);
     assert!(active.sneaking);
     assert!(active.sprinting);
+    assert!(
+        !active.using_consumable,
+        "generic Use is not evidence that the held item is consumable"
+    );
 
     assert_eq!(
-        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true),
+        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, true),
         MovementInput::default()
     );
 }

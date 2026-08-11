@@ -116,13 +116,14 @@ type vec3 struct {
 }
 
 type movementInput struct {
-	Strafe      float64 `json:"strafe"`
-	Forward     float64 `json:"forward"`
-	YawDegrees  float64 `json:"yaw_degrees"`
-	Jumping     bool    `json:"jumping"`
-	JumpPressed bool    `json:"jump_pressed"`
-	Sprinting   bool    `json:"sprinting"`
-	Sneaking    bool    `json:"sneaking"`
+	Strafe          float64 `json:"strafe"`
+	Forward         float64 `json:"forward"`
+	YawDegrees      float64 `json:"yaw_degrees"`
+	Jumping         bool    `json:"jumping"`
+	JumpPressed     bool    `json:"jump_pressed"`
+	Sprinting       bool    `json:"sprinting"`
+	Sneaking        bool    `json:"sneaking"`
+	UsingConsumable bool    `json:"using_consumable,omitempty"`
 }
 
 type collisions struct {
@@ -365,6 +366,7 @@ func terrainScripts() []scenarioScript {
 		observedScript("flat_walk", world("flat_walk_world", floorBoxes, ordinary, 1), grounded, []movementInput{{Forward: 1}, {Forward: 1}}),
 		observedScript("diagonal", world("diagonal_world", floorBoxes, ordinary, 2), grounded, []movementInput{{Forward: 1, Strafe: 1}, {Forward: 1, Strafe: 1}}),
 		observedScript("sprint_jump", world("sprint_jump_world", floorBoxes, ordinary, 3), grounded, []movementInput{{Forward: 1, Jumping: true, JumpPressed: true, Sprinting: true}, {Forward: 1, Sprinting: true}}),
+		observedScript("consumable_slowdown", world("consumable_slowdown_world", floorBoxes, ordinary, 33), grounded, []movementInput{{Forward: 1, UsingConsumable: true}, {Forward: 1, Sneaking: true, UsingConsumable: true}}),
 	}
 	for index, edge := range []struct {
 		name     string
@@ -590,18 +592,19 @@ func writeScriptTrace(output io.Writer, script []movementInput) error {
 
 func toBedsimInput(before bedsim.MovementState, input movementInput) bedsim.InputState {
 	return bedsim.InputState{
-		MoveVector:     mgl64.Vec2{input.Strafe, input.Forward},
-		Yaw:            input.YawDegrees,
-		HeadYaw:        input.YawDegrees,
-		ClientPos:      before.Pos,
-		ClientVel:      before.Vel,
-		StartSprinting: input.Sprinting && !before.Sprinting,
-		StopSprinting:  !input.Sprinting && before.Sprinting,
-		SprintDown:     input.Sprinting,
-		StartJumping:   input.JumpPressed,
-		Jumping:        input.Jumping,
-		Sneaking:       input.Sneaking,
-		SneakDown:      input.Sneaking,
+		MoveVector:      mgl64.Vec2{input.Strafe, input.Forward},
+		Yaw:             input.YawDegrees,
+		HeadYaw:         input.YawDegrees,
+		ClientPos:       before.Pos,
+		ClientVel:       before.Vel,
+		StartSprinting:  input.Sprinting && !before.Sprinting,
+		StopSprinting:   !input.Sprinting && before.Sprinting,
+		SprintDown:      input.Sprinting,
+		StartJumping:    input.JumpPressed,
+		Jumping:         input.Jumping,
+		Sneaking:        input.Sneaking,
+		SneakDown:       input.Sneaking,
+		UsingConsumable: input.UsingConsumable,
 	}
 }
 
