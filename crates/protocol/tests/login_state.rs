@@ -1130,7 +1130,7 @@ async fn conflicting_start_game_runtime_ids_are_rejected() {
 }
 
 #[tokio::test]
-async fn non_empty_resource_pack_stack_is_rejected_before_completed_response() {
+async fn unadvertised_resource_pack_stack_is_rejected_before_completed_response() {
     let transport = ScriptTransport::new_with_pack_stack(
         CompressionMode::Deflate,
         SpawnOrder::RadiusThenSpawn,
@@ -1138,12 +1138,8 @@ async fn non_empty_resource_pack_stack_is_rejected_before_completed_response() {
         true,
     );
     let error = match LoginSequence::connect_transport(transport, "RustClient").await {
-        Ok(_) => panic!("non-empty resource pack stack must fail login"),
+        Ok(_) => panic!("unadvertised resource pack stack must fail login"),
         Err(error) => error,
     };
-    assert!(
-        error
-            .to_string()
-            .contains("Resource pack downloads are not implemented")
-    );
+    assert!(error.to_string().contains("resource-pack handoff failed"));
 }

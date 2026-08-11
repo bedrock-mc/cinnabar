@@ -1,5 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
@@ -23,14 +24,21 @@ use crate::raw::{MAX_RAW_BATCH_PACKETS, RawPacket};
 #[cfg(feature = "raknet")]
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
-    BedrockStream, Client, Handshake, Login, Play, ResourcePacks, SecurePending, StartGame,
+    BedrockStream, Client, Handshake, Login, Play, ResourcePackArchive, ResourcePackHandoff,
+    ResourcePacks, SecurePending, StartGame,
+    resource_pack_handoff::{
+        MAX_RESOURCE_PACK_BYTES, MAX_RESOURCE_PACK_CHUNK_BYTES, MAX_RESOURCE_PACK_CHUNKS,
+        MAX_RESOURCE_PACK_TOTAL_BYTES, MAX_RESOURCE_PACKS, ResourcePackContentKey,
+    },
     transport::{BedrockTransport, Transport},
 };
 use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
     ActorRuntimeId, ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket,
     LoginPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketPayloadDownloadingFinished,
+    ResourcePackChunkRequestPacket, ResourcePackClientResponsePacket,
+    ResourcePackClientResponsePacketPayloadDownloading,
+    ResourcePackClientResponsePacketPayloadDownloadingFinished,
     ResourcePackClientResponsePacketPayloadResourcePackStackFinished,
     ResourcePackClientResponsePacketResponse, ServerboundLoadingScreenPacket,
     ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
@@ -809,7 +817,7 @@ mod tests {
         transport.set_max_decompressed_batch_size(Some(16 * 1024 * 1024));
         BedrockStream {
             transport,
-            state: StartGame,
+            state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
             _role: PhantomData,
         }
     }
@@ -1035,7 +1043,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_empty_resource_pack_stack_is_rejected() {
+    async fn unadvertised_resource_pack_stack_is_rejected() {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
             texture_pack_list: vec![crate::valentine::PackInstanceId {
@@ -1057,14 +1065,10 @@ mod tests {
         };
 
         let error = match stream.handle_packs().await {
-            Ok(_) => panic!("a non-empty server pack stack must not be accepted"),
+            Ok(_) => panic!("an unadvertised server pack stack must not be accepted"),
             Err(error) => error,
         };
-        assert!(
-            error
-                .to_string()
-                .contains("Resource pack downloads are not implemented")
-        );
+        assert!(error.to_string().contains("resource-pack handoff failed"));
     }
 
     #[tokio::test]
@@ -1136,6 +1140,368 @@ mod tests {
         assert!(error.to_string().contains("disconnected during login"));
         assert!(early.is_none());
     }
+
+    fn test_pack_info(
+        id: Uuid,
+        data: &[u8],
+        subpack: &str,
+        key: &str,
+    ) -> crate::valentine::PackInfoData {
+        crate::valentine::PackInfoData {
+            pack_id_version: crate::valentine::PackIdVersion {
+                pack_uuid: id,
+                pack_version: crate::valentine::SemVersion {
+                    version: "1.0.0".into(),
+                },
+            },
+            pack_size: data.len() as u64,
+            content_key: key.into(),
+            subpack_name: subpack.into(),
+            ..Default::default()
+        }
+    }
+
+    fn test_pack_packets(id: Uuid, data: &[u8], chunk_size: u32) -> Vec<McpePacket> {
+        let name = format!("{id}_1.0.0");
+        let count = (data.len() as u64).div_ceil(u64::from(chunk_size)) as u32;
+        let mut packets = vec![McpePacket::from(
+            crate::valentine::ResourcePackDataInfoPacket {
+                resource_name: name.clone(),
+                chunk_size,
+                numberof_chunks: count,
+                file_size: data.len() as u64,
+                file_hash: Sha256::digest(data).to_vec(),
+                ..Default::default()
+            },
+        )];
+        for chunk in 0..count {
+            let start = chunk as usize * chunk_size as usize;
+            let end = (start + chunk_size as usize).min(data.len());
+            packets.push(McpePacket::from(
+                crate::valentine::ResourcePackChunkDataPacket {
+                    resource_name: name.clone(),
+                    chunk_id: chunk,
+                    byte_offset: start as u64,
+                    chunk_data: data[start..end].to_vec(),
+                },
+            ));
+        }
+        packets
+    }
+
+    fn resource_pack_stream(
+        inbound: Vec<Bytes>,
+    ) -> BedrockStream<ResourcePacks, Client, ScriptedTransport> {
+        BedrockStream {
+            transport: BedrockTransport::new(ScriptedTransport::new(
+                inbound,
+                Arc::new(Mutex::new(Vec::new())),
+            )),
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData,
+        }
+    }
+
+    #[tokio::test]
+    async fn optional_pack_handoff_preserves_selected_subpack_archive_and_key() {
+        let first_id = Uuid::new_v4();
+        let selected_id = Uuid::new_v4();
+        let first = b"unselected";
+        let selected = b"selected archive split into chunks";
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![
+                test_pack_info(first_id, first, "unused", "unused-key"),
+                test_pack_info(selected_id, selected, "high", "memory-key"),
+            ],
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        for packet in test_pack_packets(first_id, first, 1024)
+            .into_iter()
+            .chain(test_pack_packets(selected_id, selected, 7))
+        {
+            inbound.push(uncompressed_frame(&[packet]));
+        }
+        inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_list: vec![crate::valentine::PackInstanceId {
+                    pack_id: selected_id.to_string(),
+                    version: "1.0.0".into(),
+                    sub_pack_name: "high".into(),
+                }],
+                ..Default::default()
+            },
+        )]));
+        let mut start = resource_pack_stream(inbound)
+            .handle_packs()
+            .await
+            .expect("valid optional handoff");
+        let archives = start
+            .state
+            .resource_pack_handoff
+            .take()
+            .unwrap()
+            .into_archives();
+        assert_eq!(archives.len(), 1);
+        assert_eq!(archives[0].pack_id, selected_id);
+        assert_eq!(archives[0].sub_pack_name, "high");
+        assert_eq!(archives[0].archive, selected);
+        assert_eq!(archives[0].content_key.expose(), b"memory-key");
+    }
+
+    #[tokio::test]
+    async fn pack_handoff_rejects_required_duplicate_and_malformed_inputs_secret_safely() {
+        let id = Uuid::new_v4();
+        let required = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_pack_required: true,
+            resource_packs: vec![test_pack_info(id, b"archive", "", "hidden-key")],
+            ..Default::default()
+        });
+        let mut required_inbound = vec![uncompressed_frame(&[required])];
+        required_inbound.extend(
+            test_pack_packets(id, b"archive", 1024)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        required_inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_list: vec![crate::valentine::PackInstanceId {
+                    pack_id: id.to_string(),
+                    version: "1.0.0".into(),
+                    sub_pack_name: String::new(),
+                }],
+                ..Default::default()
+            },
+        )]));
+        let error = resource_pack_stream(required_inbound)
+            .handle_packs()
+            .await
+            .err()
+            .expect("required offer must fail");
+        assert!(error.to_string().contains("required resource-pack handoff"));
+
+        let duplicate = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![
+                test_pack_info(id, b"one", "", "first-key"),
+                test_pack_info(id, b"two", "", "second-key"),
+            ],
+            ..Default::default()
+        });
+        let error = resource_pack_stream(vec![uncompressed_frame(&[duplicate])])
+            .handle_packs()
+            .await
+            .err()
+            .expect("duplicate offer must fail");
+        assert!(error.to_string().contains("duplicate or ambiguous"));
+
+        for fault in ["offset", "length", "digest", "identity"] {
+            let secret = "never-in-errors";
+            let data = b"bounded archive";
+            let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+                resource_packs: vec![test_pack_info(id, data, "selected", secret)],
+                ..Default::default()
+            });
+            let mut packets = test_pack_packets(id, data, 1024);
+            match fault {
+                "offset" => {
+                    if let McpePacketData::ResourcePackChunkDataPacket(v) = &mut packets[1].data {
+                        v.byte_offset = 1;
+                    }
+                }
+                "length" => {
+                    if let McpePacketData::ResourcePackChunkDataPacket(v) = &mut packets[1].data {
+                        v.chunk_data.pop();
+                    }
+                }
+                "digest" => {
+                    if let McpePacketData::ResourcePackDataInfoPacket(v) = &mut packets[0].data {
+                        v.file_hash.fill(0);
+                    }
+                }
+                "identity" => {
+                    if let McpePacketData::ResourcePackDataInfoPacket(v) = &mut packets[0].data {
+                        v.resource_name = "unadvertised".into();
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let mut inbound = vec![uncompressed_frame(&[info])];
+            inbound.extend(
+                packets
+                    .into_iter()
+                    .map(|packet| uncompressed_frame(&[packet])),
+            );
+            let message = resource_pack_stream(inbound)
+                .handle_packs()
+                .await
+                .err()
+                .expect("malformed download must fail")
+                .to_string();
+            assert!(!message.contains(secret));
+            assert!(!message.contains(&id.to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn pack_handoff_enforces_archive_and_chunk_limits() {
+        let id = Uuid::new_v4();
+        let mut oversized = test_pack_info(id, b"", "", "bounded-key");
+        oversized.pack_size = MAX_RESOURCE_PACK_BYTES + 1;
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![oversized],
+            ..Default::default()
+        });
+        assert!(
+            resource_pack_stream(vec![uncompressed_frame(&[info])])
+                .handle_packs()
+                .await
+                .err()
+                .expect("oversized offer must fail")
+                .to_string()
+                .contains("pack size exceeds limit")
+        );
+
+        for fault in ["chunk size", "chunk count"] {
+            let data = b"archive";
+            let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+                resource_packs: vec![test_pack_info(id, data, "", "bounded-key")],
+                ..Default::default()
+            });
+            let mut packets = test_pack_packets(id, data, data.len() as u32);
+            let McpePacketData::ResourcePackDataInfoPacket(metadata) = &mut packets[0].data else {
+                unreachable!()
+            };
+            if fault == "chunk size" {
+                metadata.chunk_size = MAX_RESOURCE_PACK_CHUNK_BYTES + 1;
+            } else {
+                metadata.numberof_chunks = MAX_RESOURCE_PACK_CHUNKS + 1;
+            }
+            let mut inbound = vec![uncompressed_frame(&[info])];
+            inbound.extend(
+                packets
+                    .into_iter()
+                    .map(|packet| uncompressed_frame(&[packet])),
+            );
+            assert!(
+                resource_pack_stream(inbound)
+                    .handle_packs()
+                    .await
+                    .err()
+                    .expect("out-of-bounds metadata must fail")
+                    .to_string()
+                    .contains("invalid pack metadata")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn optional_offer_with_required_stack_is_rejected() {
+        let id = Uuid::new_v4();
+        let data = b"archive";
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![test_pack_info(id, data, "", "bounded-key")],
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        inbound.extend(
+            test_pack_packets(id, data, data.len() as u32)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_required: true,
+                texture_pack_list: vec![crate::valentine::PackInstanceId {
+                    pack_id: id.to_string(),
+                    version: "1.0.0".into(),
+                    sub_pack_name: String::new(),
+                }],
+                ..Default::default()
+            },
+        )]));
+        let error = resource_pack_stream(inbound)
+            .handle_packs()
+            .await
+            .err()
+            .expect("required stack must fail");
+        assert!(error.to_string().contains("required resource-pack handoff"));
+    }
+
+    #[tokio::test]
+    async fn required_offer_with_empty_selection_is_a_well_formed_noop() {
+        let id = Uuid::new_v4();
+        let data = b"unselected archive";
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_pack_required: true,
+            resource_packs: vec![test_pack_info(id, data, "", "bounded-key")],
+            ..Default::default()
+        });
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_required: true,
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        inbound.extend(
+            test_pack_packets(id, data, 1024)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        inbound.push(uncompressed_frame(&[stack]));
+        let start = resource_pack_stream(inbound)
+            .handle_packs()
+            .await
+            .expect("required flags without selected content are a no-op");
+        assert!(start.state.resource_pack_handoff.unwrap().is_empty());
+    }
+
+    #[test]
+    fn play_resource_pack_handoff_is_one_shot() {
+        let archive = ResourcePackArchive {
+            pack_id: Uuid::new_v4(),
+            version: "1.0.0".into(),
+            sub_pack_name: String::new(),
+            archive: vec![1],
+            content_key: ResourcePackContentKey::from_string("secret".into()),
+        };
+        let mut stream = BedrockStream {
+            transport: BedrockTransport::new(ScriptedTransport::new(
+                Vec::new(),
+                Arc::new(Mutex::new(Vec::new())),
+            )),
+            state: Play {
+                resource_pack_handoff: Some(ResourcePackHandoff::new(vec![archive])),
+            },
+            _role: PhantomData::<Client>,
+        };
+        assert_eq!(stream.take_resource_pack_handoff().len(), 1);
+        assert!(stream.take_resource_pack_handoff().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_pack_download_releases_the_in_memory_handoff() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![test_pack_info(
+                Uuid::new_v4(),
+                b"archive",
+                "",
+                "cancelled-key",
+            )],
+            ..Default::default()
+        });
+        let stream = BedrockStream {
+            transport: BedrockTransport::new(PendingTransport),
+            state: ResourcePacks {
+                early_packet: Some(info),
+            },
+            _role: PhantomData,
+        };
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), stream.handle_packs())
+                .await
+                .is_err(),
+            "pending download must be cancelled by its owner"
+        );
+    }
 }
 
 // --- State: ResourcePacks ---
@@ -1180,39 +1546,38 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             }
         };
 
-        // Extract pack info for logging
-        if let McpePacketData::ResourcePacksInfoPacket(ref info) = info_pkt.data {
+        let McpePacketData::ResourcePacksInfoPacket(mut info) = info_pkt.data else {
+            return Err(
+                ProtocolError::UnexpectedHandshake("Expected ResourcePacksInfo".into()).into(),
+            );
+        };
+        let mut content_keys = info
+            .resource_packs
+            .iter_mut()
+            .map(|pack| {
+                Some(ResourcePackContentKey::from_string(std::mem::take(
+                    &mut pack.content_key,
+                )))
+            })
+            .collect::<Vec<_>>();
+        let mut handoff = ResourcePackHandoff::default();
+        let offer_required = info.resource_pack_required;
+        if !info.resource_packs.is_empty() {
             tracing::debug!(
                 "ResourcePacksInfo: must_accept={}, texture_packs={}",
                 info.resource_pack_required,
                 info.resource_packs.len()
             );
-            for pack in &info.resource_packs {
-                tracing::debug!(
-                    "  Pack: {} v{}",
-                    pack.pack_id_version.pack_uuid,
-                    pack.pack_id_version.pack_version.version
-                );
-            }
-
-            if !info.resource_packs.is_empty() {
-                return Err(ProtocolError::UnexpectedHandshake(
-                    "Resource pack downloads are not implemented".into(),
-                )
-                .into());
-            }
-        } else {
-            return Err(
-                ProtocolError::UnexpectedHandshake("Expected ResourcePacksInfo".into()).into(),
-            );
+            handoff = self
+                .download_optional_resource_packs(&mut info.resource_packs, &mut content_keys)
+                .await?;
         }
 
-        // For now, claim we have all packs (don't download any).
         // 1.26.40 turns the response into a payload-carrying union whose body is
         // the lowercase enum name; gophertunnel writes the same string via
         // resourcePackResponseToString (packet/resource_pack_client_response.go),
         // where this response is PackResponseAllPacksDownloaded.
-        tracing::debug!("Sending DownloadingFinished (all packs downloaded) response...");
+        tracing::debug!("Sending DownloadingFinished response...");
         let resp = ResourcePackClientResponsePacket {
             response: ResourcePackClientResponsePacketResponse::DownloadingFinished(
                 ResourcePackClientResponsePacketPayloadDownloadingFinished {
@@ -1260,19 +1625,11 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 stack.base_game_version,
                 stack.texture_pack_list.len()
             );
-            for pack in &stack.texture_pack_list {
-                tracing::debug!("  Stack pack: {} v{}", pack.pack_id, pack.version);
-            }
-            if let Some(pack) = stack
-                .texture_pack_list
-                .iter()
-                .find(|pack| !is_exempted_resource_pack(&pack.pack_id, &pack.version))
-            {
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Resource pack downloads are not implemented for {}_{}",
-                    pack.pack_id, pack.version
-                ))
-                .into());
+            handoff = select_resource_pack_stack(handoff, &stack.texture_pack_list)?;
+            if (offer_required || stack.texture_pack_required) && !handoff.is_empty() {
+                return Err(pack_handoff_error(
+                    "required resource-pack handoff is unavailable",
+                ));
             }
         } else {
             return Err(ProtocolError::UnexpectedHandshake(format!(
@@ -1300,10 +1657,173 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
 
         Ok(BedrockStream {
             transport: self.transport,
-            state: StartGame,
+            state: StartGame::with_resource_pack_handoff(handoff),
             _role: PhantomData,
         })
     }
+
+    async fn download_optional_resource_packs(
+        &mut self,
+        offered: &mut [crate::valentine::PackInfoData],
+        content_keys: &mut [Option<ResourcePackContentKey>],
+    ) -> Result<ResourcePackHandoff, JolyneError> {
+        if offered.len() > MAX_RESOURCE_PACKS {
+            return Err(pack_handoff_error("pack count exceeds limit"));
+        }
+        let mut requested = Vec::with_capacity(offered.len());
+        let mut seen = HashSet::with_capacity(offered.len());
+        let mut total = 0u64;
+        for pack in offered.iter() {
+            if pack.pack_size > MAX_RESOURCE_PACK_BYTES {
+                return Err(pack_handoff_error("pack size exceeds limit"));
+            }
+            total = total
+                .checked_add(pack.pack_size)
+                .filter(|&value| value <= MAX_RESOURCE_PACK_TOTAL_BYTES)
+                .ok_or_else(|| pack_handoff_error("total pack size exceeds limit"))?;
+            let name = format!(
+                "{}_{}",
+                pack.pack_id_version.pack_uuid, pack.pack_id_version.pack_version.version
+            );
+            if !seen.insert(name.clone()) {
+                return Err(pack_handoff_error("duplicate or ambiguous pack identity"));
+            }
+            requested.push(name);
+        }
+
+        self.transport
+            .send_batch(&[McpePacket::from(ResourcePackClientResponsePacket {
+                response: ResourcePackClientResponsePacketResponse::Downloading(
+                    ResourcePackClientResponsePacketPayloadDownloading {
+                        response_type: "downloading".to_string(),
+                        downloading_packs: requested.clone(),
+                    },
+                ),
+            })])
+            .await?;
+
+        let mut archives = Vec::with_capacity(offered.len());
+        for (index, pack) in offered.iter_mut().enumerate() {
+            let raw = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                self.transport.recv_packet_raw(),
+            )
+            .await
+            .map_err(|_| pack_handoff_error("timed out waiting for pack metadata"))??;
+            if raw.id != McpePacketName::ResourcePackDataInfoPacket {
+                return Err(pack_handoff_error("unexpected packet during pack metadata"));
+            }
+            let packet = raw.decode(&self.transport.session)?;
+            let McpePacketData::ResourcePackDataInfoPacket(data) = packet.data else {
+                return Err(pack_handoff_error("invalid pack metadata packet"));
+            };
+            if data.resource_name != requested[index]
+                || data.file_size != pack.pack_size
+                || data.file_size > MAX_RESOURCE_PACK_BYTES
+                || data.chunk_size == 0
+                || data.chunk_size > MAX_RESOURCE_PACK_CHUNK_BYTES
+                || data.numberof_chunks == 0
+                || data.numberof_chunks > MAX_RESOURCE_PACK_CHUNKS
+                || data.file_hash.len() != 32
+            {
+                return Err(pack_handoff_error("invalid pack metadata"));
+            }
+            let expected_chunks = data.file_size.div_ceil(u64::from(data.chunk_size));
+            if expected_chunks != u64::from(data.numberof_chunks) {
+                return Err(pack_handoff_error("invalid pack chunk count"));
+            }
+            let capacity = usize::try_from(data.file_size)
+                .map_err(|_| pack_handoff_error("pack size is not representable"))?;
+            let mut archive = Vec::with_capacity(capacity);
+            for chunk in 0..data.numberof_chunks {
+                self.transport
+                    .send_batch(&[McpePacket::from(ResourcePackChunkRequestPacket {
+                        resource_name: requested[index].clone(),
+                        chunk: i32::try_from(chunk)
+                            .map_err(|_| pack_handoff_error("invalid pack chunk index"))?,
+                    })])
+                    .await?;
+                let raw = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    self.transport.recv_packet_raw(),
+                )
+                .await
+                .map_err(|_| pack_handoff_error("timed out waiting for pack chunk"))??;
+                if raw.id != McpePacketName::ResourcePackChunkDataPacket {
+                    return Err(pack_handoff_error("unexpected packet during pack download"));
+                }
+                let packet = raw.decode(&self.transport.session)?;
+                let McpePacketData::ResourcePackChunkDataPacket(chunk_data) = packet.data else {
+                    return Err(pack_handoff_error("invalid pack chunk packet"));
+                };
+                let offset = u64::from(chunk) * u64::from(data.chunk_size);
+                let remaining = data.file_size - offset;
+                let expected_len = remaining.min(u64::from(data.chunk_size));
+                if chunk_data.resource_name != requested[index]
+                    || chunk_data.chunk_id != chunk
+                    || chunk_data.byte_offset != offset
+                    || u64::try_from(chunk_data.chunk_data.len()).ok() != Some(expected_len)
+                {
+                    return Err(pack_handoff_error("invalid or reordered pack chunk"));
+                }
+                archive.extend_from_slice(&chunk_data.chunk_data);
+            }
+            if archive.len() != capacity || Sha256::digest(&archive).as_slice() != data.file_hash {
+                return Err(pack_handoff_error("pack length or digest mismatch"));
+            }
+            archives.push(ResourcePackArchive {
+                pack_id: pack.pack_id_version.pack_uuid,
+                version: std::mem::take(&mut pack.pack_id_version.pack_version.version),
+                sub_pack_name: std::mem::take(&mut pack.subpack_name),
+                archive,
+                content_key: content_keys[index]
+                    .take()
+                    .expect("content key retained for each bounded offer"),
+            });
+        }
+        Ok(ResourcePackHandoff::new(archives))
+    }
+}
+
+fn pack_handoff_error(reason: &'static str) -> JolyneError {
+    ProtocolError::UnexpectedHandshake(format!("resource-pack handoff failed: {reason}")).into()
+}
+
+fn select_resource_pack_stack(
+    handoff: ResourcePackHandoff,
+    stack: &[crate::valentine::PackInstanceId],
+) -> Result<ResourcePackHandoff, JolyneError> {
+    let mut available = HashMap::with_capacity(handoff.len());
+    for archive in handoff.into_archives() {
+        if available
+            .insert((archive.pack_id, archive.version.clone()), archive)
+            .is_some()
+        {
+            return Err(pack_handoff_error("duplicate captured pack identity"));
+        }
+    }
+    let mut selected = Vec::new();
+    let mut seen = HashSet::new();
+    for entry in stack {
+        if is_exempted_resource_pack(&entry.pack_id, &entry.version) {
+            continue;
+        }
+        let id = Uuid::parse_str(&entry.pack_id)
+            .map_err(|_| pack_handoff_error("invalid selected pack identity"))?;
+        let key = (id, entry.version.clone());
+        if !seen.insert(key.clone()) {
+            return Err(pack_handoff_error("duplicate selected pack identity"));
+        }
+        let mut archive = available
+            .remove(&key)
+            .ok_or_else(|| pack_handoff_error("unadvertised or missing selected pack"))?;
+        if archive.sub_pack_name != entry.sub_pack_name {
+            return Err(pack_handoff_error("selected sub-pack does not match offer"));
+        }
+        archive.sub_pack_name = entry.sub_pack_name.clone();
+        selected.push(archive);
+    }
+    Ok(ResourcePackHandoff::new(selected))
 }
 
 // --- State: StartGame ---
@@ -1494,7 +2014,9 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
         Ok((
             BedrockStream {
                 transport: self.transport,
-                state: Play,
+                state: Play {
+                    resource_pack_handoff: self.state.resource_pack_handoff.take(),
+                },
                 _role: PhantomData,
             },
             game_data,

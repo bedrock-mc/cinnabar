@@ -111,7 +111,7 @@
     "byte_length": 48,
     "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "c31450ff6e54b163acd72a95583ccaa71c001e6b"
+    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
   },
   {
     "name": "InventoryContent",

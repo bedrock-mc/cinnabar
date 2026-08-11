@@ -44,7 +44,8 @@ pub enum PackAcquisition {
 #[serde(rename_all = "snake_case")]
 pub enum PackDownstreamOutcome {
     None,
-    StrippedOptional,
+    OfferedOptional,
+    HandedOffOptional,
     RejectedRequired,
 }
 
@@ -209,6 +210,30 @@ mod tests {
             status.pack_admission.application,
             PackApplication::Unavailable
         );
+    }
+
+    #[test]
+    fn parses_optional_offer_and_completed_handoff_outcomes() {
+        for (wire, expected) in [
+            ("offered_optional", PackDownstreamOutcome::OfferedOptional),
+            (
+                "handed_off_optional",
+                PackDownstreamOutcome::HandedOffOptional,
+            ),
+        ] {
+            let payload = VALID_RESULT
+                .replace(r#""offer":"required""#, r#""offer":"optional""#)
+                .replace(
+                    r#""downstream_outcome":"rejected_required""#,
+                    &format!(r#""downstream_outcome":"{wire}""#),
+                );
+            let status = parse_status_response(payload.as_bytes()).expect("optional status");
+            assert_eq!(status.pack_admission.downstream_outcome, expected);
+            assert_eq!(
+                status.pack_admission.application,
+                PackApplication::Unavailable
+            );
+        }
     }
 
     #[test]

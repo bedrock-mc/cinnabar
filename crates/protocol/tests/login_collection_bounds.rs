@@ -72,6 +72,18 @@ fn encode_oversized_varint(bytes: &mut BytesMut) {
         .expect("oversized varint count");
 }
 
+fn encode_resource_pack_offer_limit_plus_one(bytes: &mut BytesMut) {
+    VarInt(33)
+        .encode(bytes)
+        .expect("resource-pack offer count above the wire cap");
+}
+
+fn encode_resource_pack_stack_limit_plus_one(bytes: &mut BytesMut) {
+    VarInt(40)
+        .encode(bytes)
+        .expect("resource-pack stack count above the wire cap");
+}
+
 /// `Experiments` is the one login collection whose count is not a varint:
 /// gophertunnel writes it with `protocol.SliceUint32Length`.
 fn encode_oversized_u32(bytes: &mut BytesMut) {
@@ -95,11 +107,16 @@ fn resource_packs_info_rejects_oversized_resource_pack_count() {
     let empty = ResourcePacksInfoPacket::default();
     let mut one = empty.clone();
     one.resource_packs.push(PackInfoData::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+    let mut bytes =
+        malicious_collection_prefix(&empty, &one, encode_resource_pack_offer_limit_plus_one);
 
-    assert_rejected_without_a_length_ceiling(
+    assert!(matches!(
         ResourcePacksInfoPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+        DecodeError::ArrayLengthExceeded {
+            declared: 33,
+            available: 32
+        }
+    ));
 }
 
 /// `resource_packs` in 1.26.30 was `texture_pack_list` here; the field kept its
@@ -109,11 +126,16 @@ fn resource_pack_stack_rejects_oversized_texture_pack_count() {
     let empty = ResourcePackStackPacket::default();
     let mut one = empty.clone();
     one.texture_pack_list.push(PackInstanceId::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+    let mut bytes =
+        malicious_collection_prefix(&empty, &one, encode_resource_pack_stack_limit_plus_one);
 
-    assert_rejected_without_a_length_ceiling(
+    assert!(matches!(
         ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+        DecodeError::ArrayLengthExceeded {
+            declared: 40,
+            available: 39
+        }
+    ));
 }
 
 #[test]

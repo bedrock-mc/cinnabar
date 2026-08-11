@@ -18,8 +18,8 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260810220748-c31450ff6e54 h1:SE7ZcyfpKlxGLcqpulGQYMjiqid3iKGVTwKtoUAQEWg=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260810220748-c31450ff6e54/go.mod h1:phe/9fHeFQ7rZb2lmTowOlA0HmkzpvdQl17rRjCf5VU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260811002754-9f42f3679a57 h1:e0+IoN1TNMxr09XaJm7CAIfQA2J4/7WGT88/TO3t1JM=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260811002754-9f42f3679a57/go.mod h1:phe/9fHeFQ7rZb2lmTowOlA0HmkzpvdQl17rRjCf5VU=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=
 github.com/klauspost/compress v1.18.4/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/pion/datachannel v1.6.2 h1:7EXQ8TH3vTouBUdRWYbcX2edSx9Yj6k5zl5P+qyxEPc=

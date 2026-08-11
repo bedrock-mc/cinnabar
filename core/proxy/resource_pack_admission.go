@@ -48,14 +48,15 @@ func (err *PackAdmissionError) Error() string {
 type resourcePackOfferConnection interface {
 	dialerDownstream
 	ConfigureResourcePackOffer([]*resource.Pack, bool) error
+	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 	WritePacketImmediate(...packet.Packet) error
 }
 
 const packAdmissionDisconnectMessage = "This server requires resource packs that Cinnabar cannot apply yet."
 
 // configureResourcePackOffer applies Cinnabar's current truthful policy. An
-// optional offer is downloaded under explicit bounds by the upstream Dialer,
-// retained with that upstream session, and stripped from the downstream offer.
+// optional offer is downloaded under explicit bounds by the upstream Dialer
+// and forwarded in the exact selected order for local capture.
 // A non-empty required offer is rejected because Cinnabar cannot apply it yet.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
@@ -72,6 +73,9 @@ func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *s
 			Message:                 packAdmissionDisconnectMessage,
 		})
 		return errors.Join(admissionErr, writeErr)
+	}
+	if len(stack.packs) != 0 {
+		return downstream.ConfigureResourcePackStack(stack.snapshot, false)
 	}
 	return downstream.ConfigureResourcePackOffer(nil, false)
 }
@@ -93,6 +97,7 @@ type resourcePackStackSource interface {
 type selectedResourcePackStack struct {
 	packs    []*resource.Pack
 	required bool
+	snapshot minecraft.ResourcePackStackSnapshot
 }
 
 func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResourcePackStack, error) {
@@ -104,7 +109,24 @@ func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResour
 	if !ok {
 		return nil, errResourcePackStackUnavailable
 	}
-	return newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
+	stack, err := newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
+	if err != nil {
+		return nil, err
+	}
+	entries := snapshot.Entries()
+	if len(entries) != len(stack.packs) {
+		stack.release()
+		return nil, errResourcePackStackInvalid
+	}
+	for index, entry := range entries {
+		pack := entry.Pack()
+		if pack == nil || pack.UUID() != stack.packs[index].UUID() || pack.Version() != stack.packs[index].Version() {
+			stack.release()
+			return nil, errResourcePackStackInvalid
+		}
+	}
+	stack.snapshot = snapshot
+	return stack, nil
 }
 
 type resourcePackSizer func(*resource.Pack) (uint64, bool)
@@ -137,6 +159,7 @@ func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf 
 func (stack *selectedResourcePackStack) release() {
 	if stack != nil {
 		stack.packs = nil
+		stack.snapshot = minecraft.ResourcePackStackSnapshot{}
 	}
 }
 

@@ -80,7 +80,7 @@ func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *te
 		wantResult       ResourcePackDownstreamOutcome
 	}{
 		{name: "none", wantOffer: ResourcePackOfferNone, wantResult: ResourcePackDownstreamNone},
-		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamStrippedOptional},
+		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamOfferedOptional},
 		{name: "required", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamRejectedRequired},
 		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamNone},
 	} {
@@ -128,6 +128,26 @@ func TestResourcePackAdmissionFailureStartsOnlyAfterNegotiation(t *testing.T) {
 	failed.observeFailure(context.Background())
 	if got := failed.snapshot().Acquisition; got != ResourcePackAcquisitionFailed {
 		t.Fatalf("failed acquisition = %q", got)
+	}
+}
+
+func TestOptionalStatusChangesOnlyAfterLocalNegotiationCompletes(t *testing.T) {
+	var updates []ResourcePackAdmissionSnapshot
+	telemetry := newResourcePackAdmissionTelemetry(1, nil)
+	telemetry.setUpdateCallback(func(snapshot ResourcePackAdmissionSnapshot) {
+		updates = append(updates, snapshot)
+	})
+	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}}
+	telemetry.observePolicyOutcome(stack, true)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedOptional {
+		t.Fatalf("configured outcome = %q, want offered_optional", got)
+	}
+	telemetry.observeLocalHandoff(stack)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffOptional {
+		t.Fatalf("accepted outcome = %q, want handed_off_optional", got)
+	}
+	if len(updates) != 3 || updates[1].DownstreamOutcome != ResourcePackDownstreamOfferedOptional || updates[2].DownstreamOutcome != ResourcePackDownstreamHandedOffOptional {
+		t.Fatalf("status updates = %#v, want reset, offered, then handed-off transitions", updates)
 	}
 }
 
@@ -196,7 +216,7 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 	telemetry.offer = ResourcePackOfferOptional
 	telemetry.packCount = 2
 	telemetry.acquisition = ResourcePackAcquisitionComplete
-	telemetry.downstream = ResourcePackDownstreamStrippedOptional
+	telemetry.downstream = ResourcePackDownstreamOfferedOptional
 	telemetry.mu.Unlock()
 	telemetry.reportFinal()
 
@@ -206,7 +226,7 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 	if reset := updates[0]; reset.AttemptID != 11 || reset.Offer != ResourcePackOfferNone || reset.Application != ResourcePackApplicationUnavailable {
 		t.Fatalf("reset = %+v", reset)
 	}
-	if final := updates[1]; final.AttemptID != 11 || final.Offer != ResourcePackOfferOptional || final.PackCount != 2 || final.DownstreamOutcome != ResourcePackDownstreamStrippedOptional {
+	if final := updates[1]; final.AttemptID != 11 || final.Offer != ResourcePackOfferOptional || final.PackCount != 2 || final.DownstreamOutcome != ResourcePackDownstreamOfferedOptional {
 		t.Fatalf("final = %+v", final)
 	}
 }

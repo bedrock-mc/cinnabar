@@ -14,7 +14,7 @@ use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, WorldEvent, into_world_event,
+    ProtocolError, ResourcePackHandoff, WorldEvent, into_world_event,
 };
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
@@ -192,6 +192,12 @@ impl<T: Transport> PlaySession<T> {
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_delivery: None,
         }
+    }
+
+    /// Takes the validated ordered resource-pack archives captured during login.
+    /// No archive is parsed or applied, and a second call returns an empty handoff.
+    pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
+        self.stream.take_resource_pack_handoff()
     }
 
     /// Skips a well-formed but semantically unusable world packet instead of

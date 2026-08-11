@@ -21,7 +21,7 @@ func TestStatusV1RoundTripAndSecretSafeWireShape(t *testing.T) {
 	latest.Acquisition = proxy.ResourcePackAcquisitionComplete
 	latest.CacheLoads, latest.CacheHits, latest.CacheMisses = 2, 1, 1
 	latest.CacheStores = 1
-	latest.DownstreamOutcome = proxy.ResourcePackDownstreamStrippedOptional
+	latest.DownstreamOutcome = proxy.ResourcePackDownstreamOfferedOptional
 	store.Observe(latest)
 
 	dir := t.TempDir()

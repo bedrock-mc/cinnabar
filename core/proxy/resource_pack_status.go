@@ -33,9 +33,10 @@ const (
 type ResourcePackDownstreamOutcome string
 
 const (
-	ResourcePackDownstreamNone             ResourcePackDownstreamOutcome = "none"
-	ResourcePackDownstreamStrippedOptional ResourcePackDownstreamOutcome = "stripped_optional"
-	ResourcePackDownstreamRejectedRequired ResourcePackDownstreamOutcome = "rejected_required"
+	ResourcePackDownstreamNone              ResourcePackDownstreamOutcome = "none"
+	ResourcePackDownstreamOfferedOptional   ResourcePackDownstreamOutcome = "offered_optional"
+	ResourcePackDownstreamHandedOffOptional ResourcePackDownstreamOutcome = "handed_off_optional"
+	ResourcePackDownstreamRejectedRequired  ResourcePackDownstreamOutcome = "rejected_required"
 )
 
 const ResourcePackApplicationUnavailable = "unavailable"
@@ -162,10 +163,23 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 		telemetry.downstream = ResourcePackDownstreamRejectedRequired
 	default:
 		if configured {
-			telemetry.downstream = ResourcePackDownstreamStrippedOptional
+			telemetry.downstream = ResourcePackDownstreamOfferedOptional
 		}
 	}
 	telemetry.mu.Unlock()
+	telemetry.publishUpdate()
+}
+
+func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(stack *selectedResourcePackStack) {
+	if telemetry == nil || stack == nil || stack.required || len(stack.packs) == 0 {
+		return
+	}
+	telemetry.mu.Lock()
+	if telemetry.downstream == ResourcePackDownstreamOfferedOptional {
+		telemetry.downstream = ResourcePackDownstreamHandedOffOptional
+	}
+	telemetry.mu.Unlock()
+	telemetry.publishUpdate()
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) snapshot() ResourcePackAdmissionSnapshot {
