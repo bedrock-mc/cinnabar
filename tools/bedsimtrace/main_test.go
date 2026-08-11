@@ -110,7 +110,7 @@ func TestGeneratedTerrainTraceMatchesPinnedFixtureExactly(t *testing.T) {
 
 func TestTerrainScriptsCoverEveryTaskThreeStratum(t *testing.T) {
 	want := []string{
-		"flat_walk", "diagonal", "sprint_jump", "slab_step", "stair_step",
+		"flat_walk", "diagonal", "sprint_jump", "consumable_slowdown", "slab_step", "stair_step",
 		"sneak_north", "sneak_south", "sneak_east", "sneak_west", "head_collision",
 		"ladder_ascend", "ladder_descend", "ladder_hold", "ladder_wall_climb", "water_enter",
 		"water_swim", "water_exit", "lava", "cobweb", "slime_bounce",

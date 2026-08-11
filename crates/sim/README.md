@@ -11,7 +11,7 @@ parity work below is complete.
 - One `Simulator::tick` call advances exactly one 20 Hz tick and is transactional on errors.
 - The player origin is at the feet. The collision box is 0.6 blocks wide and 1.8 blocks tall,
   with bedsim's `1e-4` horizontal inset.
-- Basic walk, sprint, jump, sneak input scaling, ground/air acceleration, gravity, drag,
+- Basic walk, sprint, jump, sneak and consumable-use input scaling, ground/air acceleration, gravity, drag,
   runtime-specific surface friction, swept AABB collision, Y-X-Z resolution, and 0.6-block
   stepping follow the pinned bedsim behavior.
 - `PaletteWorld` queries the packed `world::ChunkStore` directly. It fails closed for unloaded
@@ -44,7 +44,7 @@ The Rust conformance test compares its per-tick state against that output at `1e
 
 - Generate and verify the authoritative runtime-ID collision registry for every supported block
   state, including compound shapes and friction/surface semantics.
-- Port the rest of bedsim's behavior: sneak edge avoidance, item-use slowdown, climbing,
+- Port the rest of bedsim's behavior: sneak edge avoidance, climbing,
   cobwebs, liquids/swimming, slime/bed bounce, effects, knockback, teleport handling, gliding,
   and special block/game-mode behavior.
 - Add dynamic movement attributes and bounding-box state from

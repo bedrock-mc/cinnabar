@@ -151,10 +151,11 @@ pub enum ConformanceError {
     UnsupportedEvidence { count: usize },
 }
 
-const REQUIRED_TERRAIN_SCENARIOS: [&str; 30] = [
+const REQUIRED_TERRAIN_SCENARIOS: [&str; 31] = [
     "flat_walk",
     "diagonal",
     "sprint_jump",
+    "consumable_slowdown",
     "slab_step",
     "stair_step",
     "sneak_north",

@@ -65,6 +65,7 @@ pub(crate) fn advance_local_physics(
         input.phase(Action::Jump).held,
         input.phase(Action::Sneak).held,
         input.phase(Action::Sprint).held,
+        input.phase(Action::Use).held,
     );
     input.movement_speed = movement_speed.current();
     let world = sim::PaletteWorld::new(

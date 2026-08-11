@@ -190,6 +190,41 @@ fn correction_replay_retains_historical_movement_authority_after_a_later_update(
 }
 
 #[test]
+fn correction_replay_retains_historical_consumable_use_snapshots() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(8).unwrap();
+    let inputs = [
+        MovementInput::default(),
+        MovementInput {
+            forward: 1.0,
+            using_consumable: true,
+            ..MovementInput::default()
+        },
+        MovementInput {
+            forward: 1.0,
+            ..MovementInput::default()
+        },
+    ];
+    for input in inputs {
+        history
+            .predict(&mut state, input, &simulator, &Floor)
+            .unwrap();
+    }
+
+    let mut corrected = history.state_at(1).unwrap().clone();
+    corrected.position.x = 0.25;
+    history
+        .rewind_and_replay(&mut state, corrected.clone(), &simulator, &Floor)
+        .unwrap();
+
+    let mut expected = corrected;
+    simulator.tick(&mut expected, inputs[1], &Floor).unwrap();
+    simulator.tick(&mut expected, inputs[2], &Floor).unwrap();
+    assert_eq!(state, expected);
+}
+
+#[test]
 fn correction_older_than_retained_history_is_rejected_transactionally() {
     let simulator = Simulator::default();
     let mut state = initial_state();

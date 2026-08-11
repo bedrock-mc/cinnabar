@@ -12,6 +12,9 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Whether the selected item is actively in its consumable-use phase.
+    #[serde(default)]
+    pub using_consumable: bool,
     /// Server-authoritative `minecraft:movement` current value captured for
     /// this fixed tick. Absence selects the vanilla default; zero is valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
