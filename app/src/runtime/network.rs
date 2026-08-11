@@ -57,7 +57,6 @@ use crate::{
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
-
 pub(crate) use resource_packs::ResourcePackAdmissionState;
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
@@ -354,7 +353,7 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 };
-                resource_pack_admission.replace_if_newer(session_generation, resource_packs);
+                resource_pack_admission.replace_for_generation(session_generation, resource_packs);
                 ui_runtime.publish_inventory_authority(authority);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
@@ -534,6 +533,7 @@ pub(crate) fn receive_network_events(
                 message,
                 decode_error_count,
             } => {
+                resource_pack_admission.clear_current();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -547,6 +547,7 @@ pub(crate) fn receive_network_events(
                 );
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
+                resource_pack_admission.clear_current();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -995,6 +996,5 @@ pub(crate) fn publish_actor_render_frame(
         rejects: frame.rig.rejects,
     });
 }
-
 mod resource_packs;
 pub(crate) mod session;

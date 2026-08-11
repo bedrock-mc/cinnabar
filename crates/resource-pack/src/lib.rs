@@ -162,10 +162,18 @@ impl ValidatedPack {
 
     /// Reads one file from this pack only, with a hard uncompressed cap.
     pub fn read_file(&self, path: &str) -> Result<Option<Box<[u8]>>, AdmissionError> {
+        self.read_file_with_limit(path, MAX_FILE_BYTES)
+    }
+
+    fn read_file_with_limit(
+        &self,
+        path: &str,
+        limit: u64,
+    ) -> Result<Option<Box<[u8]>>, AdmissionError> {
         let Some(entry) = self.files.get(path) else {
             return Ok(None);
         };
-        if entry.uncompressed_size > MAX_FILE_BYTES {
+        if entry.uncompressed_size > limit {
             return Err(AdmissionError::FileTooLarge);
         }
         let mut zip = ZipArchive::new(Cursor::new(Arc::clone(&self.archive)))
@@ -179,11 +187,15 @@ impl ValidatedPack {
         let capacity =
             usize::try_from(entry.uncompressed_size).map_err(|_| AdmissionError::FileTooLarge)?;
         let mut bytes = Vec::with_capacity(capacity);
+        let read_limit = entry
+            .uncompressed_size
+            .saturating_add(1)
+            .min(limit.saturating_add(1));
         file.by_ref()
-            .take(MAX_FILE_BYTES + 1)
+            .take(read_limit)
             .read_to_end(&mut bytes)
             .map_err(|_| AdmissionError::InvalidFileData)?;
-        if bytes.len() != capacity || bytes.len() as u64 > MAX_FILE_BYTES {
+        if bytes.len() != capacity || bytes.len() as u64 > limit {
             return Err(AdmissionError::InvalidFileData);
         }
         Ok(Some(bytes.into_boxed_slice()))
@@ -227,4 +239,17 @@ pub fn validate_handoff(
     handoff: ResourcePackHandoff,
 ) -> Result<Arc<ValidatedPackStack>, AdmissionError> {
     parser::validate_archives(handoff.into_archives()).map(Arc::new)
+}
+
+#[cfg(all(test, feature = "handoff"))]
+mod handoff_tests {
+    use protocol::ResourcePackHandoff;
+
+    use super::validate_handoff;
+
+    #[test]
+    fn empty_production_handoff_is_validated_without_archives() {
+        let stack = validate_handoff(ResourcePackHandoff::default()).expect("empty handoff");
+        assert!(stack.packs().is_empty());
+    }
 }

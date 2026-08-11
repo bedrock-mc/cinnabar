@@ -117,12 +117,14 @@ impl MenuRuntime {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_connection(
     mut commands: bevy::prelude::Commands,
     mut exits: MessageWriter<AppExit>,
     mut menu: ResMut<MenuRuntime>,
     mut guard: ResMut<CoreProcessGuard>,
     mut network: ResMut<NetworkHandle>,
+    mut resource_packs: ResMut<crate::runtime::network::ResourcePackAdmissionState>,
     mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
@@ -133,6 +135,7 @@ pub(crate) fn drive_menu_connection(
     if let Some(pending) = menu.take_pending_connect() {
         let address = pending.address;
         let generation = menu.next_session_generation();
+        resource_packs.begin_generation(generation);
         // Namespaced by process id like the `--address` path: a bare
         // generation counter restarts at the same value every launch, so a
         // previous run's directory would be reused for this session.
@@ -183,7 +186,9 @@ pub(crate) fn drive_menu_connection(
     if menu.take_disconnect_request() {
         network.shutdown();
         guard.stop();
-        runtime.begin_session(menu.next_session_generation());
+        let generation = menu.next_session_generation();
+        resource_packs.begin_generation(generation);
+        runtime.begin_session(generation);
         client_world.stream = None;
         menu.visible = true;
         menu.screen = MenuScreen::Home;
@@ -205,6 +210,7 @@ pub(crate) fn recover_menu_session_failure(
     mut menu: ResMut<MenuRuntime>,
     mut guard: ResMut<CoreProcessGuard>,
     mut network: ResMut<NetworkHandle>,
+    mut resource_packs: ResMut<crate::runtime::network::ResourcePackAdmissionState>,
     mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
@@ -216,7 +222,9 @@ pub(crate) fn recover_menu_session_failure(
     }
     network.shutdown();
     guard.stop();
-    runtime.begin_session(menu.next_session_generation());
+    let generation = menu.next_session_generation();
+    resource_packs.begin_generation(generation);
+    runtime.begin_session(generation);
     client_world.stream = None;
     client_world.pending_surface_spawn = None;
     client_world.fatal_error = None;

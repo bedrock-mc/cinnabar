@@ -19,13 +19,33 @@ impl Default for ResourcePackAdmissionState {
 }
 
 impl ResourcePackAdmissionState {
-    pub(crate) fn replace_if_newer(&mut self, generation: u64, admission: PackAdmission) -> bool {
+    /// Starts ownership for a pending generation and releases the prior stack.
+    pub(crate) fn begin_generation(&mut self, generation: u64) -> bool {
         if generation <= self.generation {
+            return false;
+        }
+        self.generation = generation;
+        self.admission = PackAdmission::None;
+        true
+    }
+
+    /// Publishes admission only for the pending/current or a newer generation.
+    pub(crate) fn replace_for_generation(
+        &mut self,
+        generation: u64,
+        admission: PackAdmission,
+    ) -> bool {
+        if generation < self.generation {
             return false;
         }
         self.generation = generation;
         self.admission = admission;
         true
+    }
+
+    /// Releases admission when the current network session terminates.
+    pub(crate) fn clear_current(&mut self) {
+        self.admission = PackAdmission::None;
     }
 
     #[cfg(test)]
@@ -48,15 +68,22 @@ mod tests {
     #[test]
     fn newer_generation_replaces_atomically_and_stale_results_are_ignored() {
         let mut state = ResourcePackAdmissionState::default();
-        assert!(state.replace_if_newer(2, PackAdmission::Rejected(AdmissionError::MalformedZip)));
-        assert!(!state.replace_if_newer(1, PackAdmission::None));
-        assert!(!state.replace_if_newer(2, PackAdmission::None));
+        assert!(state.begin_generation(2));
+        assert!(matches!(state.admission(), PackAdmission::None));
+        assert!(
+            state.replace_for_generation(2, PackAdmission::Rejected(AdmissionError::MalformedZip))
+        );
+        assert!(!state.replace_for_generation(1, PackAdmission::None));
         assert_eq!(state.generation(), 2);
         assert!(matches!(
             state.admission(),
             PackAdmission::Rejected(AdmissionError::MalformedZip)
         ));
-        assert!(state.replace_if_newer(3, PackAdmission::None));
+        assert!(state.begin_generation(3));
+        assert!(matches!(state.admission(), PackAdmission::None));
+        assert!(!state.begin_generation(2));
+        state.clear_current();
+        assert_eq!(state.generation(), 3);
         assert!(matches!(state.admission(), PackAdmission::None));
     }
 }

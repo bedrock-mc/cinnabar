@@ -202,7 +202,7 @@ fn validate_archive_parts(
         physical_entry_count: expected_entries,
     };
     let manifest_bytes = pack
-        .read_file(&manifest_path)?
+        .read_file_with_limit(&manifest_path, MAX_MANIFEST_BYTES as u64)?
         .ok_or(AdmissionError::MissingManifest)?;
     if manifest_bytes.len() > MAX_MANIFEST_BYTES {
         return Err(AdmissionError::ManifestTooLarge);
@@ -592,6 +592,7 @@ fn canonical_version_string(version: Version) -> String {
 }
 
 fn strip_jsonc(bytes: &[u8]) -> Result<Vec<u8>, AdmissionError> {
+    std::str::from_utf8(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = 0;
     let mut in_string = false;
@@ -693,6 +694,20 @@ mod tests {
                 .expect("start fixture file");
             writer.write_all(bytes).expect("write fixture file");
         }
+        writer.finish().expect("finish fixture ZIP").into_inner()
+    }
+
+    fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                path,
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+            )
+            .expect("start deflated fixture file");
+        writer
+            .write_all(bytes)
+            .expect("write deflated fixture file");
         writer.finish().expect("finish fixture ZIP").into_inner()
     }
 
@@ -864,6 +879,34 @@ mod tests {
                 AdmissionError::MalformedManifest
             );
         }
+
+        let invalid_utf8_comment = b"// \xff\n{}";
+        let archive = zip_files(&[("manifest.json", invalid_utf8_comment)]);
+        assert_eq!(
+            validate_fixture(archive, "").unwrap_err(),
+            AdmissionError::MalformedManifest
+        );
+    }
+
+    #[test]
+    fn manifest_read_is_bounded_by_its_forged_declared_size() {
+        let body = manifest("");
+        let mut archive = deflated_zip_file("manifest.json", body.as_bytes());
+        let local = archive
+            .windows(4)
+            .position(|window| window == b"PK\x03\x04")
+            .unwrap();
+        let central = archive
+            .windows(4)
+            .position(|window| window == b"PK\x01\x02")
+            .unwrap();
+        archive[local + 22..local + 26].copy_from_slice(&1u32.to_le_bytes());
+        archive[central + 24..central + 28].copy_from_slice(&1u32.to_le_bytes());
+
+        assert_eq!(
+            validate_fixture(archive, "").unwrap_err(),
+            AdmissionError::InvalidFileData
+        );
     }
 
     #[test]
