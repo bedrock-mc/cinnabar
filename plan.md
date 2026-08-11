@@ -77,7 +77,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
-runtime state through `4b424a2b`.
+runtime state through `6a4e999a`.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
@@ -131,7 +131,9 @@ Current implementation state:
   non-empty required offers fail with a typed pre-login reason. The owner-only persistent
   verified cache is now wired into upstream admission behind explicit directory and quota
   configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed
-  cache setup. A separate opt-in read-only Status v1 control endpoint and strict Rust bridge
+  cache setup. Every app-managed core launch supplies one stable layout-owned cache path while
+  leaving secure creation, leasing, and the default quota under Go ownership. A separate opt-in
+  read-only Status v1 control endpoint and strict Rust bridge
   reader expose secret-safe lifecycle and latest pack-admission state. The exact validated selected
   pack stack is retained with session ownership, but archive/key handoff, Rust-side validation and
   application, resource-pack-driven UI, app presentation of status, and live pack acceptance remain
