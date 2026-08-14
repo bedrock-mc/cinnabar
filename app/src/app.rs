@@ -602,8 +602,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             begin_publication_frame
                 .before(receive_network_events)
                 .before(drive_world_stream)
-                .before(ChunkRenderApplySet)
-                .after(FlyCameraUpdateSet),
+                .before(ChunkRenderApplySet),
         )
         .add_systems(
             Update,

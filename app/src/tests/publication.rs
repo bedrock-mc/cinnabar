@@ -1162,9 +1162,14 @@ fn publication_frame_is_explicitly_ordered_before_world_poll_and_handoff() {
         .rfind("begin_publication_frame")
         .expect("publication frame system is registered");
     let registration = &source[publication..];
+    let next_registration = registration
+        .find("\n        .add_systems(")
+        .expect("publication registration has a bounded system block");
+    let registration = &registration[..next_registration];
 
     assert!(registration.contains(".before(receive_network_events)"));
     assert!(registration.contains(".before(drive_world_stream)"));
+    assert!(!registration.contains(".after(FlyCameraUpdateSet)"));
 }
 #[test]
 fn controller_credits_shared_allowance_and_only_admitted_work_spends_it() {
