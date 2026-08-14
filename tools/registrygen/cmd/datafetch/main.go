@@ -22,6 +22,7 @@ import (
 
 var sourceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var errBundleIncomplete = errors.New("bundle is incomplete")
 
 type manifest struct {
 	Schema         int      `json:"schema"`
@@ -94,6 +95,7 @@ func run(manifestPath, destination string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	refreshExisting := false
 	if info, statErr := os.Lstat(destination); statErr == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("destination is not a real directory: %s", destination)
@@ -102,10 +104,14 @@ func run(manifestPath, destination string, output io.Writer) error {
 			return err
 		}
 		if err := verifyBundle(&document, destination); err != nil {
-			return err
+			if !errors.Is(err, errBundleIncomplete) {
+				return err
+			}
+			refreshExisting = true
+		} else {
+			writePaths(output, &document, destination, true)
+			return nil
 		}
-		writePaths(output, &document, destination, true)
-		return nil
 	} else if !os.IsNotExist(statErr) {
 		return fmt.Errorf("inspect destination: %w", statErr)
 	}
@@ -160,7 +166,25 @@ func run(manifestPath, destination string, output io.Writer) error {
 	if err := makeRealDirectory(filepath.Dir(destination)); err != nil {
 		return fmt.Errorf("create destination parent: %w", err)
 	}
-	if err := os.Rename(staging, destination); err != nil {
+	if refreshExisting {
+		backup := fmt.Sprintf("%s.replacing-%d", destination, os.Getpid())
+		if _, err := os.Lstat(backup); err == nil {
+			return fmt.Errorf("replacement backup path already exists: %s", backup)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect replacement backup path: %w", err)
+		}
+		if err := os.Rename(destination, backup); err != nil {
+			return fmt.Errorf("move incomplete bundle aside: %w", err)
+		}
+		if err := os.Rename(staging, destination); err != nil {
+			if rollbackErr := os.Rename(backup, destination); rollbackErr != nil {
+				return fmt.Errorf("publish refreshed bundle: %w (rollback failed: %v)", err, rollbackErr)
+			}
+			return fmt.Errorf("publish refreshed bundle: %w", err)
+		}
+		published = true
+		_ = os.RemoveAll(backup)
+	} else if err := os.Rename(staging, destination); err != nil {
 		if _, statErr := os.Stat(destination); statErr == nil {
 			if verifyErr := verifyBundle(&document, destination); verifyErr != nil {
 				return fmt.Errorf("concurrent destination is invalid: %w", verifyErr)
@@ -350,7 +374,7 @@ func verifyBundle(document *manifest, root string) error {
 		return err
 	}
 	if len(actual) != len(expected) {
-		return fmt.Errorf("bundle file count mismatch: expected %d, got %d", len(expected), len(actual))
+		return fmt.Errorf("%w: expected %d files, got %d", errBundleIncomplete, len(expected), len(actual))
 	}
 	for _, source := range document.Sources {
 		if source.ID == "pmmp-bedrock-data" {

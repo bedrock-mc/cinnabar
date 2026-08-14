@@ -29,6 +29,28 @@ func TestRunInstallsAndReverifiesExactLocalBundle(t *testing.T) {
 	assertBytes(t, filepath.Join(destination, "prismarine", "blocks.json"), mustRead(t, second))
 }
 
+func TestRunRefreshesBundleWhenManifestAddsAFile(t *testing.T) {
+	root := t.TempDir()
+	protocol := writeFixture(t, root, "protocol_info.json", []byte(`{"version":{"major":1,"minor":26,"patch":30,"protocol_version":1001}}`))
+	added := writeFixture(t, root, "biome_id_map.json", []byte("biomes"))
+	manifest := writeManifest(t, root, []sourceFixture{{
+		id: "pmmp-bedrock-data", destination: "pmmp", files: []string{protocol},
+	}})
+	destination := filepath.Join(root, "installed")
+
+	if err := run(manifest, destination, nil); err != nil {
+		t.Fatalf("initial acquisition failed: %v", err)
+	}
+	manifest = writeManifest(t, root, []sourceFixture{{
+		id: "pmmp-bedrock-data", destination: "pmmp", files: []string{protocol, added},
+	}})
+	if err := run(manifest, destination, nil); err != nil {
+		t.Fatalf("refresh after manifest expansion failed: %v", err)
+	}
+	assertBytes(t, filepath.Join(destination, "pmmp", "protocol_info.json"), mustRead(t, protocol))
+	assertBytes(t, filepath.Join(destination, "pmmp", "biome_id_map.json"), mustRead(t, added))
+}
+
 func TestRunRejectsTamperingAndTraversalWithoutPublishing(t *testing.T) {
 	root := t.TempDir()
 	fixture := writeFixture(t, root, "source.bin", []byte("expected"))
