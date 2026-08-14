@@ -37789,25 +37789,25 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         match self {
             ResourcePackClientResponsePacketResponse::Cancel(value) => {
-                let control_value = 1 as i64;
+                let control_value = 0 as i64;
                 (control_value as i8).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::Downloading(value) => {
-                let control_value = 2 as i64;
+                let control_value = 1 as i64;
                 (control_value as i8).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::DownloadingFinished(value) => {
-                let control_value = 3 as i64;
+                let control_value = 2 as i64;
                 (control_value as i8).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(value) => {
-                let control_value = 4 as i64;
+                let control_value = 3 as i64;
                 (control_value as i8).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
@@ -37820,7 +37820,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let control_value = <i8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
         match control_value {
-            1 => {
+            0 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::Cancel(
                         <ResourcePackClientResponsePacketPayloadCancel as crate::bedrock::codec::BedrockCodec>::decode(
@@ -37830,7 +37830,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
                     ),
                 )
             }
-            2 => {
+            1 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::Downloading(
                         <ResourcePackClientResponsePacketPayloadDownloading as crate::bedrock::codec::BedrockCodec>::decode(
@@ -37840,7 +37840,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
                     ),
                 )
             }
-            3 => {
+            2 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::DownloadingFinished(
                         <ResourcePackClientResponsePacketPayloadDownloadingFinished as crate::bedrock::codec::BedrockCodec>::decode(
@@ -37850,7 +37850,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
                     ),
                 )
             }
-            4 => {
+            3 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(
                         <ResourcePackClientResponsePacketPayloadResourcePackStackFinished as crate::bedrock::codec::BedrockCodec>::decode(
