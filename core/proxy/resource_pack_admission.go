@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 
 	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
@@ -49,30 +48,17 @@ type resourcePackOfferConnection interface {
 	dialerDownstream
 	ConfigureResourcePackOffer([]*resource.Pack, bool) error
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
-	WritePacketImmediate(...packet.Packet) error
 }
 
-const packAdmissionDisconnectMessage = "This server requires resource packs that Cinnabar cannot apply yet."
-
-// configureResourcePackOffer applies Cinnabar's current truthful policy. An
-// optional offer is downloaded under explicit bounds by the upstream Dialer
-// and forwarded in the exact selected order for local capture.
-// A non-empty required offer is rejected because Cinnabar cannot apply it yet.
+// configureResourcePackOffer downloads the upstream-selected stack under
+// explicit bounds and forwards it in exact selected order for local capture.
+// Until pack application is complete, the local hop is deliberately optional:
+// a required upstream bit must not make otherwise joinable servers unavailable.
+// The upstream connection has already completed its own required negotiation;
+// this override applies only to the private core-to-client handoff.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
-	}
-	if stack.required && len(stack.packs) != 0 {
-		admissionErr := &PackAdmissionError{
-			Reason:    PackAdmissionRequiredUnsupported,
-			PackCount: len(stack.packs),
-		}
-		writeErr := downstream.WritePacketImmediate(&packet.Disconnect{
-			Reason:                  packet.DisconnectReasonResourcePackProblem,
-			HideDisconnectionScreen: false,
-			Message:                 packAdmissionDisconnectMessage,
-		})
-		return errors.Join(admissionErr, writeErr)
 	}
 	if len(stack.packs) != 0 {
 		return downstream.ConfigureResourcePackStack(stack.snapshot, false)

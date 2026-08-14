@@ -86,11 +86,12 @@ generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
 provenance are synchronized to that public revision; all 27 checked-in fixture `.bin` files
 remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
 pinned wire/tooling baseline and a compile-time witness for the clone-safe, sub-pack-preserving
-negotiated stack API. Nonempty optional selections are forwarded to the local client, where the
-ordered archives and memory-only content keys are bounded, validated, and exposed as a one-shot
-handoff. Nonempty required selections remain rejected. Archives are not extracted, parsed, or
-applied, application remains unavailable, and this is not live gameplay, native visual, or
-performance evidence.
+negotiated stack API. Nonempty selections are forwarded to the local client, where the ordered
+archives and memory-only content keys are bounded, validated, and exposed as a one-shot handoff.
+The private core-to-client hop marks even an upstream-required selection optional so incomplete
+pack application does not make otherwise joinable servers unavailable; the upstream negotiation
+has already completed. Archives are not extracted or applied, application remains unavailable,
+and this is not live gameplay, native visual, or performance evidence.
 
 The pushed `dev` integration now also contains the independently reviewed protocol-2168
 wire projection, retail-safe transitional registry projection, exact 88-entry biome
@@ -132,9 +133,10 @@ Current implementation state:
   path. Rider attachment and pose completion, non-player families, held items, dropped
   items, and live actor acceptance remain open.
 - The Go core now performs one bounded upstream pack negotiation before downstream login.
-  Nonempty optional selections are forwarded in exact server-selected order, including the
-  selected sub-pack; nonempty required selections fail with a typed pre-login reason. Rust
-  bounds and validates each archive transfer and retains the selected archives and memory-only
+  Nonempty selections are forwarded in exact server-selected order, including the selected
+  sub-pack. Required upstream selections are offered as optional only on the private local hop
+  so pack application incompleteness does not block login. Rust bounds and validates each archive
+  transfer and retains the selected archives and memory-only
   content keys as a one-shot login handoff. The owner-only persistent
   verified cache is now wired into upstream admission behind explicit directory and quota
   configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed

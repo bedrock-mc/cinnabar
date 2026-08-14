@@ -159,8 +159,6 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 	switch {
 	case stack == nil || len(stack.packs) == 0:
 		telemetry.downstream = ResourcePackDownstreamNone
-	case stack.required:
-		telemetry.downstream = ResourcePackDownstreamRejectedRequired
 	default:
 		if configured {
 			telemetry.downstream = ResourcePackDownstreamOfferedOptional
@@ -171,7 +169,7 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(stack *selectedResourcePackStack) {
-	if telemetry == nil || stack == nil || stack.required || len(stack.packs) == 0 {
+	if telemetry == nil || stack == nil || len(stack.packs) == 0 {
 		return
 	}
 	telemetry.mu.Lock()

@@ -65,6 +65,12 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resou
 }
 
 func (downstream *offerTestDownstream) ConfigureResourcePackStack(stack minecraft.ResourcePackStackSnapshot, required bool) error {
+	if downstream.writeStarted != nil {
+		downstream.writeStartOnce.Do(func() { close(downstream.writeStarted) })
+	}
+	if downstream.writeUnblock != nil {
+		<-downstream.writeUnblock
+	}
 	if downstream.configPanic != nil {
 		panic(downstream.configPanic)
 	}
@@ -118,46 +124,33 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 }
 
-func TestConfigureResourcePackOfferRejectsNonEmptyRequiredOffer(t *testing.T) {
+func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibilityStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack)}
 	upstream.required = true
 	downstream := new(offerTestDownstream)
 
-	err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true})
-	var admissionErr *PackAdmissionError
-	if !errors.As(err, &admissionErr) {
-		t.Fatalf("configureResourcePackOffer() error = %v, want *PackAdmissionError", err)
+	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
+		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if admissionErr.Reason != PackAdmissionRequiredUnsupported || admissionErr.PackCount != 1 {
-		t.Fatalf("admission error = %#v", admissionErr)
+	if !downstream.configured || !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, downstream.required)
 	}
-	if downstream.configured {
-		t.Fatal("required upstream offer was rewritten instead of rejected")
-	}
-	if len(downstream.writes) != 1 {
-		t.Fatalf("downstream packet count = %d, want one typed Disconnect", len(downstream.writes))
-	}
-	disconnect, ok := downstream.writes[0].(*packet.Disconnect)
-	if !ok {
-		t.Fatalf("downstream packet type = %T, want *packet.Disconnect", downstream.writes[0])
-	}
-	if disconnect.Reason != packet.DisconnectReasonResourcePackProblem || disconnect.HideDisconnectionScreen || disconnect.Message != packAdmissionDisconnectMessage {
-		t.Fatalf("disconnect = %#v", disconnect)
+	if len(downstream.writes) != 0 {
+		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
 	}
 }
 
-func TestConfigureResourcePackOfferPreservesTypedFailureWhenDisconnectWriteFails(t *testing.T) {
+func TestConfigureRequiredCompatibilityStackPreservesConfigureFailure(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack)}
 	upstream.required = true
-	writeErr := errors.New("write failed")
-	downstream := &offerTestDownstream{writeErr: writeErr}
+	configureErr := errors.New("configure failed")
+	downstream := &offerTestDownstream{err: configureErr}
 
 	err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true})
-	var admissionErr *PackAdmissionError
-	if !errors.As(err, &admissionErr) || !errors.Is(err, writeErr) {
-		t.Fatalf("configureResourcePackOffer() error = %v, want admission and write errors", err)
+	if !errors.Is(err, configureErr) {
+		t.Fatalf("configureResourcePackOffer() error = %v, want configure failure", err)
 	}
 }
 
@@ -197,17 +190,19 @@ func TestSelectedResourcePackStackRetainsExactOrderAndOwnsClones(t *testing.T) {
 	}
 }
 
-func TestSelectedStackPolicyDoesNotSubstituteOfferOrderOrCounts(t *testing.T) {
+func TestSelectedStackCompatibilityDoesNotSubstituteOfferOrderOrCounts(t *testing.T) {
 	offered := newFakeUpstream(nil)
 	offered.packs = []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t), testAdmissionPack(t)}
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	telemetry.observeOffer(offered)
 	selected := &selectedResourcePackStack{packs: []*resource.Pack{offered.packs[2], offered.packs[0]}, required: true}
 
-	err := configureResourcePackOffer(new(offerTestDownstream), selected)
-	var admissionErr *PackAdmissionError
-	if !errors.As(err, &admissionErr) || admissionErr.PackCount != 2 {
-		t.Fatalf("admission error = %v, want selected count 2", err)
+	downstream := new(offerTestDownstream)
+	if err := configureResourcePackOffer(downstream, selected); err != nil {
+		t.Fatalf("configureResourcePackOffer() error = %v", err)
+	}
+	if !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream selected stack = (configured=%t, required=%t), want optional compatibility handoff", downstream.configuredStack, downstream.required)
 	}
 	if got := telemetry.snapshot().PackCount; got != 3 {
 		t.Fatalf("offer telemetry count = %d, want downloaded offer count 3", got)
@@ -733,7 +728,7 @@ func TestListenerBoundaryRejectsMissingSelectedStackBeforeLoginPackets(t *testin
 	assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
 }
 
-func TestListenerBoundaryRequiredOfferDisconnectsBeforeLoginAndStaysPerClient(t *testing.T) {
+func TestPreparationRetainsRequiredUpstreamWhileConfiguringOptionalLocalHandoff(t *testing.T) {
 	connections := newTestPreparedConnections()
 	prepared, targetCloses := newTrackedPreparedConnection()
 	prepared.upstream.(*fakeUpstream).packs = []*resource.Pack{new(resource.Pack)}
@@ -742,46 +737,20 @@ func TestListenerBoundaryRequiredOfferDisconnectsBeforeLoginAndStaysPerClient(t 
 	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
 		return prepared, nil
 	}
-	serveCtx := context.Background()
-	serverErrors := make(chan error, 1)
-	prepare := func(ctx context.Context, conn *minecraft.Conn) error {
-		err := connections.prepare(ctx, conn)
-		reportPreparationError(serverErrors, err, serveCtx)
-		return err
+	downstream := new(offerTestDownstream)
+	key := new(minecraft.Conn)
+	if err := connections.prepareConnection(context.Background(), key, downstream); err != nil {
+		t.Fatalf("prepareConnection() error = %v", err)
 	}
-	_, network := newAdmissionTestListener(t, prepare)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var packetsMu sync.Mutex
-	var packetIDs []uint32
-	conn, err := (minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "RequiredTest"},
-		Protocol:     minecraft.DefaultProtocol,
-		PacketFunc: func(header packet.Header, _ []byte, _, _ net.Addr) {
-			packetsMu.Lock()
-			packetIDs = append(packetIDs, header.PacketID)
-			packetsMu.Unlock()
-		},
-	}).DialContextNetwork(ctx, network, "")
-	if conn != nil {
-		_ = conn.Close()
+	if !downstream.configuredStack || downstream.required || len(downstream.writes) != 0 {
+		t.Fatalf("required compatibility handoff = (stack=%t, required=%t, writes=%d), want optional stack without Disconnect", downstream.configuredStack, downstream.required, len(downstream.writes))
 	}
-	if err == nil {
-		t.Fatal("required-pack client dial succeeded")
+	retained, ok := connections.take(key)
+	if !ok || retained != prepared || !retained.packStack.required {
+		t.Fatalf("retained prepared connection = (%p, %t, required=%t), want exact required upstream ownership", retained, ok, retained != nil && retained.packStack.required)
 	}
-	packetsMu.Lock()
-	gotPackets := slices.Clone(packetIDs)
-	packetsMu.Unlock()
-	if !slices.Contains(gotPackets, packet.IDDisconnect) {
-		t.Fatalf("required-pack packets = %v, want Disconnect", gotPackets)
-	}
-	if slices.Contains(gotPackets, packet.IDPlayStatus) || slices.Contains(gotPackets, packet.IDResourcePacksInfo) {
-		t.Fatalf("required-pack packets = %v, must not include LoginSuccess or ResourcePacksInfo", gotPackets)
-	}
-	select {
-	case serverErr := <-serverErrors:
-		t.Fatalf("required-pack rejection terminated Serve contract: %v", serverErr)
-	default:
+	if err := retained.close(); err != nil {
+		t.Fatalf("close retained connection: %v", err)
 	}
 	assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
 }
@@ -1031,7 +1000,7 @@ func TestPreparedConnectionsShutdownJoinsCancellationCleanup(t *testing.T) {
 	}
 }
 
-func TestShutdownClosesTransportBeforeJoiningBackpressuredRequiredWrite(t *testing.T) {
+func TestShutdownClosesTransportBeforeJoiningBackpressuredRequiredCompatibilityConfigure(t *testing.T) {
 	connections := newTestPreparedConnections()
 	prepared, targetCloses := newTrackedPreparedConnection()
 	prepared.upstream.(*fakeUpstream).packs = []*resource.Pack{new(resource.Pack)}
@@ -1040,19 +1009,19 @@ func TestShutdownClosesTransportBeforeJoiningBackpressuredRequiredWrite(t *testi
 	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
 		return prepared, nil
 	}
-	writeStarted := make(chan struct{})
-	writeUnblock := make(chan struct{})
-	downstream := &offerTestDownstream{writeStarted: writeStarted, writeUnblock: writeUnblock}
+	configureStarted := make(chan struct{})
+	configureUnblock := make(chan struct{})
+	downstream := &offerTestDownstream{writeStarted: configureStarted, writeUnblock: configureUnblock}
 	prepareDone := make(chan error, 1)
 	go func() {
 		prepareDone <- connections.prepareConnection(context.Background(), new(minecraft.Conn), downstream)
 	}()
-	<-writeStarted
+	<-configureStarted
 
 	shutdownDone := make(chan error, 1)
 	go func() {
 		shutdownDone <- shutdownPreparedServer(connections, func() error {
-			close(writeUnblock)
+			close(configureUnblock)
 			return nil
 		})
 	}()
@@ -1064,9 +1033,8 @@ func TestShutdownClosesTransportBeforeJoiningBackpressuredRequiredWrite(t *testi
 	case <-time.After(time.Second):
 		t.Fatal("shutdown waited for preparation before closing the backpressured transport")
 	}
-	var admissionErr *PackAdmissionError
-	if err := <-prepareDone; !errors.As(err, &admissionErr) {
-		t.Fatalf("prepare error = %v, want required-pack admission error", err)
+	if err := <-prepareDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("prepare error = %v, want local shutdown cancellation", err)
 	}
 	assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
 }
@@ -1181,14 +1149,14 @@ func TestSelectedStackPolicyPanicsReleaseOwnershipWithoutFormattingPayload(t *te
 		stack      *selectedResourcePackStack
 	}{
 		{
-			name: "required disconnect write",
+			name: "required compatibility stack configure",
 			upstream: func(any) upstreamSession {
 				base := newFakeUpstream(nil)
 				base.packs = []*resource.Pack{new(resource.Pack)}
 				base.required = true
 				return base
 			},
-			downstream: func(value any) *offerTestDownstream { return &offerTestDownstream{writePanic: value} },
+			downstream: func(value any) *offerTestDownstream { return &offerTestDownstream{configPanic: value} },
 			stack:      &selectedResourcePackStack{packs: []*resource.Pack{new(resource.Pack)}, required: true},
 		},
 		{

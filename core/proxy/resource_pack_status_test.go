@@ -81,7 +81,7 @@ func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *te
 	}{
 		{name: "none", wantOffer: ResourcePackOfferNone, wantResult: ResourcePackDownstreamNone},
 		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamOfferedOptional},
-		{name: "required", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamRejectedRequired},
+		{name: "required compatibility", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamOfferedOptional},
 		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamNone},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -148,6 +148,19 @@ func TestOptionalStatusChangesOnlyAfterLocalNegotiationCompletes(t *testing.T) {
 	}
 	if len(updates) != 3 || updates[1].DownstreamOutcome != ResourcePackDownstreamOfferedOptional || updates[2].DownstreamOutcome != ResourcePackDownstreamHandedOffOptional {
 		t.Fatalf("status updates = %#v, want reset, offered, then handed-off transitions", updates)
+	}
+}
+
+func TestRequiredCompatibilityStatusReachesLocalHandoff(t *testing.T) {
+	telemetry := newResourcePackAdmissionTelemetry(1, nil)
+	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}, required: true}
+	telemetry.observePolicyOutcome(stack, true)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedOptional {
+		t.Fatalf("configured required compatibility outcome = %q, want offered_optional", got)
+	}
+	telemetry.observeLocalHandoff(stack)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffOptional {
+		t.Fatalf("accepted required compatibility outcome = %q, want handed_off_optional", got)
 	}
 }
 
