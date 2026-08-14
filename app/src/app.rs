@@ -257,6 +257,50 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
     );
 }
 
+pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
+    app.add_observer(apply_added_chunk_visibility)
+        .add_observer(remove_chunk_visibility)
+        .configure_sets(
+            Update,
+            (
+                LocalPlayerFrameSet::Physics,
+                LocalPlayerFrameSet::Camera,
+                LocalPlayerFrameSet::Interaction,
+            )
+                .chain()
+                .after(FlyCameraUpdateSet),
+        )
+        .add_systems(
+            Update,
+            begin_publication_frame
+                .before(receive_network_events)
+                .before(drive_world_stream)
+                .before(ChunkRenderApplySet),
+        )
+        .add_systems(
+            Update,
+            (
+                exit_on_window_close_requested,
+                flush_chat_network,
+                exit_on_fatal_runtime_error,
+                poll_transparent_witness_request,
+                poll_model_witness_request,
+                update_camera_medium,
+                update_atmosphere_frame,
+                refresh_cave_visibility,
+                update_visibility_diagnostics.after(ChunkRenderApplySet),
+                emit_world_ready,
+                drive_model_witness,
+                apply_runtime_vsync_setting,
+                record_metrics_and_title,
+                publish_runtime_stage_profile,
+            )
+                .chain()
+                .after(FlyCameraUpdateSet),
+        )
+        .add_systems(Last, arm_shutdown_watchdog);
+}
+
 fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
     let bytes = fs::read(path).with_context(|| {
         format!(
@@ -585,47 +629,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         app.insert_resource(identity);
     }
     configure_client_production_frame_systems(&mut app);
-    app.add_observer(apply_added_chunk_visibility)
-        .add_observer(remove_chunk_visibility)
-        .configure_sets(
-            Update,
-            (
-                LocalPlayerFrameSet::Physics,
-                LocalPlayerFrameSet::Camera,
-                LocalPlayerFrameSet::Interaction,
-            )
-                .chain()
-                .after(FlyCameraUpdateSet),
-        )
-        .add_systems(
-            Update,
-            begin_publication_frame
-                .before(receive_network_events)
-                .before(drive_world_stream)
-                .before(ChunkRenderApplySet),
-        )
-        .add_systems(
-            Update,
-            (
-                exit_on_window_close_requested,
-                flush_chat_network,
-                exit_on_fatal_runtime_error,
-                poll_transparent_witness_request,
-                poll_model_witness_request,
-                update_camera_medium,
-                update_atmosphere_frame,
-                refresh_cave_visibility,
-                update_visibility_diagnostics.after(ChunkRenderApplySet),
-                emit_world_ready,
-                drive_model_witness,
-                apply_runtime_vsync_setting,
-                record_metrics_and_title,
-                publish_runtime_stage_profile,
-            )
-                .chain()
-                .after(FlyCameraUpdateSet),
-        )
-        .add_systems(Last, arm_shutdown_watchdog);
+    configure_client_runtime_frame_systems(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
@@ -695,5 +699,34 @@ mod preg_startup_tests {
         assert!(message.contains("read required protocol-1001 physics registry"));
         assert!(message.contains("make physics-assets"));
         assert!(message.contains("make client"));
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use bevy::ecs::schedule::Schedules;
+
+    use super::*;
+
+    #[test]
+    fn production_update_schedule_initializes_without_dependency_cycles() {
+        let mut app = App::new();
+        configure_client_frame_schedule(&mut app);
+        app.add_plugins(FlyCameraPlugin::default());
+        configure_client_production_frame_systems(&mut app);
+        configure_client_runtime_frame_systems(&mut app);
+        configure_acceptance_finish_system(&mut app);
+
+        let mut schedules = app
+            .world_mut()
+            .remove_resource::<Schedules>()
+            .expect("Schedules resource");
+        let result = schedules
+            .get_mut(Update)
+            .expect("production Update schedule")
+            .initialize(app.world_mut());
+        app.world_mut().insert_resource(schedules);
+
+        assert!(result.is_ok(), "production Update schedule: {result:?}");
     }
 }
