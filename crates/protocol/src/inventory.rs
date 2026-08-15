@@ -167,7 +167,7 @@ pub enum InventoryPacketError {
     #[error("container close window ID {0} is outside 0..=255")]
     InvalidContainerCloseWindowId(i32),
     #[error("armor equipment actor runtime ID {0} is invalid")]
-    InvalidArmorRuntimeId(i64),
+    InvalidArmorRuntimeId(u64),
     #[error("inventory slot {0} is outside 0..{MAX_CONTAINER_SLOTS}")]
     InvalidSlot(i32),
     #[error("selected hotbar slot {0} is outside 0..9")]
@@ -674,12 +674,12 @@ fn checked_slot(slot: i32) -> Result<u16, InventoryPacketError> {
 pub(crate) fn normalize_armor_equipment(
     packet: MobArmorEquipmentPacket,
 ) -> Result<ArmorEquipmentEvent, InventoryPacketError> {
-    let actor_runtime_id = u64::try_from(packet.target_runtime_id.actor_runtime_id)
-        .ok()
-        .filter(|id| *id != 0)
-        .ok_or(InventoryPacketError::InvalidArmorRuntimeId(
-            i64::try_from(packet.target_runtime_id.actor_runtime_id).unwrap_or(i64::MAX),
-        ))?;
+    let actor_runtime_id = packet.target_runtime_id.actor_runtime_id;
+    if actor_runtime_id == 0 {
+        return Err(InventoryPacketError::InvalidArmorRuntimeId(
+            actor_runtime_id,
+        ));
+    }
     Ok(ArmorEquipmentEvent {
         actor_runtime_id,
         helmet: normalize_item_descriptor(packet.head)?,

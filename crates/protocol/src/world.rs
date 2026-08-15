@@ -118,7 +118,7 @@ impl WorldBootstrap {
             // after `UserDefinedBiomeName`, which is exactly
             // `settings.spawn_settings.dimension` here, so the raw id is used.
             dimension: settings.spawn_settings.dimension,
-            local_player_runtime_id: start_game.runtime_id.actor_runtime_id as u64,
+            local_player_runtime_id: start_game.runtime_id.actor_runtime_id,
             local_player_unique_id: start_game.entity_id.actor_unique_id,
             player_position: [
                 start_game.position.x,
@@ -532,7 +532,7 @@ pub fn into_world_event(
                     packet.block_position.z,
                 ],
                 layer,
-                network_id: packet.block_runtime_id as u32,
+                network_id: packet.block_runtime_id,
             }])
         }
         McpePacketData::UpdateSubChunkBlocksPacket(packet) => {
@@ -546,13 +546,13 @@ pub fn into_world_event(
                 dimension: current_dimension,
                 position: [update.pos.x, update.pos.y, update.pos.z],
                 layer: 0,
-                network_id: update.runtime_id as u32,
+                network_id: update.runtime_id,
             }));
             updates.extend(extras.into_iter().map(|update| BlockUpdateEvent {
                 dimension: current_dimension,
                 position: [update.pos.x, update.pos.y, update.pos.z],
                 layer: 1,
-                network_id: update.runtime_id as u32,
+                network_id: update.runtime_id,
             }));
             WorldEvent::BlockUpdates(updates)
         }
@@ -724,7 +724,7 @@ pub(crate) fn normalize_borrowed_level_chunk(
             mode,
             payload: Vec::new(),
         },
-        payload.into(),
+        payload,
     ))
 }
 

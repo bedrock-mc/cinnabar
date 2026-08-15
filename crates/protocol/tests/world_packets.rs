@@ -521,7 +521,7 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     assert_eq!(
         into_world_event(decoded.into(), 0).unwrap(),
         Some(WorldEvent::MovePlayer(MovePlayerEvent {
-            runtime_id: RUNTIME_ID as u64,
+            runtime_id: RUNTIME_ID,
             position: [1.0, 2.0, 3.0],
             pitch: 0.0,
             yaw: 0.0,
@@ -875,16 +875,15 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
 
 #[test]
 fn rejects_negative_or_excessive_update_layers() {
-    for layer in [16] {
-        let packet = UpdateBlockPacket {
-            layer,
-            ..Default::default()
-        };
-        assert_eq!(
-            into_world_event(packet.into(), 0),
-            Err(WorldPacketError::InvalidBlockLayer(layer))
-        );
-    }
+    let layer = 16;
+    let packet = UpdateBlockPacket {
+        layer,
+        ..Default::default()
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0),
+        Err(WorldPacketError::InvalidBlockLayer(layer))
+    );
 }
 
 #[test]

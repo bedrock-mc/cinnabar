@@ -440,7 +440,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 resolved,
                 ..
             } => {
-                let tick = u64::try_from(correction.source_tick).unwrap_or(0);
+                let tick = correction.source_tick;
                 if movement.physics_is_authorized() {
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
