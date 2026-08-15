@@ -39294,16 +39294,24 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketRes
     fn encoded_size(&self) -> usize {
         match self {
             ResourcePackClientResponsePacketResponse::Cancel(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             ResourcePackClientResponsePacketResponse::Downloading(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             ResourcePackClientResponsePacketResponse::DownloadingFinished(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    2 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    3 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
         }
     }
@@ -39314,25 +39322,25 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
         match self {
             ResourcePackClientResponsePacketResponse::Cancel(value) => {
                 let control_value = 0 as i64;
-                (control_value as i8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::Downloading(value) => {
                 let control_value = 1 as i64;
-                (control_value as i8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::DownloadingFinished(value) => {
                 let control_value = 2 as i64;
-                (control_value as i8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(value) => {
                 let control_value = 3 as i64;
-                (control_value as i8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
@@ -39342,7 +39350,12 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
         buf: &mut B,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <i8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
         match control_value {
             0 => {
                 Ok(

@@ -1,4 +1,4 @@
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use std::fmt::Debug;
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::bedrock::version::v1_26_40::types::{
@@ -104,4 +104,16 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
             b't', b'a', b'c', b'k', b'f', b'i', b'n', b'i', b's', b'h', b'e', b'd',
         ],
     );
+}
+
+#[test]
+fn resource_pack_client_response_selector_is_varuint32() {
+    let mut input = Bytes::from_static(&[0x80, 0x01]);
+    let error = ResourcePackClientResponsePacketResponse::decode(&mut input, ())
+        .expect_err("reserved selector 128 must be rejected after decoding its full varuint32");
+    assert!(input.is_empty(), "the two-byte varuint32 must be consumed");
+    assert!(matches!(
+        error,
+        valentine::bedrock::error::DecodeError::InvalidEnumValue { value: 128, .. }
+    ));
 }
