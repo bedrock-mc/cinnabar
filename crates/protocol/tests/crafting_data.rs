@@ -55,13 +55,13 @@ fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
     assert!(packet.shapeless_recipes.is_empty());
     assert!(packet.multi_recipes.is_empty());
     assert!(packet.user_data_shapeless_recipes.is_empty());
-    assert!(packet.reserved_recipes_4.is_empty());
-    assert!(packet.reserved_recipes_5.is_empty());
+    assert!(packet.shapeless_chemistry_recipes.is_empty());
+    assert!(packet.shaped_chemistry_recipes.is_empty());
     assert!(packet.smithing_transform_recipes.is_empty());
     assert!(packet.smithing_trim_recipes.is_empty());
     assert!(packet.potion_mixes.is_empty());
     assert!(packet.container_mixes.is_empty());
-    assert!(packet.reserved_entries_10.is_empty());
+    assert!(packet.material_reducers.is_empty());
     assert!(!packet.clear_recipes);
 
     let recipe = &packet.shaped_recipes[0];
