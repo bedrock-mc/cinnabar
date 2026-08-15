@@ -1,18 +1,18 @@
 //! Decode bounds on world-packet collections.
 //!
-//! Generated decoders reject counts that cannot fit the remaining wire bytes
-//! before attempting collection reservation. These are field-shape feasibility
-//! checks, not a global element ceiling.
+//! Generated decoders grow collections fallibly instead of reserving directly
+//! from untrusted counts. Declared-but-absent elements therefore fail as
+//! truncated wire, without imposing a global element ceiling.
 
 use bytes::{Bytes, BytesMut};
 use valentine::bedrock::{
     codec::{BedrockCodec, U32LE, VarInt},
     error::DecodeError,
     version::v1_26_40::{
-        ChunkPos, DimensionDataPacket, DimensionDataPacketDefinitionsItem, LevelChunkPacket,
+        ChunkPos, DimensionDataPacket, DimensionDataPacketDefinitionsItem,
+        EnumsSubChunkPacketPayloadSubChunkRequestResult, LevelChunkPacket,
         LevelChunkPacketPayloadSubChunkMetadata, NetworkChunkPublisherUpdatePacket, SubChunkPacket,
-        SubChunkPacketPayloadSubChunkPacketData,
-        SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult, UpdateSubChunkBlocksPacket,
+        SubChunkPacketPayloadSubChunkPacketData, UpdateSubChunkBlocksPacket,
         UpdateSubChunkNetworkBlockInfo,
     },
 };
@@ -23,19 +23,18 @@ const MAX_PACKET_BYTE_ARRAY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WORLD_COLLECTION_ELEMENTS: usize = 4096;
 const MAX_DIMENSION_DEFINITIONS: usize = 64;
 
-/// Asserts a declared-but-absent collection fails its feasibility check.
+/// Asserts a declared-but-absent collection fails without an allocation ceiling.
 #[track_caller]
 fn assert_rejected_without_a_length_ceiling(error: DecodeError) {
-    assert!(
-        matches!(
-            error,
-            DecodeError::ArrayLengthExceeded {
-                declared,
-                available
-            } if declared > available
-        ),
-        "unexpected decode error: {error:?}"
-    );
+    match error {
+        DecodeError::ArrayLengthExceeded {
+            declared,
+            available,
+        } if declared > available => {}
+        DecodeError::UnexpectedEof { .. } => {}
+        DecodeError::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {}
+        error => panic!("unexpected decode error: {error:?}"),
+    }
 }
 
 fn malicious_collection_prefix<T: BedrockCodec>(
@@ -155,8 +154,7 @@ fn subchunk_rejects_oversized_entry_count() {
 #[test]
 fn subchunk_entry_rejects_oversized_payload() {
     let empty = SubChunkPacketPayloadSubChunkPacketData {
-        sub_chunk_request_result:
-            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Success,
+        sub_chunk_request_result: EnumsSubChunkPacketPayloadSubChunkRequestResult::Success,
         serialized_sub_chunk: Some(Vec::new()),
         ..Default::default()
     };

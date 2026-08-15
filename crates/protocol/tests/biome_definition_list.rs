@@ -91,7 +91,9 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 
-/// A hostile nested count fails its minimum-wire-size check before reserve.
+/// A hostile nested count remains fatal when its first declared element is
+/// absent. This variable-size collection is decoded incrementally without a
+/// global element ceiling.
 #[test]
 fn biome_chunk_generation_rejects_oversized_nested_collection() {
     let mut bytes = BytesMut::from(&[0, 1][..]);
@@ -101,13 +103,7 @@ fn biome_chunk_generation_rejects_oversized_nested_collection() {
 
     let error = BiomeDefinitionChunkGenData::decode(&mut bytes.freeze(), ())
         .expect_err("4,097 consolidated features must not decode");
-    assert!(matches!(
-        error,
-        DecodeError::ArrayLengthExceeded {
-            declared: 4_097,
-            available: 0
-        }
-    ));
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 #[test]

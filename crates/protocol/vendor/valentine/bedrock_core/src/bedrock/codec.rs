@@ -758,6 +758,212 @@ impl BedrockSized for VarLong {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VarUInt(pub u32);
+
+impl BedrockCodec for VarUInt {
+    type Args = ();
+
+    fn encode<B: BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let mut value = self.0;
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            buf.put_u8(byte);
+            if value == 0 {
+                return Ok(());
+            }
+        }
+    }
+
+    fn decode<B: Buf>(buf: &mut B, _args: Self::Args) -> Result<Self, DecodeError> {
+        let mut result = 0u32;
+        for shift in (0..35).step_by(7) {
+            if !buf.has_remaining() {
+                return Err(DecodeError::UnexpectedEof {
+                    needed: 1,
+                    available: 0,
+                });
+            }
+            let byte = buf.get_u8();
+            if shift == 28 && byte & 0xf0 != 0 {
+                return Err(DecodeError::VarIntTooLarge);
+            }
+            result |= u32::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                if shift > 0 && byte & 0x7f == 0 {
+                    return Err(DecodeError::VarIntTooLarge);
+                }
+                return Ok(Self(result));
+            }
+        }
+        Err(DecodeError::VarIntTooLarge)
+    }
+}
+
+impl BedrockSized for VarUInt {
+    fn encoded_size(&self) -> usize {
+        wire::var_u32_len(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VarULong(pub u64);
+
+impl BedrockCodec for VarULong {
+    type Args = ();
+
+    fn encode<B: BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let mut value = self.0;
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            buf.put_u8(byte);
+            if value == 0 {
+                return Ok(());
+            }
+        }
+    }
+
+    fn decode<B: Buf>(buf: &mut B, _args: Self::Args) -> Result<Self, DecodeError> {
+        let mut result = 0u64;
+        for shift in (0..70).step_by(7) {
+            if !buf.has_remaining() {
+                return Err(DecodeError::UnexpectedEof {
+                    needed: 1,
+                    available: 0,
+                });
+            }
+            let byte = buf.get_u8();
+            if shift == 63 && byte & 0xfe != 0 {
+                return Err(DecodeError::VarLongTooLarge);
+            }
+            result |= u64::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                if shift > 0 && byte & 0x7f == 0 {
+                    return Err(DecodeError::VarLongTooLarge);
+                }
+                return Ok(Self(result));
+            }
+        }
+        Err(DecodeError::VarLongTooLarge)
+    }
+}
+
+impl BedrockSized for VarULong {
+    fn encoded_size(&self) -> usize {
+        wire::var_u64_len(self.0)
+    }
+}
+
+/// Encodes a bounded bitset using seven payload bits per continuation byte.
+pub fn encode_bitset<B: BufMut, const N: usize>(
+    words: &[u64; N],
+    bits: usize,
+    buf: &mut B,
+) -> Result<(), std::io::Error> {
+    let capacity = N.checked_mul(64).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "bitset capacity overflow")
+    })?;
+    if bits == 0 || bits > capacity {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "bitset width exceeds its word storage",
+        ));
+    }
+    if !bits.is_multiple_of(64) && words[N - 1] >> (bits % 64) != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "bitset contains set bits outside its declared width",
+        ));
+    }
+
+    let Some(last) = (0..bits)
+        .rev()
+        .find(|index| words[index / 64] & (1 << (index % 64)) != 0)
+    else {
+        buf.put_u8(0);
+        return Ok(());
+    };
+    let groups = last / 7 + 1;
+    for group in 0..groups {
+        let offset = group * 7;
+        let width = (bits - offset).min(7);
+        let mut value = 0u8;
+        for bit in 0..width {
+            let index = offset + bit;
+            if words[index / 64] & (1 << (index % 64)) != 0 {
+                value |= 1 << bit;
+            }
+        }
+        if group + 1 < groups {
+            value |= 0x80;
+        }
+        buf.put_u8(value);
+    }
+    Ok(())
+}
+
+/// Decodes a bounded seven-payload-bits-per-byte continuation bitset.
+pub fn decode_bitset<B: Buf, const N: usize>(
+    buf: &mut B,
+    bits: usize,
+) -> Result<[u64; N], DecodeError> {
+    if bits == 0 || bits > N.saturating_mul(64) {
+        return Err(DecodeError::InvalidBitset {
+            bits,
+            reason: "width exceeds word storage",
+        });
+    }
+    let mut words = [0u64; N];
+    let mut offset = 0usize;
+    loop {
+        if !buf.has_remaining() {
+            return Err(DecodeError::UnexpectedEof {
+                needed: 1,
+                available: 0,
+            });
+        }
+        let value = buf.get_u8();
+        let width = (bits - offset).min(7);
+        if width < 7 && usize::from(value & 0x7f) >= (1usize << width) {
+            return Err(DecodeError::InvalidBitset {
+                bits,
+                reason: "payload has bits outside the declared width",
+            });
+        }
+        for bit in 0..width {
+            if value & (1 << bit) != 0 {
+                let index = offset + bit;
+                words[index / 64] |= 1 << (index % 64);
+            }
+        }
+        if value & 0x80 == 0 {
+            return Ok(words);
+        }
+        if offset + 7 >= bits {
+            return Err(DecodeError::InvalidBitset {
+                bits,
+                reason: "continuation exceeds the declared width",
+            });
+        }
+        offset += 7;
+    }
+}
+
+pub fn bitset_encoded_size<const N: usize>(words: &[u64; N], bits: usize) -> usize {
+    (0..bits)
+        .rev()
+        .find(|index| words[index / 64] & (1 << (index % 64)) != 0)
+        .map_or(1, |last| last / 7 + 1)
+}
+
 pub trait GamePacket: BedrockCodec {
     type PacketId;
     const PACKET_ID: Self::PacketId;
@@ -1159,6 +1365,16 @@ mod tests {
         assert_eq!(decode_latin1_owned(vec![0x41, 0xff]).unwrap(), "A\u{ff}");
     }
 
+    #[test]
+    fn decoded_collections_do_not_eagerly_trust_wire_counts() {
+        let mut values: Vec<u64> = prepare_decode_vec(1_000_000, 0, None).expect("lazy storage");
+        assert_eq!(values.capacity(), 0);
+
+        reserve_decode_item(&mut values).expect("reserve first decoded item");
+        values.push(42);
+        assert_eq!(values, [42]);
+    }
+
     // ========== Primitive Tests ==========
 
     #[test]
@@ -1380,6 +1596,64 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unsigned_varints_preserve_the_full_wire_range() {
+        let mut u32_buf = BytesMut::new();
+        VarUInt(u32::MAX).encode(&mut u32_buf).unwrap();
+        assert_eq!(&u32_buf[..], &[0xff, 0xff, 0xff, 0xff, 0x0f]);
+        assert_eq!(VarUInt(u32::MAX).encoded_size(), 5);
+        let mut u32_input = u32_buf.freeze();
+        assert_eq!(
+            VarUInt::decode(&mut u32_input, ()).unwrap(),
+            VarUInt(u32::MAX)
+        );
+        assert!(!u32_input.has_remaining());
+
+        let mut u64_buf = BytesMut::new();
+        VarULong(u64::MAX).encode(&mut u64_buf).unwrap();
+        assert_eq!(
+            &u64_buf[..],
+            &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]
+        );
+        assert_eq!(VarULong(u64::MAX).encoded_size(), 10);
+        let mut u64_input = u64_buf.freeze();
+        assert_eq!(
+            VarULong::decode(&mut u64_input, ()).unwrap(),
+            VarULong(u64::MAX)
+        );
+        assert!(!u64_input.has_remaining());
+    }
+
+    #[test]
+    fn unsigned_varints_reject_payload_bits_beyond_their_width() {
+        let mut u32_input = &[0xff, 0xff, 0xff, 0xff, 0x7f][..];
+        assert!(matches!(
+            VarUInt::decode(&mut u32_input, ()),
+            Err(DecodeError::VarIntTooLarge)
+        ));
+
+        let mut u64_input = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f][..];
+        assert!(matches!(
+            VarULong::decode(&mut u64_input, ()),
+            Err(DecodeError::VarLongTooLarge)
+        ));
+    }
+
+    #[test]
+    fn unsigned_varints_reject_noncanonical_overlong_encodings() {
+        let mut u32_input = &[0x80, 0x00][..];
+        assert!(matches!(
+            VarUInt::decode(&mut u32_input, ()),
+            Err(DecodeError::VarIntTooLarge)
+        ));
+
+        let mut u64_input = &[0x80, 0x00][..];
+        assert!(matches!(
+            VarULong::decode(&mut u64_input, ()),
+            Err(DecodeError::VarLongTooLarge)
+        ));
+    }
+
     // ========== String Tests ==========
 
     #[test]
@@ -1546,6 +1820,39 @@ mod tests {
         let mut reader = &data[..];
         let err = VarLong::decode(&mut reader, ()).unwrap_err();
         assert!(matches!(err, DecodeError::VarLongTooLarge));
+    }
+
+    #[test]
+    fn continuation_bitset_round_trips_declared_boundary_bits() {
+        let words = [1u64, 0, 1u64 << 2];
+        let mut encoded = BytesMut::new();
+        encode_bitset(&words, 131, &mut encoded).expect("encode 131-bit set");
+        assert_eq!(encoded.len(), 19);
+        assert_eq!(encoded[0], 0x81);
+        assert!(encoded[1..18].iter().all(|byte| *byte == 0x80));
+        assert_eq!(encoded[18], 0x10);
+        assert_eq!(bitset_encoded_size(&words, 131), encoded.len());
+
+        let mut input = encoded.freeze();
+        let decoded = decode_bitset::<_, 3>(&mut input, 131).expect("decode 131-bit set");
+        assert_eq!(decoded, words);
+        assert!(!input.has_remaining());
+    }
+
+    #[test]
+    fn continuation_bitset_zero_is_one_byte_and_rejects_excess_bits() {
+        let words = [0u64; 3];
+        let mut encoded = BytesMut::new();
+        encode_bitset(&words, 131, &mut encoded).expect("encode empty bitset");
+        assert_eq!(&encoded[..], &[0]);
+        assert_eq!(bitset_encoded_size(&words, 131), 1);
+
+        let mut malformed = &[0x80; 19][..];
+        let error = decode_bitset::<_, 3>(&mut malformed, 131).unwrap_err();
+        assert!(matches!(
+            error,
+            DecodeError::InvalidBitset { bits: 131, .. }
+        ));
     }
 
     // ========== NBT Tests ==========

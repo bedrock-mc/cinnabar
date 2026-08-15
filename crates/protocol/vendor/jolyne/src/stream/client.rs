@@ -1836,7 +1836,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
     pub async fn await_start_game(
         mut self,
     ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
-        let mut runtime_entity_id: Option<i64> = None;
+        let mut runtime_entity_id: Option<u64> = None;
         let mut sent_chunk_radius = false;
         let mut received_chunk_radius = false;
         let mut received_player_spawn = false;

@@ -2,7 +2,7 @@ use bytes::{Buf, Bytes};
 use std::borrow::Cow;
 
 use crate::bedrock::codec::{
-    BedrockCodec, BedrockSized, U32LE, VarInt, checked_signed_len, checked_unsigned_len,
+    BedrockCodec, BedrockSized, U32LE, VarInt, VarUInt, checked_signed_len, checked_unsigned_len,
 };
 use crate::bedrock::error::DecodeError;
 use crate::protocol::wire;
@@ -104,7 +104,7 @@ impl RawMcpeFrame {
 }
 
 pub fn take_var_u32_prefixed_bytes(buf: &mut Bytes) -> Result<Bytes, DecodeError> {
-    let len = checked_unsigned_len(wire::read_var_u32(buf)? as u128)?;
+    let len = checked_unsigned_len(VarUInt::decode(buf, ())?.0 as u128)?;
     take_exact_array_bytes(buf, len)
 }
 

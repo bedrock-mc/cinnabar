@@ -655,7 +655,7 @@ pub(crate) fn normalize_player_list(
     let mut retained_skin_bytes = 0usize;
     for entry in packet.entries {
         match entry {
-            PlayerListPacketEntriesItem::Add(record) => {
+            PlayerListPacketEntriesItem::AddEntry(record) => {
                 validate_text(
                     "player_list.username",
                     &record.player_name,
@@ -679,7 +679,7 @@ pub(crate) fn normalize_player_list(
                     skin,
                 });
             }
-            PlayerListPacketEntriesItem::Remove(record) => {
+            PlayerListPacketEntriesItem::RemoveEntry(record) => {
                 entries.push(PlayerListEntry::Remove {
                     uuid: *record.uuid.as_bytes(),
                 });

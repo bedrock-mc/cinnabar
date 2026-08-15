@@ -13,7 +13,8 @@ use valentine::bedrock::version::v1_26_40::{
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
     DimensionType, EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode,
-    EnumsPlayerRespawnState as RespawnPacketState, EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
+    EnumsPlayerRespawnState as RespawnPacketState,
+    EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData,
     LevelChunkPacket, LevelEventPacket, McpePacketData, MovePlayerPacket, MovePlayerPacketView,
@@ -718,7 +719,6 @@ fn rejects_malformed_or_cached_level_chunks() {
             max: MAX_SUB_CHUNK_REQUESTS,
         })
     );
-
 }
 
 fn sub_chunk_entry(

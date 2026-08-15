@@ -1,8 +1,7 @@
 use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input};
 use valentine::bedrock::version::v1_26_40::{
-    McpePacketData, McpePacketName, PlayerAuthInputPacketInputDataItem,
-    PlayerAuthInputPacketInputMode, PlayerAuthInputPacketNewInteractionModel,
-    PlayerAuthInputPacketPlayMode,
+    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
+    EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
 };
 
 fn snapshot() -> PlayerAuthInputSnapshot {
@@ -73,36 +72,35 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     );
     assert_eq!(input.interact_rotation.x, input.player_rotation.x);
     assert_eq!(input.interact_rotation.y, input.player_rotation.y);
-    assert_eq!(input.input_mode, PlayerAuthInputPacketInputMode::Mouse);
-    assert_eq!(input.play_mode, PlayerAuthInputPacketPlayMode::Normal);
+    assert_eq!(input.input_mode, EnumsInputMode::Mouse);
+    assert_eq!(input.play_mode, EnumsClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
     // this with io.Varint32 (zigzag), which the generated enum now matches.
     assert_eq!(
         input.new_interaction_model,
-        PlayerAuthInputPacketNewInteractionModel::Crosshair
+        EnumsNewInteractionModel::Crosshair
     );
     // The bitset became a list of set flag IDs, emitted in ascending order.
     assert_eq!(
         input.input_data,
-        vec![
-            PlayerAuthInputPacketInputDataItem::Jumping,
-            PlayerAuthInputPacketInputDataItem::Up,
-            PlayerAuthInputPacketInputDataItem::Left,
-            PlayerAuthInputPacketInputDataItem::Sprinting,
-        ]
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
+            EnumsPlayerAuthInputPacketPayloadInputData::Up,
+            EnumsPlayerAuthInputPacketPayloadInputData::Left,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+        ])
     );
     // The outer bool of each DoubleOptionalFunc is always set by a Go writer;
     // the payload's own Option is what says "absent".
-    assert!(input.constant_4);
-    assert!(input.constant_12 && input.item_use_transaction.is_none());
-    assert!(input.constant_14 && input.item_stack_request.is_none());
-    assert!(input.constant_16 && input.player_block_actions.is_none());
-    assert!(input.constant_18 && input.vehicle_rotation.is_none());
-    assert!(input.constant_20 && input.client_predicted_vehicle.is_none());
+    assert_eq!(input.item_use_transaction, Some(None));
+    assert_eq!(input.item_stack_request, Some(None));
+    assert_eq!(input.player_block_actions, Some(None));
+    assert_eq!(input.vehicle_rotation, Some(None));
+    assert_eq!(input.client_predicted_vehicle, Some(None));
 }
 
 #[test]
-fn player_auth_input_rejects_non_finite_state_and_ticks_outside_wire_range() {
+fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_position = snapshot();
     invalid_position.position[1] = f32::NAN;
     assert!(player_auth_input(invalid_position).is_err());
@@ -111,7 +109,11 @@ fn player_auth_input_rejects_non_finite_state_and_ticks_outside_wire_range() {
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
 
-    let mut invalid_tick = snapshot();
-    invalid_tick.tick = i64::MAX as u64 + 1;
-    assert!(player_auth_input(invalid_tick).is_err());
+    let mut maximum_tick = snapshot();
+    maximum_tick.tick = u64::MAX;
+    let packet = player_auth_input(maximum_tick).expect("full unsigned tick range is valid");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(input.client_tick.inputtick, u64::MAX);
 }

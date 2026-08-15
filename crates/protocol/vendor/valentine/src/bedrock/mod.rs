@@ -8,19 +8,10 @@
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::manual_flatten)]
 pub mod borrowed;
-/// Bedrock protocol surface.
-///
-/// Modules:
-/// - `protocol`: Unique protocol definitions (one per protocol schema).
-/// - `version`: Feature-gated per-MC-version modules that re-export a `protocol`.
 pub mod codec;
 pub mod context;
 pub mod error;
 pub mod protocol;
 pub mod version;
-/// Compatibility re-exports for `bedrock::vX_Y_Z`.
-///
-/// Prefer `bedrock::version::vX_Y_Z` in new code when you want the
-/// canonical, version-pinned protocol surface.
 #[cfg(feature = "bedrock_1_26_40")]
 pub use self::version::v1_26_40;

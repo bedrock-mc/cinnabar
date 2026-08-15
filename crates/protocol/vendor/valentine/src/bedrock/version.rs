@@ -5,11 +5,6 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
-//! Version modules
-//!
-//! Each `vX_Y_Z` re-exports the appropriate `protocol::vX_Y_Z` (or alias),
-//! allowing you to enable `--features bedrock_X_Y_Z` and import
-//! `valentine::bedrock::version::vX_Y_Z::*` without duplicating protocol code.
 pub use valentine_bedrock_core::bedrock::version::BedrockVersionInfo;
 #[cfg(feature = "bedrock_1_26_40")]
 pub mod v1_26_40 {

@@ -13,8 +13,8 @@ use valentine::bedrock::version::v1_26_40::{
 
 mod text;
 
-pub(crate) use text::{normalize_text, normalize_title};
 pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
+pub(crate) use text::{normalize_text, normalize_title};
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
 pub const MAX_CHAT_PARAMETERS: usize = 128;

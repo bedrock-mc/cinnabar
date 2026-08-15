@@ -8,10 +8,11 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_40::{
-    ContainerClosePacket, InventoryTransactionPacketTransaction,
-    ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
-    ItemUseInventoryTransactionClientInteractPrediction, ItemUseInventoryTransactionTriggerType,
-    ItemUseOnActorInventoryTransactionActionType, McpePacketData, McpePacketName,
+    ContainerClosePacket, EnumsItemUseInventoryTransactionActionType,
+    EnumsItemUseInventoryTransactionClientCooldownState,
+    EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
+    EnumsItemUseOnActorInventoryTransactionActionType, InventoryTransactionPacketTransaction,
+    McpePacketData, McpePacketName,
 };
 
 const CLICK_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_click_block.bin");
@@ -44,42 +45,36 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
 }
 
 fn assert_click_block_constants(packet: &protocol::Packet) {
-    assert_block_use_constants(packet, ItemUseInventoryTransactionActionType::Place);
+    assert_block_use_constants(packet, EnumsItemUseInventoryTransactionActionType::Place);
 }
 
 fn assert_block_use_constants(
     packet: &protocol::Packet,
-    expected_action: ItemUseInventoryTransactionActionType,
+    expected_action: EnumsItemUseInventoryTransactionActionType,
 ) {
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
     assert_eq!(packet.legacy_request_id.id, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    assert!(packet.constant_2, "transaction type presence must be true");
-
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
     };
-    assert!(
-        transaction.actions.constant_0,
-        "actions presence must be true"
-    );
-    assert!(transaction.actions.actions.is_empty());
+    assert_eq!(transaction.actions.actions, Some(Vec::new()));
     assert_eq!(transaction.action_type, expected_action);
     assert_eq!(
         transaction.trigger_type,
-        ItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
     );
     assert_eq!(
         transaction.client_interact_prediction,
-        ItemUseInventoryTransactionClientInteractPrediction::Failure
+        EnumsItemUseInventoryTransactionPredictedResult::Failure
     );
     assert_eq!(
         transaction.client_cooldown_state,
-        ItemUseInventoryTransactionClientCooldownState::Off
+        EnumsItemUseInventoryTransactionClientCooldownState::Off
     );
 }
 
@@ -87,7 +82,7 @@ fn verified_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItemStack 
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -101,7 +96,7 @@ fn verified_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItemStack 
             stack_network_id: item.net_id_variant.unwrap_or(-1),
             count: item.stacksize,
             nbt_digest: digest,
-            block_runtime_id: item.block_runtime_id,
+            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
             extra_data: Arc::from(item.user_data_buffer.clone()),
         },
         digest,
@@ -113,8 +108,9 @@ fn verified_actor_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItem
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
-        &packet.transaction
+    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
+        transaction,
+    )) = &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
@@ -127,7 +123,7 @@ fn verified_actor_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItem
             stack_network_id: item.net_id_variant.unwrap_or(-1),
             count: item.stacksize,
             nbt_digest: digest,
-            block_runtime_id: item.block_runtime_id,
+            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
             extra_data: Arc::from(item.user_data_buffer.clone()),
         },
         digest,
@@ -141,22 +137,18 @@ fn assert_actor_use_constants(packet: &protocol::Packet, action: ActorUseAction)
     };
     assert_eq!(packet.legacy_request_id.id, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    assert!(packet.constant_2, "transaction type presence must be true");
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
-        &packet.transaction
+    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
+        transaction,
+    )) = &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
-    assert!(
-        transaction.actions.constant_0,
-        "actions presence must be true"
-    );
-    assert!(transaction.actions.actions.is_empty());
+    assert_eq!(transaction.actions.actions, Some(Vec::new()));
     assert_eq!(
         transaction.action_type,
         match action {
-            ActorUseAction::Attack => ItemUseOnActorInventoryTransactionActionType::Attack,
-            ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
+            ActorUseAction::Attack => EnumsItemUseOnActorInventoryTransactionActionType::Attack,
+            ActorUseAction::Interact => EnumsItemUseOnActorInventoryTransactionActionType::Interact,
         }
     );
 }
@@ -247,7 +239,7 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
 #[test]
 fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
     let filled = decode_one(DESTROY_BLOCK, McpePacketName::InventoryTransactionPacket);
-    assert_block_use_constants(&filled, ItemUseInventoryTransactionActionType::Destroy);
+    assert_block_use_constants(&filled, EnumsItemUseInventoryTransactionActionType::Destroy);
     assert_destroy_builder_matches_fixture(
         DESTROY_BLOCK,
         BlockUseRequest {
@@ -265,7 +257,7 @@ fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
         DESTROY_BLOCK_EMPTY_HAND,
         McpePacketName::InventoryTransactionPacket,
     );
-    assert_block_use_constants(&empty, ItemUseInventoryTransactionActionType::Destroy);
+    assert_block_use_constants(&empty, EnumsItemUseInventoryTransactionActionType::Destroy);
     assert_destroy_builder_matches_fixture(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
@@ -472,7 +464,7 @@ fn click_block_builder_clamps_finite_relative_hit_to_block_bounds() {
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
         packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -531,8 +523,9 @@ fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
-        packet.transaction
+    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
+        transaction,
+    )) = packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };

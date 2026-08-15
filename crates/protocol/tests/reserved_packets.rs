@@ -58,9 +58,13 @@ fn former_reserved_packet_ids_now_use_generated_numeric_discriminants() {
 fn generated_packet_names_reject_arbitrary_reserved_bodies_without_opacity() {
     for &(id, name) in FORMER_RESERVED {
         let fixture = batch(&[inner_frame(id, 2, 3, &[0xff, 0x80, 0x01, 0x00, 0x7f])]);
-        let error = decode_batch(fixture, &session()).expect_err("generated packet must not decode arbitrary legacy opaque body");
+        let error = decode_batch(fixture, &session())
+            .expect_err("generated packet must not decode arbitrary legacy opaque body");
         assert!(
-            matches!(error, ProtocolError::Decode(_) | ProtocolError::TrailingPacketBytes { .. }),
+            matches!(
+                error,
+                ProtocolError::Decode(_) | ProtocolError::TrailingPacketBytes { .. }
+            ),
             "{name:?} produced unexpected error {error:?}"
         );
     }

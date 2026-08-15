@@ -39,7 +39,7 @@ fn private_level_chunk_ready_lane_aliases_bytes_while_public_pop_returns_indepen
 /// gophertunnel's packet/level_chunk.go expects SubChunkCount + 1 hashes and
 /// these fixtures carry exactly one; the old -1 request-mode sentinel is gone.
 fn cached_level_chunk(x: i32, hashes: Vec<u64>) -> LevelChunkPacket {
-    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         chunk_position: valentine::bedrock::version::v1_26_40::ChunkPos { x, z: 0 },
         subchunks_count,

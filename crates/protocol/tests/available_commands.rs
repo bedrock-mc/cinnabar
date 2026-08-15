@@ -102,9 +102,9 @@ fn available_commands_rejects_malformed_shared_count() {
     ));
 }
 
-/// An impossible count fails against the minimum one-byte string prefix before
-/// the decoder attempts to reserve its collection. This is a remaining-bytes
-/// feasibility check, not a global element ceiling.
+/// An impossible count remains fatal as truncated wire. The generated string
+/// collection decoder consumes entries incrementally rather than imposing a
+/// global element ceiling, so an absent first string reports `UnexpectedEof`.
 #[test]
 fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     let error = raw_available_commands_body(&[0x81, 0x20])
@@ -115,8 +115,8 @@ fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     };
     assert!(matches!(
         source,
-        DecodeError::ArrayLengthExceeded {
-            declared: 4_097,
+        DecodeError::UnexpectedEof {
+            needed: 1,
             available: 0
         }
     ));

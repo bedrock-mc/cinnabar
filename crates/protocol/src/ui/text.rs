@@ -4,7 +4,7 @@ use valentine::bedrock::version::v1_26_40::{
     EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
 };
 
-use super::{bounded_text, UiEvent, UiPacketError, MAX_CHAT_PARAMETERS};
+use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
 
 /// Which of the three Text payload shapes the packet carried.
 ///

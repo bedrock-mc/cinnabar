@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use valentine::bedrock::codec::{BedrockCodec, BedrockSized, VarInt};
+use valentine::bedrock::codec::{BedrockCodec, BedrockSized, VarUInt};
 use valentine::bedrock::error::DecodeError;
 use valentine::bedrock::version::v1_26_40::{
     LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, LevelChunkPacketView,
@@ -86,18 +86,19 @@ fn view_accepts_payload_near_the_transport_envelope_without_a_global_cap() {
 
 #[test]
 fn view_rejects_adversarial_payload_and_metadata_lengths() {
-    let mut negative_payload = encode(&packet(0)).to_vec();
-    assert_eq!(negative_payload.pop(), Some(0));
-    VarInt(-1)
-        .encode(&mut negative_payload)
-        .expect("encode negative length");
-    let error = LevelChunkPacketView::decode(&mut Bytes::from(negative_payload))
-        .expect_err("negative payload length must fail");
-    assert!(matches!(error, DecodeError::NegativeLength { value: -1 }));
+    let mut overflowing_payload = encode(&packet(0)).to_vec();
+    assert_eq!(overflowing_payload.pop(), Some(0));
+    overflowing_payload.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0x10]);
+    let error = LevelChunkPacketView::decode(&mut Bytes::from(overflowing_payload))
+        .expect_err("payload length beyond u32 must fail");
+    assert!(
+        matches!(error, DecodeError::VarIntTooLarge),
+        "unexpected error: {error:?}"
+    );
 
     let mut truncated_payload = encode(&packet(0)).to_vec();
     assert_eq!(truncated_payload.pop(), Some(0));
-    VarInt(1024)
+    VarUInt(1024)
         .encode(&mut truncated_payload)
         .expect("encode declared length");
     truncated_payload.extend_from_slice(&[1, 2, 3]);
@@ -118,16 +119,19 @@ fn view_rejects_adversarial_payload_and_metadata_lengths() {
     let mut oversized_metadata = encode(&packet).to_vec();
     assert_eq!(oversized_metadata.pop(), Some(0));
     assert_eq!(oversized_metadata.pop(), Some(0));
-    VarInt(i32::MAX)
+    VarUInt(i32::MAX as u32)
         .encode(&mut oversized_metadata)
         .expect("encode oversized metadata length");
     let error = LevelChunkPacketView::decode(&mut Bytes::from(oversized_metadata))
         .expect_err("metadata length beyond remaining bytes must fail");
-    assert!(matches!(
-        error,
-        DecodeError::ArrayLengthExceeded {
-            declared,
-            available: 0
-        } if declared == i32::MAX as usize
-    ));
+    assert!(
+        matches!(
+            error,
+            DecodeError::UnexpectedEof {
+                needed: 8,
+                available: 0
+            }
+        ),
+        "unexpected error: {error:?}"
+    );
 }

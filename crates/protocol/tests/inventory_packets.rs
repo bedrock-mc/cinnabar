@@ -1,13 +1,13 @@
 use bytes::Bytes;
 use protocol::{
-    decode_batch, encode, into_world_event, BedrockSession, NetworkItemStack, WorldEvent,
+    BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
 };
 use protocol::{
-    normalize_authority, normalize_container_close, normalize_container_data,
-    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
-    normalize_slot, validate_item_nbt_size, ContainerIdentity, InventoryAuthority, InventoryEvent,
-    InventoryPacketError, VerifiedNetworkItemStack, MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES,
-    MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
+    ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
+    MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
+    VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
+    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
+    normalize_response, normalize_slot, validate_item_nbt_size,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;

@@ -35,7 +35,10 @@ fn message_only_body(kind: TextKind, message: String) -> TextPacketBody {
     }
 }
 
-fn normalize_json(kind: TextKind, message: String) -> Result<protocol::RawTextEvent, UiPacketError> {
+fn normalize_json(
+    kind: TextKind,
+    message: String,
+) -> Result<protocol::RawTextEvent, UiPacketError> {
     assert!(
         matches!(
             kind,
@@ -260,13 +263,7 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
         r#"{"rawtext":"not-an-array"}"#,
     ] {
         assert!(parse_raw_text(value).is_err(), "accepted {value}");
-        assert!(
-            normalize_json(
-                TextKind::Json,
-                value.to_owned()
-            )
-            .is_err()
-        );
+        assert!(normalize_json(TextKind::Json, value.to_owned()).is_err());
     }
 }
 

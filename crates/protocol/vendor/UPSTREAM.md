@@ -9,7 +9,8 @@ Machine-checked provenance:
 - Dependency resolution: local vendored paths
 - Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
 - Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
-- Generated 1.26.40 source revision: `5e041d6e7da49949356527ca3f1c3cb9c5f8abcc`
+- Valentine protocolgen frontend/runtime revision: `da3665ef5ddb2798da0802d083e110b011e66307`
+- Protocolgen manifest and generated-source revision: `027bb6ad2b562056ebe58cb07afa39e31ab693f8`
 - Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
 The copied surface contains the shared codec/runtime, the generated protocol
@@ -26,10 +27,18 @@ context, and exact packet-entry boundary checks. The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
 
-The generated protocol crate includes reviewed wire corrections for binary
-buffers, little-endian scalar union arms, strict actor-ID varints, adjacent
-redactable strings, and opaque preservation of unavailable packet bodies.
-Pinned conformance fixtures under `crates/protocol/tests` cover these shapes.
+The generated protocol crate is lowered from protocolgen's strict canonical
+1.26.40 manifest. Reconciliation requires two byte-equivalent complete source
+claims or a fingerprinted adjudication with independent wire evidence. Reviewed
+corrections cover binary buffers, little-endian scalar union arms, strict
+actor-ID varints, adjacent redactable strings, the two-selector PlayerList
+entry layout, and opaque preservation of unavailable packet bodies. Pinned conformance fixtures under
+`crates/protocol/tests` cover these shapes.
+
+Protocolgen's independent Gophertunnel oracle was evaluated at
+`hashimthearab/gophertunnel` commit
+`be6713da4dc051a4197f897d04835e89e9c54321`. The runtime Go module pin below is
+maintained separately and remains the authority for Cinnabar's server tooling.
 
 Wire behaviour and byte fixtures use the project pin
 `hashimthearab/gophertunnel` commit
@@ -38,12 +47,12 @@ Wire behaviour and byte fixtures use the project pin
 
 ## Generated-code caveats
 
-The generated 1.26.40 decoders validate signed and platform-sized lengths, use
-remaining-byte lower bounds where the schema proves one, and route collection
-growth and byte storage through fallible allocation. Unknown-width and
-zero-width elements grow fallibly without trusting a wire count for eager
-capacity. These checks do not impose a global collection ceiling; valid larger
-values remain accepted where the field contract permits them.
+The generated 1.26.40 decoders validate signed and platform-sized lengths and
+grow decoded collections through fallible allocation without trusting untrusted
+wire counts for eager capacity. Byte buffers validate their declared size against
+the remaining packet before allocating. These checks do not impose a global
+collection ceiling; valid larger values remain accepted where the field contract
+permits them.
 
 Content registries are maintained independently of the generated wire schema.
 The protocol crate uses reviewed retail item and biome allowlists under

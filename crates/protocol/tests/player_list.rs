@@ -27,7 +27,7 @@ use jolyne::valentine::{
     McpePacketArgs, McpePacketData, PlayerListPacket, PlayerListPacketEntriesItem,
     PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry,
     bedrock::{
-        codec::{BedrockCodec, VarInt},
+        codec::{BedrockCodec, VarUInt},
         error::DecodeError,
     },
 };
@@ -92,13 +92,14 @@ fn raw_player_list_fixture(fixture: &'static [u8]) -> jolyne::raw::RawPacket {
 }
 
 fn remove_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::Remove(PlayerListPacketPayloadRemoveEntry {
+    PlayerListPacketEntriesItem::RemoveEntry(PlayerListPacketPayloadRemoveEntry {
         uuid: FIXTURE_UUID,
+        ..Default::default()
     })
 }
 
 fn add_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::Add(Box::new(PlayerListPacketPayloadAddEntry {
+    PlayerListPacketEntriesItem::AddEntry(Box::new(PlayerListPacketPayloadAddEntry {
         uuid: FIXTURE_UUID,
         ..Default::default()
     }))
@@ -119,7 +120,7 @@ fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry()
         panic!("expected PlayerList");
     };
     assert_eq!(content.entries.len(), 1);
-    let PlayerListPacketEntriesItem::Add(entry) = &content.entries[0] else {
+    let PlayerListPacketEntriesItem::AddEntry(entry) = &content.entries[0] else {
         panic!("expected an Add entry");
     };
     assert_eq!(entry.uuid, FIXTURE_UUID);
@@ -138,7 +139,7 @@ fn assert_remove_payload(data: &McpePacketData) {
         panic!("expected PlayerList, got {:?}", data.packet_id());
     };
     assert_eq!(packet.entries.len(), 1);
-    let PlayerListPacketEntriesItem::Remove(entry) = &packet.entries[0] else {
+    let PlayerListPacketEntriesItem::RemoveEntry(entry) = &packet.entries[0] else {
         panic!("expected a Remove entry");
     };
     assert_eq!(entry.uuid, FIXTURE_UUID);
@@ -166,55 +167,31 @@ fn pinned_gophertunnel_player_list_borrowed_materializes_with_same_count() {
     assert_remove_payload(&owned);
 }
 
-/// An impossible entry count fails its minimum-wire-size check before reserve.
-/// The check is driven by remaining bytes, not by a global element ceiling.
+/// A large declared count with no entries fails from the truncated payload.
+/// Decoding grows the collection fallibly and does not impose a global count cap.
 #[test]
-fn player_list_decode_rejects_count_above_gophertunnel_slice_limit() {
+fn player_list_decode_rejects_large_count_without_payload() {
     let mut encoded = BytesMut::new();
-    VarInt(4097).encode(&mut encoded).expect("entry count");
+    VarUInt(4097).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("oversized count");
-    assert!(matches!(
-        error,
-        DecodeError::ArrayLengthExceeded {
-            declared: 4097,
-            available: 0
-        }
-    ));
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 #[test]
 fn player_list_decode_rejects_count_larger_than_remaining_bytes() {
     let mut encoded = BytesMut::new();
-    VarInt(2).encode(&mut encoded).expect("entry count");
+    VarUInt(2).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("truncated entries");
-    assert!(matches!(
-        error,
-        DecodeError::ArrayLengthExceeded {
-            declared: 2,
-            available: 0
-        }
-    ));
-}
-
-#[test]
-fn player_list_owned_rejects_negative_counts() {
-    let mut encoded = BytesMut::new();
-    VarInt(-1).encode(&mut encoded).expect("negative count");
-
-    let mut owned = encoded.clone().freeze();
-    assert!(matches!(
-        PlayerListPacket::decode(&mut owned, ()).unwrap_err(),
-        DecodeError::NegativeLength { value: -1 }
-    ));
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 /// RETARGETED from `player_records_encode_rejects_count_and_record_length_mismatch_before_writing`.
 ///
 /// There is no longer a caller-supplied record count to disagree with the
 /// record vector: `PlayerListPacket` is `entries: Vec<..>` and the encoder
-/// writes `VarInt(entries.len())`, exactly like gophertunnel's
+/// writes `VarUInt(entries.len())`, exactly like gophertunnel's
 /// `protocol.Slice`. The desynchronisation the old test guarded against cannot
 /// be expressed, so this pins that the wire count is derived from the vector.
 #[test]
@@ -229,7 +206,7 @@ fn player_list_wire_count_is_derived_from_the_entry_vector() {
         let encoded = encoded_player_list(&packet);
 
         let mut buf = encoded.clone().freeze();
-        let declared = VarInt::decode(&mut buf, ()).expect("entry count").0;
+        let declared = VarUInt::decode(&mut buf, ()).expect("entry count").0;
         assert_eq!(declared as usize, expected);
 
         let round_tripped =
@@ -256,11 +233,11 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
     let round_tripped = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect("round trip");
     assert!(matches!(
         round_tripped.entries[0],
-        PlayerListPacketEntriesItem::Add(_)
+        PlayerListPacketEntriesItem::AddEntry(_)
     ));
     assert!(matches!(
         round_tripped.entries[1],
-        PlayerListPacketEntriesItem::Remove(_)
+        PlayerListPacketEntriesItem::RemoveEntry(_)
     ));
     assert_eq!(round_tripped, packet);
 }
@@ -274,7 +251,7 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
 #[test]
 fn player_list_trusted_skin_flag_is_per_add_entry() {
     let mut trusted = match add_entry() {
-        PlayerListPacketEntriesItem::Add(entry) => entry,
+        PlayerListPacketEntriesItem::AddEntry(entry) => entry,
         _ => unreachable!(),
     };
     trusted.serialized_skin.trusted_skin_flag = "true".to_owned();
@@ -283,9 +260,9 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 
     let packet = PlayerListPacket {
         entries: vec![
-            PlayerListPacketEntriesItem::Add(trusted),
+            PlayerListPacketEntriesItem::AddEntry(trusted),
             remove_entry(),
-            PlayerListPacketEntriesItem::Add(untrusted),
+            PlayerListPacketEntriesItem::AddEntry(untrusted),
         ],
     };
     let encoded = encoded_player_list(&packet);
@@ -295,10 +272,10 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            PlayerListPacketEntriesItem::Add(entry) => {
+            PlayerListPacketEntriesItem::AddEntry(entry) => {
                 Some(entry.serialized_skin.trusted_skin_flag.as_str())
             }
-            PlayerListPacketEntriesItem::Remove(_) => None,
+            PlayerListPacketEntriesItem::RemoveEntry(_) => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(flags, ["true", "false"]);
@@ -315,10 +292,12 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 fn player_list_decode_rejects_unknown_entry_variants() {
     for variant in [2u8, 3, 0xff] {
         let mut encoded = BytesMut::new();
-        VarInt(1).encode(&mut encoded).expect("entry count");
-        encoded.extend_from_slice(&[variant]);
-        // Supply the valid-variant minimum so the collection feasibility guard
-        // does not mask the union discriminant error under test.
+        VarUInt(1).encode(&mut encoded).expect("entry count");
+        VarUInt(u32::from(variant))
+            .encode(&mut encoded)
+            .expect("entry variant");
+        // Supply enough bytes that the discriminant error, rather than a
+        // truncated-payload error, is the observed failure.
         encoded.resize(encoded.len() + 17, 0);
 
         let error = PlayerListPacket::decode(&mut encoded.freeze(), ())

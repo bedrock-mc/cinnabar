@@ -1,7 +1,6 @@
 use protocol::{
-    into_world_event, ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue,
-    ActorPositionOrigin, ActorProperty, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
-    StandardSkin, WorldEvent,
+    ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_40::{
     ActorLink, ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData,
@@ -447,7 +446,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     // are just two different entry variants -- there is no packet-level action,
     // no shared record count, and no trailing verified array to cross-check.
     let add = PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::Add(Box::new(
+        entries: vec![PlayerListPacketEntriesItem::AddEntry(Box::new(
             PlayerListPacketPayloadAddEntry {
                 uuid,
                 actor_unique_id: ActorUniqueId {
@@ -466,7 +465,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     }
     .into();
     let remove = PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::Remove(
+        entries: vec![PlayerListPacketEntriesItem::RemoveEntry(
             PlayerListPacketPayloadRemoveEntry {
                 uuid,
                 ..Default::default()
@@ -533,8 +532,8 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     };
     let packet = PlayerListPacket {
         entries: vec![
-            PlayerListPacketEntriesItem::Add(Box::new(classic)),
-            PlayerListPacketEntriesItem::Add(Box::new(persona)),
+            PlayerListPacketEntriesItem::AddEntry(Box::new(classic)),
+            PlayerListPacketEntriesItem::AddEntry(Box::new(persona)),
         ],
     }
     .into();

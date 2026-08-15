@@ -33,6 +33,9 @@ pub enum DecodeError {
     #[error("varlong too large")]
     VarLongTooLarge,
 
+    #[error("invalid {bits}-bit continuation bitset: {reason}")]
+    InvalidBitset { bits: usize, reason: &'static str },
+
     #[error("unknown NBT tag: {tag_id}")]
     UnknownNbtTag { tag_id: u8 },
 

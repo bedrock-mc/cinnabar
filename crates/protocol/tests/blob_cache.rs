@@ -31,10 +31,10 @@ use protocol::{
 };
 use std::sync::{Arc, Barrier};
 use valentine::bedrock::version::v1_26_40::{
-    ChunkPos, ClientCacheMissResponsePacket, DimensionType, LevelChunkPacket,
+    ChunkPos, ClientCacheMissResponsePacket, DimensionType,
+    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, MissingBlobData, SetTimePacket,
     SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
-    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult,
     SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos,
 };
 

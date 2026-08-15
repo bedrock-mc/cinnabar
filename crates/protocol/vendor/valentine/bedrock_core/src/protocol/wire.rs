@@ -22,8 +22,7 @@ pub fn var_u32_len(mut v: u32) -> usize {
 #[inline]
 pub fn read_var_u32<B: Buf>(buf: &mut B) -> Result<u32, std::io::Error> {
     let mut result: u32 = 0;
-    let mut shift = 0u32;
-    loop {
+    for index in 0..5_u32 {
         if !buf.has_remaining() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -31,19 +30,28 @@ pub fn read_var_u32<B: Buf>(buf: &mut B) -> Result<u32, std::io::Error> {
             ));
         }
         let byte = buf.get_u8();
-        result |= ((byte & 0x7F) as u32) << shift;
-        if (byte & 0x80) == 0 {
-            break;
-        }
-        shift += 7;
-        if shift >= 35 {
+        let payload = byte & 0x7f;
+        if index == 4 && (byte & 0xf0) != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "varu32 too long",
+                "varu32 overflow",
             ));
         }
+        result |= u32::from(payload) << (index * 7);
+        if (byte & 0x80) == 0 {
+            if index > 0 && payload == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "varu32 overlong",
+                ));
+            }
+            return Ok(result);
+        }
     }
-    Ok(result)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "varu32 too long",
+    ))
 }
 
 #[inline]
@@ -251,6 +259,20 @@ mod tests {
     fn varu32_too_long_error() {
         // 6 bytes with continuation bits set
         let mut reader = &[0x80, 0x80, 0x80, 0x80, 0x80, 0x01][..];
+        let err = read_var_u32(&mut reader).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn varu32_rejects_fifth_byte_payload_above_fifteen() {
+        let mut reader = &[0xff, 0xff, 0xff, 0xff, 0x10][..];
+        let err = read_var_u32(&mut reader).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn varu32_rejects_non_canonical_overlong_encoding() {
+        let mut reader = &[0x80, 0x00][..];
         let err = read_var_u32(&mut reader).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }

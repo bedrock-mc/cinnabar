@@ -12,11 +12,11 @@ use protocol::{
     PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
 use valentine::bedrock::version::v1_26_40::{
-    ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType,
-    LevelSettingsPlayerPermissions, LevelSettingsReserved12, McpePacketData, McpePacketName,
-    MovePlayerPacketPositionMode, NetworkSettingsPacketCompressionAlgorithm,
-    PlayerAuthInputPacketInputDataItem, PlayerAuthInputPacketInputMode,
-    PlayerAuthInputPacketNewInteractionModel, PlayerInputTick, StartGamePacketGameType, Vec2, Vec3,
+    ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
+    EnumsInputMode, EnumsNewInteractionModel, EnumsPacketCompressionAlgorithm,
+    EnumsPlayerAuthInputPacketPayloadInputData, EnumsPlayerPermissionLevel,
+    EnumsPlayerPositionModeComponentPositionMode, McpePacketData, McpePacketName, PlayerInputTick,
+    Vec2, Vec3,
 };
 
 const NETWORK_SETTINGS: &[u8] = include_bytes!("../fixtures/network_settings.bin");
@@ -77,7 +77,7 @@ fn network_settings_fixture_decodes_and_round_trips_exactly() {
             // the same discriminant from `Deflate` to `ZLib`.
             assert_eq!(
                 settings.compression_algorithm,
-                NetworkSettingsPacketCompressionAlgorithm::ZLib
+                EnumsPacketCompressionAlgorithm::ZLib
             );
             // `client_throttle` is `client_throttle_enabled` in 1.26.40.
             assert!(settings.client_throttle_enabled);
@@ -103,7 +103,7 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
                 }
             );
             // `player_gamemode` -> `game_type`.
-            assert_eq!(start.game_type, StartGamePacketGameType::Creative);
+            assert_eq!(start.game_type, EnumsGameType::Creative);
             // `player_position` -> `position`, `Vec3F` -> `Vec3`.
             assert_eq!(
                 start.position,
@@ -135,14 +135,12 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
 
             // 1.26.40 wire changes carried by this fixture.
             //
-            // Reserved field 12 is an unsigned varint at this fixed position.
-            assert_eq!(settings.reserved_12, LevelSettingsReserved12::Reserved0);
             // PlayerPermissions moved from a varint to a single byte:
             // `io.Uint8(&pk.PlayerPermissions)` in the same file; the generated
             // enum encodes/decodes one `i8`.
             assert_eq!(
                 settings.player_permissions,
-                LevelSettingsPlayerPermissions::Member
+                EnumsPlayerPermissionLevel::Member
             );
             // The GameRule list is carried by `rule_data`, and this fixture
             // sends none.
@@ -234,7 +232,7 @@ fn move_player_fixture_decodes_and_round_trips_exactly() {
             // `mode` -> `position_mode`.
             assert_eq!(
                 movement.position_mode,
-                MovePlayerPacketPositionMode::Teleport
+                EnumsPlayerPositionModeComponentPositionMode::Teleport
             );
             assert!(movement.on_ground);
             assert_eq!(
@@ -266,7 +264,7 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
     };
     // `tick` -> `client_tick: PlayerInputTick`.
     assert_eq!(input.client_tick, PlayerInputTick { inputtick: 1_234 });
-    assert_eq!(input.input_mode, PlayerAuthInputPacketInputMode::Mouse);
+    assert_eq!(input.input_mode, EnumsInputMode::Mouse);
     // `interaction_model: Unknown(-1)` -> `new_interaction_model: Crosshair`.
     // gophertunnel packet/player_auth_input.go writes
     // `io.Varint32(&pk.InteractionModel)` and the fixture carries `0x02`,
@@ -274,7 +272,7 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
     // was the protocol-1001 generated definition disagreeing on signedness.
     assert_eq!(
         input.new_interaction_model,
-        PlayerAuthInputPacketNewInteractionModel::Crosshair
+        EnumsNewInteractionModel::Crosshair
     );
     // Restated, not weakened: the input flags stopped being a bitset.
     // `protocol.InputFlagList(io, &pk.InputData, InputFlagCount)`
@@ -282,15 +280,14 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
     // bool, a count, and then one zigzag varint per set flag ID. The old
     // `UP | LEFT | JUMPING | SPRINTING` bitset is now exactly this list, in
     // ascending flag-ID order.
-    assert!(input.constant_4, "InputFlagList presence bool must be set");
     assert_eq!(
         input.input_data,
-        vec![
-            PlayerAuthInputPacketInputDataItem::Jumping,
-            PlayerAuthInputPacketInputDataItem::Up,
-            PlayerAuthInputPacketInputDataItem::Left,
-            PlayerAuthInputPacketInputDataItem::Sprinting,
-        ]
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
+            EnumsPlayerAuthInputPacketPayloadInputData::Up,
+            EnumsPlayerAuthInputPacketPayloadInputData::Left,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+        ])
     );
     // `pitch`/`yaw` -> `player_rotation: Vec2 { x, y }`.
     assert_eq!(input.player_rotation, Vec2 { x: 10.5, y: 20.25 });
@@ -323,21 +320,13 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
             z: -0.75,
         }
     );
-    // Each `constant_N` is the outer bool of a
-    // `protocol.DoubleOptionalFunc` pair
-    // (gophertunnel minecraft/protocol/io.go:212). A Go writer starts that
-    // bool at `outer := true` and always writes it as true, then writes the
-    // inner presence bool; the fixture is `01 00` five times over.
-    assert!(input.constant_12);
-    assert!(input.item_use_transaction.is_none());
-    assert!(input.constant_14);
-    assert!(input.item_stack_request.is_none());
-    assert!(input.constant_16);
-    assert!(input.player_block_actions.is_none());
-    assert!(input.constant_18);
-    assert!(input.vehicle_rotation.is_none());
-    assert!(input.constant_20);
-    assert!(input.client_predicted_vehicle.is_none());
+    // DoubleOptionalFunc is represented without synthetic constant fields:
+    // the outer and inner presence bytes decode as `Some(None)`.
+    assert_eq!(input.item_use_transaction, Some(None));
+    assert_eq!(input.item_stack_request, Some(None));
+    assert_eq!(input.player_block_actions, Some(None));
+    assert_eq!(input.vehicle_rotation, Some(None));
+    assert_eq!(input.client_predicted_vehicle, Some(None));
 
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT);
 }

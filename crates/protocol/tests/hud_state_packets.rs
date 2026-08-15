@@ -5,14 +5,14 @@ use protocol::{
     ActorEffectAction, ActorLinkType, PlayerGameMode, UiEvent, WorldEvent, into_world_event,
 };
 use valentine::bedrock::version::v1_26_40::{
-    ActorLink, ActorLinkType as VendorActorLinkType, ActorRuntimeId, ActorUniqueId,
-    CerealizerNetworkItemStackDescriptorSerializedData, MobArmorEquipmentPacket, MobEffectPacket,
-    MobEffectPacketEventId, PlayerInputTick, SetActorLinkPacket, SetPlayerGameTypePacket,
-    SetPlayerGameTypePacketPlayerGameType,
+    ActorLink, ActorRuntimeId, ActorUniqueId, CerealizerNetworkItemStackDescriptorSerializedData,
+    EnumsActorLinkType as VendorActorLinkType, EnumsGameType,
+    EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobArmorEquipmentPacket,
+    MobEffectPacket, PlayerInputTick, SetActorLinkPacket, SetPlayerGameTypePacket,
 };
 
 /// 1.26.40 wraps the runtime id in a named `ActorRuntimeId` newtype.
-fn runtime_id(value: i64) -> ActorRuntimeId {
+fn runtime_id(value: u64) -> ActorRuntimeId {
     ActorRuntimeId {
         actor_runtime_id: value,
     }
@@ -81,7 +81,7 @@ fn mob_effect_update_remove_and_unknown_actions_stay_typed() {
 }
 
 #[test]
-fn mob_effect_negative_tick_fails_closed_as_a_semantic_error() {
+fn mob_effect_preserves_the_full_unsigned_tick_domain() {
     let packet = MobEffectPacket {
         target_runtime_id: runtime_id(42),
         event_id: MobEffectPacketEventId::Add,
@@ -89,11 +89,18 @@ fn mob_effect_negative_tick_fails_closed_as_a_semantic_error() {
         effect_amplifier: 0,
         show_particles: false,
         effect_duration_ticks: 20,
-        tick: PlayerInputTick { inputtick: -5 },
+        tick: PlayerInputTick {
+            inputtick: u64::MAX,
+        },
         ambient: false,
     }
     .into();
-    assert!(into_world_event(packet, 0).is_err());
+    let Some(WorldEvent::ActorEffect(effect)) =
+        into_world_event(packet, 0).expect("normalize maximum unsigned tick")
+    else {
+        panic!("expected an actor effect event")
+    };
+    assert_eq!(effect.tick, u64::MAX);
 }
 
 #[test]
@@ -151,22 +158,10 @@ fn set_player_game_type_normalizes_explicit_modes() {
     // `GameTypeCreativeSpectator` (4) have no named variant here and arrive as
     // `Unknown(3)` / `Unknown(4)`.
     for (wire, expected) in [
-        (
-            SetPlayerGameTypePacketPlayerGameType::Survival,
-            PlayerGameMode::Survival,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Creative,
-            PlayerGameMode::Creative,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Adventure,
-            PlayerGameMode::Adventure,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Spectator,
-            PlayerGameMode::Spectator,
-        ),
+        (EnumsGameType::Survival, PlayerGameMode::Survival),
+        (EnumsGameType::Creative, PlayerGameMode::Creative),
+        (EnumsGameType::Adventure, PlayerGameMode::Adventure),
+        (EnumsGameType::Spectator, PlayerGameMode::Spectator),
     ] {
         let packet = SetPlayerGameTypePacket {
             player_game_type: wire,
@@ -187,11 +182,11 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
     // `GameTypeDefault`.
     for (wire, expected) in [
         (
-            SetPlayerGameTypePacketPlayerGameType::Default,
+            EnumsGameType::Default,
             protocol::GameModeUpdate::WorldDefault,
         ),
         (
-            SetPlayerGameTypePacketPlayerGameType::Unknown(77),
+            EnumsGameType::Unknown(77),
             protocol::GameModeUpdate::Unknown(77),
         ),
     ] {

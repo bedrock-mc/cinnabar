@@ -125,7 +125,7 @@ impl PlayerGameMode {
     /// change cannot be resolved against StartGame's world mode here, so the
     /// caller keeps its current authoritative mode rather than guessing.
     #[must_use]
-    pub fn from_explicit_game_mode(mode: SetPlayerGameTypePacketPlayerGameType) -> Option<Self> {
+    pub fn from_explicit_game_mode(mode: EnumsGameType) -> Option<Self> {
         Self::from_game_type(mode.into())
     }
 
@@ -146,9 +146,7 @@ impl PlayerGameMode {
 
     /// Typed wire value for a runtime SetPlayerGameType packet.
     #[must_use]
-    pub fn update_from_game_mode(
-        mode: SetPlayerGameTypePacketPlayerGameType,
-    ) -> crate::GameModeUpdate {
+    pub fn update_from_game_mode(mode: EnumsGameType) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())
     }
 

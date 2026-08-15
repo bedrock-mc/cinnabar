@@ -210,13 +210,10 @@ impl BlobCacheResolver {
                 // biome blob. The protocol-1001 request-mode sentinels
                 // (-1/-2) that collapsed this to a single hash are gone;
                 // 1.26.40 carries a separate optional SubChunkLimit instead.
-                let expected = match packet.subchunks_count {
-                    count if count >= 0 => usize::try_from(count)
-                        .ok()
-                        .and_then(|count| count.checked_add(1))
-                        .ok_or(BlobCacheError::ByteCountOverflow)?,
-                    count => return Err(BlobCacheError::InvalidLevelChunkCount(count)),
-                };
+                let expected = usize::try_from(packet.subchunks_count)
+                    .ok()
+                    .and_then(|count| count.checked_add(1))
+                    .ok_or(BlobCacheError::ByteCountOverflow)?;
                 if hashes.len() != expected {
                     return Err(BlobCacheError::InvalidLevelChunkHashCount {
                         actual: hashes.len(),
