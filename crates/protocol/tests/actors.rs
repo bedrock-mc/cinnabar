@@ -1,17 +1,18 @@
 use protocol::{
-    ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
-    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    into_world_event, ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue,
+    ActorPositionOrigin, ActorProperty, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    StandardSkin, WorldEvent,
 };
 use valentine::bedrock::version::v1_26_40::{
-    ActorLink, ActorLinkType as VendorActorLinkType, ActorRuntimeId, ActorUniqueId, AddActorPacket,
-    AddPlayerPacket, AttributeData, DataItemEntry, DataItemEntryPayload, DataItemFloatPayload,
-    DataItemFloatPayloadType, DataItemStringPayload, DataItemStringPayloadType,
-    MoveActorAbsoluteData, MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket,
-    PlayerInputTick, PlayerListPacket, PlayerListPacketEntriesItem,
-    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry, PropertySyncData,
-    PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
-    RemoveActorPacket, SerializedAbilitiesData, SerializedSkinRef, SetActorDataPacket, SkinImage,
-    SynchedActorDataCopyableDataList, UpdateAttributesPacket, Vec2, Vec3,
+    ActorLink, ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData,
+    DataItemEntry, DataItemEntryPayload, DataItemFloatPayload, DataItemStringPayload,
+    EnumsActorLinkType as VendorActorLinkType, EnumsDataItemType, MoveActorAbsoluteData,
+    MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket, PlayerInputTick,
+    PlayerListPacket, PlayerListPacketEntriesItem, PlayerListPacketPayloadAddEntry,
+    PlayerListPacketPayloadRemoveEntry, PropertySyncData, PropertySyncDataPropertySyncFloatEntry,
+    PropertySyncDataPropertySyncIntEntry, RemoveActorPacket, SerializedAbilitiesData,
+    SerializedSkinRef, SetActorDataPacket, SkinImage, SynchedActorDataCopyableDataList,
+    UpdateAttributesPacket, Vec2, Vec3,
 };
 
 /// Builds the actor-data entry 1.26.40 puts on the wire for a string value.
@@ -20,9 +21,9 @@ use valentine::bedrock::version::v1_26_40::{
 /// with its own value type, so there is no named key enum to spell out.
 fn string_actor_data(id: i32, value: &str) -> DataItemEntry {
     DataItemEntry {
-        id,
+        id: id as u32,
         payload: DataItemEntryPayload::DataItemStringPayload(DataItemStringPayload {
-            type_: DataItemStringPayloadType::String,
+            type_: EnumsDataItemType::String,
             value: value.to_owned(),
         }),
     }
@@ -30,9 +31,9 @@ fn string_actor_data(id: i32, value: &str) -> DataItemEntry {
 
 fn float_actor_data(id: i32, value: f32) -> DataItemEntry {
     DataItemEntry {
-        id,
+        id: id as u32,
         payload: DataItemEntryPayload::DataItemFloatPayload(DataItemFloatPayload {
-            type_: DataItemFloatPayloadType::Float,
+            type_: EnumsDataItemType::Float,
             value,
         }),
     }
@@ -359,12 +360,12 @@ fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
 }
 
 fn int64_actor_data(id: i32, value: i64) -> DataItemEntry {
-    use valentine::bedrock::version::v1_26_40::{DataItemInt64Payload, DataItemInt64PayloadType};
+    use valentine::bedrock::version::v1_26_40::DataItemInt64Payload;
 
     DataItemEntry {
-        id,
+        id: id as u32,
         payload: DataItemEntryPayload::DataItemInt64Payload(DataItemInt64Payload {
-            type_: DataItemInt64PayloadType::Int64,
+            type_: EnumsDataItemType::Int64,
             value,
         }),
     }
@@ -446,7 +447,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     // are just two different entry variants -- there is no packet-level action,
     // no shared record count, and no trailing verified array to cross-check.
     let add = PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::AddEntry(Box::new(
+        entries: vec![PlayerListPacketEntriesItem::Add(Box::new(
             PlayerListPacketPayloadAddEntry {
                 uuid,
                 actor_unique_id: ActorUniqueId {
@@ -465,7 +466,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     }
     .into();
     let remove = PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::RemoveEntry(
+        entries: vec![PlayerListPacketEntriesItem::Remove(
             PlayerListPacketPayloadRemoveEntry {
                 uuid,
                 ..Default::default()
@@ -532,8 +533,8 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     };
     let packet = PlayerListPacket {
         entries: vec![
-            PlayerListPacketEntriesItem::AddEntry(Box::new(classic)),
-            PlayerListPacketEntriesItem::AddEntry(Box::new(persona)),
+            PlayerListPacketEntriesItem::Add(Box::new(classic)),
+            PlayerListPacketEntriesItem::Add(Box::new(persona)),
         ],
     }
     .into();
