@@ -12,12 +12,13 @@ use valentine::bedrock::version::v1_26_40::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
-    CorrectPlayerMovePredictionPacketPredictionType, DimensionType, GameRule, GameRuleRuleValue,
-    GameRulesChangedPacket, GameRulesChangedPacketData, LevelChunkPacket, LevelEventPacket,
-    McpePacketData, MovePlayerPacket, MovePlayerPacketPositionMode, MovePlayerPacketView,
-    NetworkChunkPublisherUpdatePacket, PlayerInputTick, RespawnPacket, RespawnPacketState,
-    SetTimePacket, SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
-    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    DimensionType, EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode,
+    EnumsPlayerRespawnState as RespawnPacketState, EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
+    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    GameRule, GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData,
+    LevelChunkPacket, LevelEventPacket, McpePacketData, MovePlayerPacket, MovePlayerPacketView,
+    NetworkChunkPublisherUpdatePacket, PlayerInputTick, RespawnPacket, SetTimePacket,
+    SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
     SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos, UpdateBlockPacket,
     UpdateSubChunkBlocksChangedInfo, UpdateSubChunkBlocksPacket, UpdateSubChunkNetworkBlockInfo,
     Vec2, Vec3,
@@ -370,7 +371,7 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
         y_head_rotation: 99.0,
         position_mode: MovePlayerPacketPositionMode::Teleport,
         on_ground: true,
-        tick: PlayerInputTick { inputtick: -12 },
+        tick: PlayerInputTick { inputtick: 12 },
         ..Default::default()
     };
 
@@ -385,7 +386,7 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
             mode: protocol::MovePlayerMode::Teleport,
             on_ground: true,
             teleported: true,
-            source_tick: -12,
+            source_tick: 12,
         }))
     );
 }
@@ -466,19 +467,6 @@ fn normalizes_server_authoritative_movement_correction_to_the_local_player_surfa
 }
 
 #[test]
-fn rejects_negative_server_authoritative_movement_correction_tick() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        tick: PlayerInputTick { inputtick: -1 },
-        ..Default::default()
-    };
-
-    assert_eq!(
-        into_world_event(packet.into(), 0),
-        Err(WorldPacketError::NegativeMovementCorrectionTick(-1))
-    );
-}
-
-#[test]
 fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
     let packet = CorrectPlayerMovePredictionPacket {
         prediction_type: CorrectPlayerMovePredictionPacketPredictionType::Vehicle,
@@ -495,8 +483,8 @@ fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
 
 #[test]
 fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
-    const RUNTIME_ID: i64 = 0x1_0000_0001;
-    const RIDDEN_RUNTIME_ID: i64 = 0x2_0000_0002;
+    const RUNTIME_ID: u64 = 0x1_0000_0001;
+    const RIDDEN_RUNTIME_ID: u64 = 0x2_0000_0002;
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: RUNTIME_ID,
@@ -576,10 +564,10 @@ fn move_player_rejects_overlong_runtime_and_ridden_varint_ids() {
 fn move_player_accepts_canonical_u64_max_runtime_and_ridden_ids_exactly() {
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: -1,
+            actor_runtime_id: u64::MAX,
         },
         riding_runtime_id: ActorRuntimeId {
-            actor_runtime_id: -1,
+            actor_runtime_id: u64::MAX,
         },
         ..Default::default()
     };
@@ -601,8 +589,8 @@ fn move_player_accepts_canonical_u64_max_runtime_and_ridden_ids_exactly() {
 
     let mut borrowed_body = Bytes::copy_from_slice(&wire);
     let borrowed = MovePlayerPacketView::decode(&mut borrowed_body).unwrap();
-    assert_eq!(borrowed.player_runtime_id.actor_runtime_id, -1);
-    assert_eq!(borrowed.riding_runtime_id.actor_runtime_id, -1);
+    assert_eq!(borrowed.player_runtime_id.actor_runtime_id, u64::MAX);
+    assert_eq!(borrowed.riding_runtime_id.actor_runtime_id, u64::MAX);
     assert!(!borrowed_body.has_remaining());
 }
 
@@ -719,7 +707,7 @@ fn rejects_malformed_or_cached_level_chunks() {
 
     let over_protocol_bound = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
-        subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as i32,
+        subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
         ..Default::default()
     };
     assert_eq!(
@@ -731,16 +719,6 @@ fn rejects_malformed_or_cached_level_chunks() {
         })
     );
 
-    // SubChunkCount is a Varuint32 on the wire but is decoded into an i32, so a
-    // count above i32::MAX still has to be refused rather than wrapped.
-    let wrapped_count = LevelChunkPacket {
-        subchunks_count: -3,
-        ..Default::default()
-    };
-    assert_eq!(
-        into_world_event(wrapped_count.into(), 0),
-        Err(WorldPacketError::InvalidSubChunkCount(-3))
-    );
 }
 
 fn sub_chunk_entry(
@@ -858,7 +836,7 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
             y: -1,
             z: -17,
         },
-        block_runtime_id: 0xdead_beef_u32 as i32,
+        block_runtime_id: 0xdead_beef_u32,
         flags: 0,
         layer: 1,
     };
@@ -897,7 +875,7 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
 
 #[test]
 fn rejects_negative_or_excessive_update_layers() {
-    for layer in [-1, 16] {
+    for layer in [16] {
         let packet = UpdateBlockPacket {
             layer,
             ..Default::default()

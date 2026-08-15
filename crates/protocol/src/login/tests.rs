@@ -69,15 +69,15 @@ use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_40::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
-    AnimatePacket, AnimatePacketAction, BiomeDefinitionData, BiomeDefinitionListPacket,
+    AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
     BlockPos, CerealizerNetworkItemStackDescriptorSerializedData,
-    CorrectPlayerMovePredictionPacket, GameRule, GameRuleRuleValue, GameRulesChangedPacket,
-    GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
+    CorrectPlayerMovePredictionPacket, EnumsAnimatePacketPayloadAction as AnimatePacketAction,
+    EnumsPlayerRespawnState as RespawnPacketState, GameRule, GameRuleRuleValue,
+    GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MobEquipmentPacket,
-    MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket, RespawnPacketState,
-    SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
-    TextPacketPayloadMessageOnlyMessageType, UpdateBlockPacket, Vec2, Vec3,
+    MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket, SetTimePacket, TextPacket,
+    TextPacketBody, TextPacketPayloadMessageOnly, UpdateBlockPacket, Vec2, Vec3,
 };
 
 #[test]
@@ -282,8 +282,7 @@ fn ignored_play_packet_is_not_materialized() {
 fn allowlisted_ui_packet_is_validated_decoded_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packet: Packet = TextPacket {
-        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type: TextPacketPayloadMessageOnlyMessageType::Raw,
+        body: TextPacketBody::Raw(TextPacketPayloadMessageOnly {
             message: "live UI".to_owned(),
         }),
         ..Default::default()

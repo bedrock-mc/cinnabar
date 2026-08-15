@@ -34,7 +34,7 @@ use valentine::bedrock::version::v1_26_40::{
     ChunkPos, ClientCacheMissResponsePacket, DimensionType, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, MissingBlobData, SetTimePacket,
     SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
-    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult as SubChunkRequestResult,
+    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult,
     SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos,
 };
 
@@ -68,7 +68,7 @@ pub(crate) fn cached_level_chunk(
     hashes: Vec<u64>,
     tail: &[u8],
 ) -> LevelChunkPacket {
-    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         chunk_position: ChunkPos { x, z },
         dimension_id: DimensionType { value: 0 },
@@ -572,22 +572,13 @@ fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
     let hit = cache.insert(b"hit").expect("seed semantic-shape hit");
     let miss = client_blob_hash(b"miss");
 
-    // Both shapes are recoverable skips: a negative `subchunks_count`, which
-    // is no longer a request-mode sentinel and is simply nonsense, and a count
-    // that disagrees with the hash vector (gophertunnel requires exactly
-    // `SubChunkCount + 1` hashes).
-    let packets: [protocol::Packet; 2] = [
-        LevelChunkPacket {
-            subchunks_count: -3,
-            ..cached_level_chunk(4, -7, vec![hit, miss], b"")
-        }
-        .into(),
-        LevelChunkPacket {
-            subchunks_count: 0,
-            ..cached_level_chunk(4, -7, vec![hit, miss], b"")
-        }
-        .into(),
-    ];
+    // A recoverable semantic shape skip: the sub-chunk count disagrees with the
+    // hash vector (gophertunnel requires exactly `SubChunkCount + 1` hashes).
+    let packets: [protocol::Packet; 1] = [LevelChunkPacket {
+        subchunks_count: 0,
+        ..cached_level_chunk(4, -7, vec![hit, miss], b"")
+    }
+    .into()];
 
     for packet in packets {
         let mut resolver = BlobCacheResolver::new(cache.clone());

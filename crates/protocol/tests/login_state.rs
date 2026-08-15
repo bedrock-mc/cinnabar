@@ -40,8 +40,8 @@ type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
 
-const RUNTIME_ID: i64 = 0x1234_5678;
-const OTHER_RUNTIME_ID: i64 = 0x7654_3210;
+const RUNTIME_ID: u64 = 0x1234_5678;
+const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
 const MAX_DECOMPRESSED: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -514,7 +514,7 @@ impl ServerScript {
                     // request-mode sentinel in 1.26.40, so it is simply invalid.
                     self.enqueue_encrypted(&[
                         McpePacket::from(LevelChunkPacket {
-                            subchunks_count: -3,
+                            subchunks_count: u32::MAX,
                             ..Default::default()
                         }),
                         McpePacket::from(LevelChunkPacket {
@@ -815,7 +815,7 @@ fn server_handshake(client_public_key: PublicKey) -> (ServerToClientHandshakePac
     )
 }
 
-fn start_game(runtime_entity_id: i64) -> McpePacket {
+fn start_game(runtime_entity_id: u64) -> McpePacket {
     McpePacket::from(StartGamePacket {
         runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_entity_id,
@@ -831,7 +831,7 @@ fn start_game(runtime_entity_id: i64) -> McpePacket {
 /// literal has no equivalent. gophertunnel `packet/level_chunk.go` expects
 /// `SubChunkCount + 1` hashes, and the `-1` request-mode sentinel is gone.
 fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
-    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         chunk_position: ChunkPos { x, z },
         dimension_id: DimensionType { value: 0 },

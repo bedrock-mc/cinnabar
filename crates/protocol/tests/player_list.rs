@@ -25,8 +25,7 @@ use bytes::{Bytes, BytesMut};
 use jolyne::batch::{decode_batch_raw, encode_batch_multi};
 use jolyne::valentine::{
     McpePacketArgs, McpePacketData, PlayerListPacket, PlayerListPacketEntriesItem,
-    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadAddEntryAction,
-    PlayerListPacketPayloadRemoveEntry, PlayerListPacketPayloadRemoveEntryAction,
+    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry,
     bedrock::{
         codec::{BedrockCodec, VarInt},
         error::DecodeError,
@@ -93,15 +92,13 @@ fn raw_player_list_fixture(fixture: &'static [u8]) -> jolyne::raw::RawPacket {
 }
 
 fn remove_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::RemoveEntry(PlayerListPacketPayloadRemoveEntry {
-        action: PlayerListPacketPayloadRemoveEntryAction::Remove,
+    PlayerListPacketEntriesItem::Remove(PlayerListPacketPayloadRemoveEntry {
         uuid: FIXTURE_UUID,
     })
 }
 
 fn add_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::AddEntry(Box::new(PlayerListPacketPayloadAddEntry {
-        action: PlayerListPacketPayloadAddEntryAction::Add,
+    PlayerListPacketEntriesItem::Add(Box::new(PlayerListPacketPayloadAddEntry {
         uuid: FIXTURE_UUID,
         ..Default::default()
     }))
@@ -122,10 +119,9 @@ fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry()
         panic!("expected PlayerList");
     };
     assert_eq!(content.entries.len(), 1);
-    let PlayerListPacketEntriesItem::AddEntry(entry) = &content.entries[0] else {
+    let PlayerListPacketEntriesItem::Add(entry) = &content.entries[0] else {
         panic!("expected an Add entry");
     };
-    assert_eq!(entry.action, PlayerListPacketPayloadAddEntryAction::Add);
     assert_eq!(entry.uuid, FIXTURE_UUID);
     assert_eq!(entry.player_name, "fixture");
     // Protocol 1001 kept this as a trailing `verified: Some(vec![true])` array
@@ -142,13 +138,9 @@ fn assert_remove_payload(data: &McpePacketData) {
         panic!("expected PlayerList, got {:?}", data.packet_id());
     };
     assert_eq!(packet.entries.len(), 1);
-    let PlayerListPacketEntriesItem::RemoveEntry(entry) = &packet.entries[0] else {
+    let PlayerListPacketEntriesItem::Remove(entry) = &packet.entries[0] else {
         panic!("expected a Remove entry");
     };
-    assert_eq!(
-        entry.action,
-        PlayerListPacketPayloadRemoveEntryAction::Remove
-    );
     assert_eq!(entry.uuid, FIXTURE_UUID);
 }
 
@@ -264,11 +256,11 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
     let round_tripped = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect("round trip");
     assert!(matches!(
         round_tripped.entries[0],
-        PlayerListPacketEntriesItem::AddEntry(_)
+        PlayerListPacketEntriesItem::Add(_)
     ));
     assert!(matches!(
         round_tripped.entries[1],
-        PlayerListPacketEntriesItem::RemoveEntry(_)
+        PlayerListPacketEntriesItem::Remove(_)
     ));
     assert_eq!(round_tripped, packet);
 }
@@ -282,7 +274,7 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
 #[test]
 fn player_list_trusted_skin_flag_is_per_add_entry() {
     let mut trusted = match add_entry() {
-        PlayerListPacketEntriesItem::AddEntry(entry) => entry,
+        PlayerListPacketEntriesItem::Add(entry) => entry,
         _ => unreachable!(),
     };
     trusted.serialized_skin.trusted_skin_flag = "true".to_owned();
@@ -291,9 +283,9 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 
     let packet = PlayerListPacket {
         entries: vec![
-            PlayerListPacketEntriesItem::AddEntry(trusted),
+            PlayerListPacketEntriesItem::Add(trusted),
             remove_entry(),
-            PlayerListPacketEntriesItem::AddEntry(untrusted),
+            PlayerListPacketEntriesItem::Add(untrusted),
         ],
     };
     let encoded = encoded_player_list(&packet);
@@ -303,10 +295,10 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            PlayerListPacketEntriesItem::AddEntry(entry) => {
+            PlayerListPacketEntriesItem::Add(entry) => {
                 Some(entry.serialized_skin.trusted_skin_flag.as_str())
             }
-            PlayerListPacketEntriesItem::RemoveEntry(_) => None,
+            PlayerListPacketEntriesItem::Remove(_) => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(flags, ["true", "false"]);
