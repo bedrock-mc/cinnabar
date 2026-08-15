@@ -15,7 +15,7 @@ fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
         runtime_id,
         spawn_revision,
         ingress_sequence: runtime_id,
-        source_tick: Some(runtime_id as i64),
+        source_tick: Some(runtime_id),
         movement_revision: runtime_id,
         pose_generation: runtime_id,
     }

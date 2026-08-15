@@ -158,7 +158,7 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
 
 #[test]
 fn sleeping_player_network_position_uses_explicit_sleeping_metadata() {
-    const PLAYER_FLAGS_KEY: i32 = 26;
+    const PLAYER_FLAGS_KEY: u32 = 26;
     const PLAYER_SLEEPING_BIT: i8 = 1 << 1;
 
     let mut store = ActorStore::new(1, 0);
@@ -184,7 +184,7 @@ fn sleeping_player_network_position_uses_explicit_sleeping_metadata() {
 
 #[test]
 fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
-    const EXTENDED_FLAGS_KEY: i32 = 92;
+    const EXTENDED_FLAGS_KEY: u32 = 92;
     const EXTENDED_SLEEPING_BIT: u64 = 1 << 11;
 
     let mut store = ActorStore::new(1, 0);
@@ -282,7 +282,7 @@ fn unknown_minecraft_suffixes_do_not_inherit_reviewed_offsets() {
 
 #[test]
 fn primed_tnt_network_offset_uses_retained_bounding_box_height() {
-    const BOUNDING_BOX_HEIGHT_KEY: i32 = 54;
+    const BOUNDING_BOX_HEIGHT_KEY: u32 = 54;
 
     let mut store = ActorStore::new(1, 0);
     store.apply(
@@ -651,7 +651,7 @@ fn cumulative_actor_patches_cannot_exceed_retained_collection_bounds() {
 
     let metadata = (0..MAX_ACTOR_METADATA_ENTRIES)
         .map(|key| ActorMetadata {
-            key: i32::try_from(key).unwrap(),
+            key: u32::try_from(key).unwrap(),
             value: ActorMetadataValue::Int(i32::try_from(key).unwrap()),
         })
         .collect::<Vec<_>>();
@@ -677,7 +677,7 @@ fn cumulative_actor_patches_cannot_exceed_retained_collection_bounds() {
                 dimension: 0,
                 runtime_id: 1,
                 metadata: Arc::from([ActorMetadata {
-                    key: i32::try_from(MAX_ACTOR_METADATA_ENTRIES).unwrap(),
+                    key: u32::try_from(MAX_ACTOR_METADATA_ENTRIES).unwrap(),
                     value: ActorMetadataValue::Int(1),
                 }]),
                 properties: Arc::from([]),
@@ -735,7 +735,7 @@ fn cumulative_actor_patches_cannot_exceed_retained_collection_bounds() {
 
     let properties = (0..MAX_ACTOR_PROPERTIES)
         .map(|index| ActorProperty::Int {
-            index: i32::try_from(index).unwrap(),
+            index: u32::try_from(index).unwrap(),
             value: 1,
         })
         .collect::<Vec<_>>();
@@ -759,7 +759,7 @@ fn cumulative_actor_patches_cannot_exceed_retained_collection_bounds() {
                 runtime_id: 1,
                 metadata: Arc::from([]),
                 properties: Arc::from([ActorProperty::Float {
-                    index: i32::try_from(MAX_ACTOR_PROPERTIES).unwrap(),
+                    index: u32::try_from(MAX_ACTOR_PROPERTIES).unwrap(),
                     value: 1.0,
                 }]),
                 tick: 6,

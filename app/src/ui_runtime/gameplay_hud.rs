@@ -22,9 +22,9 @@ impl Default for PlayerInventory {
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
-const METADATA_KEY_AIR_SUPPLY: i32 = 7;
-const METADATA_KEY_MAX_AIR_SUPPLY: i32 = 42;
-const METADATA_KEY_FREEZING_EFFECT_STRENGTH: i32 = 120;
+const METADATA_KEY_AIR_SUPPLY: u32 = 7;
+const METADATA_KEY_MAX_AIR_SUPPLY: u32 = 42;
+const METADATA_KEY_FREEZING_EFFECT_STRENGTH: u32 = 120;
 
 /// Pinned vanilla Bedrock effect ids whose hearts recolor (poison family and
 /// wither). Fatal poison shares poison's presentation.

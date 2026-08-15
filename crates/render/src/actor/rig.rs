@@ -21,7 +21,7 @@ pub struct ActorRenderIdentity {
     pub runtime_id: u64,
     pub spawn_revision: u64,
     pub ingress_sequence: u64,
-    pub source_tick: Option<i64>,
+    pub source_tick: Option<u64>,
     pub movement_revision: u64,
     pub pose_generation: u64,
 }

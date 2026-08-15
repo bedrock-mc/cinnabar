@@ -1,7 +1,7 @@
 use super::*;
 use crate::ActorPose;
 
-fn actor_with_metadata(metadata: HashMap<i32, ActorMetadataValue>) -> ActorSnapshot {
+fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
     let pose = ActorPose {
         position: [0.0; 3],
         pitch: 0.0,

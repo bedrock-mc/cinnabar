@@ -20,10 +20,10 @@ pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
-const PLAYER_FLAGS_METADATA_KEY: i32 = 26;
-const NAMETAG_METADATA_KEY: i32 = 4;
-const BOUNDING_BOX_HEIGHT_METADATA_KEY: i32 = 54;
-const EXTENDED_FLAGS_METADATA_KEY: i32 = 92;
+const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
+const NAMETAG_METADATA_KEY: u32 = 4;
+const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
 
@@ -77,11 +77,11 @@ pub struct ActorSnapshot {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
-    pub source_tick: Option<i64>,
-    pub metadata: HashMap<i32, ActorMetadataValue>,
+    pub source_tick: Option<u64>,
+    pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
-    pub int_properties: HashMap<i32, i32>,
-    pub float_properties: HashMap<i32, f32>,
+    pub int_properties: HashMap<u32, i32>,
+    pub float_properties: HashMap<u32, f32>,
 }
 
 impl ActorSnapshot {

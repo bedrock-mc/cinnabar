@@ -136,7 +136,7 @@ pub struct ActorMoveEvent {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
-    pub source_tick: Option<i64>,
+    pub source_tick: Option<u64>,
 }
 
 /// Coordinate space carried by an actor movement position.
