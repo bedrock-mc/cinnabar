@@ -72,7 +72,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
-## Current integration snapshot (2026-08-10)
+## Current integration snapshot (2026-08-15)
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
@@ -93,14 +93,21 @@ pack application does not make otherwise joinable servers unavailable; the upstr
 has already completed. Archives are not extracted or applied, application remains unavailable,
 and this is not live gameplay, native visual, or performance evidence.
 
-The pushed `dev` integration now also contains the independently reviewed protocol-2168
-wire projection, retail-safe transitional registry projection, exact 88-entry biome
-projection, and protocol-2168 acceptance-harness update. The protocol crate exposes only
-the current generated version and preserves unavailable wire values as neutral reserved or
-opaque data. The acceptance harness validates the exact dependency revision and public BDS
-runtime identity, canonicalizes runtime lease paths before mutation, and keeps the existing
-content-carrier `v1001` identity distinct from the wire protocol. No native BDS or client
-acceptance run has been performed for this integration.
+This tree now also contains the protocolgen-backed Valentine 1.26.40 projection, replacing
+the retired Prismarine-derived packet generation path while preserving the public protocol
+crate facade. Protocolgen reconciles pinned Mojang and Endstone sources, fingerprints every
+adjudication, and compares the result against pinned Gophertunnel: 177 packets agree
+automatically, three reviewed divergences retain the Mojang-plus-Endstone shape, 48 remain
+explicit static-analysis coverage gaps, and one packet has no Gophertunnel counterpart. The
+protocol crate exposes only the current generated version and preserves unavailable wire
+values as neutral reserved or opaque data.
+
+A release client at `1095c693` completed authenticated Lifeboat negotiation, handed off the
+ten-pack optional resource-pack offer, entered gameplay, and processed 680 ordinary level
+chunks with no packet decode error. Lifeboat later disconnected the client for movement-cheat
+detection, which leaves movement parity and server-authoritative reconciliation open rather
+than invalidating the protocol/resource-pack acceptance. A later rerun was externally blocked
+by an Xbox title-endpoint timeout before upstream login.
 
 The transitional block/light/physics/visual production carriers remain bound to the older
 16,913-state content corpus. Their retail projection is internally deterministic and fail-closed,
@@ -133,8 +140,9 @@ Current implementation state:
   path. Rider attachment and pose completion, non-player families, held items, dropped
   items, and live actor acceptance remain open.
 - The Go core now performs one bounded upstream pack negotiation before downstream login.
-  Nonempty selections are forwarded in exact server-selected order, including the selected
-  sub-pack. Required upstream selections are offered as optional only on the private local hop
+  Nonempty selections are forwarded with their exact composite `UUID_version` identities and
+  selected sub-pack; upstream metadata arrival order is not treated as semantically ordered.
+  Required upstream selections are offered as optional only on the private local hop
   so pack application incompleteness does not block login. Rust bounds and validates each archive
   transfer and retains the selected archives and memory-only
   content keys as a one-shot login handoff. The owner-only persistent
@@ -143,9 +151,10 @@ Current implementation state:
   cache setup. Every app-managed core launch supplies one stable layout-owned cache path while
   leaving secure creation, leasing, and the default quota under Go ownership. A separate opt-in
   read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
-  and latest pack-admission state. Pack-content semantic validation and parsing, archive extraction,
-  application, resource-pack-driven UI, app presentation of status, and live pack acceptance
-  evidence remain absent; no server pack is yet usable.
+  and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
+  pack-content semantic validation and parsing, archive extraction, application,
+  resource-pack-driven UI, and app presentation of status remain absent; no server pack is yet
+  usable by the renderer.
 - A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
   the 36 player slots and cursor have landed, including rollback, full-authority recovery,
   transport admission, and pointer routing. The same single-flight authority now supports a
@@ -158,8 +167,8 @@ Current implementation state:
   provenance, ability authority, selected-stack correlation, and live evidence must close
   before wiring app senders.
 - Supervised first-run device-code authentication and cached-account validation have landed;
-  token bytes remain Go-owned. Native rendered-layout inspection and real authenticated join
-  evidence remain open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
+  token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
+  first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
   an app same-frame delivery seam, but there is no sound-definition resolver or audible runtime.
   Local worlds remain absent.
 - Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
@@ -172,8 +181,9 @@ Current implementation state:
   ingestion branch are closed with recorded reasons. The remaining open items cover pack
   application, measured join latency, combat, and actor animation; none of their old branch
   heads is approved for direct merge into `dev`.
-- Live, native-comparison, and performance gates remain open. Do not infer their completion
-  from deterministic tests or checked-in fixtures.
+- The protocol/resource-pack join path has live Lifeboat evidence. Native vanilla-comparison,
+  movement/session-lifecycle, visual, and performance gates remain open; do not infer their
+  completion from this connectivity result.
 - Content assets intentionally remain on the older pinned inputs until a coherent
   protocol-2168 content migration is verified; packet migration alone does not authorize a
   piecemeal asset bump.
@@ -185,8 +195,9 @@ Immediate execution order:
    closed; do not redo them. Produce the dependent current physics and visual evidence, then switch
    block/light/biome/physics carriers only as one coherent, verified set. Keep conformance and
    adversarial coverage green.
-2. **Connectivity and authentication:** close real-server connectivity and session lifecycle,
-   then validate the device-code and cached-account UX with explicit native/live evidence.
+2. **Connectivity and authentication:** preserve the closed cached-account Lifeboat join path,
+   close movement-safe session lifecycle and transfer behavior, then validate the first-run
+   device-code UX with explicit native evidence.
 3. **Resource packs:** the bounded persistent cache admission and versioned/correlated Status
    v1 control surface are closed; do not redo them. Validate and apply server packs, hand off
    content keys safely, consume status in the app where needed, and implement
