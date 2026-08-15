@@ -1,26 +1,27 @@
 use bytes::Bytes;
 use protocol::{
-    BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
+    decode_batch, encode, into_world_event, BedrockSession, NetworkItemStack, WorldEvent,
 };
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
-    MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
-    VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
-    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, validate_item_nbt_size,
+    normalize_authority, normalize_container_close, normalize_container_data,
+    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+    normalize_slot, validate_item_nbt_size, ContainerIdentity, InventoryAuthority, InventoryEvent,
+    InventoryPacketError, VerifiedNetworkItemStack, MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES,
+    MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_40::{
     ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
-    FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
-    ItemStackResponseContainerInfo, ItemStackResponseInfo, ItemStackResponseInfoResult,
-    ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData, PlayerHotbarPacket,
-    StructureEditorData, StructureEditorDataView,
-    TypedClientNetIdStructItemStackRequestIdTagInt32T0,
-    TypedServerNetIdStructItemStackNetIdTagInt32T0,
+    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
+    EnumsContainerEnumName as FullContainerNameContainerName,
+    EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
+    InventoryContentPacket, InventorySlotPacket, ItemStackResponseContainerInfo,
+    ItemStackResponseInfo, ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData,
+    PlayerHotbarPacket, StructureEditorData, StructureEditorDataView,
+    TypedClientNetIdstructItemStackRequestIdTagint32T0,
+    TypedServerNetIdstructItemStackNetIdTagint32T0,
 };
 use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
@@ -64,7 +65,7 @@ fn item(id: i16, stacksize: u16, stack_network_id: i32, user_data: Vec<u8>) -> I
     ItemStackDescriptor {
         id,
         stacksize,
-        auxvalue: -2,
+        auxvalue: u32::from_ne_bytes((-2i32).to_ne_bytes()),
         net_id_variant: Some(stack_network_id),
         block_runtime_id: 91,
         user_data_buffer: user_data,
@@ -100,13 +101,12 @@ fn response_slot(
         requested_slot: slot,
         slot,
         amount,
-        constant_3: true,
-        item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 {
+        item_stack_net_id: Some(Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
             id: item_stack_id,
-        }),
+        })),
         custom_name: BedrockSafetyRedactableString {
             unredacted: custom_name.to_owned(),
-            redacted: Some(filtered_custom_name.to_owned()),
+            redacted: filtered_custom_name.to_owned(),
         },
         durability_correction,
     }
@@ -120,9 +120,8 @@ fn accepted_response(
 ) -> ItemStackResponseInfo {
     ItemStackResponseInfo {
         result: ItemStackResponseInfoResult::Success,
-        client_request_id: TypedClientNetIdStructItemStackRequestIdTagInt32T0 { id: request_id },
-        constant_2: true,
-        containers: Some(containers),
+        client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
+        containers: Some(Some(containers)),
     }
 }
 
@@ -186,9 +185,15 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
     let McpePacketData::ItemStackResponsePacket(response) = &packet.data else {
         panic!("expected ItemStackResponse")
     };
-    let slot = &response.responses[0].containers.as_ref().unwrap()[0].slots[0];
+    let slot = &response.responses[0]
+        .containers
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap()[0]
+        .slots[0];
     assert_eq!(slot.custom_name.unredacted, "Fixture item");
-    assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
+    assert_eq!(slot.custom_name.redacted, "Fixture item");
 
     let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
     assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
@@ -202,7 +207,7 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
     let structure = StructureEditorData {
         structure_name: BedrockSafetyRedactableString {
             unredacted: "structure".into(),
-            redacted: Some("filtered".into()),
+            redacted: "filtered".into(),
         },
         data_field: "payload".into(),
         ..Default::default()
@@ -222,20 +227,12 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
     let mut borrowed_body = Bytes::from(encoded);
     let borrowed = StructureEditorDataView::decode(&mut borrowed_body).unwrap();
     assert_eq!(borrowed.structure_name.unredacted.as_bytes(), b"structure");
-    assert_eq!(
-        borrowed
-            .structure_name
-            .redacted
-            .as_ref()
-            .unwrap()
-            .as_bytes(),
-        b"filtered"
-    );
+    assert_eq!(borrowed.structure_name.redacted.as_bytes(), b"filtered");
     assert!(borrowed_body.is_empty());
 
     let empty = BedrockSafetyRedactableString {
         unredacted: String::new(),
-        redacted: None,
+        redacted: String::new(),
     };
     let mut empty_wire = Vec::new();
     empty.encode(&mut empty_wire).unwrap();
@@ -248,7 +245,7 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
     let mut borrowed_empty_wire = Bytes::from_static(&[0, 0]);
     let borrowed_empty =
         BedrockSafetyRedactableStringView::decode(&mut borrowed_empty_wire).unwrap();
-    assert!(borrowed_empty.redacted.is_none());
+    assert!(borrowed_empty.redacted.as_bytes().is_empty());
 
     let mut malformed = Bytes::from_static(&[0, 5, b'x']);
     assert!(matches!(
@@ -264,7 +261,7 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
 fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() {
     let first_user_data = item_user_data(&["minecraft:stone"]);
     let content = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![
             item(5, 2, 11, first_user_data.clone()),
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
@@ -395,7 +392,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     );
 
     let unknown = InventoryContentPacket {
-        container_id: -777,
+        container_id: u32::from_ne_bytes((-777i32).to_ne_bytes()),
         slots: Vec::new(),
         full_container_name: full_container(
             FullContainerNameContainerName::Unknown(211),
@@ -411,7 +408,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     assert_eq!(content.container.dynamic_id, Some(u32::MAX));
 
     let negative_item_id = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![item(-5, 1, 1, Vec::new())],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -426,7 +423,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
 fn invalid_slots_items_and_collection_sizes_fail_closed() {
     let invalid_slot = InventorySlotPacket {
         container_id: INVENTORY_CONTAINER,
-        slot: -1,
+        slot: u32::MAX,
         full_container_name: None,
         storage_item: None,
         item: item(1, 1, 1, Vec::new()),
@@ -437,7 +434,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let oversized = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![ItemStackDescriptor::default(); MAX_CONTAINER_SLOTS + 1],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -451,7 +448,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let bad_extra = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![item(1, 1, 1, vec![0; protocol::MAX_ITEM_EXTRA_BYTES + 1])],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -532,8 +529,9 @@ fn accepted_response_rejects_negative_stack_ids() {
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {
-                constant_3: true,
-                item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 { id: -1 }),
+                item_stack_net_id: Some(Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
+                    id: -1,
+                })),
                 ..Default::default()
             }],
         }],

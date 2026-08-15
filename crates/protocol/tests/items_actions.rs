@@ -1,16 +1,16 @@
 use bytes::Bytes;
 use protocol::{
-    ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent,
-    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
-    MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, WorldEvent,
-    into_world_event,
+    into_world_event, ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent,
+    NetworkItemStack, WorldEvent, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::version::v1_26_40::{
     ActorRuntimeId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket,
-    AnimatePacketAction, CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    ItemData, ItemRegistryPacket, MobEquipmentPacket, NetworkSettingsPacket,
+    CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
+    EnumsAnimatePacketPayloadAction as AnimatePacketAction, ItemData, ItemRegistryPacket,
+    MobEquipmentPacket, NetworkSettingsPacket,
 };
 
 /// The inventory container. 1.26.40 carries the raw container ID rather than a
@@ -53,7 +53,9 @@ fn stack_item() -> ItemStackDescriptor {
 }
 
 fn runtime_id(actor_runtime_id: i64) -> ActorRuntimeId {
-    ActorRuntimeId { actor_runtime_id }
+    ActorRuntimeId {
+        actor_runtime_id: u64::from_ne_bytes(actor_runtime_id.to_ne_bytes()),
+    }
 }
 
 #[test]
@@ -283,7 +285,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         carried_item: ItemStackDescriptor {
             id: -1,
             stacksize: 1,
-            auxvalue: -1,
+            auxvalue: u32::from_ne_bytes((-1i32).to_ne_bytes()),
             ..Default::default()
         },
         ..Default::default()
