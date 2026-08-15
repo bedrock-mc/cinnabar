@@ -1162,7 +1162,10 @@ mod tests {
     }
 
     fn test_pack_packets(id: Uuid, data: &[u8], chunk_size: u32) -> Vec<McpePacket> {
-        let name = format!("{id}_1.0.0");
+        // ResourcePackClientResponse requests the composite UUID_version name,
+        // but vanilla's following metadata and chunk packets identify the
+        // selected transfer by UUID alone. Gophertunnel mirrors that split.
+        let name = id.to_string();
         let count = (data.len() as u64).div_ceil(u64::from(chunk_size)) as u32;
         let mut packets = vec![McpePacket::from(
             crate::valentine::ResourcePackDataInfoPacket {
@@ -1704,6 +1707,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
 
         let mut archives = Vec::with_capacity(offered.len());
         for (index, pack) in offered.iter_mut().enumerate() {
+            let transfer_name = pack.pack_id_version.pack_uuid.to_string();
             let raw = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
                 self.transport.recv_packet_raw(),
@@ -1717,7 +1721,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             let McpePacketData::ResourcePackDataInfoPacket(data) = packet.data else {
                 return Err(pack_handoff_error("invalid pack metadata packet"));
             };
-            if data.resource_name != requested[index]
+            if data.resource_name != transfer_name
                 || data.file_size != pack.pack_size
                 || data.file_size > MAX_RESOURCE_PACK_BYTES
                 || data.chunk_size == 0
@@ -1759,7 +1763,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 let offset = u64::from(chunk) * u64::from(data.chunk_size);
                 let remaining = data.file_size - offset;
                 let expected_len = remaining.min(u64::from(data.chunk_size));
-                if chunk_data.resource_name != requested[index]
+                if chunk_data.resource_name != transfer_name
                     || chunk_data.chunk_id != chunk
                     || chunk_data.byte_offset != offset
                     || u64::try_from(chunk_data.chunk_data.len()).ok() != Some(expected_len)
