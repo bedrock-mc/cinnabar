@@ -3,19 +3,18 @@ use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_40::{
-    BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketEventType,
-    BossEventPacketOverlay, CommandOriginData, CommandOutputPacket, CommandRequestPacket,
-    LevelEventPacket, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
-    RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
-    SetScorePacketScoreInfoItem, TextPacket, TextPacketBody, TextPacketPayloadAuthorAndMessage,
-    TextPacketPayloadAuthorAndMessageMessageType, ToastRequestPacket, UpdateSoftEnumPacket,
-    UpdateSoftEnumPacketUpdateType,
+    BorrowedMcpePacketData, BossEventPacket, CommandOriginDatajson, CommandOutputPacket,
+    CommandRequestPacket, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
+    EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, ModalFormRequestPacket,
+    PlayStatusPacket, RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket,
+    SetScorePacket, SetScorePacketScoreInfoItem, TextPacket, TextPacketBody,
+    TextPacketPayloadAuthorAndMessage, ToastRequestPacket, UpdateSoftEnumPacket,
 };
 
 mod text;
 
-pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
 pub(crate) use text::{normalize_text, normalize_title};
+pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
 pub const MAX_CHAT_PARAMETERS: usize = 128;
@@ -79,8 +78,8 @@ pub fn chat_text_packet(
     // payload here.
     Ok(TextPacket {
         localize: false,
-        body: TextPacketBody::AuthorAndMessage(TextPacketPayloadAuthorAndMessage {
-            message_type: TextPacketPayloadAuthorAndMessageMessageType::Chat,
+        message_category: 1,
+        body: TextPacketBody::Chat(TextPacketPayloadAuthorAndMessage {
             player_name: source_name.to_owned(),
             message: message.to_owned(),
         }),
@@ -111,7 +110,7 @@ pub fn chat_input_packet(
     // (`minecraft/protocol/command.go`).
     Ok(CommandRequestPacket {
         command: message.to_owned(),
-        origin: CommandOriginData {
+        origin: CommandOriginDatajson {
             type_: "player".to_owned(),
             uuid: uuid::Uuid::new_v4(),
             request_id: String::new(),
@@ -298,7 +297,7 @@ pub struct BossEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormRequestEvent {
-    pub form_id: i32,
+    pub form_id: u32,
     pub json: Arc<str>,
 }
 
@@ -570,21 +569,23 @@ pub(crate) fn normalize_health(packet: SetHealthPacket) -> UiEvent {
 pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEvent, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
-        PlayStatusPacketStatus::LoginSuccess => PlayerStatus::LoginSuccess,
-        PlayStatusPacketStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
-        PlayStatusPacketStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
-        PlayStatusPacketStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
-        PlayStatusPacketStatus::Reserved4
-        | PlayStatusPacketStatus::Reserved5
-        | PlayStatusPacketStatus::Reserved6 => PlayerStatus::UnsupportedEdition,
-        PlayStatusPacketStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
-        PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => {
+        EnumsPlayStatus::LoginSuccess => PlayerStatus::LoginSuccess,
+        EnumsPlayStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
+        EnumsPlayStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
+        EnumsPlayStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
+        EnumsPlayStatus::LoginFailedInvalidTenant
+        | EnumsPlayStatus::LoginFailedEditionMismatchEduToVanilla
+        | EnumsPlayStatus::LoginFailedEditionMismatchVanillaToEdu => {
+            PlayerStatus::UnsupportedEdition
+        }
+        EnumsPlayStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
+        EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor => {
+        EnumsPlayStatus::LoginFailedEditorMismatchVanillaToEditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
-        PlayStatusPacketStatus::Unknown(value) => {
+        EnumsPlayStatus::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "player status",
                 value: i64::from(value),
@@ -678,16 +679,16 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     // constants (`minecraft/protocol/packet/boss_event.go`), so `UpdateStyle`
     // is value 7, the one gophertunnel calls `BossEventTexture`.
     let action = match packet.event_type {
-        BossEventPacketEventType::Add => BossAction::Show,
-        BossEventPacketEventType::PlayerAdded => BossAction::RegisterPlayer,
-        BossEventPacketEventType::Remove => BossAction::Hide,
-        BossEventPacketEventType::PlayerRemoved => BossAction::UnregisterPlayer,
-        BossEventPacketEventType::UpdatePercent => BossAction::SetProgress,
-        BossEventPacketEventType::UpdateName => BossAction::SetTitle,
-        BossEventPacketEventType::UpdateProperties => BossAction::UpdateProperties,
-        BossEventPacketEventType::UpdateStyle => BossAction::Texture,
-        BossEventPacketEventType::Query => BossAction::Query,
-        BossEventPacketEventType::Unknown(value) => {
+        EnumsBossEventUpdateType::Add => BossAction::Show,
+        EnumsBossEventUpdateType::PlayerAdded => BossAction::RegisterPlayer,
+        EnumsBossEventUpdateType::Remove => BossAction::Hide,
+        EnumsBossEventUpdateType::PlayerRemoved => BossAction::UnregisterPlayer,
+        EnumsBossEventUpdateType::UpdatePercent => BossAction::SetProgress,
+        EnumsBossEventUpdateType::UpdateName => BossAction::SetTitle,
+        EnumsBossEventUpdateType::UpdateProperties => BossAction::UpdateProperties,
+        EnumsBossEventUpdateType::UpdateStyle => BossAction::Texture,
+        EnumsBossEventUpdateType::Query => BossAction::Query,
+        EnumsBossEventUpdateType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss action",
                 value: i64::from(value),
@@ -695,15 +696,15 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
         }
     };
     let color = match packet.color {
-        BossEventPacketColor::Pink => BossColor::Pink,
-        BossEventPacketColor::Blue => BossColor::Blue,
-        BossEventPacketColor::Red => BossColor::Red,
-        BossEventPacketColor::Green => BossColor::Green,
-        BossEventPacketColor::Yellow => BossColor::Yellow,
-        BossEventPacketColor::Purple => BossColor::Purple,
-        BossEventPacketColor::RebeccaPurple => BossColor::RebeccaPurple,
-        BossEventPacketColor::White => BossColor::White,
-        BossEventPacketColor::Unknown(value) => {
+        EnumsBossBarColor::Pink => BossColor::Pink,
+        EnumsBossBarColor::Blue => BossColor::Blue,
+        EnumsBossBarColor::Red => BossColor::Red,
+        EnumsBossBarColor::Green => BossColor::Green,
+        EnumsBossBarColor::Yellow => BossColor::Yellow,
+        EnumsBossBarColor::Purple => BossColor::Purple,
+        EnumsBossBarColor::RebeccaPurple => BossColor::RebeccaPurple,
+        EnumsBossBarColor::White => BossColor::White,
+        EnumsBossBarColor::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss color",
                 value: i64::from(value),
@@ -711,12 +712,12 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
         }
     };
     let overlay = match packet.overlay {
-        BossEventPacketOverlay::Progress => BossOverlay::Progress,
-        BossEventPacketOverlay::Notched6 => BossOverlay::Notched6,
-        BossEventPacketOverlay::Notched10 => BossOverlay::Notched10,
-        BossEventPacketOverlay::Notched12 => BossOverlay::Notched12,
-        BossEventPacketOverlay::Notched20 => BossOverlay::Notched20,
-        BossEventPacketOverlay::Unknown(value) => {
+        EnumsBossBarOverlay::Progress => BossOverlay::Progress,
+        EnumsBossBarOverlay::Notched6 => BossOverlay::Notched6,
+        EnumsBossBarOverlay::Notched10 => BossOverlay::Notched10,
+        EnumsBossBarOverlay::Notched12 => BossOverlay::Notched12,
+        EnumsBossBarOverlay::Notched20 => BossOverlay::Notched20,
+        EnumsBossBarOverlay::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss overlay",
                 value: i64::from(value),
@@ -782,10 +783,10 @@ pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnumPacket) -> Result<UiEven
     // (`minecraft/protocol/packet/update_soft_enum.go`) — the same value the
     // protocol-1001 shape spelled `Update`.
     let action = match packet.update_type {
-        UpdateSoftEnumPacketUpdateType::Add => ChatAutocompleteAction::Add,
-        UpdateSoftEnumPacketUpdateType::Remove => ChatAutocompleteAction::Remove,
-        UpdateSoftEnumPacketUpdateType::Replace => ChatAutocompleteAction::Replace,
-        UpdateSoftEnumPacketUpdateType::Unknown(value) => {
+        EnumsSoftEnumUpdateType::Add => ChatAutocompleteAction::Add,
+        EnumsSoftEnumUpdateType::Remove => ChatAutocompleteAction::Remove,
+        EnumsSoftEnumUpdateType::Replace => ChatAutocompleteAction::Replace,
+        EnumsSoftEnumUpdateType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "soft enum action",
                 value: i64::from(value),
@@ -890,14 +891,23 @@ pub(crate) fn validate_borrowed_ui_packet(
             // straight off the raw frame; this arm re-checks the retained byte
             // and parameter budgets.
             match &packet.body {
-                TextPacketBody::MessageOnly(payload) => {
+                TextPacketBody::Raw(payload)
+                | TextPacketBody::Tip(payload)
+                | TextPacketBody::SystemMessage(payload)
+                | TextPacketBody::TextObjectWhisper(payload)
+                | TextPacketBody::TextObject(payload)
+                | TextPacketBody::TextObjectAnnouncement(payload) => {
                     bounded_borrowed_text(&payload.message)?;
                 }
-                TextPacketBody::AuthorAndMessage(payload) => {
+                TextPacketBody::Chat(payload)
+                | TextPacketBody::Whisper(payload)
+                | TextPacketBody::Announcement(payload) => {
                     bounded_borrowed_text(&payload.player_name)?;
                     bounded_borrowed_text(&payload.message)?;
                 }
-                TextPacketBody::MessageAndParams(payload) => {
+                TextPacketBody::Translate(payload)
+                | TextPacketBody::Popup(payload)
+                | TextPacketBody::JukeboxPopup(payload) => {
                     bounded_borrowed_text(&payload.message)?;
                     if payload.parameter_list.len() > MAX_CHAT_PARAMETERS {
                         return Err(UiPacketError::TooManyChatParameters {

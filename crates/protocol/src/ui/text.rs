@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use valentine::bedrock::version::v1_26_40::{
-    SetTitlePacket, SetTitlePacketTitleType, TextPacket, TextPacketBody,
-    TextPacketPayloadAuthorAndMessageMessageType, TextPacketPayloadMessageAndParamsMessageType,
-    TextPacketPayloadMessageOnlyMessageType,
+    EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
 };
 
-use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
+use super::{bounded_text, UiEvent, UiPacketError, MAX_CHAT_PARAMETERS};
 
 /// Which of the three Text payload shapes the packet carried.
 ///
@@ -82,111 +80,44 @@ pub struct TitleEvent {
     pub filtered_message: Arc<str>,
 }
 
-/// 1.26.40 gives each Text payload its own copy of the message-type enum, so the
-/// identical 0..=11 mapping is generated once per payload shape. The wire values
-/// are gophertunnel's `TextType*` constants
-/// (`minecraft/protocol/packet/text.go`).
-macro_rules! text_kind_from_wire {
-    ($name:ident, $wire:ident) => {
-        fn $name(value: $wire) -> Result<TextKind, UiPacketError> {
-            Ok(match value {
-                $wire::Raw => TextKind::Raw,
-                $wire::Chat => TextKind::Chat,
-                $wire::Translate => TextKind::Translation,
-                $wire::Popup => TextKind::Popup,
-                $wire::JukeboxPopup => TextKind::JukeboxPopup,
-                $wire::Tip => TextKind::Tip,
-                $wire::SystemMessage => TextKind::System,
-                $wire::Whisper => TextKind::Whisper,
-                $wire::Announcement => TextKind::Announcement,
-                $wire::TextObjectWhisper => TextKind::JsonWhisper,
-                $wire::TextObject => TextKind::Json,
-                $wire::TextObjectAnnouncement => TextKind::JsonAnnouncement,
-                $wire::Unknown(value) => {
-                    return Err(UiPacketError::UnknownEnum {
-                        kind: "text type",
-                        value: i64::from(value),
-                    });
-                }
-            })
-        }
-    };
-}
-
-text_kind_from_wire!(message_only_kind, TextPacketPayloadMessageOnlyMessageType);
-text_kind_from_wire!(
-    author_and_message_kind,
-    TextPacketPayloadAuthorAndMessageMessageType
-);
-text_kind_from_wire!(
-    message_and_params_kind,
-    TextPacketPayloadMessageAndParamsMessageType
-);
-
 pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketError> {
     let (category, kind, source, message, raw_text, parameters) = match packet.body {
-        TextPacketBody::MessageOnly(payload) => {
-            let kind = message_only_kind(payload.message_type)?;
-            let (message, document) = match kind {
-                // The TextObject* kinds always carry a RawText document.
-                TextKind::Json | TextKind::JsonAnnouncement | TextKind::JsonWhisper => {
-                    let document = crate::parse_raw_text(&payload.message)?;
-                    (Arc::from(document.literal_text()), Some(document))
-                }
-                // Raw/Tip/System may carry a RawText envelope; anything else is
-                // an ordinary literal message that must stay verbatim.
-                TextKind::Raw | TextKind::Tip | TextKind::System => {
-                    let document = crate::raw_text::parse_raw_text_envelope(&payload.message)?;
-                    let message = match &document {
-                        Some(document) => Arc::from(document.literal_text()),
-                        None => bounded_text(payload.message)?,
-                    };
-                    (message, document)
-                }
-                _ => (bounded_text(payload.message)?, None),
-            };
-            (
-                TextCategory::MessageOnly,
-                kind,
-                None,
-                message,
-                document,
-                Arc::from([]),
-            )
+        TextPacketBody::Raw(payload) => normalize_message_only(TextKind::Raw, payload.message)?,
+        TextPacketBody::Tip(payload) => normalize_message_only(TextKind::Tip, payload.message)?,
+        TextPacketBody::SystemMessage(payload) => {
+            normalize_message_only(TextKind::System, payload.message)?
         }
-        TextPacketBody::AuthorAndMessage(payload) => {
-            let kind = author_and_message_kind(payload.message_type)?;
-            (
-                TextCategory::Authored,
-                kind,
-                Some(bounded_text(payload.player_name)?),
-                bounded_text(payload.message)?,
-                None,
-                Arc::from([]),
-            )
+        TextPacketBody::TextObjectWhisper(payload) => {
+            normalize_json_message(TextKind::JsonWhisper, payload.message)?
         }
-        TextPacketBody::MessageAndParams(payload) => {
-            let kind = message_and_params_kind(payload.message_type)?;
-            if payload.parameter_list.len() > MAX_CHAT_PARAMETERS {
-                return Err(UiPacketError::TooManyChatParameters {
-                    count: payload.parameter_list.len(),
-                    max: MAX_CHAT_PARAMETERS,
-                });
-            }
-            let parameters = payload
-                .parameter_list
-                .into_iter()
-                .map(bounded_text)
-                .collect::<Result<Vec<_>, _>>()?;
-            (
-                TextCategory::Parameters,
-                kind,
-                None,
-                bounded_text(payload.message)?,
-                None,
-                Arc::from(parameters),
-            )
+        TextPacketBody::TextObject(payload) => {
+            normalize_json_message(TextKind::Json, payload.message)?
         }
+        TextPacketBody::TextObjectAnnouncement(payload) => {
+            normalize_json_message(TextKind::JsonAnnouncement, payload.message)?
+        }
+        TextPacketBody::Chat(payload) => {
+            normalize_authored(TextKind::Chat, payload.player_name, payload.message)?
+        }
+        TextPacketBody::Whisper(payload) => {
+            normalize_authored(TextKind::Whisper, payload.player_name, payload.message)?
+        }
+        TextPacketBody::Announcement(payload) => {
+            normalize_authored(TextKind::Announcement, payload.player_name, payload.message)?
+        }
+        TextPacketBody::Translate(payload) => normalize_parameters(
+            TextKind::Translation,
+            payload.message,
+            payload.parameter_list,
+        )?,
+        TextPacketBody::Popup(payload) => {
+            normalize_parameters(TextKind::Popup, payload.message, payload.parameter_list)?
+        }
+        TextPacketBody::JukeboxPopup(payload) => normalize_parameters(
+            TextKind::JukeboxPopup,
+            payload.message,
+            payload.parameter_list,
+        )?,
     };
     let event = TextEvent {
         category,
@@ -208,21 +139,104 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
     })
 }
 
+type NormalizedTextParts = (
+    TextCategory,
+    TextKind,
+    Option<Arc<str>>,
+    Arc<str>,
+    Option<Arc<crate::RawTextDocument>>,
+    Arc<[Arc<str>]>,
+);
+
+fn normalize_message_only(
+    kind: TextKind,
+    message: String,
+) -> Result<NormalizedTextParts, UiPacketError> {
+    let document = crate::raw_text::parse_raw_text_envelope(&message)?;
+    let message = match &document {
+        Some(document) => Arc::from(document.literal_text()),
+        None => bounded_text(message)?,
+    };
+    Ok((
+        TextCategory::MessageOnly,
+        kind,
+        None,
+        message,
+        document,
+        Arc::from([]),
+    ))
+}
+
+fn normalize_json_message(
+    kind: TextKind,
+    message: String,
+) -> Result<NormalizedTextParts, UiPacketError> {
+    let document = crate::parse_raw_text(&message)?;
+    Ok((
+        TextCategory::MessageOnly,
+        kind,
+        None,
+        Arc::from(document.literal_text()),
+        Some(document),
+        Arc::from([]),
+    ))
+}
+
+fn normalize_authored(
+    kind: TextKind,
+    player_name: String,
+    message: String,
+) -> Result<NormalizedTextParts, UiPacketError> {
+    Ok((
+        TextCategory::Authored,
+        kind,
+        Some(bounded_text(player_name)?),
+        bounded_text(message)?,
+        None,
+        Arc::from([]),
+    ))
+}
+
+fn normalize_parameters(
+    kind: TextKind,
+    message: String,
+    parameter_list: Vec<String>,
+) -> Result<NormalizedTextParts, UiPacketError> {
+    if parameter_list.len() > MAX_CHAT_PARAMETERS {
+        return Err(UiPacketError::TooManyChatParameters {
+            count: parameter_list.len(),
+            max: MAX_CHAT_PARAMETERS,
+        });
+    }
+    let parameters = parameter_list
+        .into_iter()
+        .map(bounded_text)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((
+        TextCategory::Parameters,
+        kind,
+        None,
+        bounded_text(message)?,
+        None,
+        Arc::from(parameters),
+    ))
+}
+
 pub(crate) fn normalize_title(packet: SetTitlePacket) -> Result<UiEvent, UiPacketError> {
     // Wire values match gophertunnel's `TitleAction*` constants
     // (`minecraft/protocol/packet/set_title.go`); 1.26.40 renamed the generated
     // variants to the Mojang spellings.
     let action = match packet.title_type {
-        SetTitlePacketTitleType::Clear => TitleAction::Clear,
-        SetTitlePacketTitleType::Reset => TitleAction::Reset,
-        SetTitlePacketTitleType::Title => TitleAction::SetTitle,
-        SetTitlePacketTitleType::Subtitle => TitleAction::SetSubtitle,
-        SetTitlePacketTitleType::Actionbar => TitleAction::ActionBar,
-        SetTitlePacketTitleType::Times => TitleAction::SetDurations,
-        SetTitlePacketTitleType::TitleTextObject => TitleAction::SetTitleJson,
-        SetTitlePacketTitleType::SubtitleTextObject => TitleAction::SetSubtitleJson,
-        SetTitlePacketTitleType::ActionbarTextObject => TitleAction::ActionBarJson,
-        SetTitlePacketTitleType::Unknown(value) => {
+        EnumsSetTitlePacketPayloadTitleType::Clear => TitleAction::Clear,
+        EnumsSetTitlePacketPayloadTitleType::Reset => TitleAction::Reset,
+        EnumsSetTitlePacketPayloadTitleType::Title => TitleAction::SetTitle,
+        EnumsSetTitlePacketPayloadTitleType::Subtitle => TitleAction::SetSubtitle,
+        EnumsSetTitlePacketPayloadTitleType::Actionbar => TitleAction::ActionBar,
+        EnumsSetTitlePacketPayloadTitleType::Times => TitleAction::SetDurations,
+        EnumsSetTitlePacketPayloadTitleType::TitleTextObject => TitleAction::SetTitleJson,
+        EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject => TitleAction::SetSubtitleJson,
+        EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject => TitleAction::ActionBarJson,
+        EnumsSetTitlePacketPayloadTitleType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "title action",
                 value: i64::from(value),

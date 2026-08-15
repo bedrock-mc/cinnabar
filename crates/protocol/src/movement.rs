@@ -2,9 +2,8 @@ use std::ops::{BitOr, BitOrAssign};
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_40::{
-    PlayerAuthInputPacket, PlayerAuthInputPacketInputDataItem, PlayerAuthInputPacketInputMode,
-    PlayerAuthInputPacketNewInteractionModel, PlayerAuthInputPacketPlayMode, PlayerInputTick, Vec2,
-    Vec3,
+    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
+    EnumsPlayerAuthInputPacketPayloadInputData, PlayerAuthInputPacket, PlayerInputTick, Vec2, Vec3,
 };
 
 use crate::Packet;
@@ -95,8 +94,7 @@ pub enum PlayerAuthInputError {
 pub fn player_auth_input(
     snapshot: PlayerAuthInputSnapshot,
 ) -> Result<Packet, PlayerAuthInputError> {
-    let tick = i64::try_from(snapshot.tick)
-        .map_err(|_| PlayerAuthInputError::TickOutOfRange(snapshot.tick))?;
+    let tick = snapshot.tick;
     let finite = snapshot
         .position
         .into_iter()
@@ -119,19 +117,19 @@ pub fn player_auth_input(
         position: vec3(snapshot.position),
         move_vector: vec2(snapshot.move_vector),
         player_head_rotation: snapshot.head_yaw,
-        input_data: input_data_items(snapshot.flags),
+        input_data: Some(input_data_items(snapshot.flags)),
         input_mode: match snapshot.input_mode {
-            PlayerInputMode::Mouse => PlayerAuthInputPacketInputMode::Mouse,
-            PlayerInputMode::Touch => PlayerAuthInputPacketInputMode::Touch,
-            PlayerInputMode::GamePad => PlayerAuthInputPacketInputMode::GamePad,
+            PlayerInputMode::Mouse => EnumsInputMode::Mouse,
+            PlayerInputMode::Touch => EnumsInputMode::Touch,
+            PlayerInputMode::GamePad => EnumsInputMode::GamePad,
         },
-        play_mode: PlayerAuthInputPacketPlayMode::Normal,
+        play_mode: EnumsClientPlayMode::Normal,
         // 1.26.40 agrees with gophertunnel here, which writes the interaction
         // model with io.Varint32 (zigzag) in packet/player_auth_input.go. The
         // protocol-1001 code sent Unknown(-1) because the generated definition
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
-        new_interaction_model: PlayerAuthInputPacketNewInteractionModel::Crosshair,
+        new_interaction_model: EnumsNewInteractionModel::Crosshair,
         interact_rotation: Vec2 {
             x: snapshot.pitch,
             y: snapshot.yaw,
@@ -143,24 +141,14 @@ pub fn player_auth_input(
         // if outer { OptionalFunc(...) }`. A Go writer can never emit false
         // here -- it is hardcoded true -- and the generated Option's own
         // presence byte is the inner flag that actually says "no payload".
-        constant_12: true,
-        item_use_transaction: None,
-        constant_14: true,
-        item_stack_request: None,
-        constant_16: true,
-        player_block_actions: None,
-        constant_18: true,
-        vehicle_rotation: None,
-        constant_20: true,
-        client_predicted_vehicle: None,
+        item_use_transaction: Some(None),
+        item_stack_request: Some(None),
+        player_block_actions: Some(None),
+        vehicle_rotation: Some(None),
+        client_predicted_vehicle: Some(None),
         analog_move_vector: vec2(snapshot.analogue_move_vector),
         camera_orientation: vec3(snapshot.camera_orientation),
         raw_move_vector: vec2(snapshot.raw_move_vector),
-        // The presence bool gophertunnel's InputFlagList writes before the flag
-        // count (minecraft/protocol/input_flags.go). Writing false here would
-        // make a peer read zero flags and then consume the count byte as the
-        // input mode, desyncing the rest of the packet.
-        constant_4: true,
     }
     .into())
 }
@@ -172,8 +160,8 @@ pub fn player_auth_input(
 /// generated variant's ordinal is exactly the bit position the protocol-1001
 /// bitset used, so bit `n` maps to the variant declared `n`th and the app-facing
 /// `PlayerInputFlags` constants keep their meaning unchanged.
-fn input_data_items(flags: PlayerInputFlags) -> Vec<PlayerAuthInputPacketInputDataItem> {
-    use PlayerAuthInputPacketInputDataItem as Item;
+fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPayloadInputData> {
+    use EnumsPlayerAuthInputPacketPayloadInputData as Item;
 
     const ITEMS: [Item; 66] = [
         Item::Ascend,
