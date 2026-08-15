@@ -1,11 +1,14 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_40::{
-    ActorRuntimeId, BlockPos, InventoryTransaction, InventoryTransactionPacket,
-    InventoryTransactionPacketTransaction, ItemUseInventoryTransaction,
-    ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
-    ItemUseInventoryTransactionClientInteractPrediction, ItemUseInventoryTransactionTriggerType,
-    ItemUseOnActorInventoryTransaction, ItemUseOnActorInventoryTransactionActionType,
-    TypedClientNetIdStructItemStackLegacyRequestIdTagInt32T0, Vec3,
+    ActorRuntimeId, BlockPos,
+    EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
+    EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
+    EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
+    EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
+    EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
+    InventoryTransaction, InventoryTransactionPacket, InventoryTransactionPacketTransaction,
+    ItemUseInventoryTransaction, ItemUseOnActorInventoryTransaction,
+    TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
 use crate::{BedrockSession, InventoryPacketError, VerifiedNetworkItemStack};
@@ -131,8 +134,7 @@ fn block_use_packet(
     }
     let wire_runtime_id = u32::try_from(request.block_runtime_id)
         .map_err(|_| BlockUsePacketError::BlockRuntimeIdOutOfRange(request.block_runtime_id))?;
-    // Valentine exposes the varuint32 carrier as `i32`; preserve all 32 wire bits.
-    let target_block_id = i32::from_ne_bytes(wire_runtime_id.to_ne_bytes());
+    let target_block_id = wire_runtime_id;
     let [x, y, z] = request.block_position;
     let [from_x, from_y, from_z] = request.player_position;
     let [click_x, click_y, click_z] = request.relative_hit;
@@ -141,37 +143,37 @@ fn block_use_packet(
         .into_vendor_item(session.shield_item_id)?;
 
     Ok(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdStructItemStackLegacyRequestIdTagInt32T0 { id: 0 },
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        constant_2: true,
-        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
-            ItemUseInventoryTransaction {
-                actions: InventoryTransaction {
-                    constant_0: true,
-                    actions: Vec::new(),
+        transaction: Some(
+            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+                ItemUseInventoryTransaction {
+                    actions: InventoryTransaction {
+                        actions: Some(Vec::new()),
+                    },
+                    action_type,
+                    trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
+                    position: BlockPos { x, y, z },
+                    face: request.face,
+                    slot: i32::from(request.selected_slot),
+                    item,
+                    from_position: Vec3 {
+                        x: from_x,
+                        y: from_y,
+                        z: from_z,
+                    },
+                    click_position: Vec3 {
+                        x: click_x.clamp(0.0, 1.0),
+                        y: click_y.clamp(0.0, 1.0),
+                        z: click_z.clamp(0.0, 1.0),
+                    },
+                    target_block_id,
+                    client_interact_prediction:
+                        ItemUseInventoryTransactionClientInteractPrediction::Failure,
+                    client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
                 },
-                action_type,
-                trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
-                position: BlockPos { x, y, z },
-                face: request.face,
-                slot: i32::from(request.selected_slot),
-                item,
-                from_position: Vec3 {
-                    x: from_x,
-                    y: from_y,
-                    z: from_z,
-                },
-                click_position: Vec3 {
-                    x: click_x.clamp(0.0, 1.0),
-                    y: click_y.clamp(0.0, 1.0),
-                    z: click_z.clamp(0.0, 1.0),
-                },
-                target_block_id,
-                client_interact_prediction:
-                    ItemUseInventoryTransactionClientInteractPrediction::Failure,
-                client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
-            },
-        )),
+            )),
+        ),
     }
     .into())
 }
@@ -200,8 +202,7 @@ pub fn use_actor_packet(
         return Err(ActorUsePacketError::NonFiniteHitPosition);
     }
 
-    // Valentine exposes this unsigned varlong through an `i64` carrier. Preserve all wire bits.
-    let actor_runtime_id = i64::from_ne_bytes(request.actor_runtime_id.to_ne_bytes());
+    let actor_runtime_id = request.actor_runtime_id;
     let action_type = match request.action {
         ActorUseAction::Attack => ItemUseOnActorInventoryTransactionActionType::Attack,
         ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
@@ -213,30 +214,30 @@ pub fn use_actor_packet(
     let [hit_x, hit_y, hit_z] = request.hit_position;
 
     Ok(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdStructItemStackLegacyRequestIdTagInt32T0 { id: 0 },
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        constant_2: true,
-        transaction: InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-            Box::new(ItemUseOnActorInventoryTransaction {
-                actions: InventoryTransaction {
-                    constant_0: true,
-                    actions: Vec::new(),
+        transaction: Some(
+            InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(Box::new(
+                ItemUseOnActorInventoryTransaction {
+                    actions: InventoryTransaction {
+                        actions: Some(Vec::new()),
+                    },
+                    runtime_id: ActorRuntimeId { actor_runtime_id },
+                    action_type,
+                    slot: i32::from(request.selected_slot),
+                    item,
+                    from_position: Vec3 {
+                        x: from_x,
+                        y: from_y,
+                        z: from_z,
+                    },
+                    hit_position: Vec3 {
+                        x: hit_x,
+                        y: hit_y,
+                        z: hit_z,
+                    },
                 },
-                runtime_id: ActorRuntimeId { actor_runtime_id },
-                action_type,
-                slot: i32::from(request.selected_slot),
-                item,
-                from_position: Vec3 {
-                    x: from_x,
-                    y: from_y,
-                    z: from_z,
-                },
-                hit_position: Vec3 {
-                    x: hit_x,
-                    y: hit_y,
-                    z: hit_z,
-                },
-            }),
+            )),
         ),
     }
     .into())

@@ -6,8 +6,9 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
     version::v1_26_40::{
-        ActorRuntimeId, AnimateEntityPacket, AnimatePacket, AnimatePacketAction,
-        ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
+        ActorRuntimeId, AnimateEntityPacket, AnimatePacket,
+        EnumsAnimatePacketPayloadAction as AnimatePacketAction,
+        EnumsItemVersion as ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
     },
 };
 
@@ -37,7 +38,7 @@ pub fn select_hotbar_slot_packet(runtime_id: u64, slot: u8) -> crate::Packet {
     let slot = slot.min(HOTBAR_SLOT_COUNT - 1);
     MobEquipmentPacket {
         target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: runtime_id as i64,
+            actor_runtime_id: runtime_id,
         },
         item: ItemStackDescriptor::default(),
         slot,
@@ -399,10 +400,10 @@ pub(crate) fn normalize_item(
     };
     make_stack(
         i32::from(item.id),
-        item.auxvalue,
+        i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
         stack_network_id,
         item.stacksize,
-        item.block_runtime_id,
+        i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
         item.user_data_buffer,
     )
 }
@@ -561,7 +562,7 @@ pub(crate) fn normalize_item_registry(
 pub(crate) fn normalize_equipment(
     packet: MobEquipmentPacket,
 ) -> Result<EquipmentEvent, ItemPacketError> {
-    let actor_runtime_id = runtime_id(packet.target_runtime_id.actor_runtime_id)?;
+    let actor_runtime_id = runtime_id_signed(packet.target_runtime_id.actor_runtime_id)?;
     normalize_equipment_parts(
         actor_runtime_id,
         normalize_item(packet.item)?,
@@ -628,7 +629,7 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {
-        actor_runtime_ids: Arc::from([runtime_id(
+        actor_runtime_ids: Arc::from([runtime_id_signed(
             packet.target_actor_runtime_id.actor_runtime_id,
         )?]),
         kind,
@@ -673,7 +674,7 @@ pub(crate) fn normalize_animate_entity(
     let actor_runtime_ids = packet
         .m_runtime_ids
         .into_iter()
-        .map(|id| runtime_id(id.actor_runtime_id))
+        .map(|id| runtime_id_signed(id.actor_runtime_id))
         .map(|result| {
             let id = result?;
             if !seen.insert(id) {
@@ -693,11 +694,13 @@ pub(crate) fn normalize_animate_entity(
     }))
 }
 
-fn runtime_id(value: i64) -> Result<u64, ItemPacketError> {
-    let runtime_id = u64::from_ne_bytes(value.to_ne_bytes());
-    (runtime_id != 0)
-        .then_some(runtime_id)
-        .ok_or(ItemPacketError::InvalidRuntimeId(value))
+fn runtime_id_signed(value: u64) -> Result<u64, ItemPacketError> {
+    if value == 0 {
+        return Err(ItemPacketError::InvalidRuntimeId(
+            i64::try_from(value).unwrap_or(i64::MAX),
+        ));
+    }
+    Ok(value)
 }
 
 fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), ItemPacketError> {

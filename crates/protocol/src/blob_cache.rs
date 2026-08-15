@@ -12,7 +12,7 @@ use valentine::bedrock::version::v1_26_40::{
 
 /// The per-entry sub-chunk request result. Aliased because the generated name
 /// carries the whole payload path.
-pub(crate) use valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult as SubChunkRequestResult;
+pub(crate) use valentine::bedrock::version::v1_26_40::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
 pub(crate) fn dimension_id(
@@ -144,7 +144,7 @@ pub enum BlobCacheError {
     #[error("cached LevelChunk hash count {actual} does not match expected {expected}")]
     InvalidLevelChunkHashCount { actual: usize, expected: usize },
     #[error("cached LevelChunk has invalid sub-chunk count {0}")]
-    InvalidLevelChunkCount(i32),
+    InvalidLevelChunkCount(u32),
     #[error("packet is not a cached LevelChunk or SubChunk")]
     NotCachedPacket,
     #[error("cache miss response contains unsolicited hash {0:#018x}")]

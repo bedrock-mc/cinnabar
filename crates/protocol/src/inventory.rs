@@ -6,9 +6,10 @@ use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, Nbt},
     version::v1_26_40::{
-        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
-        FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
-        ItemStackResponseInfoResult, ItemStackResponsePacket, McpePacketName,
+        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
+        EnumsContainerEnumName as FullContainerNameContainerName,
+        EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
+        InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket, McpePacketName,
         MobArmorEquipmentPacket, PlayerHotbarPacket,
     },
 };
@@ -288,10 +289,10 @@ impl VerifiedNetworkItemStack {
         Ok(ItemStackDescriptor {
             id,
             stacksize: self.inner.count,
-            auxvalue: i32::from_ne_bytes(self.inner.metadata.to_ne_bytes()),
+            auxvalue: self.inner.metadata,
             net_id_variant: (self.inner.stack_network_id != -1)
                 .then_some(self.inner.stack_network_id),
-            block_runtime_id: self.inner.block_runtime_id,
+            block_runtime_id: u32::from_ne_bytes(self.inner.block_runtime_id.to_ne_bytes()),
             user_data_buffer: self.inner.extra_data.to_vec(),
         })
     }
@@ -314,8 +315,10 @@ pub fn normalize_content(
     packet: InventoryContentPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     validate_slot_count(packet.slots.len())?;
-    let container =
-        container_identity_varint(packet.container_id, Some(packet.full_container_name))?;
+    let container = container_identity_varint(
+        i32::from_ne_bytes(packet.container_id.to_ne_bytes()),
+        Some(packet.full_container_name),
+    )?;
     let slots = packet
         .slots
         .into_iter()
@@ -329,7 +332,7 @@ pub fn normalize_content(
 }
 
 pub fn normalize_slot(packet: InventorySlotPacket) -> Result<InventoryEvent, InventoryPacketError> {
-    let slot = checked_slot(packet.slot)?;
+    let slot = checked_slot(i32::from_ne_bytes(packet.slot.to_ne_bytes()))?;
     let container =
         container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
     Ok(InventoryEvent::Slot(InventorySlotEvent {
@@ -349,7 +352,7 @@ pub fn normalize_hotbar(
         .ok()
         .filter(|slot| *slot < 9)
         .ok_or(InventoryPacketError::InvalidSelectedSlot(
-            packet.selected_slot,
+            i32::from_ne_bytes(packet.selected_slot.to_ne_bytes()),
         ))?;
     Ok(InventoryEvent::SelectedSlot(SelectedSlotEvent {
         container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
@@ -370,7 +373,7 @@ pub fn normalize_response(
     let mut responses = Vec::with_capacity(packet.responses.len());
     for response in packet.responses {
         let (status, containers) = match (response.result, response.containers) {
-            (ItemStackResponseInfoResult::Success, Some(content)) => {
+            (ItemStackResponseInfoResult::Success, Some(Some(content))) => {
                 if content.len() > MAX_RESPONSE_CONTAINERS {
                     return Err(InventoryPacketError::TooManyResponseContainers {
                         count: content.len(),
@@ -393,18 +396,18 @@ pub fn normalize_response(
                         // (protocol/item_stack.go), which map to the unredacted
                         // and redacted halves respectively.
                         let custom_name = slot.custom_name.unredacted;
-                        let filtered_custom_name = slot.custom_name.redacted.unwrap_or_default();
+                        let filtered_custom_name = slot.custom_name.redacted;
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
                         // The stack net ID is a double optional now: absent means
                         // the server did not track this slot, which the app models
                         // as -1 rather than as a rejection.
                         let item_stack_id = match slot.item_stack_net_id {
-                            None => -1,
-                            Some(net_id) if net_id.id >= 0 => net_id.id,
-                            Some(net_id) => {
+                            Some(Some(net_id)) if net_id.id >= 0 => net_id.id,
+                            Some(Some(net_id)) => {
                                 return Err(InventoryPacketError::InvalidStackNetworkId(net_id.id));
                             }
+                            None | Some(None) => -1,
                         };
                         slots.push(StackResponseSlot {
                             slot: slot.slot,
@@ -423,17 +426,17 @@ pub fn normalize_response(
                 }
                 (StackResponseStatus::Accepted, containers)
             }
-            (ItemStackResponseInfoResult::Success, None) => {
+            (ItemStackResponseInfoResult::Success, None | Some(None)) => {
                 return Err(InventoryPacketError::MissingResponseContent);
             }
-            (ItemStackResponseInfoResult::Error, None) => {
+            (ItemStackResponseInfoResult::Error, None | Some(None)) => {
                 (StackResponseStatus::Rejected, Vec::new())
             }
-            (other, None) => (
+            (other, None | Some(None)) => (
                 StackResponseStatus::Unknown(response_result_code(&other)?),
                 Vec::new(),
             ),
-            (_, Some(_)) => return Err(InventoryPacketError::UnexpectedResponseContent),
+            (_, Some(Some(_))) => return Err(InventoryPacketError::UnexpectedResponseContent),
         };
         responses.push(StackResponse {
             status,
@@ -675,7 +678,7 @@ pub(crate) fn normalize_armor_equipment(
         .ok()
         .filter(|id| *id != 0)
         .ok_or(InventoryPacketError::InvalidArmorRuntimeId(
-            packet.target_runtime_id.actor_runtime_id,
+            i64::try_from(packet.target_runtime_id.actor_runtime_id).unwrap_or(i64::MAX),
         ))?;
     Ok(ArmorEquipmentEvent {
         actor_runtime_id,
@@ -708,10 +711,10 @@ fn normalize_item_descriptor(
     };
     make_stack(
         i32::from(item.id),
-        item.auxvalue,
+        i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
         stack_network_id,
         item.stacksize,
-        item.block_runtime_id,
+        i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
         item.user_data_buffer,
     )
 }

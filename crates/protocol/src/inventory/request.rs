@@ -1,12 +1,11 @@
 use valentine::bedrock::version::v1_26_40::{
-    ContainerClosePacket, FullContainerName, FullContainerNameContainerName,
-    ItemStackRequestCerealPlaceActionData, ItemStackRequestCerealPlaceActionDataActiontype,
+    ContainerClosePacket, EnumsContainerEnumName as FullContainerNameContainerName,
+    EnumsItemStackRequestActionType as ItemStackRequestCerealActionType,
+    EnumsTextProcessingEventOrigin, FullContainerName, ItemStackRequestCerealPlaceActionData,
     ItemStackRequestCerealSlotInfoData, ItemStackRequestCerealSwapActionData,
-    ItemStackRequestCerealSwapActionDataActiontype, ItemStackRequestCerealTakeActionData,
-    ItemStackRequestCerealTakeActionDataActiontype, ItemStackRequestPacket,
+    ItemStackRequestCerealTakeActionData, ItemStackRequestPacket,
     ItemStackRequestPacketDataRequestData, ItemStackRequestPacketDataRequestDataActionsItem,
-    ItemStackRequestPacketDataRequestDataStringsToFilterOrigin,
-    TypedClientNetIdStructItemStackRequestIdTagInt32T0,
+    TypedClientNetIdstructItemStackRequestIdTagint32T0,
 };
 
 use super::InventoryPacketError;
@@ -61,7 +60,7 @@ pub fn item_stack_request_packet(
             validate_request_amount(amount)?;
             ItemStackRequestPacketDataRequestDataActionsItem::TakeActionData(Box::new(
                 ItemStackRequestCerealTakeActionData {
-                    actiontype: ItemStackRequestCerealTakeActionDataActiontype::Take,
+                    actiontype: ItemStackRequestCerealActionType::Take,
                     amount,
                     source: request_slot(source)?,
                     destination: request_slot(destination)?,
@@ -76,7 +75,7 @@ pub fn item_stack_request_packet(
             validate_request_amount(amount)?;
             ItemStackRequestPacketDataRequestDataActionsItem::PlaceActionData(Box::new(
                 ItemStackRequestCerealPlaceActionData {
-                    actiontype: ItemStackRequestCerealPlaceActionDataActiontype::Place,
+                    actiontype: ItemStackRequestCerealActionType::Place,
                     amount,
                     source: request_slot(source)?,
                     destination: request_slot(destination)?,
@@ -88,7 +87,7 @@ pub fn item_stack_request_packet(
             destination,
         } => ItemStackRequestPacketDataRequestDataActionsItem::SwapActionData(
             ItemStackRequestCerealSwapActionData {
-                actiontype: ItemStackRequestCerealSwapActionDataActiontype::Swap,
+                actiontype: ItemStackRequestCerealActionType::Swap,
                 source: request_slot(source)?,
                 destination: request_slot(destination)?,
             },
@@ -96,13 +95,12 @@ pub fn item_stack_request_packet(
     };
     Ok(ItemStackRequestPacket {
         requests: vec![ItemStackRequestPacketDataRequestData {
-            client_request_id: TypedClientNetIdStructItemStackRequestIdTagInt32T0 {
+            client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 {
                 id: request_id,
             },
             actions: vec![action],
             strings_to_filter: Vec::new(),
-            strings_to_filter_origin:
-                ItemStackRequestPacketDataRequestDataStringsToFilterOrigin::Unknown,
+            strings_to_filter_origin: EnumsTextProcessingEventOrigin::Unknown,
         }],
     }
     .into())
