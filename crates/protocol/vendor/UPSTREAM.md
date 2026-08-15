@@ -7,10 +7,8 @@ licensed; see `crates/protocol/vendor/LICENSE`.
 Machine-checked provenance:
 
 - Dependency resolution: local vendored paths
-- Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
-- Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
-- Valentine protocolgen frontend/runtime revision: `da3665ef5ddb2798da0802d083e110b011e66307`
-- Protocolgen manifest and generated-source revision: `1280e0bd672dc74a4dca0b5082899fc7b07d1db7`
+- Axolotl Stack merge revision: `4b71f85bd9a07fc7e4ab36a6c2417bf44403675b`
+- Protocolgen submodule, manifest, and generated-source revision: `c360b03369dd69059c85c9aef018e04b1cfa2c37`
 - Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
 The copied surface contains the shared codec/runtime, the generated protocol
