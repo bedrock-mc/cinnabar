@@ -5,13 +5,12 @@ use protocol::{
     WorldEvent, decode_batch, into_world_event,
 };
 use valentine::bedrock::version::v1_26_40::{
-    ActorUniqueId, BossEventPacket, BossEventPacketColor, BossEventPacketEventType,
-    BossEventPacketOverlay, CommandOutput, CommandOutputMessage, CommandOutputPacket,
-    LevelEventPacket, McpePacketName, ModalFormRequestPacket, PlayStatusPacket,
-    PlayStatusPacketStatus, SetHealthPacket, SetScorePacket, SetScorePacketScoreInfoItem,
-    SetTitlePacket, SetTitlePacketTitleType, TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly, TextPacketPayloadMessageOnlyMessageType, ToastRequestPacket,
-    UpdateSoftEnumPacket, UpdateSoftEnumPacketUpdateType, Vec3,
+    ActorUniqueId, BossEventPacket, CommandOutput, CommandOutputMessage, CommandOutputPacket,
+    EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsPlayStatus,
+    EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType, LevelEventPacket, McpePacketName,
+    ModalFormRequestPacket, PlayStatusPacket, SetHealthPacket, SetScorePacket,
+    SetScorePacketScoreInfoItem, SetTitlePacket, TextPacket, TextPacketBody,
+    TextPacketPayloadMessageOnly, ToastRequestPacket, UpdateSoftEnumPacket, Vec3,
 };
 use valentine::protocol::wire;
 
@@ -47,10 +46,7 @@ fn decode_ui_fixture(bytes: &'static [u8]) -> UiEvent {
 
 fn raw_text_packet(message: String) -> TextPacket {
     TextPacket {
-        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type: TextPacketPayloadMessageOnlyMessageType::Raw,
-            message,
-        }),
+        body: TextPacketBody::Raw(TextPacketPayloadMessageOnly { message }),
         ..Default::default()
     }
 }
@@ -70,7 +66,7 @@ fn pinned_gophertunnel_ui_fixtures_normalize_without_vendor_types() {
 fn representative_ui_packets_normalize_without_vendor_types() {
     let text = raw_text_packet("§ahello".to_owned());
     let title = SetTitlePacket {
-        title_type: SetTitlePacketTitleType::Title,
+        title_type: EnumsSetTitlePacketPayloadTitleType::Title,
         title_text: "Round one".to_owned(),
         fade_in_time: 5,
         stay_time: 40,
@@ -82,11 +78,11 @@ fn representative_ui_packets_normalize_without_vendor_types() {
         target_actor_id: ActorUniqueId {
             actor_unique_id: 17,
         },
-        event_type: BossEventPacketEventType::Add,
+        event_type: EnumsBossEventUpdateType::Add,
         name: "Dragon".to_owned(),
         health_percent: 0.75,
-        color: BossEventPacketColor::RebeccaPurple,
-        overlay: BossEventPacketOverlay::Notched10,
+        color: EnumsBossBarColor::RebeccaPurple,
+        overlay: EnumsBossBarOverlay::Notched10,
         ..Default::default()
     };
     let form = ModalFormRequestPacket {
@@ -110,7 +106,7 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     ));
     assert!(matches!(
         ui(PlayStatusPacket {
-            status: PlayStatusPacketStatus::PlayerSpawn,
+            status: EnumsPlayStatus::PlayerSpawn,
         })
         .unwrap(),
         UiEvent::Hud(protocol::HudEvent::PlayerStatus(
@@ -130,7 +126,7 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     let autocomplete = UpdateSoftEnumPacket {
         enum_name: "commands".to_owned(),
         values: vec!["give".to_owned(), "gamerule".to_owned()],
-        update_type: UpdateSoftEnumPacketUpdateType::Replace,
+        update_type: EnumsSoftEnumUpdateType::Replace,
     };
     let UiEvent::ChatAutocomplete(autocomplete) = ui(autocomplete).unwrap() else {
         panic!("expected autocomplete update")

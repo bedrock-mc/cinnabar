@@ -1,27 +1,26 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use protocol::{BedrockSession, ProtocolError, decode_batch, encode};
-use valentine::bedrock::version::v1_26_40::{
-    BorrowedMcpePacket, BorrowedMcpePacketData, McpePacketArgs, McpePacketData, McpePacketName,
-};
+use protocol::{BedrockSession, ProtocolError, decode_batch};
+use valentine::bedrock::version::v1_26_40::{BorrowedMcpePacket, McpePacketName};
 use valentine::protocol::wire;
 
-const RESERVED: &[(u32, McpePacketName)] = &[
-    (65, McpePacketName::Opaque65Packet),
-    (96, McpePacketName::Opaque96Packet),
-    (98, McpePacketName::Unavailable98Packet),
-    (99, McpePacketName::Unavailable99Packet),
-    (109, McpePacketName::Unavailable109Packet),
-    (137, McpePacketName::Unavailable137Packet),
-    (150, McpePacketName::Unavailable150Packet),
-    (169, McpePacketName::Unavailable169Packet),
-    (170, McpePacketName::Unavailable170Packet),
-    (171, McpePacketName::Unavailable171Packet),
-    (173, McpePacketName::Unavailable173Packet),
-    (178, McpePacketName::Unavailable178Packet),
-    (181, McpePacketName::Unavailable181Packet),
-    (183, McpePacketName::Unavailable183Packet),
-    (304, McpePacketName::Unavailable304Packet),
+const FORMER_RESERVED: &[(u32, McpePacketName)] = &[
+    (65, McpePacketName::LegacyTelemetryEventPacket),
+    (96, McpePacketName::SetLastHurtByPacket),
+    (98, McpePacketName::NpcRequestPacket),
+    (99, McpePacketName::PhotoTransferPacket),
+    (109, McpePacketName::LabTablePacket),
+    (137, McpePacketName::EducationSettingsPacket),
+    (150, McpePacketName::CodeBuilderPacket),
+    (169, McpePacketName::NpcDialoguePacket),
+    (170, McpePacketName::EduUriResourcePacket),
+    (171, McpePacketName::CreatePhotoPacket),
+    (178, McpePacketName::CodeBuilderSourcePacket),
+    (181, McpePacketName::AgentActionEventPacket),
+    (183, McpePacketName::LessonProgressPacket),
+    (304, McpePacketName::AgentAnimationPacket),
 ];
+
+const UNASSIGNED: &[u32] = &[173, 301];
 
 fn session() -> BedrockSession {
     BedrockSession { shield_item_id: 0 }
@@ -49,86 +48,45 @@ fn batch(frames: &[Bytes]) -> Bytes {
 }
 
 #[test]
-fn reserved_packet_ids_retain_their_numeric_discriminants() {
-    for &(id, name) in RESERVED {
+fn former_reserved_packet_ids_now_use_generated_numeric_discriminants() {
+    for &(id, name) in FORMER_RESERVED {
         assert_eq!(name as u32, id);
     }
 }
 
 #[test]
-fn reserved_packets_round_trip_arbitrary_owned_bodies() {
-    let bodies: &[&[u8]] = &[&[], &[0x00], &[0xff, 0x80, 0x01, 0x00, 0x7f]];
-    for &(id, name) in RESERVED {
-        for body in bodies {
-            let fixture = batch(&[inner_frame(id, 2, 3, body)]);
-            let packets =
-                decode_batch(fixture.clone(), &session()).expect("decode reserved packet");
-            let packet = packets.first().expect("one packet");
-            assert_eq!(packet.header.id, name);
-            assert_eq!(packet.header.from_subclient, 2);
-            assert_eq!(packet.header.to_subclient, 3);
-            let McpePacketData::OpaquePacket(unavailable) = &packet.data else {
-                panic!("reserved packet did not decode opaquely");
-            };
-            assert_eq!(unavailable.id, name);
-            assert_eq!(unavailable.payload.as_ref(), *body);
-            assert_eq!(
-                encode(packet, &session()).expect("encode reserved packet"),
-                fixture
-            );
-        }
+fn generated_packet_names_reject_arbitrary_reserved_bodies_without_opacity() {
+    for &(id, name) in FORMER_RESERVED {
+        let fixture = batch(&[inner_frame(id, 2, 3, &[0xff, 0x80, 0x01, 0x00, 0x7f])]);
+        let error = decode_batch(fixture, &session()).expect_err("generated packet must not decode arbitrary legacy opaque body");
+        assert!(
+            matches!(error, ProtocolError::Decode(_) | ProtocolError::TrailingPacketBytes { .. }),
+            "{name:?} produced unexpected error {error:?}"
+        );
     }
 }
 
 #[test]
-fn borrowed_reserved_packets_stay_raw_and_convert_to_owned() {
-    for &(id, name) in RESERVED {
-        let body = [id as u8, 0x00, 0xff, 0x80];
-        let mut frame = inner_frame(id, 1, 2, &body);
-        let borrowed = BorrowedMcpePacket::decode_inner(&mut frame).expect("borrowed decode");
-        assert_eq!(borrowed.header.from_subclient, 1);
-        assert_eq!(borrowed.header.to_subclient, 2);
-        let BorrowedMcpePacketData::Raw {
-            name: raw_name,
-            payload,
-        } = &borrowed.data
-        else {
-            panic!("reserved borrowed packet must remain raw");
-        };
-        assert_eq!(*raw_name, name);
-        assert_eq!(payload.as_ref(), body);
-
-        let owned = borrowed
-            .into_owned(McpePacketArgs)
-            .expect("convert to owned");
-        let McpePacketData::OpaquePacket(unavailable) = owned.data else {
-            panic!("reserved borrowed packet did not become opaque owned data");
-        };
-        assert_eq!(unavailable.id, name);
-        assert_eq!(unavailable.payload.as_ref(), body);
+fn borrowed_unassigned_packet_ids_fail_before_owned_materialization() {
+    for &id in UNASSIGNED {
+        let mut frame = inner_frame(id, 1, 2, &[0x00]);
+        assert!(BorrowedMcpePacket::decode_inner(&mut frame).is_err());
     }
 }
 
 #[test]
-fn reserved_packet_cannot_consume_an_adjacent_frame() {
+fn unassigned_packet_cannot_consume_an_adjacent_frame() {
     let first = inner_frame(173, 0, 0, &[0x80, 0x80, 0x80]);
     let second = inner_frame(109, 3, 1, &[0x01, 0x02]);
     let fixture = batch(&[first, second]);
-    let packets = decode_batch(fixture.clone(), &session()).expect("decode adjacent frames");
-    assert_eq!(packets.len(), 2);
-    assert_eq!(packets[0].header.id, McpePacketName::Unavailable173Packet);
-    assert_eq!(packets[1].header.id, McpePacketName::Unavailable109Packet);
-
-    let mut encoded = BytesMut::new();
-    encoded.put_u8(0xfe);
-    for packet in &packets {
-        encoded.extend_from_slice(&encode(packet, &session()).expect("encode packet")[1..]);
-    }
-    assert_eq!(encoded.freeze(), fixture);
+    assert!(matches!(
+        decode_batch(fixture, &session()),
+        Err(ProtocolError::Decode(_))
+    ));
 }
 
 #[test]
-fn reserved_packet_declared_length_truncation_is_fatal() {
+fn unassigned_packet_declared_length_truncation_is_fatal() {
     let mut fixture = BytesMut::new();
     fixture.put_u8(0xfe);
     wire::write_var_u32(&mut fixture, 8);

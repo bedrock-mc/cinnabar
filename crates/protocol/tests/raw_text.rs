@@ -7,8 +7,8 @@ use protocol::{
     parse_raw_text,
 };
 use valentine::bedrock::version::v1_26_40::{
-    SetTitlePacket, SetTitlePacketTitleType, TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly, TextPacketPayloadMessageOnlyMessageType,
+    EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
+    TextPacketPayloadMessageOnly,
 };
 
 const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
@@ -16,35 +16,34 @@ const WHISPER_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_whisper_r
 const ANNOUNCEMENT_FIXTURE: &[u8] =
     include_bytes!("../fixtures/text_object_announcement_rawtext.bin");
 
-/// Builds a MessageOnly Text packet, the union arm gophertunnel writes for
-/// every TextObject* kind (`minecraft/protocol/packet/text.go`).
-fn message_only(
-    message_type: TextPacketPayloadMessageOnlyMessageType,
-    message: String,
-) -> TextPacket {
+/// Builds a Text packet with one of the message-only union arms.
+fn message_only(body: TextPacketBody) -> TextPacket {
     TextPacket {
-        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type,
-            message,
-        }),
+        body,
         ..Default::default()
     }
 }
 
-fn normalize_json(
-    kind: TextPacketPayloadMessageOnlyMessageType,
-    message: String,
-) -> Result<protocol::RawTextEvent, UiPacketError> {
+fn message_only_body(kind: TextKind, message: String) -> TextPacketBody {
+    let payload = TextPacketPayloadMessageOnly { message };
+    match kind {
+        TextKind::Raw => TextPacketBody::Raw(payload),
+        TextKind::Json => TextPacketBody::TextObject(payload),
+        TextKind::JsonWhisper => TextPacketBody::TextObjectWhisper(payload),
+        TextKind::JsonAnnouncement => TextPacketBody::TextObjectAnnouncement(payload),
+        other => panic!("unsupported message-only text kind: {other:?}"),
+    }
+}
+
+fn normalize_json(kind: TextKind, message: String) -> Result<protocol::RawTextEvent, UiPacketError> {
     assert!(
         matches!(
             kind,
-            TextPacketPayloadMessageOnlyMessageType::TextObject
-                | TextPacketPayloadMessageOnlyMessageType::TextObjectWhisper
-                | TextPacketPayloadMessageOnlyMessageType::TextObjectAnnouncement
+            TextKind::Json | TextKind::JsonWhisper | TextKind::JsonAnnouncement
         ),
         "test helper accepts only object text packet kinds"
     );
-    let packet = message_only(kind, message);
+    let packet = message_only(message_only_body(kind, message));
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(UiEvent::RawText(event)))) => Ok(event),
         Ok(other) => panic!("expected normalized text event, got {other:?}"),
@@ -54,7 +53,7 @@ fn normalize_json(
 }
 
 fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
-    let packet = message_only(TextPacketPayloadMessageOnlyMessageType::Raw, message);
+    let packet = message_only(message_only_body(TextKind::Raw, message));
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
         Ok(other) => panic!("expected normalized UI event, got {other:?}"),
@@ -73,7 +72,7 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
 }
 
 fn normalize_title_object(
-    action: SetTitlePacketTitleType,
+    action: EnumsSetTitlePacketPayloadTitleType,
     message: &str,
 ) -> Result<protocol::TitleEvent, UiPacketError> {
     let packet = SetTitlePacket {
@@ -263,7 +262,7 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
         assert!(parse_raw_text(value).is_err(), "accepted {value}");
         assert!(
             normalize_json(
-                TextPacketPayloadMessageOnlyMessageType::TextObject,
+                TextKind::Json,
                 value.to_owned()
             )
             .is_err()
@@ -412,7 +411,7 @@ fn raw_text_rejects_explicit_null_translation_arguments() {
 #[test]
 fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     let event = normalize_json(
-        TextPacketPayloadMessageOnlyMessageType::TextObject,
+        TextKind::Json,
         r#"{"rawtext":[{"translate":"multiplayer.player.joined","with":["Alice"]}]}"#.to_owned(),
     )
     .unwrap();
@@ -432,15 +431,15 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
         (
-            SetTitlePacketTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
             TitleAction::SetTitleJson,
         ),
         (
-            SetTitlePacketTitleType::SubtitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject,
             TitleAction::SetSubtitleJson,
         ),
         (
-            SetTitlePacketTitleType::ActionbarTextObject,
+            EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject,
             TitleAction::ActionBarJson,
         ),
     ] {
@@ -478,7 +477,7 @@ fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            SetTitlePacketTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)
