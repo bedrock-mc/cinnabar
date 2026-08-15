@@ -1827,8 +1827,8 @@ tooling patterns); collision against `crates/world`; camera = per-frame interpol
 tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 
 - [x] **3.1 Server-bound movement foundation.** A vendor-neutral Rust movement snapshot now
-  maps byte-for-byte to gophertunnel's protocol-1001 `PlayerAuthInput` fixture, including the
-  current position/delta, processed/analogue/raw move vectors, rotation, input flags, input
+  maps byte-for-byte to gophertunnel's protocol-2168 `PlayerAuthInput` fixture, including the
+  current position/predicted velocity, processed/analogue/raw move vectors, rotation, input flags, input
   mode, camera orientation, and server tick. A deterministic 20 Hz scheduler, bounded 32-tick
   retry FIFO, StartGame/session reset, and `CorrectPlayerMovePrediction` reanchoring are in
   place behind an explicit movement-source authority gate. The gate defaults to `FreeCamera`,
@@ -2079,6 +2079,22 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     strict workspace Clippy. Linux acceptance remains delegated to CI.
   - This is one BDS FreeCamera smoke, not CandidatePhysics, external-server, native-parity,
     release-performance, or Phase 3 closure evidence. Those gates remain open after PR merge.
+
+- **Protocol-2168 PlayerAuthInput semantics follow-up (2026-08-15).** A live normal-gameplay
+  attempt was rejected by Lifeboat with `We've detected movement cheats`; a separate Lunar
+  attempt timed out, which is recorded as a symptom rather than attributed to the same cause.
+  Comparison against `oomph-ac/bedrock-docs` at `bd37783e` proved that `PosDelta` is the
+  simulator's predicted end-of-tick velocity, not the difference between consecutive network
+  positions. Completed and correction-replayed physics samples now retain that velocity, emit
+  horizontal/vertical collision hints, and emit all four processed diagonal flags. Non-finite
+  velocity fails the existing local-authority boundary closed. The protocol-2168 wire fixture
+  remains byte-exact and deterministic tests cover velocity, replay/reanchor preservation,
+  collision hints, all four normalized digital diagonals, non-diagonal analogue/cardinal
+  exclusions, and invalid velocity.
+  This correction does **not** close Phase 3: fresh native/live Lifeboat and Lunar verification
+  remains required. Independent raw/processed/analogue input carriers and an authoritative
+  protocol-2168 physics-registry generation path also remain open; the older registry was not
+  relabeled or regenerated without evidence.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does

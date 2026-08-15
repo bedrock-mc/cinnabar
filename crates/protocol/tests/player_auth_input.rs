@@ -100,6 +100,33 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
 }
 
 #[test]
+fn movement_hints_map_to_their_protocol_2168_list_ids() {
+    let mut input = snapshot();
+    input.flags = PlayerInputFlags::UP_LEFT
+        | PlayerInputFlags::UP_RIGHT
+        | PlayerInputFlags::HORIZONTAL_COLLISION
+        | PlayerInputFlags::VERTICAL_COLLISION
+        | PlayerInputFlags::DOWN_LEFT
+        | PlayerInputFlags::DOWN_RIGHT;
+
+    let packet = player_auth_input(input).expect("valid movement hints");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::UpLeft,
+            EnumsPlayerAuthInputPacketPayloadInputData::UpRight,
+            EnumsPlayerAuthInputPacketPayloadInputData::HorizontalCollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::VerticalCollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::DownLeft,
+            EnumsPlayerAuthInputPacketPayloadInputData::DownRight,
+        ])
+    );
+}
+
+#[test]
 fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_position = snapshot();
     invalid_position.position[1] = f32::NAN;

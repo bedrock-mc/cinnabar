@@ -228,6 +228,8 @@ pub struct PhysicsSampleContext {
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
+    /// Predicted end-of-tick velocity carried by PlayerAuthInput.PosDelta.
+    pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
     pub pitch: f32,
     pub yaw: f32,
@@ -239,6 +241,8 @@ pub struct PhysicsMovementSample {
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
     pub grounded_after_tick: bool,
+    pub horizontal_collision: bool,
+    pub vertical_collision: bool,
     pub jump_repeated: bool,
     pub world_identity: WorldCollisionIdentity,
 }
@@ -282,7 +286,6 @@ pub(super) enum PhysicsCorrectionError {
 pub(super) struct PhysicsCorrectionPlan {
     pub(super) outcome: PhysicsCorrectionOutcome,
     pub(super) corrected_tick: u64,
-    pub(super) corrected_position: [f32; 3],
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
@@ -502,6 +505,11 @@ impl LocalPhysicsController {
                             state.position.y as f32 + PLAYER_NETWORK_OFFSET,
                             state.position.z as f32,
                         ],
+                        velocity: [
+                            result.velocity.x as f32,
+                            result.velocity.y as f32,
+                            result.velocity.z as f32,
+                        ],
                         move_vector: [-input.strafe as f32, input.forward as f32],
                         pitch: context.pitch,
                         yaw: input.yaw_degrees as f32,
@@ -513,6 +521,8 @@ impl LocalPhysicsController {
                         input_mode: context.input_mode,
                         grounded_before_tick,
                         grounded_after_tick: state.on_ground,
+                        horizontal_collision: result.collisions.x || result.collisions.z,
+                        vertical_collision: result.collisions.y,
                         jump_repeated,
                         world_identity,
                     });
@@ -589,7 +599,6 @@ impl LocalPhysicsController {
             return Ok(PhysicsCorrectionPlan {
                 outcome: PhysicsCorrectionOutcome::Snapped { tick },
                 corrected_tick: tick,
-                corrected_position: network_position,
                 final_tick: tick,
                 final_position: network_position,
                 replayed_samples: Vec::new(),
@@ -695,6 +704,13 @@ impl LocalPhysicsController {
                 result.position.y as f32 + PLAYER_NETWORK_OFFSET,
                 result.position.z as f32,
             ];
+            retained.velocity = [
+                result.velocity.x as f32,
+                result.velocity.y as f32,
+                result.velocity.z as f32,
+            ];
+            retained.horizontal_collision = result.collisions.x || result.collisions.z;
+            retained.vertical_collision = result.collisions.y;
             replayed_samples.push(retained.clone());
         }
         let corrected_world_identity = {
@@ -736,7 +752,6 @@ impl LocalPhysicsController {
                 replayed_ticks: replay.replayed_ticks,
             },
             corrected_tick: tick,
-            corrected_position: network_position,
             final_tick,
             final_position,
             replayed_samples,

@@ -9,6 +9,7 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
         .enqueue_completed_physics(PhysicsMovementSample {
             tick: 11,
             position: [1.0, 2.0, 3.0],
+            velocity: [0.1, 0.2, 0.3],
             move_vector: [0.0; 2],
             pitch: 0.0,
             yaw: 0.0,
@@ -19,8 +20,9 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
             sprinting: false,
             input_mode: PlayerInputMode::Mouse,
             grounded_before_tick: false,
-
             grounded_after_tick: false,
+            horizontal_collision: false,
+            vertical_collision: false,
             jump_repeated: false,
             world_identity: WorldCollisionIdentity::new(
                 sim::CollisionRegistryIdentity {

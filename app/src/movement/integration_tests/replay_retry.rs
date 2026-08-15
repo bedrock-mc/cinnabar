@@ -20,6 +20,17 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     let sent = ticker.pop_pending().unwrap();
     assert_eq!(sent.snapshot.tick, 101);
     let before = ticker.pending_samples();
+    let collision_mask = PlayerInputFlags::HORIZONTAL_COLLISION.bits()
+        | PlayerInputFlags::VERTICAL_COLLISION.bits();
+    assert!(
+        before.iter().all(|pending| pending.snapshot.flags.bits()
+            & PlayerInputFlags::HORIZONTAL_COLLISION.bits()
+            == 0)
+    );
+    for pending in &mut ticker.outbox {
+        pending.snapshot.delta = [99.0; 3];
+        pending.snapshot.flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
+    }
 
     let outcome = reconcile_candidate_physics_correction(
         &mut ticker,
@@ -62,6 +73,18 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     );
     assert_ne!(after[0].snapshot.position, before[0].snapshot.position);
     assert_ne!(after[1].snapshot.position, before[1].snapshot.position);
+    assert_eq!(after[0].snapshot.delta, before[0].snapshot.delta);
+    assert_eq!(after[1].snapshot.delta, before[1].snapshot.delta);
+    assert_eq!(
+        after
+            .iter()
+            .map(|pending| pending.snapshot.flags.bits() & collision_mask)
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|pending| pending.snapshot.flags.bits() & collision_mask)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         after[0].evidence.network_position, after[0].snapshot.position,
         "replay must update the evidence snapshot to the exact position that will be encoded"

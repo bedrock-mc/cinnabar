@@ -14,6 +14,28 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     } else if sample.move_vector[0] > 0.0 {
         flags |= PlayerInputFlags::RIGHT;
     }
+    let processed = normalize_move_vector(sample.move_vector);
+    let diagonal = (processed[0].abs() - processed[1].abs()).abs() <= f32::EPSILON * 4.0
+        && (processed[0].mul_add(processed[0], processed[1] * processed[1]) - 1.0).abs()
+            <= f32::EPSILON * 4.0;
+    if diagonal {
+        if processed[0] < 0.0 && processed[1] > 0.0 {
+            flags |= PlayerInputFlags::UP_LEFT;
+        } else if processed[0] > 0.0 && processed[1] > 0.0 {
+            flags |= PlayerInputFlags::UP_RIGHT;
+        } else if processed[0] < 0.0 && processed[1] < 0.0 {
+            flags |= PlayerInputFlags::DOWN_LEFT;
+        } else if processed[0] > 0.0 && processed[1] < 0.0 {
+            flags |= PlayerInputFlags::DOWN_RIGHT;
+        }
+    }
+
+    if sample.horizontal_collision {
+        flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
+    }
+    if sample.vertical_collision {
+        flags |= PlayerInputFlags::VERTICAL_COLLISION;
+    }
 
     if sample.jumping {
         flags |= PlayerInputFlags::JUMP_DOWN
@@ -44,10 +66,6 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::STOP_SPRINTING;
     }
     flags
-}
-
-pub(super) fn subtract(lhs: [f32; 3], rhs: [f32; 3]) -> [f32; 3] {
-    [lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]]
 }
 
 pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {

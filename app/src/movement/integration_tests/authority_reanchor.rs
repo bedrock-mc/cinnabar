@@ -185,7 +185,7 @@ fn stale_explicit_snap_preserves_monotonic_ticker_and_physics_alignment() {
 }
 
 #[test]
-fn surface_spawn_reanchor_discards_obsolete_outbox_and_anchors_next_delta() {
+fn surface_spawn_reanchor_discards_obsolete_outbox_without_rewriting_velocity() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
@@ -215,7 +215,7 @@ fn surface_spawn_reanchor_discards_obsolete_outbox_and_anchors_next_delta() {
         .unwrap();
     let next = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(next.tick, 102);
-    assert_eq!(next.delta, [0.5, 0.0, 0.0]);
+    assert_eq!(next.delta, [0.125, -0.0784, -0.25]);
 }
 
 #[test]

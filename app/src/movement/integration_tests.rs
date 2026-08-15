@@ -61,6 +61,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position,
+        velocity: [0.125, -0.0784, -0.25],
         move_vector: [0.0, 1.0],
         pitch: 10.0,
         yaw: 20.0,
@@ -72,6 +73,8 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
         grounded_after_tick: false,
+        horizontal_collision: false,
+        vertical_collision: false,
         jump_repeated: false,
         world_identity: fixture_world_identity(1),
     }

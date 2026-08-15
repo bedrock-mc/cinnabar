@@ -16,7 +16,7 @@ mod runtime_system;
 mod speed_authority;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
 pub(crate) use effects::LocalMovementEffectTimeline;
-use encoding::{input_flags, normalize_move_vector, subtract};
+use encoding::{input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 use physics::PhysicsCorrectionConfirmation;
@@ -293,6 +293,7 @@ impl MovementTicker {
             return Err(fault);
         }
         if !completed.position.into_iter().all(f32::is_finite)
+            || !completed.velocity.into_iter().all(f32::is_finite)
             || !completed.move_vector.into_iter().all(f32::is_finite)
             || !completed.camera_orientation.into_iter().all(f32::is_finite)
             || ![completed.pitch, completed.yaw, completed.head_yaw]
@@ -358,7 +359,7 @@ impl MovementTicker {
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            delta: subtract(sample.position, self.previous_position),
+            delta: sample.velocity,
             move_vector,
             analogue_move_vector: move_vector,
             raw_move_vector: sample.move_vector,
@@ -792,24 +793,19 @@ impl MovementTicker {
                     if pending.world_identity != replayed.world_identity {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
-                    let previous_position = if tick == plan.corrected_tick.saturating_add(1) {
-                        plan.corrected_position
-                    } else {
-                        let expected_previous = tick.saturating_sub(1);
-                        let Some(previous) = plan
-                            .replayed_samples
-                            .iter()
-                            .find(|sample| sample.tick == expected_previous)
-                        else {
-                            return Err(PhysicsAuthorityFault::PendingTickMismatch {
-                                expected: expected_previous,
-                                actual: tick,
-                            });
-                        };
-                        previous.position
-                    };
                     pending.snapshot.position = replayed.position;
-                    pending.snapshot.delta = subtract(replayed.position, previous_position);
+                    pending.snapshot.delta = replayed.velocity;
+                    pending.snapshot.flags = pending
+                        .snapshot
+                        .flags
+                        .with_mask(
+                            PlayerInputFlags::HORIZONTAL_COLLISION,
+                            replayed.horizontal_collision,
+                        )
+                        .with_mask(
+                            PlayerInputFlags::VERTICAL_COLLISION,
+                            replayed.vertical_collision,
+                        );
                     pending.evidence.network_position = replayed.position;
                     Ok(Some(()))
                 };
