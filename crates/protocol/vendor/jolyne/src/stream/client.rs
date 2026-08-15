@@ -1162,10 +1162,7 @@ mod tests {
     }
 
     fn test_pack_packets(id: Uuid, data: &[u8], chunk_size: u32) -> Vec<McpePacket> {
-        // ResourcePackClientResponse requests the composite UUID_version name,
-        // but vanilla's following metadata and chunk packets identify the
-        // selected transfer by UUID alone. Gophertunnel mirrors that split.
-        let name = id.to_string();
+        let name = format!("{id}_1.0.0");
         let count = (data.len() as u64).div_ceil(u64::from(chunk_size)) as u32;
         let mut packets = vec![McpePacket::from(
             crate::valentine::ResourcePackDataInfoPacket {
@@ -1250,6 +1247,56 @@ mod tests {
         assert_eq!(archives[0].sub_pack_name, "high");
         assert_eq!(archives[0].archive, selected);
         assert_eq!(archives[0].content_key.expose(), b"memory-key");
+    }
+
+    #[tokio::test]
+    async fn pack_handoff_accepts_gophertunnel_map_iteration_order() {
+        let first_id = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let first = b"first archive";
+        let second = b"second archive";
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![
+                test_pack_info(first_id, first, "", "first-key"),
+                test_pack_info(second_id, second, "", "second-key"),
+            ],
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        inbound.extend(
+            test_pack_packets(second_id, second, second.len() as u32)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        inbound.extend(
+            test_pack_packets(first_id, first, first.len() as u32)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_list: vec![
+                    crate::valentine::PackInstanceId {
+                        pack_id: first_id.to_string(),
+                        version: "1.0.0".into(),
+                        sub_pack_name: String::new(),
+                    },
+                    crate::valentine::PackInstanceId {
+                        pack_id: second_id.to_string(),
+                        version: "1.0.0".into(),
+                        sub_pack_name: String::new(),
+                    },
+                ],
+                ..Default::default()
+            },
+        )]));
+
+        let start = resource_pack_stream(inbound)
+            .handle_packs()
+            .await
+            .expect("Gophertunnel may serve requested packs in map iteration order");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert_eq!(handoff.len(), 2);
     }
 
     #[tokio::test]
@@ -1705,9 +1752,14 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             })])
             .await?;
 
+        let requested_indices = requested
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let mut received = HashSet::with_capacity(offered.len());
         let mut archives = Vec::with_capacity(offered.len());
-        for (index, pack) in offered.iter_mut().enumerate() {
-            let transfer_name = pack.pack_id_version.pack_uuid.to_string();
+        for _ in 0..offered.len() {
             let raw = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
                 self.transport.recv_packet_raw(),
@@ -1721,8 +1773,14 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             let McpePacketData::ResourcePackDataInfoPacket(data) = packet.data else {
                 return Err(pack_handoff_error("invalid pack metadata packet"));
             };
-            if data.resource_name != transfer_name
-                || data.file_size != pack.pack_size
+            let Some(&index) = requested_indices.get(&data.resource_name) else {
+                return Err(pack_handoff_error("unadvertised pack metadata"));
+            };
+            if !received.insert(index) {
+                return Err(pack_handoff_error("duplicate pack metadata"));
+            }
+            let pack = &mut offered[index];
+            if data.file_size != pack.pack_size
                 || data.file_size > MAX_RESOURCE_PACK_BYTES
                 || data.chunk_size == 0
                 || data.chunk_size > MAX_RESOURCE_PACK_CHUNK_BYTES
@@ -1763,7 +1821,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 let offset = u64::from(chunk) * u64::from(data.chunk_size);
                 let remaining = data.file_size - offset;
                 let expected_len = remaining.min(u64::from(data.chunk_size));
-                if chunk_data.resource_name != transfer_name
+                if chunk_data.resource_name != data.resource_name
                     || chunk_data.chunk_id != chunk
                     || chunk_data.byte_offset != offset
                     || u64::try_from(chunk_data.chunk_data.len()).ok() != Some(expected_len)
