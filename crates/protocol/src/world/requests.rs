@@ -47,7 +47,7 @@ pub fn request_sub_chunk_column(
     .into())
 }
 
-pub(super) fn normalize_layer(layer: i32) -> Result<usize, WorldPacketError> {
+pub(super) fn normalize_layer(layer: u32) -> Result<usize, WorldPacketError> {
     let normalized =
         usize::try_from(layer).map_err(|_| WorldPacketError::InvalidBlockLayer(layer))?;
     if normalized >= MAX_BLOCK_LAYERS {

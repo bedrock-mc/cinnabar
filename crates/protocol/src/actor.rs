@@ -4,9 +4,10 @@ use bytes::{Buf, Bytes};
 use thiserror::Error;
 use valentine::{
     bedrock::version::v1_26_40::{
-        ActorLink as VendorActorLink, ActorLinkType as VendorActorLinkType, AddActorPacket,
-        AddPlayerPacket, AttributeData, DataItemEntryPayload, MobEffectPacket,
-        MobEffectPacketEventId, MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
+        ActorLink as VendorActorLink, AddActorPacket, AddPlayerPacket, AttributeData,
+        DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
+        EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
+        MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
         PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SerializedSkinRef,
         SetActorDataPacket, SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
         UpdateAttributesPacket,
@@ -37,13 +38,13 @@ pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 /// re-typed into the `Flags`/`FlagsExtended` values downstream already reads.
 /// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
 /// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlags = iota`.
-const ACTOR_DATA_ID_FLAGS: i32 = 0;
+const ACTOR_DATA_ID_FLAGS: u32 = 0;
 
 /// Actor-data id of the overflow 64-bit actor flag word.
 ///
 /// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
 /// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlagsTwo` (92).
-const ACTOR_DATA_ID_FLAGS_EXTENDED: i32 = 92;
+const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = 92;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -73,13 +74,13 @@ pub struct ActorAttributeModifier {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActorProperty {
-    Int { index: i32, value: i32 },
-    Float { index: i32, value: f32 },
+    Int { index: u32, value: i32 },
+    Float { index: u32, value: f32 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorMetadata {
-    pub key: i32,
+    pub key: u32,
     pub value: ActorMetadataValue,
 }
 
@@ -338,7 +339,7 @@ pub(crate) fn normalize_add_entity(
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         unique_id: packet.target_actor_id.actor_unique_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         kind: ActorKind::Entity {
             identifier: Arc::from(packet.actor_type),
         },
@@ -391,7 +392,7 @@ pub(crate) fn normalize_add_player(
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/ability.go`: `AbilityData.EntityUniqueID`.
         unique_id: packet.abilities_data.target_player_raw_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         kind: ActorKind::Player {
             uuid: *packet.uuid.as_bytes(),
             username: Arc::from(packet.player_name),
@@ -434,7 +435,7 @@ pub(crate) fn normalize_move_entity(
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id as u64,
+        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
         position: [
             Some(move_data.position.x),
             Some(move_data.position.y),
@@ -523,7 +524,7 @@ pub(crate) fn normalize_move_entity_delta(
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id as u64,
+        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
         position: [
             move_data.new_position_x,
             move_data.new_position_y,
@@ -551,10 +552,10 @@ pub(crate) fn normalize_set_entity_data(
     packet: SetActorDataPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEvent::Metadata(ActorMetadataUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         metadata: normalize_metadata(packet.actor_data)?,
         properties: normalize_properties(packet.synched_properties)?,
         tick,
@@ -565,10 +566,10 @@ pub(crate) fn normalize_update_attributes(
     packet: UpdateAttributesPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEvent::Attributes(ActorAttributesUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         attributes: normalize_attribute_data(packet.attribute_list)?,
         tick,
     }))
@@ -578,10 +579,10 @@ pub(crate) fn normalize_mob_effect(
     packet: MobEffectPacket,
     dimension: i32,
 ) -> Result<ActorEffectEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEffectEvent {
         dimension,
-        actor_runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
         action: match packet.event_id {
             MobEffectPacketEventId::Add => ActorEffectAction::Add,
             MobEffectPacketEventId::Update => ActorEffectAction::Update,
@@ -654,7 +655,7 @@ pub(crate) fn normalize_player_list(
     let mut retained_skin_bytes = 0usize;
     for entry in packet.entries {
         match entry {
-            PlayerListPacketEntriesItem::AddEntry(record) => {
+            PlayerListPacketEntriesItem::Add(record) => {
                 validate_text(
                     "player_list.username",
                     &record.player_name,
@@ -678,7 +679,7 @@ pub(crate) fn normalize_player_list(
                     skin,
                 });
             }
-            PlayerListPacketEntriesItem::RemoveEntry(record) => {
+            PlayerListPacketEntriesItem::Remove(record) => {
                 entries.push(PlayerListEntry::Remove {
                     uuid: *record.uuid.as_bytes(),
                 });
@@ -918,8 +919,8 @@ fn normalize_metadata(
     Ok(Arc::from(entries))
 }
 
-fn normalize_tick(tick: i64) -> Result<u64, ActorPacketError> {
-    u64::try_from(tick).map_err(|_| ActorPacketError::NegativeTick(tick))
+fn normalize_tick(tick: u64) -> u64 {
+    tick
 }
 
 fn byte_rotation_degrees(value: u8) -> f32 {

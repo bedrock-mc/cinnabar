@@ -4,8 +4,10 @@ use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_40::LevelChunkPacketView;
 use valentine::bedrock::version::v1_26_40::{
-    CorrectPlayerMovePredictionPacketPredictionType, GameRule, GameRuleRuleValue, McpePacketData,
-    RespawnPacketState, SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    EnumsPlayerRespawnState as RespawnPacketState,
+    EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
+    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    GameRule, GameRuleRuleValue, McpePacketData,
 };
 
 use crate::{
@@ -248,13 +250,13 @@ pub enum WorldPacketError {
     SubChunkPositionOverflow { origin: [i32; 3], offset: [i8; 3] },
 
     #[error("block update layer {0} is outside 0..{MAX_BLOCK_LAYERS}")]
-    InvalidBlockLayer(i32),
+    InvalidBlockLayer(u32),
 
     #[error("publisher radius {0} is not a valid unsigned block radius")]
-    InvalidPublisherRadius(i32),
+    InvalidPublisherRadius(u32),
 
-    #[error("server-authoritative movement correction tick {0} is negative")]
-    NegativeMovementCorrectionTick(i64),
+    #[error("server-authoritative movement correction tick {0} is outside i64 range")]
+    MovementCorrectionTickOutOfRange(u64),
 
     #[error("SubChunkRequest has {count} offsets, exceeding {max}")]
     TooManySubChunkRequests { count: usize, max: usize },
@@ -494,7 +496,7 @@ pub fn into_world_event(
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir => {
                         SubChunkResult::AllAir
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Undefined => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(0) => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
                     }
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist => {
@@ -569,8 +571,7 @@ pub fn into_world_event(
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
         }
         McpePacketData::NetworkChunkPublisherUpdatePacket(packet) => {
-            let radius_blocks = u32::try_from(packet.newradiusforview)
-                .map_err(|_| WorldPacketError::InvalidPublisherRadius(packet.newradiusforview))?;
+            let radius_blocks = packet.newradiusforview;
             WorldEvent::PublisherUpdate(PublisherUpdateEvent {
                 center: [
                     packet.newpositionforview.x,
@@ -602,7 +603,7 @@ pub fn into_world_event(
         McpePacketData::MovePlayerPacket(packet) => {
             let mode = MovePlayerMode::from(packet.position_mode);
             WorldEvent::MovePlayer(MovePlayerEvent {
-                runtime_id: packet.player_runtime_id.actor_runtime_id as u64,
+                runtime_id: packet.player_runtime_id.actor_runtime_id,
                 position: [packet.position.x, packet.position.y, packet.position.z],
                 // gophertunnel packet/move_player.go writes Pitch then Yaw as
                 // two float32s, which the generated crate models as a Vec2
@@ -621,8 +622,6 @@ pub fn into_world_event(
                 return Ok(None);
             }
             let tick = packet.tick.inputtick;
-            let tick = u64::try_from(tick)
-                .map_err(|_| WorldPacketError::NegativeMovementCorrectionTick(tick))?;
             WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
                 position: [packet.pos.x, packet.pos.y, packet.pos.z],
                 delta: [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z],
@@ -681,7 +680,7 @@ pub fn into_world_event(
 
 fn level_chunk_mode(
     request_limit: Option<i32>,
-    subchunks_count: i32,
+    subchunks_count: u32,
     dimension: i32,
 ) -> Result<LevelChunkMode, WorldPacketError> {
     match request_limit {
@@ -691,10 +690,8 @@ fn level_chunk_mode(
                 .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
         }),
         None => {
-            if subchunks_count < 0 {
-                return Err(WorldPacketError::InvalidSubChunkCount(subchunks_count));
-            }
-            let count = subchunks_count as usize;
+            let count = usize::try_from(subchunks_count)
+                .map_err(|_| WorldPacketError::InvalidSubChunkCount(i32::MAX))?;
             if count > MAX_SUB_CHUNK_REQUESTS {
                 return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
                     dimension,
@@ -727,7 +724,7 @@ pub(crate) fn normalize_borrowed_level_chunk(
             mode,
             payload: Vec::new(),
         },
-        payload,
+        payload.into(),
     ))
 }
 

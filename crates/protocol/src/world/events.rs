@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_40::MovePlayerPacketPositionMode;
+use valentine::bedrock::version::v1_26_40::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
@@ -168,7 +168,7 @@ pub struct ChangeDimensionEvent {
 pub struct RespawnEvent {
     pub position: [f32; 3],
     pub state: u8,
-    pub runtime_entity_id: i64,
+    pub runtime_entity_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -181,7 +181,7 @@ pub struct MovePlayerEvent {
     pub mode: MovePlayerMode,
     pub on_ground: bool,
     pub teleported: bool,
-    pub source_tick: i64,
+    pub source_tick: u64,
 }
 
 /// Visual eye height of a standing player above its feet.

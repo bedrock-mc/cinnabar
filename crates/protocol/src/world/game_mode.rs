@@ -1,8 +1,7 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
 use valentine::bedrock::version::v1_26_40::{
-    LevelSettingsGameType, SetDefaultGameTypePacketDefaultGameType,
-    SetPlayerGameTypePacketPlayerGameType, StartGamePacketGameType,
+    EnumsGameType, SetDefaultGameTypePacketDefaultGameType,
 };
 
 use jolyne::GameData;
@@ -50,12 +49,21 @@ macro_rules! game_type_value_from {
     };
 }
 
-game_type_value_from!(
-    StartGamePacketGameType,
-    LevelSettingsGameType,
-    SetPlayerGameTypePacketPlayerGameType,
-    SetDefaultGameTypePacketDefaultGameType,
-);
+game_type_value_from!(EnumsGameType);
+
+impl From<SetDefaultGameTypePacketDefaultGameType> for GameTypeValue {
+    fn from(mode: SetDefaultGameTypePacketDefaultGameType) -> Self {
+        use SetDefaultGameTypePacketDefaultGameType as Generated;
+        match mode {
+            Generated::Survival => Self::Survival,
+            Generated::Creative => Self::Creative,
+            Generated::Adventure => Self::Adventure,
+            Generated::Default => Self::Default,
+            Generated::Spectator => Self::Spectator,
+            Generated::Unknown(value) => Self::Other(value),
+        }
+    }
+}
 
 /// Wire value of vanilla's legacy `SurvivalViewer` game type.
 ///
