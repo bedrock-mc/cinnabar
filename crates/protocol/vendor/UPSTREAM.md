@@ -48,8 +48,8 @@ maintained separately and remains the authority for Cinnabar's server tooling.
 
 Wire behaviour and byte fixtures use the project pin
 `hashimthearab/gophertunnel` commit
-`a7b376706a6b5b1ca2dc331707c72147bc19fe47` (`cinnabar`, module pseudo-version
-`v1.25.3-0.20260816075812-a7b376706a6b`, Minecraft 1.26.44 / protocol 2168).
+`a36f77cba18e3dbc5a778427cc87dc9df5c26aae` (`resource-pack-changes`, module pseudo-version
+`v1.25.3-0.20260816104409-a36f77cba18e`, Minecraft 1.26.44 / protocol 2168).
 
 ## Generated-code caveats
 

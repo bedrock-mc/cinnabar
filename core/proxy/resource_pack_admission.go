@@ -22,6 +22,9 @@ const (
 	// PackAdmissionRequiredUnsupported means the upstream requires one or more
 	// packs that Cinnabar cannot truthfully apply yet.
 	PackAdmissionRequiredUnsupported PackAdmissionFailureReason = iota + 1
+
+	maxSelectedResourcePacks          = 32
+	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
 )
 
 // PackAdmissionError reports a typed, bounded pre-login pack failure.
@@ -46,7 +49,7 @@ func (err *PackAdmissionError) Error() string {
 
 type resourcePackOfferConnection interface {
 	dialerDownstream
-	ConfigureResourcePackOffer([]*resource.Pack, bool) error
+	ConfigureResourcePackOfferSnapshot(minecraft.ResourcePackOfferSnapshot, bool) error
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 }
 
@@ -60,10 +63,10 @@ func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *s
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if len(stack.packs) != 0 {
-		return downstream.ConfigureResourcePackStack(stack.snapshot, false)
+	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, false); err != nil {
+		return err
 	}
-	return downstream.ConfigureResourcePackOffer(nil, false)
+	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
 }
 
 var (
@@ -75,6 +78,7 @@ var (
 // gophertunnel Dialer connection. ResourcePacks is deliberately not used here:
 // it is offer/download telemetry, not the server-selected application stack.
 type resourcePackStackSource interface {
+	ResourcePackOffer() (minecraft.ResourcePackOfferSnapshot, bool)
 	ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bool)
 }
 
@@ -83,11 +87,16 @@ type resourcePackStackSource interface {
 type selectedResourcePackStack struct {
 	packs    []*resource.Pack
 	required bool
+	offer    minecraft.ResourcePackOfferSnapshot
 	snapshot minecraft.ResourcePackStackSnapshot
 }
 
 func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
+	if !ok {
+		return nil, errResourcePackStackUnavailable
+	}
+	offer, ok := source.ResourcePackOffer()
 	if !ok {
 		return nil, errResourcePackStackUnavailable
 	}
@@ -100,17 +109,23 @@ func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResour
 		return nil, err
 	}
 	entries := snapshot.Entries()
-	if len(entries) != len(stack.packs) {
-		stack.release()
-		return nil, errResourcePackStackInvalid
-	}
-	for index, entry := range entries {
+	packIndex := 0
+	for _, entry := range entries {
 		pack := entry.Pack()
-		if pack == nil || pack.UUID() != stack.packs[index].UUID() || pack.Version() != stack.packs[index].Version() {
+		if pack == nil {
+			continue
+		}
+		if packIndex >= len(stack.packs) || pack.UUID() != stack.packs[packIndex].UUID() || pack.Version() != stack.packs[packIndex].Version() {
 			stack.release()
 			return nil, errResourcePackStackInvalid
 		}
+		packIndex++
 	}
+	if packIndex != len(stack.packs) {
+		stack.release()
+		return nil, errResourcePackStackInvalid
+	}
+	stack.offer = offer
 	stack.snapshot = snapshot
 	return stack, nil
 }
@@ -123,7 +138,7 @@ func resourcePackSize(pack *resource.Pack) (uint64, bool) {
 }
 
 func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf resourcePackSizer) (*selectedResourcePackStack, error) {
-	if len(packs) > minecraft.DefaultResourcePackMaxPacks || sizeOf == nil {
+	if len(packs) > maxSelectedResourcePacks || sizeOf == nil {
 		return nil, errResourcePackStackInvalid
 	}
 	owned := make([]*resource.Pack, len(packs))
@@ -133,7 +148,7 @@ func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf 
 			return nil, errResourcePackStackInvalid
 		}
 		size, ok := sizeOf(pack)
-		if !ok || size > math.MaxUint64-total || total+size > minecraft.DefaultResourcePackMaxTotalBytes {
+		if !ok || size > math.MaxUint64-total || total+size > maxSelectedResourcePackTotalBytes {
 			return nil, errResourcePackStackInvalid
 		}
 		total += size
@@ -145,6 +160,7 @@ func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf 
 func (stack *selectedResourcePackStack) release() {
 	if stack != nil {
 		stack.packs = nil
+		stack.offer = minecraft.ResourcePackOfferSnapshot{}
 		stack.snapshot = minecraft.ResourcePackStackSnapshot{}
 	}
 }

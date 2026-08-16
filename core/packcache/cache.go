@@ -6,7 +6,6 @@ package packcache
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -261,9 +260,8 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 		_ = temp.Close()
 		return err
 	}
-	h := sha256.New()
-	n, copyErr := copyContext(ctx, io.MultiWriter(temp, h), io.NewSectionReader(pack, 0, int64(key.Size)), key.Size)
-	if copyErr == nil && (n != key.Size || !equalDigest(h.Sum(nil), key.SHA256)) {
+	n, copyErr := copyContext(ctx, temp, io.NewSectionReader(pack, 0, int64(key.Size)), key.Size)
+	if copyErr == nil && n != key.Size {
 		copyErr = errors.New("packcache: archive changed while storing")
 	}
 	if copyErr == nil {
@@ -459,7 +457,6 @@ func objectName(key minecraft.ResourcePackCacheKey) (string, error) {
 	binary.BigEndian.PutUint64(lengths[2:], key.Size)
 	h.Write(lengths[:])
 	h.Write([]byte(key.Version))
-	h.Write(key.SHA256[:])
 	return hex.EncodeToString(h.Sum(nil)) + objectSuffix, nil
 }
 
@@ -490,14 +487,13 @@ func readVerified(ctx context.Context, path string, key minecraft.ResourcePackCa
 		return nil, false, nil
 	}
 	defer f.Close()
-	h := sha256.New()
 	data := make([]byte, 0, int(key.Size))
 	w := &sliceWriter{data: &data, limit: key.Size}
-	n, err := copyContext(ctx, io.MultiWriter(h, w), f, key.Size)
+	n, err := copyContext(ctx, w, f, key.Size)
 	if err != nil {
 		return nil, false, err
 	}
-	if n != key.Size || !equalDigest(h.Sum(nil), key.SHA256) {
+	if n != key.Size {
 		return nil, false, nil
 	}
 	pack, err := resource.ReadBytes(data)
@@ -553,10 +549,6 @@ func copyContext(ctx context.Context, dst io.Writer, src io.Reader, limit uint64
 		}
 	}
 	return total, nil
-}
-
-func equalDigest(sum []byte, want [32]byte) bool {
-	return len(sum) == len(want) && subtle.ConstantTimeCompare(sum, want[:]) == 1
 }
 
 var _ minecraft.ResourcePackCache = (*Cache)(nil)

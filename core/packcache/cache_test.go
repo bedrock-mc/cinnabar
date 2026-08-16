@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -66,9 +65,6 @@ func TestCacheRejectsWrongPackIdentity(t *testing.T) {
 	wrongSize := key
 	wrongSize.Size++
 	cases = append(cases, wrongSize)
-	wrongHash := key
-	wrongHash.SHA256[0] ^= 1
-	cases = append(cases, wrongHash)
 	wrongID := key
 	wrongID.UUID = uuid.New()
 	cases = append(cases, wrongID)
@@ -82,7 +78,7 @@ func TestCacheRejectsWrongPackIdentity(t *testing.T) {
 func TestCacheLoadRejectsValidArchiveWithWrongIdentity(t *testing.T) {
 	c := newTestCache(t, 1<<20)
 	_, _, archive := testPack(t, uuid.New(), "1.0.0", "other identity")
-	key := minecraft.ResourcePackCacheKey{UUID: uuid.New(), Version: "1.0.0", Size: uint64(len(archive)), SHA256: sha256.Sum256(archive)}
+	key := minecraft.ResourcePackCacheKey{UUID: uuid.New(), Version: "1.0.0", Size: uint64(len(archive))}
 	name, err := objectName(key)
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +559,7 @@ func testPack(t *testing.T, id uuid.UUID, version, payload string) (*resource.Pa
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := minecraft.ResourcePackCacheKey{UUID: id, Version: version, Size: uint64(len(archive)), SHA256: sha256.Sum256(archive)}
+	key := minecraft.ResourcePackCacheKey{UUID: id, Version: version, Size: uint64(len(archive))}
 	return pack, key, append([]byte(nil), archive...)
 }
 

@@ -4,9 +4,9 @@ go 1.26.1
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/df-mc/go-nethernet v1.0.19-0.20260806003522-be651398d023
-	github.com/df-mc/go-playfab/v2 v2.0.2-0.20260618232935-6d86fc87875f
-	github.com/df-mc/go-xsapi/v2 v2.0.2
+	github.com/df-mc/go-nethernet v1.0.20
+	github.com/df-mc/go-playfab/v2 v2.0.2
+	github.com/df-mc/go-xsapi/v2 v2.0.3
 	github.com/google/uuid v1.6.0
 	github.com/sandertv/gophertunnel v1.57.0
 	golang.org/x/oauth2 v0.36.0
@@ -50,5 +50,5 @@ require (
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260717160613-0b3a6a7d4f25
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260816075812-a7b376706a6b
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20260816104409-a36f77cba18e
 )

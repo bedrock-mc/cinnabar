@@ -438,14 +438,7 @@ func acceptResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return true }
 
 func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 	return minecraft.ResourcePackDownloadConfig{
-		MaxInFlightChunks:  minecraft.DefaultResourcePackMaxInFlightChunks,
-		MaxPacks:           minecraft.DefaultResourcePackMaxPacks,
-		MaxPackBytes:       minecraft.DefaultResourcePackMaxPackBytes,
-		MaxTotalBytes:      minecraft.DefaultResourcePackMaxTotalBytes,
-		MaxChunkBytes:      minecraft.DefaultResourcePackMaxChunkBytes,
-		MaxChunks:          minecraft.DefaultResourcePackMaxChunks,
-		ResponseTimeout:    minecraft.DefaultResourcePackResponseTimeout,
-		AllowHTTPDownloads: false,
+		MaxInFlightChunks: minecraft.DefaultResourcePackMaxInFlightChunks,
 	}
 }
 

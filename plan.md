@@ -80,14 +80,16 @@ below without deleting their historical evidence. The code audit covers the Bedr
 runtime state represented by this tree.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
-generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
-`a7b376706a6b5b1ca2dc331707c72147bc19fe47` through module pseudo-version
-`v1.25.3-0.20260816075812-a7b376706a6b`. The two Go consumers and their checked-in
+generator resolve `HashimTheArab/gophertunnel:resource-pack-changes` commit
+`a36f77cba18e3dbc5a778427cc87dc9df5c26aae` through module pseudo-version
+`v1.25.3-0.20260816104409-a36f77cba18e`. The two Go consumers and their checked-in
 provenance are synchronized to that public revision; all 27 checked-in fixture `.bin` files
 remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
-pinned wire/tooling baseline and a compile-time witness for the clone-safe, sub-pack-preserving
-negotiated stack API. Nonempty selections are forwarded to the local client, where the ordered
-archives and memory-only content keys are bounded, validated, and exposed as a one-shot handoff.
+pinned wire/tooling baseline and a compile-time witness for clone-safe, complete offer and stack
+snapshots. Advertisements and selections are forwarded to the local client with exact metadata,
+ordered built-in/ignored entries, sub-pack selections, base-game version, experiments and editor
+state. Downloaded entries retain ordered archives and memory-only content keys; the one-shot
+handoff remains bounded and validated.
 The private core-to-client hop marks even an upstream-required selection optional so incomplete
 pack application does not make otherwise joinable servers unavailable; the upstream negotiation
 has already completed. Archives are not extracted or applied, application remains unavailable,

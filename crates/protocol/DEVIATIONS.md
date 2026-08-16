@@ -11,7 +11,7 @@ pinned encoder/decoder and live bytes agreed exactly.
 
 The checked-in fixtures were generated with gophertunnel
 `9f42f3679a573fc4b51104569cc4f422036e28ec` (Bedrock 1.26.40 / protocol 2168).
-The Go core now uses `a7b376706a6b5b1ca2dc331707c72147bc19fe47`, and the
+The Go core now uses `a36f77cba18e3dbc5a778427cc87dc9df5c26aae`, and the
 Rust codec uses the 1.26.44 same-protocol hotfix described below.
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
 generation of those fixtures. `available_commands.bin` and

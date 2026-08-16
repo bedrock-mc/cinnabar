@@ -97,10 +97,11 @@ requires it.
 ## Gophertunnel branch ownership
 
 Cinnabar-specific Gophertunnel work belongs on
-`HashimTheArab/gophertunnel:cinnabar`, which is based on `lunar`. Never push
-Cinnabar changes directly to `lunar`; pull useful `lunar` updates into `cinnabar`,
-and keep Cinnabar's Go module pinned to an exact commit reachable from `cinnabar`.
-Promote a change back to `lunar` only on an explicit user request.
+`HashimTheArab/gophertunnel:resource-pack-changes`, which is based on `lunar`.
+Never push Cinnabar changes directly to `lunar`; pull useful `lunar` updates into
+`resource-pack-changes`, and keep Cinnabar's Go module pinned to an exact commit
+reachable from `resource-pack-changes`. Promote a change back to `lunar` only on
+an explicit user request.
 
 ## Rust build-cache discipline
 

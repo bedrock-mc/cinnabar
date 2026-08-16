@@ -26,9 +26,9 @@ import (
 type offerTestDownstream struct {
 	dialerTestDownstream
 	configured      bool
+	configuredOffer bool
 	configuredStack bool
 	stack           minecraft.ResourcePackStackSnapshot
-	packs           []*resource.Pack
 	required        bool
 	err             error
 	writes          []packet.Packet
@@ -38,6 +38,16 @@ type offerTestDownstream struct {
 	writeStarted    chan struct{}
 	writeUnblock    <-chan struct{}
 	writeStartOnce  sync.Once
+}
+
+func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(_ minecraft.ResourcePackOfferSnapshot, required bool) error {
+	if downstream.configPanic != nil {
+		panic(downstream.configPanic)
+	}
+	downstream.configured = true
+	downstream.configuredOffer = true
+	downstream.required = required
+	return downstream.err
 }
 
 func (downstream *offerTestDownstream) WritePacketImmediate(packets ...packet.Packet) error {
@@ -52,16 +62,6 @@ func (downstream *offerTestDownstream) WritePacketImmediate(packets ...packet.Pa
 	}
 	downstream.writes = append(downstream.writes, packets...)
 	return downstream.writeErr
-}
-
-func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resource.Pack, required bool) error {
-	if downstream.configPanic != nil {
-		panic(downstream.configPanic)
-	}
-	downstream.configured = true
-	downstream.packs = slices.Clone(packs)
-	downstream.required = required
-	return downstream.err
 }
 
 func (downstream *offerTestDownstream) ConfigureResourcePackStack(stack minecraft.ResourcePackStackSnapshot, required bool) error {
@@ -93,8 +93,8 @@ func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
 	if !downstream.configured {
 		t.Fatal("downstream offer was not configured")
 	}
-	if !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (stack=%t, required=%t), want selected optional stack", downstream.configuredStack, downstream.required)
+	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (offer=%t, stack=%t, required=%t), want exact optional offer and stack", downstream.configuredOffer, downstream.configuredStack, downstream.required)
 	}
 	if got := len(upstream.ResourcePacks()); got != 2 {
 		t.Fatalf("retained upstream pack count = %d, want 2", got)
@@ -162,8 +162,8 @@ func TestConfigureResourcePackOfferAllowsEmptyRequiredBitAsEmptyOptional(t *test
 	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{required: true}); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configured || len(downstream.packs) != 0 || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, %d packs, required=%t), want configured empty optional offer", downstream.configured, len(downstream.packs), downstream.required)
+	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (offer=%t, stack=%t, required=%t), want configured empty optional offer", downstream.configuredOffer, downstream.configuredStack, downstream.required)
 	}
 }
 
@@ -230,7 +230,7 @@ func TestSelectedResourcePackStackFailsClosedForMissingNilAndBounds(t *testing.T
 	if _, err := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
 		t.Fatalf("nil selected pack error = %v", err)
 	}
-	tooMany := make([]*resource.Pack, minecraft.DefaultResourcePackMaxPacks+1)
+	tooMany := make([]*resource.Pack, maxSelectedResourcePacks+1)
 	if _, err := newSelectedResourcePackStack(tooMany, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
 		t.Fatalf("selected count overflow error = %v", err)
 	}

@@ -58,9 +58,6 @@ func TestNewUpstreamDialerAcceptsResourcePacksUnderExplicitBounds(t *testing.T) 
 	if dialer.ResourcePackDownload != want {
 		t.Fatalf("ResourcePackDownload = %#v, want explicit bounds %#v", dialer.ResourcePackDownload, want)
 	}
-	if dialer.ResourcePackDownload.AllowHTTPDownloads {
-		t.Fatal("AllowHTTPDownloads = true, want server-provided HTTP downloads disabled")
-	}
 }
 
 func TestProtocol2168RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
