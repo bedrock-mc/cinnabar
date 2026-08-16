@@ -7,7 +7,7 @@ licensed; see `crates/protocol/vendor/LICENSE`.
 Machine-checked provenance:
 
 - Dependency resolution: local vendored paths
-- Axolotl Stack merge revision: `4b71f85bd9a07fc7e4ab36a6c2417bf44403675b`
+- Axolotl Stack merge revision: `64916d235e1f31b008335b56413e78d09eee1097`
 - Protocolgen submodule, manifest, and generated-source revision: `c360b03369dd69059c85c9aef018e04b1cfa2c37`
 - Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
@@ -16,6 +16,12 @@ The copied surface contains the shared codec/runtime, the generated protocol
 benches, generator executables, unrelated workspace crates, and uninitialised
 generator-input submodules are omitted. Local manifests replace workspace
 inheritance with direct versions and local paths.
+
+The update from `4b71f85bd9a07fc7e4ab36a6c2417bf44403675b` to the pinned merge revision
+only changes Axolotl Stack files outside this retained surface, plus Jolyne's
+workspace dependency declaration. The equivalent local Jolyne dependency
+already disables Valentine's default features and selects only protocol 2168,
+so no retained Rust source or manifest bytes change for this update.
 
 ## Local source patches
 
