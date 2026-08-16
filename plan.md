@@ -18,7 +18,7 @@ carrying plain Bedrock packets pinned to ONE protocol version, plus a small cont
 Local worlds run dragonfly behind the same core, over the same client path.
 
 **Tech Stack:**
-- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.40)
+- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.44)
 - Core: Go, `lunar` gophertunnel + go-raknet fork; upstream `df-mc/go-nethernet` and `df-mc/go-xsapi/v2`; dragonfly
 - Boundary: socket-file transport already implemented in `bedrock-mc/plugin` (reference impl)
 - Assets: Mojang/bedrock-samples (full vanilla resource pack); `refs/pocketmine/bds-data`
@@ -26,7 +26,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Global Constraints
 
-- Pinned loopback wire target: **Bedrock 1.26.40 / protocol 2168** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
+- Pinned loopback wire target: **Bedrock 1.26.44 / protocol 2168** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
 - The Rust side NEVER implements auth, encryption-to-upstream, RakNet-to-upstream, or NetherNet. If a task seems to need one of those in Rust, the task is wrong.
 - The loopback game channel is Bedrock packets with length-prefixed framing; no RakNet on this leg. Encryption on this leg: whatever gophertunnel's Listener does by default — do not fork to remove it; AES on loopback is negligible.
 - Single source of truth for protocol/data lives in the Go estate: packet truth = gophertunnel (validated against Mojang bedrock-protocol-docs via `cmd/protocoldrift`); block/item/biome registries = generated exports from dragonfly; client packet defs = valentine (docs-generated), conformance-tested against gophertunnel bytes.
@@ -44,7 +44,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 ## Repos and Layout
 
 - **`bedrock-mc/client`** (new greenfield repo; do not reuse `bedrock-mc/Rust-LCE` code, assets, renderer, or world model because it targets the Legacy Console Edition rather than current Bedrock/BDS data):
-  - `crates/protocol/` — vendored/generated Valentine 1.26.40 defs + login-sequence state machine
+  - `crates/protocol/` — vendored/generated Valentine 1.26.44 defs + login-sequence state machine
   - `crates/world/` — chunk store, sub-chunk decode, block registry, light engine
   - `crates/render/` — meshing, atlas, chunk/entity/sky rendering (Bevy plugins)
   - `crates/sim/` — movement physics (bedsim-parity port)
@@ -72,7 +72,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
-## Current integration snapshot (2026-08-15)
+## Current integration snapshot (2026-08-16)
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
@@ -81,8 +81,8 @@ runtime state represented by this tree.
 
 The mandatory public fork and repin are closed deterministically. The core and fixture
 generator resolve `HashimTheArab/gophertunnel:cinnabar` commit
-`9f42f3679a573fc4b51104569cc4f422036e28ec` through module pseudo-version
-`v1.25.3-0.20260811002754-9f42f3679a57`. The two Go consumers and their checked-in
+`a7b376706a6b5b1ca2dc331707c72147bc19fe47` through module pseudo-version
+`v1.25.3-0.20260816075812-a7b376706a6b`. The two Go consumers and their checked-in
 provenance are synchronized to that public revision; all 27 checked-in fixture `.bin` files
 remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
 pinned wire/tooling baseline and a compile-time witness for the clone-safe, sub-pack-preserving
@@ -93,7 +93,9 @@ pack application does not make otherwise joinable servers unavailable; the upstr
 has already completed. Archives are not extracted or applied, application remains unavailable,
 and this is not live gameplay, native visual, or performance evidence.
 
-This tree now also contains the protocolgen-backed Valentine 1.26.40 projection, replacing
+This tree now contains the protocolgen-backed Valentine 1.26.44 projection, derived from the
+reconciled 1.26.40 base because Mojang retained protocol 2168 while adding the outer optional
+marker around `RemoveScore.ObjectiveName`. It replaces
 the retired Prismarine-derived packet generation path while preserving the public protocol
 crate facade. Protocolgen reconciles pinned Mojang and Endstone sources, fingerprints every
 adjudication, and compares the result against pinned Gophertunnel: 177 packets agree

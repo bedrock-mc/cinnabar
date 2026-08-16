@@ -67,7 +67,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
     AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,

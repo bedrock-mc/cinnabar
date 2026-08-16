@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use std::fmt::Debug;
 use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_40::types::{
+use valentine::bedrock::version::v1_26_44::types::{
     BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsContainerEnumName,
     EnumsItemStackRequestActionType, EnumsPlayStatus,
     ResourcePackClientResponsePacketPayloadCancel,

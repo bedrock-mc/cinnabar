@@ -41,13 +41,13 @@ fn private_level_chunk_ready_lane_aliases_bytes_while_public_pop_returns_indepen
 fn cached_level_chunk(x: i32, hashes: Vec<u64>) -> LevelChunkPacket {
     let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
-        chunk_position: valentine::bedrock::version::v1_26_40::ChunkPos { x, z: 0 },
+        chunk_position: valentine::bedrock::version::v1_26_44::ChunkPos { x, z: 0 },
         subchunks_count,
         cache_enabled: true,
         cache_metadata: hashes
             .into_iter()
             .map(|blob_id| {
-                valentine::bedrock::version::v1_26_40::LevelChunkPacketPayloadSubChunkMetadata {
+                valentine::bedrock::version::v1_26_44::LevelChunkPacketPayloadSubChunkMetadata {
                     blob_id,
                 }
             })
@@ -67,7 +67,7 @@ fn sub_chunk_entry(
 ) -> SubChunkPacketPayloadSubChunkPacketData {
     SubChunkPacketPayloadSubChunkPacketData {
         sub_chunk_pos_offset:
-            valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPosOffset {
+            valentine::bedrock::version::v1_26_44::SubChunkPacketPayloadSubChunkPosOffset {
                 subchunk_offset_x: dx,
                 subchunk_offset_y: dy,
                 subchunk_offset_z: dz,
@@ -244,7 +244,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
 
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
-            missing_blobs: vec![valentine::bedrock::version::v1_26_40::MissingBlobData {
+            missing_blobs: vec![valentine::bedrock::version::v1_26_44::MissingBlobData {
                 blob_id: shared,
                 blob_data: shared_payload.to_vec(),
             }],
@@ -263,8 +263,8 @@ fn retained_cached_subchunk_emits_admission_before_reconstruction() {
     let hash = client_blob_hash(payload);
     let packet = SubChunkPacket {
         cache_enabled: true,
-        dimension_type: valentine::bedrock::version::v1_26_40::DimensionType { value: 2 },
-        center_pos: valentine::bedrock::version::v1_26_40::SubChunkPos {
+        dimension_type: valentine::bedrock::version::v1_26_44::DimensionType { value: 2 },
+        center_pos: valentine::bedrock::version::v1_26_44::SubChunkPos {
             subchunk_position_x: 4,
             subchunk_position_y: -4,
             subchunk_position_z: 9,

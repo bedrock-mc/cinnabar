@@ -1,6 +1,6 @@
 use super::*;
 
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     DimensionType, SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos, SubChunkRequestPacket,
 };
 

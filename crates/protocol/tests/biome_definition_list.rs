@@ -8,7 +8,7 @@ use protocol::BedrockSession;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarInt},
     error::DecodeError,
-    version::v1_26_40::BiomeDefinitionChunkGenData,
+    version::v1_26_44::BiomeDefinitionChunkGenData,
 };
 
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
@@ -81,7 +81,7 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
     // `BiomeDefinitionListPacketView`, so the borrowed path is now typed.
     assert!(matches!(
         &borrowed.data,
-        valentine::bedrock::version::v1_26_40::BorrowedMcpePacketData::BiomeDefinitionListPacket(_)
+        valentine::bedrock::version::v1_26_44::BorrowedMcpePacketData::BiomeDefinitionListPacket(_)
     ));
     let owned = borrowed
         .into_owned(McpePacketArgs)

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
-    version::v1_26_40::{
+    version::v1_26_44::{
         ActorRuntimeId, AnimateEntityPacket, AnimatePacket,
         EnumsAnimatePacketPayloadAction as AnimatePacketAction,
         EnumsItemVersion as ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
@@ -20,7 +20,7 @@ use valentine::bedrock::{
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_40::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_44::CerealizerNetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
@@ -736,7 +736,7 @@ fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
 
 #[cfg(test)]
 mod hotbar_tests {
-    use valentine::bedrock::version::v1_26_40::McpePacketData;
+    use valentine::bedrock::version::v1_26_44::McpePacketData;
 
     use super::*;
 

@@ -11,7 +11,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,

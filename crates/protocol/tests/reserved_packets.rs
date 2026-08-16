@@ -1,6 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{BedrockSession, ProtocolError, decode_batch};
-use valentine::bedrock::version::v1_26_40::{BorrowedMcpePacket, McpePacketName};
+use valentine::bedrock::version::v1_26_44::{BorrowedMcpePacket, McpePacketName};
 use valentine::protocol::wire;
 
 const FORMER_RESERVED: &[(u32, McpePacketName)] = &[

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_40::LevelChunkPacketView;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::LevelChunkPacketView;
+use valentine::bedrock::version::v1_26_44::{
     EnumsPlayerRespawnState as RespawnPacketState,
     EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,

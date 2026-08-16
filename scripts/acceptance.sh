@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_gophertunnel_commit='9f42f3679a573fc4b51104569cc4f422036e28ec'
-expected_gophertunnel_version='v1.25.3-0.20260811002754-9f42f3679a57'
+expected_gophertunnel_commit='a7b376706a6b5b1ca2dc331707c72147bc19fe47'
+expected_gophertunnel_version='v1.25.3-0.20260816075812-a7b376706a6b'
 expected_bds_sha256='e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
 expected_bds_release='1.26.40.8'
-pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'
-pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
+pinned_protocolgen_commit='870bb549c701a0c03472c66441449c4b70a8454a'
 pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {
@@ -132,8 +132,8 @@ PY
 assert_protocol_dependency_provenance() {
     local root=$1
     python3 - "$root" \
-        "$pinned_valentine_fork_commit" \
-        "$pinned_valentine_upstream_commit" \
+        "$pinned_axolotl_stack_commit" \
+        "$pinned_protocolgen_commit" \
         "$pinned_valentine_license_sha256" <<'PY'
 import hashlib
 import json
@@ -144,7 +144,7 @@ import sys
 import tempfile
 
 root = pathlib.Path(sys.argv[1])
-fork_revision, upstream_revision, license_sha256 = sys.argv[2:5]
+axolotl_stack_revision, protocolgen_revision, license_sha256 = sys.argv[2:5]
 manifest_path = root / "crates/protocol/Cargo.toml"
 lock_path = root / "Cargo.lock"
 upstream_path = root / "crates/protocol/vendor/UPSTREAM.md"
@@ -204,8 +204,8 @@ if len(protocol_packages) != 1:
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
 expected_dependencies = {
-    "valentine": ["bedrock_1_26_40"],
-    "jolyne": ["client", "bedrock_1_26_40"],
+    "valentine": ["bedrock_1_26_44"],
+    "jolyne": ["client", "bedrock_1_26_44"],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
@@ -263,8 +263,8 @@ for dependency_name, expected_features in expected_dependencies.items():
 
 upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [
-    f"- Reviewed fork revision: `{fork_revision}`",
-    f"- Upstream snapshot revision: `{upstream_revision}`",
+    f"- Axolotl Stack merge revision: `{axolotl_stack_revision}`",
+    f"- Protocolgen submodule, manifest, and generated-source revision: `{protocolgen_revision}`",
     f"- Retained license normalized SHA-256: `{license_sha256}`",
 ]
 for line in metadata_lines:
@@ -863,8 +863,8 @@ write_metadata() {
     export RUST_MCBE_META_STARTED="$run_started_utc"
     export RUST_MCBE_META_REPO_COMMIT="$repo_commit"
     export RUST_MCBE_META_GOPHERTUNNEL="$pinned_gophertunnel_commit"
-    export RUST_MCBE_META_VALENTINE_FORK="$pinned_valentine_fork_commit"
-    export RUST_MCBE_META_VALENTINE_UPSTREAM="$pinned_valentine_upstream_commit"
+    export RUST_MCBE_META_AXOLOTL_STACK="$pinned_axolotl_stack_commit"
+    export RUST_MCBE_META_PROTOCOLGEN="$pinned_protocolgen_commit"
     export RUST_MCBE_META_VALENTINE_LICENSE="$pinned_valentine_license_sha256"
     export RUST_MCBE_META_BDS_HASH="$bds_hash"
     export RUST_MCBE_META_BDS_COMMAND="$(format_command "${bds_command[@]}")"
@@ -885,8 +885,8 @@ keys = {
     "started_utc": "RUST_MCBE_META_STARTED",
     "repo_commit": "RUST_MCBE_META_REPO_COMMIT",
     "pinned_gophertunnel_commit": "RUST_MCBE_META_GOPHERTUNNEL",
-    "pinned_valentine_fork_commit": "RUST_MCBE_META_VALENTINE_FORK",
-    "pinned_valentine_upstream_commit": "RUST_MCBE_META_VALENTINE_UPSTREAM",
+    "pinned_axolotl_stack_commit": "RUST_MCBE_META_AXOLOTL_STACK",
+    "pinned_protocolgen_commit": "RUST_MCBE_META_PROTOCOLGEN",
     "pinned_valentine_license_sha256": "RUST_MCBE_META_VALENTINE_LICENSE",
     "bds_sha256": "RUST_MCBE_META_BDS_HASH",
     "bds_command": "RUST_MCBE_META_BDS_COMMAND",

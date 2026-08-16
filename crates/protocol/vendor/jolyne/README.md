@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`jolyne::valentine` is the pinned Bedrock protocol facade for the single version currently supported by `jolyne`. The underlying canonical source is `valentine::bedrock::version::v1_26_40`.
+`jolyne::valentine` is the pinned Bedrock protocol facade for the single version currently supported by `jolyne`. The underlying canonical source is `valentine::bedrock::version::v1_26_44`.
 
 ## 🔮 Future Roadmap
 

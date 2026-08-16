@@ -7,7 +7,7 @@ use protocol::{
     click_block_packet, decode_batch, destroy_block_packet, encode, use_actor_packet,
 };
 use sha2::{Digest, Sha256};
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ContainerClosePacket, EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,

@@ -17877,7 +17877,7 @@ impl From<PyramidDataPayloadView> for PyramidDataPayload {
 pub struct RemoveScoreView {
     pub action: crate::bedrock::borrowed::BorrowedStr,
     pub scoreboard_id: ScoreboardIdView,
-    pub objective_name: Option<crate::bedrock::borrowed::BorrowedStr>,
+    pub objective_name: Option<Option<crate::bedrock::borrowed::BorrowedStr>>,
 }
 impl crate::bedrock::codec::BedrockSized for RemoveScoreView {
     fn encoded_size(&self) -> usize {
@@ -17889,9 +17889,12 @@ impl crate::bedrock::codec::BedrockSized for RemoveScoreView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.scoreboard_id)
             + 1usize
             + (&self.objective_name).as_ref().map_or(0usize, |_value| {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                    ((_value).as_bytes().len()) as u32,
-                )) + (_value).as_bytes().len()
+                1usize
+                    + (_value).as_ref().map_or(0usize, |_value| {
+                        crate::bedrock::codec::BedrockSized::encoded_size(
+                            &crate::bedrock::codec::VarUInt(((_value).as_bytes().len()) as u32),
+                        ) + (_value).as_bytes().len()
+                    })
             })
     }
 }
@@ -17910,7 +17913,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveScoreView {
                 (),
             )?;
         let objective_name = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+            Some(
+                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+                    Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+                } else {
+                    None
+                },
+            )
         } else {
             None
         };
@@ -17932,8 +17941,11 @@ impl RemoveScoreView {
         (&self.scoreboard_id).encode(buf)?;
         (&self.objective_name).is_some().encode(buf)?;
         if let Some(value) = &self.objective_name {
-            crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
-            buf.put_slice((value).as_bytes());
+            (value).is_some().encode(buf)?;
+            if let Some(value) = value {
+                crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
+                buf.put_slice((value).as_bytes());
+            }
         }
         Ok(())
     }
@@ -17945,7 +17957,7 @@ impl From<RemoveScoreView> for RemoveScore {
             action: (value.action).to_string_lossy().into_owned(),
             scoreboard_id: (value.scoreboard_id).into(),
             objective_name: (value.objective_name)
-                .map(|value| (value).to_string_lossy().into_owned()),
+                .map(|value| (value).map(|value| (value).to_string_lossy().into_owned())),
         }
     }
 }

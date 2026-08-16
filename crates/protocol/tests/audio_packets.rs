@@ -5,7 +5,7 @@ use protocol::{
     AudioEvent, BedrockSession, LevelAudioEvent, PlayAudioEvent, ProtocolError, StopAudioEvent,
     WorldEvent, WorldPacketError, decode_batch, encode, into_world_event,
 };
-use valentine::bedrock::version::v1_26_40::{McpePacketData, McpePacketName, PlaySoundPacket};
+use valentine::bedrock::version::v1_26_44::{McpePacketData, McpePacketName, PlaySoundPacket};
 
 const PLAY_SOUND: &[u8] = include_bytes!("../fixtures/play_sound.bin");
 const STOP_SOUND: &[u8] = include_bytes!("../fixtures/stop_sound.bin");

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 use valentine::{
-    bedrock::version::v1_26_40::{
+    bedrock::version::v1_26_44::{
         ActorLink as VendorActorLink, AddActorPacket, AddPlayerPacket, AttributeData,
         DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
         EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_40::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use valentine::bedrock::version::v1_26_44::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,

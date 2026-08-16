@@ -1,4 +1,4 @@
-//! Bedrock 1.26.40 (protocol 2168) packet definitions and codec.
+//! Bedrock 1.26.44 (protocol 2168) packet definitions and codec.
 
 mod actor;
 mod audio;
@@ -88,7 +88,7 @@ pub use ui::{
     TitleAction, TitleEvent, UiEvent, UiPacketError, chat_input_packet, chat_text_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
-pub use valentine::bedrock::version::v1_26_40::{GAME_VERSION, PROTOCOL_VERSION};
+pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
     ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,

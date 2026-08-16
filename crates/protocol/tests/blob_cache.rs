@@ -30,7 +30,7 @@ use protocol::{
     client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ChunkPos, ClientCacheMissResponsePacket, DimensionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, MissingBlobData, SetTimePacket,

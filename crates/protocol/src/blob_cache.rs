@@ -5,18 +5,18 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket, LevelChunkPacket, McpePacketData,
     SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
 };
 
 /// The per-entry sub-chunk request result. Aliased because the generated name
 /// carries the whole payload path.
-pub(crate) use valentine::bedrock::version::v1_26_40::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
+pub(crate) use valentine::bedrock::version::v1_26_44::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
 pub(crate) fn dimension_id(
-    dimension: &valentine::bedrock::version::v1_26_40::DimensionType,
+    dimension: &valentine::bedrock::version::v1_26_44::DimensionType,
 ) -> i32 {
     dimension.value
 }

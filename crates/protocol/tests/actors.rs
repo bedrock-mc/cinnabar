@@ -2,7 +2,7 @@ use protocol::{
     ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorLink, ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData,
     DataItemEntry, DataItemEntryPayload, DataItemFloatPayload, DataItemStringPayload,
     EnumsActorLinkType as VendorActorLinkType, EnumsDataItemType, MoveActorAbsoluteData,
@@ -359,7 +359,7 @@ fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
 }
 
 fn int64_actor_data(id: i32, value: i64) -> DataItemEntry {
-    use valentine::bedrock::version::v1_26_40::DataItemInt64Payload;
+    use valentine::bedrock::version::v1_26_44::DataItemInt64Payload;
 
     DataItemEntry {
         id: id as u32,

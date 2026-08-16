@@ -4,7 +4,8 @@ use protocol::{
     MAX_FORM_JSON_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError,
     WorldEvent, decode_batch, into_world_event,
 };
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::codec::BedrockCodec;
+use valentine::bedrock::version::v1_26_44::{
     ActorUniqueId, BossEventPacket, CommandOutput, CommandOutputMessage, CommandOutputPacket,
     EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsPlayStatus,
     EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType, LevelEventPacket, McpePacketName,
@@ -174,16 +175,16 @@ fn command_output_is_bounded_and_normalized_for_chat_presentation() {
 
 #[test]
 fn score_entries_carry_their_own_verb() {
-    use valentine::bedrock::version::v1_26_40::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_44::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
 
-    // 1.26.40 moved the add/remove verb into each entry, so one packet may mix
+    // Protocol 2168 moved the add/remove verb into each entry, so one packet may mix
     // removals with changes (gophertunnel `ScoreboardEntry.Marshal`).
     let packet = SetScorePacket {
         score_info: vec![
             SetScorePacketScoreInfoItem::RemoveScore(RemoveScore {
                 action: "remove".to_owned(),
                 scoreboard_id: ScoreboardId { scoreboard_id: 7 },
-                objective_name: Some("kills".to_owned()),
+                objective_name: Some(Some("kills".to_owned())),
             }),
             SetScorePacketScoreInfoItem::ChangeFakePlayerScore(Box::new(ChangeFakePlayerScore {
                 action: "changefakeplayer".to_owned(),
@@ -211,6 +212,41 @@ fn score_entries_carry_their_own_verb() {
         panic!("expected a fake-player identity")
     };
     assert_eq!(name.as_ref(), "Server");
+}
+
+#[test]
+fn remove_score_preserves_both_1_26_44_optional_markers() {
+    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+
+    let cases = [
+        (None, vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 0]),
+        (
+            Some(None),
+            vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 0],
+        ),
+        (
+            Some(Some("obj".to_owned())),
+            vec![
+                6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 1, 3, b'o', b'b', b'j',
+            ],
+        ),
+    ];
+
+    for (objective_name, expected) in cases {
+        let value = RemoveScore {
+            action: "remove".to_owned(),
+            scoreboard_id: ScoreboardId { scoreboard_id: 7 },
+            objective_name,
+        };
+        let mut encoded = Vec::new();
+        value.encode(&mut encoded).expect("encode RemoveScore");
+        assert_eq!(encoded, expected);
+
+        let mut input = expected.as_slice();
+        let decoded = RemoveScore::decode(&mut input, ()).expect("decode RemoveScore");
+        assert_eq!(decoded, value);
+        assert!(input.is_empty(), "RemoveScore left trailing bytes");
+    }
 }
 
 #[test]
@@ -268,7 +304,7 @@ fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
 
 #[test]
 fn raw_score_strings_reject_invalid_utf8_before_owned_materialization() {
-    // 1.26.40 SetScore wire (gophertunnel `SetScore.Marshal` plus
+    // Protocol 2168 SetScore wire (gophertunnel `SetScore.Marshal` plus
     // `ScoreboardEntry.Marshal`): entry count, then per entry a varuint32
     // variant, the lowercase variant name, the entry id, and the variant body.
     let mut payload = BytesMut::new();

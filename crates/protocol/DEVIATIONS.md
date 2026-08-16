@@ -9,8 +9,10 @@ against gophertunnel commit
 protocol documentation was not needed to distinguish these cases because the
 pinned encoder/decoder and live bytes agreed exactly.
 
-The Go core and `crates/protocol/fixtures` have since moved to gophertunnel
+The checked-in fixtures were generated with gophertunnel
 `9f42f3679a573fc4b51104569cc4f422036e28ec` (Bedrock 1.26.40 / protocol 2168).
+The Go core now uses `a7b376706a6b5b1ca2dc331707c72147bc19fe47`, and the
+Rust codec uses the 1.26.44 same-protocol hotfix described below.
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
 generation of those fixtures. `available_commands.bin` and
 `available_commands_live_356513.bin` are byte-identical across the bump.
@@ -143,9 +145,20 @@ malformed and oversized shared counts, encoding bounds, and the recorded live
 body-length regression. The guarded BDS login test now continues after
 StartGame until packet 76 is decoded and then asserts zero decode errors.
 
+## Minecraft 1.26.44 same-protocol hotfix
+
+Mojang retained protocol ID 2168 for Minecraft 1.26.44 while adding one outer
+presence marker around the already-optional `RemoveScore.ObjectiveName` field.
+The generated Valentine type is therefore `Option<Option<String>>`; owned and
+borrowed codecs consume and emit both markers. Exact-byte tests cover outer
+absence, outer presence with inner absence, and both values present. All other
+wire nodes are pinned equal to the reconciled 1.26.40 manifest by protocolgen's
+derivation contract.
+
 ## Protocol-2168 wire corrections
 
-The following generated corrections target Bedrock 1.26.40 / protocol 2168 and
+The following generated corrections target the Bedrock 1.26.40 base for
+protocol 2168, remain unchanged in 1.26.44, and use
 the pinned gophertunnel commit `9f42f3679a573fc4b51104569cc4f422036e28ec`.
 
 ### Redactable strings are two adjacent strings

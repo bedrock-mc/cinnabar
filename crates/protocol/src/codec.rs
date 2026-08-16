@@ -3,7 +3,7 @@ use thiserror::Error;
 use valentine::bedrock::borrowed::{BorrowedStr, take_varint_prefixed_string};
 use valentine::bedrock::codec::{BedrockCodec, I32LE, VarInt, ZigZag64};
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_40::{BorrowedMcpePacket, McpePacketData, McpePacketName};
+use valentine::bedrock::version::v1_26_44::{BorrowedMcpePacket, McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::Packet;

@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized, VarUInt};
 use valentine::bedrock::error::DecodeError;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, LevelChunkPacketView,
 };
 

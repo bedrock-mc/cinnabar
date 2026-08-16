@@ -10,8 +10,8 @@ bitflags = { version = "2", features = ["serde"] }
 bytes = "1.11"
 uuid = { version = "1", features = ["v4"] }
 valentine_bedrock_core = { version = "0.1.0", path = "bedrock_core" }
-valentine_bedrock_1_26_40 = { version = "0.1.0", path = "bedrock_versions/v1_26_40", optional = true }
+valentine_bedrock_1_26_44 = { version = "0.1.0", path = "bedrock_versions/v1_26_44", optional = true }
 
 [features]
-default = ["bedrock_1_26_40"]
-bedrock_1_26_40 = ["dep:valentine_bedrock_1_26_40"]
+default = ["bedrock_1_26_44"]
+bedrock_1_26_44 = ["dep:valentine_bedrock_1_26_44"]

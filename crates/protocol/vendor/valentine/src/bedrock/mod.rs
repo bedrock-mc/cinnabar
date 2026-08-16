@@ -13,5 +13,5 @@ pub mod context;
 pub mod error;
 pub mod protocol;
 pub mod version;
-#[cfg(feature = "bedrock_1_26_40")]
-pub use self::version::v1_26_40;
+#[cfg(feature = "bedrock_1_26_44")]
+pub use self::version::v1_26_44;

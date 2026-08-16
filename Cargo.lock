@@ -5450,12 +5450,12 @@ dependencies = [
  "bytes",
  "serde",
  "uuid",
- "valentine_bedrock_1_26_40",
+ "valentine_bedrock_1_26_44",
  "valentine_bedrock_core",
 ]
 
 [[package]]
-name = "valentine_bedrock_1_26_40"
+name = "valentine_bedrock_1_26_44"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",

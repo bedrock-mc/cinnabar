@@ -8,9 +8,9 @@ license = "MIT"
 doctest = false
 
 [features]
-default = ["bedrock_1_26_40"]
+default = ["bedrock_1_26_44"]
 # The pinned Bedrock version selected by `jolyne::valentine`.
-bedrock_1_26_40 = ["valentine/bedrock_1_26_40"]
+bedrock_1_26_44 = ["valentine/bedrock_1_26_44"]
 client = ["dep:jsonwebtoken", "dep:reqwest"]
 server = ["dep:reqwest", "dep:jsonwebtoken"]
 full = ["client", "server"]

@@ -171,8 +171,8 @@ function Wait-ProtocolMetadataCopyTasks {
 function Assert-ProtocolDependencyProvenance {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedForkRevision,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedUpstreamRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedAxolotlStackRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedProtocolgenRevision,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedLicenseSha256
     )
 
@@ -263,8 +263,8 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_40')
-        jolyne = @('client', 'bedrock_1_26_40')
+        valentine = @('bedrock_1_26_44')
+        jolyne = @('client', 'bedrock_1_26_44')
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -307,13 +307,13 @@ function Assert-ProtocolDependencyProvenance {
         }
     }
 
-    $forkLine = "- Reviewed fork revision: ``$ExpectedForkRevision``"
-    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($forkLine) + '\r?$').Count -ne 1) {
-        throw "protocol dependency provenance drifted: vendored fork revision is not $ExpectedForkRevision"
+    $axolotlLine = "- Axolotl Stack merge revision: ``$ExpectedAxolotlStackRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $upstreamLine = "- Upstream snapshot revision: ``$ExpectedUpstreamRevision``"
-    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($upstreamLine) + '\r?$').Count -ne 1) {
-        throw "protocol dependency provenance drifted: upstream revision is not $ExpectedUpstreamRevision"
+    $protocolgenLine = "- Protocolgen submodule, manifest, and generated-source revision: ``$ExpectedProtocolgenRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
     $licenseLine = "- Retained license normalized SHA-256: ``$ExpectedLicenseSha256``"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($licenseLine) + '\r?$').Count -ne 1) {
@@ -353,7 +353,7 @@ function Assert-ProtocolDependencyProvenance {
             throw "Cargo.lock does not contain local package $dependency"
         }
     }
-    return $ExpectedForkRevision
+    return $ExpectedAxolotlStackRevision
 }
 
 function Read-BoundedProtocolMetadataFile {
@@ -372,8 +372,8 @@ function Read-BoundedProtocolMetadataFile {
 function Get-ProtocolDependencyProvenanceMetadata {
     return [ordered]@{
         protocol_dependency_resolution = 'vendored-path'
-        pinned_valentine_fork_commit = $PinnedValentineForkCommit
-        pinned_valentine_upstream_commit = $PinnedValentineUpstreamCommit
+        pinned_axolotl_stack_commit = $PinnedAxolotlStackCommit
+        pinned_protocolgen_commit = $PinnedProtocolgenCommit
         pinned_valentine_license_sha256 = $PinnedValentineLicenseSha256
     }
 }

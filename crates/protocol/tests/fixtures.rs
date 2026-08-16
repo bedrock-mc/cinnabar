@@ -11,7 +11,7 @@ use protocol::{
     BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
     PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
     EnumsInputMode, EnumsNewInteractionModel, EnumsPacketCompressionAlgorithm,
     EnumsPlayerAuthInputPacketPayloadInputData, EnumsPlayerPermissionLevel,
@@ -60,8 +60,8 @@ fn assert_exact_round_trip(packet: &protocol::Packet, fixture: &[u8]) {
 }
 
 #[test]
-fn protocol_constants_are_pinned_to_1_26_40() {
-    assert_eq!(GAME_VERSION, "1.26.40");
+fn protocol_constants_are_pinned_to_1_26_44() {
+    assert_eq!(GAME_VERSION, "1.26.44");
     assert_eq!(PROTOCOL_VERSION, 2168);
 }
 

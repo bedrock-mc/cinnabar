@@ -1,5 +1,5 @@
 use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input};
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
     EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
 };

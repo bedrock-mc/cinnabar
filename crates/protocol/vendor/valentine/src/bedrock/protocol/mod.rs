@@ -7,5 +7,5 @@
 #![allow(unused_imports)]
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::manual_flatten)]
-#[cfg(feature = "bedrock_1_26_40")]
-pub use valentine_bedrock_1_26_40 as v1_26_40;
+#[cfg(feature = "bedrock_1_26_44")]
+pub use valentine_bedrock_1_26_44 as v1_26_44;

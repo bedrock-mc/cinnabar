@@ -4,7 +4,7 @@ use protocol::{
     BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
     ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
 };
-use valentine::bedrock::version::v1_26_40::{McpePacketData, McpePacketName, TextPacketBody};
+use valentine::bedrock::version::v1_26_44::{McpePacketData, McpePacketName, TextPacketBody};
 
 #[test]
 fn outbound_chat_uses_exact_authored_text_shape() {

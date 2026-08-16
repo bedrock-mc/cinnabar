@@ -4,7 +4,7 @@
 use protocol::{
     ActorEffectAction, ActorLinkType, PlayerGameMode, UiEvent, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorLink, ActorRuntimeId, ActorUniqueId, CerealizerNetworkItemStackDescriptorSerializedData,
     EnumsActorLinkType as VendorActorLinkType, EnumsGameType,
     EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobArmorEquipmentPacket,
@@ -205,7 +205,7 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
 
 #[test]
 fn set_default_game_type_dispatches_as_a_default_mode_event() {
-    use valentine::bedrock::version::v1_26_40::{
+    use valentine::bedrock::version::v1_26_44::{
         SetDefaultGameTypePacket, SetDefaultGameTypePacketDefaultGameType,
     };
     let packet = SetDefaultGameTypePacket {

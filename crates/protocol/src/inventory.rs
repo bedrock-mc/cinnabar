@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, Nbt},
-    version::v1_26_40::{
+    version::v1_26_44::{
         ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
         EnumsContainerEnumName as FullContainerNameContainerName,
         EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
@@ -300,7 +300,7 @@ impl VerifiedNetworkItemStack {
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_40::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_44::CerealizerNetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {

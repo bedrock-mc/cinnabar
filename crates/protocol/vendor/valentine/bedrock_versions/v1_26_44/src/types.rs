@@ -28281,7 +28281,7 @@ impl crate::bedrock::codec::BedrockCodec for PropertySyncData {
 pub struct RemoveScore {
     pub action: String,
     pub scoreboard_id: ScoreboardId,
-    pub objective_name: Option<String>,
+    pub objective_name: Option<Option<String>>,
 }
 impl crate::bedrock::codec::BedrockSized for RemoveScore {
     fn encoded_size(&self) -> usize {
@@ -28297,10 +28297,16 @@ impl crate::bedrock::codec::BedrockSized for RemoveScore {
             1usize
                 + match &self.objective_name {
                     Some(_v) => {
-                        let _len = (_v).as_bytes().len();
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarUInt(_len as u32),
-                        ) + _len
+                        1usize
+                            + match _v {
+                                Some(_v) => {
+                                    let _len = (_v).as_bytes().len();
+                                    crate::bedrock::codec::BedrockSized::encoded_size(
+                                        &crate::bedrock::codec::VarUInt(_len as u32),
+                                    ) + _len
+                                }
+                                None => 0usize,
+                            }
                     }
                     None => 0usize,
                 }
@@ -28320,10 +28326,16 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
         match &self.objective_name {
             Some(v) => {
                 buf.put_u8(1);
-                let bytes = (v).as_bytes();
-                let len = bytes.len();
-                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-                buf.put_slice(bytes);
+                match v {
+                    Some(v) => {
+                        buf.put_u8(1);
+                        let bytes = (v).as_bytes();
+                        let len = bytes.len();
+                        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+                        buf.put_slice(bytes);
+                    }
+                    None => buf.put_u8(0),
+                }
             }
             None => buf.put_u8(0),
         }
@@ -28356,20 +28368,29 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
             let present = u8::decode(buf, ())?;
             if present != 0 {
                 Some({
-                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as usize;
-                    if buf.remaining() < len {
-                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                            declared: len,
-                            available: buf.remaining(),
-                        });
+                    let present = u8::decode(buf, ())?;
+                    if present != 0 {
+                        Some({
+                            let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                                    buf,
+                                    (),
+                                )?
+                                .0) as usize;
+                            if buf.remaining() < len {
+                                return Err(
+                                    crate::bedrock::error::DecodeError::StringLengthExceeded {
+                                        declared: len,
+                                        available: buf.remaining(),
+                                    },
+                                );
+                            }
+                            let mut bytes = vec![0u8; len];
+                            buf.copy_to_slice(&mut bytes);
+                            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                        })
+                    } else {
+                        None
                     }
-                    let mut bytes = vec![0u8; len];
-                    buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
                 })
             } else {
                 None

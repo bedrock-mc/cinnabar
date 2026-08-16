@@ -7,7 +7,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     EnumsAnimatePacketPayloadAction as AnimatePacketAction, ItemData, ItemRegistryPacket,

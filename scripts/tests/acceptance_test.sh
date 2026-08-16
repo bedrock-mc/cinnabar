@@ -69,19 +69,19 @@ jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine
 jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
 text = path.read_text(encoding="utf-8")
 text = text.replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40"] }',
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_44"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_44"] }',
     1,
 )
 text = text.replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_40"] }',
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_44"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_44"] }',
     1,
 )
 decoys = '''description = """
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_44"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_44"] }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -95,7 +95,7 @@ cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/proto
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_44"] }
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
@@ -224,10 +224,10 @@ grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
 grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
 grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
-grep -Fq "expected_gophertunnel_commit='9f42f3679a573fc4b51104569cc4f422036e28ec'" "$script"
+grep -Fq "expected_gophertunnel_commit='a7b376706a6b5b1ca2dc331707c72147bc19fe47'" "$script"
 grep -Fq 'resolve_pinned_gophertunnel_commit' "$script"
-grep -Fq "pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'" "$script"
-grep -Fq "pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'" "$script"
+grep -Fq "pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'" "$script"
+grep -Fq "pinned_protocolgen_commit='870bb549c701a0c03472c66441449c4b70a8454a'" "$script"
 grep -Fq "pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
 grep -Fq '"protocol_dependency_resolution": "vendored-path"' "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)

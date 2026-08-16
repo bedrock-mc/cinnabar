@@ -240,7 +240,7 @@ impl BlobCacheResolver {
                 let mut bytes = entries
                     .capacity()
                     .checked_mul(size_of::<
-                        valentine::bedrock::version::v1_26_40::SubChunkPacketPayloadSubChunkPacketData,
+                        valentine::bedrock::version::v1_26_44::SubChunkPacketPayloadSubChunkPacketData,
                     >())
                     .and_then(|entries| entries.checked_add(size_of::<SubChunkPacket>()))
                     .ok_or(BlobCacheError::ByteCountOverflow)?;

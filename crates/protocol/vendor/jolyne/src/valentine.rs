@@ -6,8 +6,8 @@
 //! version explicit.
 
 pub use current::*;
-#[cfg(feature = "bedrock_1_26_40")]
-pub use valentine::bedrock::version::v1_26_40 as current;
+#[cfg(feature = "bedrock_1_26_44")]
+pub use valentine::bedrock::version::v1_26_44 as current;
 
 // Keep Jolyne's stable facade names while protocolgen exposes shared canonical
 // enum names from the version module.

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     BorrowedMcpePacketData, BossEventPacket, CommandOriginDatajson, CommandOutputPacket,
     CommandRequestPacket, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
     EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, ModalFormRequestPacket,
@@ -636,7 +636,7 @@ pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacke
                 scoreboard_id: entry.scoreboard_id.scoreboard_id,
                 // A removal carries an optional objective name and nothing
                 // else, so there is no score or identity to report.
-                objective_name: bounded_text(entry.objective_name.unwrap_or_default())?,
+                objective_name: bounded_text(entry.objective_name.flatten().unwrap_or_default())?,
                 score: 0,
                 identity: ScoreIdentity::None,
             }),

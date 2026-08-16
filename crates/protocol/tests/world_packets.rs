@@ -8,7 +8,7 @@ use protocol::{
     into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
