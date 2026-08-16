@@ -20,7 +20,7 @@ use assets::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;
 use protocol::{
-    ActorAttribute, ActorEvent, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
+    ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
     BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
     DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
     PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,

@@ -117,6 +117,13 @@ impl ActorStore {
     pub(crate) fn equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
         self.items.get(self.lifetime(runtime_id)?)
     }
+    pub(crate) fn equipment_in_hand(
+        &self,
+        runtime_id: u64,
+        hand: protocol::ActorHandedness,
+    ) -> Option<&ActorEquipmentSnapshot> {
+        self.items.get_in_hand(self.lifetime(runtime_id)?, hand)
+    }
     pub(crate) fn action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
         self.actions.get(self.lifetime(runtime_id)?)
     }

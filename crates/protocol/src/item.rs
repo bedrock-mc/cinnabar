@@ -56,7 +56,7 @@ pub const MAX_ANIMATE_ENTITY_IDS: usize = 256;
 pub const MAX_ACTION_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ANIMATION_IDENTIFIER_BYTES: usize = 256;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ActorHandedness {
     Left,
     Right,

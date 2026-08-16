@@ -46,12 +46,14 @@ pub struct ActorEquipmentSnapshot {
     pub hand_defaulted: bool,
 }
 
+type EquipmentKey = (ActorLifetimeId, ActorHandedness);
+
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
-    equipment: BTreeMap<ActorLifetimeId, ActorEquipmentSnapshot>,
-    pending: VecDeque<ActorLifetimeId>,
+    equipment: BTreeMap<EquipmentKey, ActorEquipmentSnapshot>,
+    pending: VecDeque<EquipmentKey>,
 }
 
 impl ItemStateStore {
@@ -84,8 +86,8 @@ impl ItemStateStore {
     }
 
     pub(crate) fn remove(&mut self, lifetime: ActorLifetimeId) {
-        self.equipment.remove(&lifetime);
-        self.pending.retain(|pending| *pending != lifetime);
+        self.equipment.retain(|(actor, _), _| *actor != lifetime);
+        self.pending.retain(|(actor, _)| *actor != lifetime);
     }
 
     pub(crate) fn insert_spawn(
@@ -99,8 +101,9 @@ impl ItemStateStore {
             return;
         };
         let unresolved = !item.identity.is_empty() && item.identifier.is_none();
+        let key = (lifetime, ActorHandedness::Right);
         self.equipment.insert(
-            lifetime,
+            key,
             ActorEquipmentSnapshot {
                 actor: lifetime,
                 event: event_identity(
@@ -117,7 +120,7 @@ impl ItemStateStore {
             },
         );
         if unresolved {
-            self.retain_pending(lifetime);
+            self.retain_pending(key);
         }
     }
 
@@ -134,8 +137,9 @@ impl ItemStateStore {
         let (hand, hand_defaulted) = equipment
             .handedness
             .map_or((ActorHandedness::Right, true), |hand| (hand, false));
+        let key = (lifetime, hand);
         self.equipment.insert(
-            lifetime,
+            key,
             ActorEquipmentSnapshot {
                 actor: lifetime,
                 event: event_identity(
@@ -151,9 +155,9 @@ impl ItemStateStore {
                 hand_defaulted,
             },
         );
-        self.pending.retain(|pending| *pending != lifetime);
+        self.pending.retain(|pending| *pending != key);
         if unresolved {
-            self.retain_pending(lifetime);
+            self.retain_pending(key);
         }
         true
     }
@@ -177,30 +181,41 @@ impl ItemStateStore {
         }
         self.registry = next;
 
-        let lifetimes = self.equipment.keys().copied().collect::<Vec<_>>();
+        let keys = self.equipment.keys().copied().collect::<Vec<_>>();
         self.pending.clear();
-        for lifetime in lifetimes {
+        for key in keys {
             let Some(identity) = self
                 .equipment
-                .get(&lifetime)
+                .get(&key)
                 .map(|equipment| equipment.item.identity)
             else {
                 continue;
             };
             let item = self.resolve_identity(identity);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
-            if let Some(equipment) = self.equipment.get_mut(&lifetime) {
+            if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
             }
             if unresolved {
-                self.retain_pending(lifetime);
+                self.retain_pending(key);
             }
         }
         true
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
-        self.equipment.get(&lifetime)
+        [ActorHandedness::Left, ActorHandedness::Right]
+            .into_iter()
+            .filter_map(|hand| self.get_in_hand(lifetime, hand))
+            .max_by_key(|equipment| equipment.event.ingress_sequence)
+    }
+
+    pub(crate) fn get_in_hand(
+        &self,
+        lifetime: ActorLifetimeId,
+        hand: ActorHandedness,
+    ) -> Option<&ActorEquipmentSnapshot> {
+        self.equipment.get(&(lifetime, hand))
     }
 
     pub(crate) fn pending_count(&self) -> usize {
@@ -285,22 +300,17 @@ impl ItemStateStore {
             })
     }
 
-    fn retain_pending(&mut self, lifetime: ActorLifetimeId) {
-        if self.pending.len() < MAX_PENDING_ITEM_RESOLUTIONS && !self.pending.contains(&lifetime) {
-            self.pending.push_back(lifetime);
+    fn retain_pending(&mut self, key: EquipmentKey) {
+        if self.pending.len() < MAX_PENDING_ITEM_RESOLUTIONS && !self.pending.contains(&key) {
+            self.pending.push_back(key);
         }
     }
 
     fn remove_runtime(&mut self, runtime_id: u64) {
-        let lifetimes = self
-            .equipment
-            .keys()
-            .copied()
-            .filter(|lifetime| lifetime.runtime_id == runtime_id)
-            .collect::<Vec<_>>();
-        for lifetime in lifetimes {
-            self.remove(lifetime);
-        }
+        self.equipment
+            .retain(|(lifetime, _), _| lifetime.runtime_id != runtime_id);
+        self.pending
+            .retain(|(lifetime, _)| lifetime.runtime_id != runtime_id);
     }
 }
 

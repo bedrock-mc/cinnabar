@@ -127,7 +127,7 @@ impl Default for PlayerInventoryLedger {
             cursor_revision: 0,
             next_authority_revision: 1,
             pending: None,
-            next_request_id: 1,
+            next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
             storage: None,
@@ -354,7 +354,10 @@ impl PlayerInventoryLedger {
             (None, None) => return Err(InventoryGestureError::EmptyGesture),
         };
         let request_id = self.next_request_id;
-        self.next_request_id = self.next_request_id.checked_add(1).unwrap_or(1);
+        self.next_request_id = self
+            .next_request_id
+            .checked_sub(2)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
         self.pending = Some(PendingRequest {
             request_id,
             action,
@@ -619,7 +622,9 @@ impl PlayerInventoryLedger {
                     self.set_cell(cell, None);
                 } else if let Some(stack) = self.cell_mut(cell) {
                     stack.count = u16::from(correction.count);
-                    stack.stack_network_id = correction.item_stack_id;
+                    if correction.item_stack_id > 0 {
+                        stack.stack_network_id = correction.item_stack_id;
+                    }
                 } else {
                     self.mark_cell_recovery(cell);
                 }

@@ -13,7 +13,7 @@ fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> St
 
 fn body(action: StackRequestAction) -> Vec<u8> {
     encode(
-        &item_stack_request_packet(7, action).expect("valid request"),
+        &item_stack_request_packet(-3, action).expect("valid request"),
         &BedrockSession { shield_item_id: 0 },
     )
     .expect("encode request")
@@ -42,7 +42,7 @@ fn take_place_and_swap_have_exact_protocol_2168_wire() {
             source: player,
             destination: cursor,
         }),
-        hex("fe1b9301010e010000030c00045b0000003b0000ffffffff00ffffffff")
+        hex("fe1b93010105010000030c00045b0000003b0000ffffffff00ffffffff")
     );
     assert_eq!(
         body(StackRequestAction::Place {
@@ -50,14 +50,14 @@ fn take_place_and_swap_have_exact_protocol_2168_wire() {
             source: cursor,
             destination: player,
         }),
-        hex("fe1b9301010e010101033b0000ffffffff0c00045b00000000ffffffff")
+        hex("fe1b93010105010101033b0000ffffffff0c00045b00000000ffffffff")
     );
     assert_eq!(
         body(StackRequestAction::Swap {
             source: player,
             destination: cursor,
         }),
-        hex("fe1a9301010e0102020c00045b0000003b0000ffffffff00ffffffff")
+        hex("fe1a930101050102020c00045b0000003b0000ffffffff00ffffffff")
     );
 }
 
@@ -75,7 +75,7 @@ fn level_entity_take_and_client_close_match_captured_protocol_2168_wire() {
             source: storage,
             destination: cursor,
         }),
-        hex("fe1b9301010e010000030700025b0000003b0000ffffffff00ffffffff")
+        hex("fe1b93010105010000030700025b0000003b0000ffffffff00ffffffff")
     );
     assert_eq!(
         encode(
@@ -123,7 +123,7 @@ fn builder_rejects_ids_amounts_and_slots_outside_the_tranche() {
     );
     assert_eq!(
         item_stack_request_packet(
-            1,
+            -3,
             StackRequestAction::Take {
                 amount: 0,
                 source: player,
@@ -135,7 +135,7 @@ fn builder_rejects_ids_amounts_and_slots_outside_the_tranche() {
     );
     assert!(
         item_stack_request_packet(
-            1,
+            -3,
             StackRequestAction::Swap {
                 source: slot(StackRequestContainer::PlayerInventory, 36, 1),
                 destination: cursor,

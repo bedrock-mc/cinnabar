@@ -48,7 +48,7 @@ pub fn item_stack_request_packet(
     request_id: i32,
     action: StackRequestAction,
 ) -> Result<crate::Packet, InventoryPacketError> {
-    if request_id <= 0 {
+    if request_id >= -1 || request_id & 1 == 0 {
         return Err(InventoryPacketError::InvalidStackRequestId);
     }
     let action = match action {

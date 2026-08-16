@@ -2096,6 +2096,23 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   protocol-2168 physics-registry generation path also remain open; the older registry was not
   relabeled or regenerated without evidence.
 
+- **Repository-wide Bedrock client-reference audit (2026-08-16).** Comparison against
+  `oomph-ac/bedrock-docs` at `bd37783e` found and corrected three additional retained-state
+  mismatches: normal `ItemStackRequest` IDs now begin at `-3` and descend through the negative
+  odd namespace without wrapping positive; an accepted slot correction that omits a positive
+  stack-network ID retains the predicted/authoritative ID; and remote main-hand and offhand
+  equipment are stored independently so a later update cannot erase the other hand. Focused
+  protocol, inventory-ledger, and client-world tests cover these contracts.
+  This audit does **not** close the surrounding parity gates. Independent raw, analogue, and
+  processed `PlayerAuthInput` vectors; independently measured mouse sensitivity/window
+  behavior; post-login `Transfer`; bounded entity-link endpoint/pending/cycle handling;
+  `SetHud` and the broader JSON-UI controller surface; resource-pack activation; crafting;
+  combat; and world ticking remain open where already scoped by their phases. During the
+  current bring-up period, required server packs are deliberately handed to the incomplete
+  downstream application path as optional so developers can still join and test servers.
+  That owner-approved compatibility behavior is a provisional testing deviation, not vanilla
+  pack-admission parity and not acceptance evidence.
+
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.

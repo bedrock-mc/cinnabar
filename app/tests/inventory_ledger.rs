@@ -185,6 +185,20 @@ fn take_predicts_cursor_and_rejects_queued_gestures() {
 }
 
 #[test]
+fn normal_requests_use_the_vanilla_negative_odd_id_sequence() {
+    let original = stack(5, 12, 44);
+    let mut ledger = ready(Some(original), None);
+
+    let first = ledger.begin_click(0).expect("first request");
+    assert_eq!(first, -3);
+    ledger.mark_transport_enqueued(0);
+    ledger.apply(&response(first, StackResponseStatus::Accepted));
+
+    let second = ledger.begin_click(0).expect("second request");
+    assert_eq!(second, -5);
+}
+
+#[test]
 fn rejection_rolls_back_prediction_without_discarding_known_state() {
     let original = stack(5, 12, 44);
     let mut ledger = ready(Some(original.clone()), None);
@@ -205,7 +219,7 @@ fn admitted_request_timeout_fails_closed_without_unsafe_retransmission() {
     assert!(!ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
     assert!(ledger.pending_request_id().is_none());
     assert!(ledger.resync_required());
-    assert_eq!(request, 1);
+    assert_eq!(request, -3);
 }
 
 #[test]
@@ -360,17 +374,19 @@ fn complete_sparse_content_recovers_the_player_side_of_ambiguous_paths() {
 
 #[test]
 fn newer_touched_slot_authority_is_never_overwritten_by_accepted_response() {
-    for accepted in [
-        response(1, StackResponseStatus::Accepted),
-        response_with_slot(1, 0, 1, 44),
-    ] {
+    for with_correction in [false, true] {
         let original = stack(5, 1, 44);
         let newer = stack(6, 3, 90);
         let mut ledger = ready(Some(original), None);
         let request = ledger.begin_click(0).unwrap();
-        assert_eq!(request, 1);
+        assert_eq!(request, -3);
         ledger.mark_transport_enqueued(0);
         ledger.apply(&slot_update(0, newer.clone()));
+        let accepted = if with_correction {
+            response_with_slot(request, 0, 1, 44)
+        } else {
+            response(request, StackResponseStatus::Accepted)
+        };
         ledger.apply(&accepted);
         assert_eq!(ledger.displayed_stack(0), Some(&newer));
         assert!(ledger.cursor_stack().is_none());
@@ -394,6 +410,21 @@ fn unrelated_or_later_slot_authority_merges_in_fifo_order() {
     let later = stack(8, 4, 80);
     ledger.apply(&slot_update(0, later.clone()));
     assert_eq!(ledger.displayed_stack(0), Some(&later));
+}
+
+#[test]
+fn accepted_correction_without_a_new_stack_id_preserves_the_predicted_id() {
+    let original = stack(5, 1, 44);
+    let mut ledger = ready(Some(original.clone()), None);
+    let take = ledger.begin_click(0).unwrap();
+    ledger.mark_transport_enqueued(0);
+    ledger.apply(&response(take, StackResponseStatus::Accepted));
+
+    let place = ledger.begin_click(1).unwrap();
+    ledger.mark_transport_enqueued(0);
+    ledger.apply(&response_with_slot(place, 1, 1, -1));
+
+    assert_eq!(ledger.displayed_stack(1), Some(&original));
 }
 
 #[test]

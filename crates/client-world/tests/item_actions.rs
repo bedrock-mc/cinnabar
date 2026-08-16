@@ -301,6 +301,11 @@ fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
     assert!(!right.hand_defaulted);
     assert_eq!(right.item.identity.count, 2);
     assert_eq!(right.event.ingress_sequence, 4);
+    let retained_left = stream
+        .actor_equipment_in_hand(42, ActorHandedness::Left)
+        .expect("left-hand equipment remains independently addressable");
+    assert_eq!(retained_left.item.identity.count, 1);
+    assert_eq!(retained_left.event.ingress_sequence, 3);
 }
 
 #[test]
