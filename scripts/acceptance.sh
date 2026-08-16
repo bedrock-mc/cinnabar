@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_gophertunnel_commit='a36f77cba18e3dbc5a778427cc87dc9df5c26aae'
-expected_gophertunnel_version='v1.25.3-0.20260816104409-a36f77cba18e'
+expected_gophertunnel_commit='434923f163a15144cdaa44356536cdc76722c50d'
+expected_gophertunnel_version='v1.25.3-0.20260816120458-434923f163a1'
 expected_bds_sha256='e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
 expected_bds_release='1.26.40.8'
 pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'

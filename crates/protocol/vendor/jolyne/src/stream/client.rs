@@ -1043,11 +1043,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unadvertised_resource_pack_stack_is_rejected() {
+    async fn unadvertised_required_resource_pack_stack_is_rejected() {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_required: true,
             texture_pack_list: vec![crate::valentine::PackInstanceId {
-                pack_id: "pack-id".into(),
+                pack_id: Uuid::new_v4().to_string(),
                 version: "1.0.0".into(),
                 sub_pack_name: "test pack".into(),
             }],
@@ -1065,7 +1066,7 @@ mod tests {
         };
 
         let error = match stream.handle_packs().await {
-            Ok(_) => panic!("an unadvertised server pack stack must not be accepted"),
+            Ok(_) => panic!("an unadvertised required pack stack must not be accepted"),
             Err(error) => error,
         };
         assert!(error.to_string().contains("resource-pack handoff failed"));
@@ -1478,6 +1479,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_optional_stack_entry_is_ignored() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: Uuid::new_v4().to_string(),
+                version: "1.0.0".into(),
+                sub_pack_name: "unavailable".into(),
+            }],
+            ..Default::default()
+        });
+        let start = resource_pack_stream(vec![
+            uncompressed_frame(&[info]),
+            uncompressed_frame(&[stack]),
+        ])
+        .handle_packs()
+        .await
+        .expect("an optional unavailable pack must not block login");
+        assert!(start.state.resource_pack_handoff.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn required_offer_with_empty_selection_is_a_well_formed_noop() {
         let id = Uuid::new_v4();
         let data = b"unselected archive";
@@ -1675,7 +1697,11 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 stack.base_game_version,
                 stack.texture_pack_list.len()
             );
-            handoff = select_resource_pack_stack(handoff, &stack.texture_pack_list)?;
+            handoff = select_resource_pack_stack(
+                handoff,
+                &stack.texture_pack_list,
+                stack.texture_pack_required,
+            )?;
             if (offer_required || stack.texture_pack_required) && !handoff.is_empty() {
                 return Err(pack_handoff_error(
                     "required resource-pack handoff is unavailable",
@@ -1854,6 +1880,7 @@ fn pack_handoff_error(reason: &'static str) -> JolyneError {
 fn select_resource_pack_stack(
     handoff: ResourcePackHandoff,
     stack: &[crate::valentine::PackInstanceId],
+    required: bool,
 ) -> Result<ResourcePackHandoff, JolyneError> {
     let mut available = HashMap::with_capacity(handoff.len());
     for archive in handoff.into_archives() {
@@ -1870,17 +1897,35 @@ fn select_resource_pack_stack(
         if is_exempted_resource_pack(&entry.pack_id, &entry.version) {
             continue;
         }
-        let id = Uuid::parse_str(&entry.pack_id)
-            .map_err(|_| pack_handoff_error("invalid selected pack identity"))?;
+        let id = match Uuid::parse_str(&entry.pack_id) {
+            Ok(id) => id,
+            Err(_) if !required => {
+                tracing::warn!("ignoring invalid optional resource-pack stack entry");
+                continue;
+            }
+            Err(_) => return Err(pack_handoff_error("invalid selected pack identity")),
+        };
         let key = (id, entry.version.clone());
         if !seen.insert(key.clone()) {
-            return Err(pack_handoff_error("duplicate selected pack identity"));
+            if required {
+                return Err(pack_handoff_error("duplicate selected pack identity"));
+            }
+            tracing::warn!("ignoring duplicate optional resource-pack stack entry");
+            continue;
         }
-        let mut archive = available
-            .remove(&key)
-            .ok_or_else(|| pack_handoff_error("unadvertised or missing selected pack"))?;
+        let Some(mut archive) = available.remove(&key) else {
+            if required {
+                return Err(pack_handoff_error("unadvertised or missing selected pack"));
+            }
+            tracing::warn!("ignoring unavailable optional resource-pack stack entry");
+            continue;
+        };
         if archive.sub_pack_name != entry.sub_pack_name {
-            return Err(pack_handoff_error("selected sub-pack does not match offer"));
+            if required {
+                return Err(pack_handoff_error("selected sub-pack does not match offer"));
+            }
+            tracing::warn!("ignoring unsupported optional resource-pack sub-pack");
+            continue;
         }
         archive.sub_pack_name = entry.sub_pack_name.clone();
         selected.push(archive);
