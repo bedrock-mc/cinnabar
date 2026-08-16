@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	gameVersion     = "1.26.44"
-	protocolID      = 2168
-	senderSubClient = 1
-	targetSubClient = 2
+	upstreamGameVersion = "1.26.44"
+	fixtureGameVersion  = "1.26.40"
+	protocolID          = 2168
+	senderSubClient     = 1
+	targetSubClient     = 2
 )
 
 type fixture struct {
@@ -57,10 +58,10 @@ func main() {
 }
 
 func generate(out string) error {
-	if minecraft.DefaultProtocol.ID() != protocolID || minecraft.DefaultProtocol.Ver() != gameVersion {
+	if minecraft.DefaultProtocol.ID() != protocolID || minecraft.DefaultProtocol.Ver() != upstreamGameVersion {
 		return fmt.Errorf(
 			"gophertunnel protocol drift: got %d/%s, want %d/%s",
-			minecraft.DefaultProtocol.ID(), minecraft.DefaultProtocol.Ver(), protocolID, gameVersion,
+			minecraft.DefaultProtocol.ID(), minecraft.DefaultProtocol.Ver(), protocolID, upstreamGameVersion,
 		)
 	}
 	if out == "" {
@@ -143,7 +144,7 @@ func fixtures() []fixture {
 				CommandsEnabled:       true,
 				PlayerPermissions:     1,
 				ServerChunkTickRadius: 4,
-				BaseGameVersion:       protocol.CurrentVersion,
+				BaseGameVersion:       fixtureGameVersion,
 				NewNether:             true,
 				ChatRestrictionLevel:  packet.ChatRestrictionLevelNone,
 				LevelID:               "fixture-level",
@@ -156,7 +157,7 @@ func fixtures() []fixture {
 				EnchantmentSeed:              12345,
 				MultiPlayerCorrelationID:     "00000000-0000-0000-0000-000000000001",
 				ServerAuthoritativeInventory: true,
-				GameVersion:                  protocol.CurrentVersion,
+				GameVersion:                  fixtureGameVersion,
 				PropertyData: map[string]any{
 					"gophertunnel:test": int32(1),
 				},

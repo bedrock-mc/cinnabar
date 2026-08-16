@@ -92,7 +92,9 @@ state. Downloaded entries retain ordered archives and memory-only content keys; 
 handoff remains bounded and validated.
 The private core-to-client hop marks even an upstream-required selection optional so incomplete
 pack application does not make otherwise joinable servers unavailable; the upstream negotiation
-has already completed. Archives are not extracted or applied, application remains unavailable,
+has already completed. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
+cache identities from the retired `cinnabar` fork are deliberately not carried onto Lunar's
+resource-pack branch yet. Archives are not extracted or applied, application remains unavailable,
 and this is not live gameplay, native visual, or performance evidence.
 
 This tree now contains the protocolgen-backed Valentine 1.26.44 projection, derived from the
@@ -149,11 +151,14 @@ Current implementation state:
   Required upstream selections are offered as optional only on the private local hop
   so pack application incompleteness does not block login. Rust bounds and validates each archive
   transfer and retains the selected archives and memory-only
-  content keys as a one-shot login handoff. The owner-only persistent
-  verified cache is now wired into upstream admission behind explicit directory and quota
-  configuration, with bounded load, hit, miss, store, and error telemetry and fail-closed
-  cache setup. Every app-managed core launch supplies one stable layout-owned cache path while
-  leaving secure creation, leasing, and the default quota under Go ownership. A separate opt-in
+  content keys as a one-shot login handoff. The owner-only persistent cache is now wired into
+  upstream admission behind explicit directory and quota configuration, with bounded load, hit,
+  miss, store, and error telemetry and fail-closed cache setup. Lunar keys entries by UUID,
+  version and size and Cinnabar revalidates those fields plus archive readability; the current
+  API does not expose the server digest, so same-identity, same-size replacement is not
+  cryptographically distinguished. Every app-managed core launch supplies one stable
+  layout-owned cache path while leaving secure creation, leasing, and the default quota under Go
+  ownership. A separate opt-in
   read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
   and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
   pack-content semantic validation and parsing, archive extraction, application,
