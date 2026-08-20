@@ -747,6 +747,12 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
             storage_item: None,
         }));
 
+    let empty_snapshot = runtime.selected_stack_snapshot().unwrap();
+    assert_eq!(empty_snapshot.slot, 2);
+    assert_eq!(
+        empty_snapshot.state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+    );
     assert_eq!(runtime.selected_stack(), None);
     assert_eq!(runtime.presented_hotbar_stack(2), None);
 

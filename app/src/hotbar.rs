@@ -149,7 +149,7 @@ mod tests {
     use protocol::{
         ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent,
         ItemStackResponseEvent, NetworkItemStack, SelectedSlotEvent, SlotIdentity, StackResponse,
-        StackResponseStatus,
+        StackResponseContainer, StackResponseSlot, StackResponseStatus,
     };
     use sha2::{Digest, Sha256};
 
@@ -221,6 +221,12 @@ mod tests {
                 window_id: 0,
                 handedness: Some(protocol::ActorHandedness::Right),
             },
+        );
+        let snapshot = runtime.selected_stack_snapshot().unwrap();
+        assert_eq!(snapshot.slot, 2);
+        assert_eq!(
+            snapshot.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&equipment_stack)
         );
         let mut sent = None;
         let mut fatal = None;
@@ -342,13 +348,21 @@ mod tests {
             .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
         let authoritative = present_stack();
         publish_slot(&mut runtime, 0, authoritative.clone());
-        let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        runtime.queue_local_hotbar_selection(0);
+        let authoritative_snapshot = runtime.selected_stack_snapshot().unwrap();
+        assert_eq!(authoritative_snapshot.slot, 0);
         assert_eq!(
-            runtime.inventory_ledger().slot_state(0),
-            Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty)
+            authoritative_snapshot.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
+        );
+        let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        let predicted_snapshot = runtime.selected_stack_snapshot().unwrap();
+        assert_eq!(predicted_snapshot.slot, 0);
+        assert_eq!(
+            predicted_snapshot.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
         );
 
-        runtime.queue_local_hotbar_selection(0);
         let mut predicted_packet = None;
         let mut fatal = None;
         flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
@@ -372,9 +386,11 @@ mod tests {
                     containers: Arc::from([]),
                 }]),
             }));
+        let restored_snapshot = runtime.selected_stack_snapshot().unwrap();
+        assert_eq!(restored_snapshot.slot, 0);
         assert_eq!(
-            runtime.inventory_ledger().slot_state(0),
-            Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative))
+            restored_snapshot.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
 
         runtime.queue_local_hotbar_selection(1);
@@ -391,6 +407,70 @@ mod tests {
             protocol::encode(&authoritative_packet, &session).unwrap()
         );
         assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn accepted_selected_slot_correction_updates_snapshot_without_reselection() {
+        let mut runtime = identified_runtime();
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        let original = present_stack();
+        publish_slot(&mut runtime, 0, NetworkItemStack::empty());
+        publish_slot(&mut runtime, 1, original.clone());
+
+        let take = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    status: StackResponseStatus::Accepted,
+                    request_id: take,
+                    containers: Arc::from([]),
+                }]),
+            }));
+        runtime.set_local_selected_slot(0);
+        let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        assert!(matches!(
+            runtime.selected_stack_snapshot().unwrap().state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+        ));
+
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    status: StackResponseStatus::Accepted,
+                    request_id: place,
+                    containers: Arc::from([StackResponseContainer {
+                        container: ContainerIdentity {
+                            window_id: None,
+                            slot_type: Some(12),
+                            dynamic_id: None,
+                        },
+                        slots: Arc::from([StackResponseSlot {
+                            slot: 0,
+                            hotbar_slot: 0,
+                            count: 2,
+                            item_stack_id: 99,
+                            custom_name: Arc::from(""),
+                            filtered_custom_name: Arc::from(""),
+                            durability_correction: 0,
+                        }]),
+                    }]),
+                }]),
+            }));
+
+        let mut corrected = original;
+        corrected.count = 2;
+        corrected.stack_network_id = 99;
+        let corrected_snapshot = runtime.selected_stack_snapshot().unwrap();
+        assert_eq!(corrected_snapshot.slot, 0);
+        assert_eq!(
+            corrected_snapshot.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&corrected)
+        );
+        assert_eq!(runtime.selected_hotbar_slot(), Some(0));
     }
 
     #[test]
