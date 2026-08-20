@@ -365,6 +365,8 @@ pub enum ItemPacketError {
     ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
+    #[error("equipment container ID {0} is unknown")]
+    UnknownEquipmentContainer(u8),
     #[error("animation target count {count} is outside 1..={max}")]
     InvalidAnimationTargetCount { count: usize, max: usize },
     #[error("animation target runtime ID {0} occurs more than once")]
@@ -609,7 +611,7 @@ fn normalize_equipment_parts(
     // Handedness comes from the window, not the slot. Servers send non-hotbar
     // or sentinel slot values (e.g. 0xFF) that the client never reads, so the
     // raw slots are retained verbatim rather than rejected.
-    let (window_id, handedness) = window_id(container_id);
+    let (window_id, handedness) = window_id(container_id)?;
     Ok(EquipmentEvent {
         actor_runtime_id,
         stack,
@@ -727,20 +729,20 @@ fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), Item
 ///
 /// Protocol 1001 modelled this as a named `WindowId` enum, so every container
 /// had to be enumerated just to get the wire number back. 1.26.40 carries a raw
-/// `u8` (gophertunnel's `MobEquipment.WindowID`), so only the two containers
-/// that actually imply handedness need naming.
-fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
+/// `u8` (gophertunnel's `MobEquipment.WindowID`), so only the three recognized
+/// hand containers need naming.
+fn window_id(container_id: u8) -> Result<(u8, Option<ActorHandedness>), ItemPacketError> {
     const INVENTORY: u8 = 0;
     // The offhand container ID, matching gophertunnel's ContainerIDOffhand.
     const OFFHAND: u8 = 119;
     const HOTBAR: u8 = 122;
 
     let handedness = match container_id {
-        INVENTORY | HOTBAR => Some(ActorHandedness::Right),
-        OFFHAND => Some(ActorHandedness::Left),
-        _ => None,
+        INVENTORY | HOTBAR => ActorHandedness::Right,
+        OFFHAND => ActorHandedness::Left,
+        _ => return Err(ItemPacketError::UnknownEquipmentContainer(container_id)),
     };
-    (container_id, handedness)
+    Ok((container_id, Some(handedness)))
 }
 
 #[cfg(test)]

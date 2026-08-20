@@ -355,6 +355,69 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
 }
 
 #[test]
+fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input() {
+    for (field_index, field) in [
+        "position x",
+        "position y",
+        "position z",
+        "pitch",
+        "yaw",
+        "head yaw",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for non_finite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut packet = MovePlayerPacket {
+                position: Vec3 {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                },
+                rotation: Vec2 { x: 4.0, y: 5.0 },
+                y_head_rotation: 6.0,
+                ..Default::default()
+            };
+            match field_index {
+                0 => packet.position.x = non_finite,
+                1 => packet.position.y = non_finite,
+                2 => packet.position.z = non_finite,
+                3 => packet.rotation.x = non_finite,
+                4 => packet.rotation.y = non_finite,
+                5 => packet.y_head_rotation = non_finite,
+                _ => unreachable!("the field table has six entries"),
+            }
+
+            let error = into_world_event(packet.into(), 0)
+                .expect_err("non-finite move player pose must be rejected");
+            assert!(matches!(
+                error,
+                WorldPacketError::NonFiniteMovePlayerField { field: actual }
+                    if actual == field
+            ));
+        }
+    }
+
+    let valid = MovePlayerPacket {
+        position: Vec3 {
+            x: f32::MAX,
+            y: f32::MIN,
+            z: -0.0,
+        },
+        rotation: Vec2 {
+            x: f32::MAX,
+            y: f32::MIN,
+        },
+        y_head_rotation: f32::MAX,
+        ..Default::default()
+    };
+    assert!(matches!(
+        into_world_event(valid.into(), 0),
+        Ok(Some(WorldEvent::MovePlayer(_)))
+    ));
+}
+
+#[test]
 fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {

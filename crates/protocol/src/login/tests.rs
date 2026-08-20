@@ -975,11 +975,12 @@ fn canonical_empty_mob_equipment_is_materialized_and_normalized() {
     ));
 }
 
-fn raw_nonempty_mob_equipment(extra: &[u8]) -> RawPacket {
+/// Builds raw non-air equipment with controlled count, extra data, and container ID.
+fn raw_mob_equipment(count: u16, extra: &[u8], container_id: i8) -> RawPacket {
     let mut body = BytesMut::new();
     wire::write_var_u64(&mut body, 42);
     body.put_i16_le(5);
-    body.put_u16_le(1);
+    body.put_u16_le(count);
     wire::write_var_u32(&mut body, 0);
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
@@ -987,26 +988,7 @@ fn raw_nonempty_mob_equipment(extra: &[u8]) -> RawPacket {
     body.put_slice(extra);
     body.put_u8(0);
     body.put_u8(0);
-    body.put_i8(0);
-    raw_packet(McpePacketName::MobEquipmentPacket, &body)
-}
-
-fn raw_zero_count_mob_equipment() -> RawPacket {
-    // A non-air network id (5) paired with a zero stack count is not a valid
-    // item: it is neither the empty stack nor a real one.
-    let mut body = BytesMut::new();
-    wire::write_var_u64(&mut body, 42);
-    body.put_i16_le(5);
-    body.put_u16_le(0);
-    wire::write_var_u32(&mut body, 0);
-    body.put_u8(0);
-    wire::write_var_u32(&mut body, 0);
-    let extra = [0u8; 10]; // no NBT, no can-place-on/can-destroy entries
-    wire::write_var_u32(&mut body, extra.len() as u32);
-    body.put_slice(&extra);
-    body.put_u8(0);
-    body.put_u8(0);
-    body.put_i8(0);
+    body.put_i8(container_id);
     raw_packet(McpePacketName::MobEquipmentPacket, &body)
 }
 
@@ -1018,13 +1000,13 @@ fn valid_equipment_is_retained_and_invalid_items_are_rejected() {
     // retention now.
     let session = BedrockSession { shield_item_id: 0 };
     let valid_extra = [0; 10];
-    let valid = decode_world_raw_with(raw_nonempty_mob_equipment(&valid_extra), 0, |raw| {
+    let valid = decode_world_raw_with(raw_mob_equipment(1, &valid_extra, 0), 0, |raw| {
         raw.decode(&session)
     })
     .expect("valid equipment wire");
     assert!(matches!(valid, Some(WorldEvent::Equipment(_))));
 
-    let error = decode_world_raw_with(raw_zero_count_mob_equipment(), 0, |raw| {
+    let error = decode_world_raw_with(raw_mob_equipment(0, &valid_extra, 0), 0, |raw| {
         raw.decode(&session)
     })
     .expect_err("zero-count item is semantically invalid");
@@ -1037,6 +1019,22 @@ fn valid_equipment_is_retained_and_invalid_items_are_rejected() {
         ),
         "unexpected error: {error:?}"
     );
+
+    let error = decode_world_raw_with(raw_mob_equipment(1, &valid_extra, -1), 0, |raw| {
+        raw.decode(&session)
+    })
+    .expect_err("unknown equipment container must be rejected semantically");
+    assert!(matches!(
+        &error,
+        ProtocolError::World(crate::WorldPacketError::Item(
+            crate::ItemPacketError::UnknownEquipmentContainer(u8::MAX)
+        ))
+    ));
+
+    let mut world_skips = 0;
+    skip_semantic_world_error(error, &mut world_skips)
+        .expect("semantic equipment rejection must keep the session alive");
+    assert_eq!(world_skips, 1);
 }
 
 #[test]

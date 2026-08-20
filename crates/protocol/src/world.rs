@@ -223,6 +223,9 @@ pub enum WorldPacketError {
     #[error("{field} is non-finite")]
     NonFiniteAudioField { field: &'static str },
 
+    #[error("MovePlayer {field} is non-finite")]
+    NonFiniteMovePlayerField { field: &'static str },
+
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
 
@@ -601,6 +604,18 @@ pub fn into_world_event(
             runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
         }),
         McpePacketData::MovePlayerPacket(packet) => {
+            for (field, value) in [
+                ("position x", packet.position.x),
+                ("position y", packet.position.y),
+                ("position z", packet.position.z),
+                ("pitch", packet.rotation.x),
+                ("yaw", packet.rotation.y),
+                ("head yaw", packet.y_head_rotation),
+            ] {
+                if !value.is_finite() {
+                    return Err(WorldPacketError::NonFiniteMovePlayerField { field });
+                }
+            }
             let mode = MovePlayerMode::from(packet.position_mode);
             WorldEvent::MovePlayer(MovePlayerEvent {
                 runtime_id: packet.player_runtime_id.actor_runtime_id,
