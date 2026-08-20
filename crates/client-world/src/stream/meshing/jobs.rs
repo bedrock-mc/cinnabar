@@ -6,7 +6,7 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        if budget == 0 {
+        if self.fatal_decode_failure || budget == 0 {
             return 0;
         }
 
@@ -409,6 +409,9 @@ impl WorldStream {
         if self.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.in_flight.remove(&completion.key);
             self.urgent_mesh_in_flight.remove(&completion.key);
+        }
+        if self.fatal_decode_failure {
+            return;
         }
         let source_is_current = self
             .store

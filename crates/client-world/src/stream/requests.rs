@@ -69,6 +69,9 @@ impl WorldStream {
         base_sub_chunk_y: i32,
         count: usize,
     ) {
+        if self.fatal_decode_failure {
+            return;
+        }
         self.record_local_reset_dispatch();
         self.transport_pending_requests = self.transport_pending_requests.saturating_add(1);
         self.requests
@@ -94,6 +97,10 @@ impl WorldStream {
         count: usize,
         sent_at: Instant,
     ) {
+        if self.fatal_decode_failure {
+            self.transport_pending_requests = self.transport_pending_requests.saturating_sub(1);
+            return;
+        }
         self.transport_pending_requests = self.transport_pending_requests.saturating_sub(1);
         self.stats.phase2_stages.requests_sent =
             self.stats.phase2_stages.requests_sent.saturating_add(1);

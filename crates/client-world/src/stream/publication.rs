@@ -41,7 +41,7 @@ impl WorldStream {
         &mut self,
         change: WorldMeshChange,
     ) -> Result<(), WorldMeshChange> {
-        if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+        if self.fatal_decode_failure || self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
             return Err(change);
         }
         self.mesh_changes.push_front(change);

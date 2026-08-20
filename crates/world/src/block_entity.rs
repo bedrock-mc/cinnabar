@@ -97,6 +97,7 @@ impl BlockEntityNbt {
         let mut position = [None; 3];
         let mut note_candidate = RootByteCandidate::Absent;
         let mut powered_candidate = RootByteCandidate::Absent;
+        let mut semantic_error = None;
         loop {
             let tag = reader.read_u8("compound tag")?;
             if tag == 0 {
@@ -106,24 +107,46 @@ impl BlockEntityNbt {
             let name = reader.read_string("tag name")?;
             match name {
                 "id" => {
-                    require_root_type(name, tag, 8)?;
-                    if id.is_some() {
-                        return Err(BlockEntityNbtError::DuplicateRootField { field: "id" });
+                    if tag != 8 {
+                        semantic_error.get_or_insert(BlockEntityNbtError::InvalidRootFieldType {
+                            field: "id",
+                            expected: 8,
+                            actual: tag,
+                        });
+                        scan_payload(tag, &mut reader, &mut state, 1)?;
+                        continue;
                     }
-                    id = Some(Arc::<str>::from(reader.read_string("id value")?));
+                    let value = Arc::<str>::from(reader.read_string("id value")?);
+                    if id.is_some() {
+                        semantic_error
+                            .get_or_insert(BlockEntityNbtError::DuplicateRootField { field: "id" });
+                    } else {
+                        id = Some(value);
+                    }
                 }
                 "x" | "y" | "z" => {
-                    require_root_type(name, tag, 3)?;
                     let (slot, field) = match name {
                         "x" => (0, "x"),
                         "y" => (1, "y"),
                         "z" => (2, "z"),
                         _ => unreachable!(),
                     };
-                    if position[slot].is_some() {
-                        return Err(BlockEntityNbtError::DuplicateRootField { field });
+                    if tag != 3 {
+                        semantic_error.get_or_insert(BlockEntityNbtError::InvalidRootFieldType {
+                            field,
+                            expected: 3,
+                            actual: tag,
+                        });
+                        scan_payload(tag, &mut reader, &mut state, 1)?;
+                        continue;
                     }
-                    position[slot] = Some(reader.read_zigzag_i32("position")?);
+                    let value = reader.read_zigzag_i32("position")?;
+                    if position[slot].is_some() {
+                        semantic_error
+                            .get_or_insert(BlockEntityNbtError::DuplicateRootField { field });
+                    } else {
+                        position[slot] = Some(value);
+                    }
                 }
                 "note" => {
                     scan_root_byte_candidate(&mut note_candidate, tag, &mut reader, &mut state)?
@@ -140,6 +163,9 @@ impl BlockEntityNbt {
             [Some(x), Some(y), Some(z)] => Some([x, y, z]),
             _ => return Err(BlockEntityNbtError::PartialPosition),
         };
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
         let consumed = reader.position();
         Ok((
             Self {
@@ -425,24 +451,6 @@ impl BlockEntityError {
             Self::Nbt(error) => error.wire_error_reason(),
             _ => None,
         }
-    }
-}
-
-fn require_root_type(name: &str, actual: u8, expected: u8) -> Result<(), BlockEntityNbtError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(BlockEntityNbtError::InvalidRootFieldType {
-            field: match name {
-                "id" => "id",
-                "x" => "x",
-                "y" => "y",
-                "z" => "z",
-                _ => unreachable!(),
-            },
-            expected,
-            actual,
-        })
     }
 }
 
