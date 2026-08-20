@@ -294,6 +294,7 @@ impl UiRuntime {
                 // its FIFO position; later local input re-predicts as usual.
                 self.server_selected_slot = Some(selected.slot);
                 self.local_selected_slot = None;
+                self.pending_hotbar_selection = None;
             }
             self.gameplay_hud.apply_inventory(&sequenced.event);
         }

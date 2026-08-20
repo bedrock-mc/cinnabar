@@ -142,7 +142,8 @@ mod tests {
 
     use protocol::{
         ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent,
-        ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse, StackResponseStatus,
+        ItemStackResponseEvent, NetworkItemStack, SelectedSlotEvent, SlotIdentity, StackResponse,
+        StackResponseStatus,
     };
     use sha2::{Digest, Sha256};
 
@@ -320,6 +321,37 @@ mod tests {
             restored_bytes,
             protocol::encode(&authoritative_packet, &session).unwrap()
         );
+        assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn server_forced_selection_cancels_pending_local_packet() {
+        let mut runtime = identified_runtime();
+        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
+        runtime.queue_local_hotbar_selection(2);
+        runtime
+            .enqueue_inventory_event(
+                1,
+                1,
+                InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                    container: ContainerIdentity::window(0),
+                    slot: 5,
+                    select_slot: true,
+                }),
+            )
+            .unwrap();
+
+        runtime.drain_pending_inventory();
+        let mut sends = 0;
+        let mut fatal = None;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+            sends += 1;
+            Ok(())
+        });
+
+        assert_eq!(runtime.selected_hotbar_slot(), Some(5));
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(sends, 0);
         assert_eq!(fatal, None);
     }
 }
