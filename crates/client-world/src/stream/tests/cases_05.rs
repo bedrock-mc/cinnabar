@@ -159,7 +159,7 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
     assert_eq!(snapshot.publisher_radius_chunks, Some(1));
     assert_eq!(snapshot.publisher_epoch, 1);
     assert_eq!(snapshot.required_columns, 5);
-    assert_eq!(snapshot.loaded_required_columns, 1);
+    assert_eq!(snapshot.loaded_required_columns, 0);
     assert!(!snapshot.required_cohort_stable);
     assert_eq!(snapshot.outcomes.success, 1);
     assert_eq!(snapshot.outcomes.all_air, 1);
@@ -431,7 +431,7 @@ fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
     );
     assert!(stream.request_collision_failures.contains(&chunk));
     apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
-    assert!(stream.loaded_columns.contains(&chunk));
+    assert!(!stream.loaded_columns.contains(&chunk));
     assert!(!stream.store.is_chunk_loaded(chunk));
     assert!(!stream.store.is_sub_chunk_loaded(keys[0]));
     assert!(stream.store.is_sub_chunk_loaded(keys[1]));
@@ -485,6 +485,9 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
     let started = Instant::now();
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
     let key = keys[0];
+    let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
+    stream.committed_view_cohort = Some(target);
+    stream.required_columns.insert(key.chunk());
     acknowledge_request_sent(&mut stream, &initial, started);
 
     for attempt in 1..=super::MAX_SUB_CHUNK_RETRIES {
@@ -504,7 +507,7 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
             * u32::from(super::MAX_SUB_CHUNK_RETRIES.saturating_add(1));
     stream.expire_sub_chunk_deadlines(terminal_deadline);
 
-    assert!(stream.loaded_columns.contains(&key.chunk()));
+    assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
     assert!(!stream.resident.contains(&key));
     assert!(!stream.known_air.contains(&key));
@@ -515,10 +518,16 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
     assert_eq!(stats.sub_chunk_timeouts, 3);
     assert_eq!(stats.sub_chunk_retries_scheduled, 2);
     assert_eq!(stats.sub_chunk_retry_exhaustions, 1);
+    let cohort = stream.cohort_status(target);
+    assert_eq!(cohort.loaded_target, 0);
+    assert_eq!(cohort.missing_target, 1);
+    assert!(!cohort.target_is_complete());
+    assert!(!cohort.is_exact());
 
     let errors_before = stream.stats().normalization_errors;
     apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
     assert_eq!(stream.stats().normalization_errors, errors_before + 1);
+    assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.resident.contains(&key));
     assert!(!stream.known_air.contains(&key));
 }
@@ -615,7 +624,7 @@ fn explicit_transient_reply_disarms_old_deadline_and_preserves_retry_bound() {
     acknowledge_request_sent(&mut stream, &second_retry, second_retry_sent_at);
     stream.expire_sub_chunk_deadlines(second_retry_sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
 
-    assert!(stream.loaded_columns.contains(&key.chunk()));
+    assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.known_air.contains(&key));
     let stats = stream.stats();
     assert_eq!(stats.sub_chunk_timeouts, 2);
@@ -903,8 +912,9 @@ fn transient_unavailable_results_retry_boundedly_then_complete_without_wedging()
             }
         }
         assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
-        assert!(stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.loaded_columns.contains(&key.chunk()));
         assert!(!stream.store.is_chunk_loaded(key.chunk()));
+        assert!(stream.request_collision_failures.contains(&key.chunk()));
         assert_eq!(stream.pending_request_count(), 0);
     }
 }
@@ -924,7 +934,7 @@ fn decode_failures_retry_boundedly_and_invalid_dimension_is_terminal_normalizati
             assert_eq!(stream.take_requests().len(), 1);
         }
     }
-    assert!(stream.loaded_columns.contains(&key.chunk()));
+    assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.store.is_chunk_loaded(key.chunk()));
     assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
 
@@ -935,9 +945,61 @@ fn decode_failures_retry_boundedly_and_invalid_dimension_is_terminal_normalizati
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension),
     );
     assert_eq!(stream.stats().normalization_errors, 1);
-    assert!(stream.loaded_columns.contains(&key.chunk()));
+    assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.store.is_chunk_loaded(key.chunk()));
     assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+}
+
+#[test]
+fn terminal_unavailable_results_leave_request_columns_missing() {
+    for unavailable in [
+        SubChunkUnavailable::InvalidDimension,
+        SubChunkUnavailable::Undefined,
+        SubChunkUnavailable::Unknown(0xff),
+    ] {
+        let (mut stream, key) = stream_with_one_expected_sub_chunk();
+        let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
+        stream.committed_view_cohort = Some(target);
+        stream.required_columns.insert(key.chunk());
+
+        apply_sub_chunk_result(
+            &mut stream,
+            key,
+            super::PreparedSubChunkResult::Unavailable(unavailable),
+        );
+
+        assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+        assert!(!stream.loaded_columns.contains(&key.chunk()));
+        assert!(!stream.store.is_chunk_loaded(key.chunk()));
+        assert_eq!(stream.pending_request_count(), 0);
+        let cohort = stream.cohort_status(target);
+        assert_eq!(cohort.missing_target, 1);
+        assert!(!cohort.target_is_complete());
+    }
+}
+
+#[test]
+fn decoded_and_all_air_sections_complete_an_authoritative_request_column() {
+    let (mut stream, keys, _) = stream_with_unsent_sub_chunks(2);
+    let decoded = world::DecodedSubChunk::decode(
+        keys[0],
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../world/fixtures/uniform_non_air.bin"
+        )),
+    )
+    .unwrap();
+
+    apply_sub_chunk_result(
+        &mut stream,
+        keys[0],
+        super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+    );
+    apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
+
+    assert!(stream.loaded_columns.contains(&keys[0].chunk()));
+    assert!(stream.store.is_chunk_loaded(keys[0].chunk()));
+    assert!(!stream.request_collision_failures.contains(&keys[0].chunk()));
 }
 
 #[test]

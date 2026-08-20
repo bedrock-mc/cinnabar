@@ -776,6 +776,62 @@ fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
 }
 
 #[test]
+fn request_level_chunk_joins_required_cohort_only_after_decode_and_admission() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [0, 64, 0],
+                radius_blocks: 16,
+            }),
+        )
+        .unwrap();
+    let key = ChunkKey::new(0, 0, 0);
+
+    stream
+        .submit(
+            2,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: key.dimension,
+                x: key.x,
+                z: key.z,
+                mode: LevelChunkMode::LimitedRequests { highest: 1 },
+                payload: vec![1, 18],
+            }),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(!stream.required_columns().contains(&key));
+
+    stream
+        .submit(
+            3,
+            request_level_chunk_event(
+                key.dimension,
+                key.x,
+                key.z,
+                LevelChunkMode::LimitedRequests { highest: 1 },
+                7,
+            ),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(stream.required_columns().contains(&key));
+    assert_eq!(stream.take_requests().len(), 1);
+}
+
+#[test]
 fn bootstrap_non_finite_horizontal_position_uses_the_shared_finite_scope_anchor() {
     let bootstrap = WorldBootstrap {
         local_player_unique_id: 1,

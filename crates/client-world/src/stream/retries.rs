@@ -35,10 +35,12 @@ impl WorldStream {
         }
         if completed {
             self.requested_sub_chunks.remove(&chunk);
+            if self.request_collision_failures.contains(&chunk) {
+                self.loaded_columns.remove(&chunk);
+                return;
+            }
             self.loaded_columns.insert(chunk);
-            if !self.request_collision_failures.remove(&chunk)
-                && self.store.mark_chunk_loaded(chunk).is_err()
-            {
+            if self.store.mark_chunk_loaded(chunk).is_err() {
                 self.loaded_columns.remove(&chunk);
                 self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
             }

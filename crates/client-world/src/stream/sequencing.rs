@@ -136,7 +136,6 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
-                self.record_required_level_chunk(&event);
                 match decoded {
                     Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
@@ -743,6 +742,7 @@ impl WorldStream {
             );
             return;
         };
+        self.record_required_level_chunk(&event);
         let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 (usize::from(highest).min(range.sub_chunk_count), true)
