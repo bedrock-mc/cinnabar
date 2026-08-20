@@ -212,7 +212,7 @@ fn hash_liquid_facts(hash: &mut Sha256, facts: BlockPhysicsFacts) {
     hash.update([facts.flags.bits(), facts.surface_response as u8]);
 }
 
-/// Parses and validates a region-bearing v0.1.4 fixture script locally to this test.
+/// Parses and validates a region-bearing liquid fixture script locally to this test.
 fn parse_liquid_evidence_script(json: &str) -> Result<LiquidEvidenceScript, &'static str> {
     let script: LiquidEvidenceScript = serde_json::from_str(json).map_err(|_| "invalid JSON")?;
     for step in &script.steps {
@@ -427,7 +427,7 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
 }
 
 /// Replays one fixture script and compares its float32-origin observations.
-fn replay_v014_liquid_script(script: LiquidEvidenceScript) {
+fn replay_liquid_script(script: LiquidEvidenceScript) {
     assert_eq!(
         script.evidence,
         ScenarioEvidence::BedsimObservedWithManifestContext
@@ -467,7 +467,7 @@ fn pinned_bedsim_v0_1_4_liquid_slice_replays_with_float32_tolerance() {
     let mut scripts = 0;
     for line in include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl").lines() {
         scripts += 1;
-        replay_v014_liquid_script(parse_liquid_evidence_script(line).unwrap());
+        replay_liquid_script(parse_liquid_evidence_script(line).unwrap());
     }
     assert_eq!(scripts, 4);
 }
@@ -539,6 +539,68 @@ fn pinned_bedsim_v0_1_4_liquid_provenance_binds_module_generator_and_bytes() {
                 include_str!("../../../tools/bedsimtrace-v0.1.4/go.sum")
             }
             _ => unreachable!("the fixed v0.1.4 provenance file list is exhaustive"),
+        }
+        .replace("\r\n", "\n");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(source.as_bytes())),
+            provenance[field].as_str().unwrap(),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn pinned_bedsim_v0_1_5_liquid_slice_replays_with_float32_tolerance() {
+    let mut scripts = 0;
+    for line in include_str!("../fixtures/bedsim-v0.1.5-liquid.jsonl").lines() {
+        scripts += 1;
+        replay_liquid_script(parse_liquid_evidence_script(line).unwrap());
+    }
+    assert_eq!(scripts, 4);
+}
+
+#[test]
+fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
+    let trace = include_bytes!("../fixtures/bedsim-v0.1.5-liquid.jsonl");
+    let provenance: serde_json::Value = serde_json::from_str(include_str!(
+        "../fixtures/bedsim-v0.1.5-liquid.provenance.json"
+    ))
+    .unwrap();
+    assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
+    assert_eq!(provenance["version"], "v0.1.5");
+    assert_eq!(
+        provenance["source_commit"],
+        "f6a0e6bdf72cf3e735198e3695086d59da456d79"
+    );
+    assert_eq!(
+        provenance["module_sum"],
+        "h1:LCAA1aK65z9TBkFOY4tv6qkkTXxXK+NxJeOz/SyUSd8="
+    );
+    assert_eq!(provenance["generator"], "tools/bedsimtrace-v0.1.5");
+    assert_eq!(provenance["generator_command"], "GOWORK=off go run .");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(trace)),
+        provenance["sha256"].as_str().unwrap()
+    );
+    for (path, field) in [
+        (
+            "../../../tools/bedsimtrace-v0.1.5/main.go",
+            "generator_source_sha256",
+        ),
+        ("../../../tools/bedsimtrace-v0.1.5/go.mod", "go_mod_sha256"),
+        ("../../../tools/bedsimtrace-v0.1.5/go.sum", "go_sum_sha256"),
+    ] {
+        let source = match path {
+            "../../../tools/bedsimtrace-v0.1.5/main.go" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.5/main.go")
+            }
+            "../../../tools/bedsimtrace-v0.1.5/go.mod" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.5/go.mod")
+            }
+            "../../../tools/bedsimtrace-v0.1.5/go.sum" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.5/go.sum")
+            }
+            _ => unreachable!("the fixed v0.1.5 provenance file list is exhaustive"),
         }
         .replace("\r\n", "\n");
         assert_eq!(

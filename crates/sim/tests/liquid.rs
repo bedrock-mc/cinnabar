@@ -531,9 +531,9 @@ impl CollisionWorld for LiquidExitWorld {
     }
 }
 
-/// Returns the observed vertical velocity for one named v0.1.4 liquid case.
-fn v014_expected_vertical_velocity(scenario: &str) -> f64 {
-    let trace = include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl")
+/// Returns the observed vertical velocity for one named v0.1.5 liquid case.
+fn v015_expected_vertical_velocity(scenario: &str) -> f64 {
+    let trace = include_str!("../fixtures/bedsim-v0.1.5-liquid.jsonl")
         .lines()
         .map(serde_json::from_str::<serde_json::Value>)
         .find_map(|record| {
@@ -548,7 +548,7 @@ fn v014_expected_vertical_velocity(scenario: &str) -> f64 {
 }
 
 #[test]
-fn bedsim_v0_1_4_clear_water_ledge_exit_replay_receives_observed_boost() {
+fn bedsim_v0_1_5_clear_water_ledge_exit_replay_receives_observed_boost() {
     let world = LiquidExitWorld {
         boxes: Box::new([Aabb::new(
             Vec3::new(1.0, 0.0, 0.0),
@@ -574,9 +574,9 @@ fn bedsim_v0_1_4_clear_water_ledge_exit_replay_receives_observed_boost() {
 
     assert!(result.collisions.x);
     assert!(
-        (result.velocity.y - v014_expected_vertical_velocity("water_ledge_exit_boost")).abs()
+        (result.velocity.y - v015_expected_vertical_velocity("water_ledge_exit_boost")).abs()
             <= 1.0e-6,
-        "clear liquid ledge exit velocity = {}, expected v0.1.4 evidence",
+        "clear liquid ledge exit velocity = {}, expected v0.1.5 evidence",
         result.velocity.y
     );
 }
@@ -608,7 +608,7 @@ fn liquid_exit_probe_rejects_a_partial_liquid_cell_below_its_surface() {
 
     assert!(result.collisions.x);
     assert!(
-        (result.velocity.y - v014_expected_vertical_velocity("water_ledge_exit_blocked_above"))
+        (result.velocity.y - v015_expected_vertical_velocity("water_ledge_exit_blocked_above"))
             .abs()
             <= 1.0e-6,
         "partial liquid cell must deny the ledge boost, got {}",
@@ -633,7 +633,7 @@ fn liquid_exit_probe_excludes_a_translated_touching_boundary_cell() {
 
     assert!(result.collisions.x);
     assert!(
-        (result.velocity.y - v014_expected_vertical_velocity("water_ledge_exit_boost")).abs()
+        (result.velocity.y - v015_expected_vertical_velocity("water_ledge_exit_boost")).abs()
             <= 1.0e-6,
         "touching boundary liquid must not deny the clear boost, got {}",
         result.velocity.y
@@ -656,7 +656,7 @@ fn out_of_range_exclusive_query_maximum_fails_transactionally() {
 }
 
 #[test]
-fn bedsim_v0_1_4_open_water_held_ascent_uses_observed_water_gravity() {
+fn bedsim_v0_1_5_open_water_held_ascent_uses_observed_water_gravity() {
     let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
     let result = Simulator::default()
         .tick(
@@ -671,9 +671,9 @@ fn bedsim_v0_1_4_open_water_held_ascent_uses_observed_water_gravity() {
 
     assert!(!result.collisions.x && !result.collisions.z);
     assert!(
-        (result.velocity.y - v014_expected_vertical_velocity("open_water_held_ascent")).abs()
+        (result.velocity.y - v015_expected_vertical_velocity("open_water_held_ascent")).abs()
             <= 1.0e-6,
-        "open-water held-ascent velocity = {}, expected v0.1.4 evidence",
+        "open-water held-ascent velocity = {}, expected v0.1.5 evidence",
         result.velocity.y
     );
 }

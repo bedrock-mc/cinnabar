@@ -44,7 +44,7 @@ const CLIMB_SPEED: f64 = 0.2;
 const SLIME_WALK_DAMPING: f64 = 0.4;
 /// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
 const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
-/// Pinned v0.1.4 observation for a clear water-to-ledge exit probe.
+/// Pinned v0.1.5 observation for a clear water-to-ledge exit probe.
 const WATER_LEDGE_EXIT_VERTICAL_VELOCITY: f64 = 0.3;
 
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
@@ -242,13 +242,13 @@ impl Simulator {
                 NORMAL_GRAVITY_MULTIPLIER,
             );
         } else if sampled.movement.in_water || sampled.movement.in_lava {
-            // When both liquid facts overlap, the pinned v0.1.4 slice follows
+            // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
             let drag = if sampled.movement.in_water { 0.8 } else { 0.5 };
             next.velocity.x *= drag;
             next.velocity.y *= drag;
             next.velocity.z *= drag;
-            // Pinned v0.1.4 open-water and ledge controls distinguish water's
+            // Pinned v0.1.5 open-water and ledge controls distinguish water's
             // non-swimming gravity from lava's ordinary liquid gravity.
             let gravity = if sampled.movement.in_water {
                 0.005

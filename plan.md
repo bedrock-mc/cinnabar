@@ -101,8 +101,10 @@ after successful decode and world admission. `9dfecb80` skips non-finite remote 
 unknown equipment containers at the semantic boundary without ending the session or overwriting
 usable actor state. `c4ccc81c` and `5cbfbcea` remove the persistent gameplay player preview and keep
 it confined to personal inventory across Open-before-Content plus 27/54-slot storage lifecycles.
-`25d87058` adds a separately pinned bedsim v0.1.4 liquid oracle, corrects non-swimming water
-gravity, and applies the observed water-to-ledge boost only after a bounded clear, dry raised probe.
+`25d87058` adds a separately pinned BedSim v0.1.5 liquid oracle (the four-record output is
+byte-identical to the historical v0.1.4 slice), corrects non-swimming water gravity, and applies
+the observed water-to-ledge boost only after a bounded clear, dry raised probe. BedSim remains a
+Go reference/oracle used by trace generators; production movement is the Rust `crates/sim` port.
 Fresh coordinator crate suites, formatting, strict Clippy, architecture enforcement, and fresh
 Sol-high review passed for each tranche. These commits close only their bounded implementation
 defects; cache ordering/timing, selected-store unification, item rendering, inventory-preview
@@ -131,8 +133,9 @@ ledger are run.
 The item trace found no safe approximation to land. Sprite icons currently mix atlas-alias identity
 with canonical live registry identity, while block items need a separate 3-D renderer; the
 repository has no complete authoritative crosswalk and filename inference is forbidden. The liquid
-slice does not close broader swimming: pose, immersion, pitch steering, currents, input flags,
-camera state, and current-version production physics content remain open under VPA-010 through
+slice does not close broader swimming: v0.1.5 adds swimming/flow/pose, knockback, item-use, and
+provider contracts that still need a deliberate Rust port, plus immersion, pitch steering, currents,
+input flags, camera state, and current-version production physics content under VPA-010 through
 VPA-014.
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs

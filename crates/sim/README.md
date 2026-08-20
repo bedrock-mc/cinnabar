@@ -40,16 +40,16 @@ go run .
 
 The Rust conformance test compares its per-tick state against that output at `1e-12` epsilon.
 
-The narrow liquid-exit slice is pinned separately to `github.com/oomph-ac/bedsim v0.1.4`,
-source commit `b55c95016bb53c3df3b13e9a5cd8cbbcacabbe28`, module checksum
-`h1:oDfPiVgskqWnh9slic8Avdp+/Kd0NKWEJ2z2Ejghdq0=`. Its observed from-rest open-water
-ascent and held-ascent ledge controls live in `fixtures/bedsim-v0.1.4-liquid.jsonl`; the
+The current narrow liquid-exit slice is pinned separately to `github.com/oomph-ac/bedsim v0.1.5`,
+source commit `f6a0e6bdf72cf3e735198e3695086d59da456d79`, module checksum
+`h1:LCAA1aK65z9TBkFOY4tv6qkkTXxXK+NxJeOz/SyUSd8=`. Its observed from-rest open-water
+ascent and held-ascent ledge controls live in `fixtures/bedsim-v0.1.5-liquid.jsonl`; the
 generator module state, command, source hash, and output hash are bound in the matching
 provenance JSON. The observed open-water ascent bobs and does not independently clear the
 surface. A horizontal collision plus a clear, dry raised probe authorizes the ledge boost.
 
-Regenerate it from `tools/bedsimtrace-v0.1.4` with `GOWORK=off go run .`. The replay uses
-`1e-6` tolerance because the v0.1.4 evidence is float32 output; this does not weaken the
+Regenerate it from `tools/bedsimtrace-v0.1.5` with `GOWORK=off go run .`. The replay uses
+`1e-6` tolerance because the v0.1.5 evidence is float32 output; this does not weaken the
 v0.1.3 `1e-12` gates.
 
 ## Remaining Phase 3 work
