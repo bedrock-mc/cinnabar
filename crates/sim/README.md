@@ -40,12 +40,24 @@ go run .
 
 The Rust conformance test compares its per-tick state against that output at `1e-12` epsilon.
 
+The narrow liquid-exit slice is pinned separately to `github.com/oomph-ac/bedsim v0.1.4`,
+source commit `b55c95016bb53c3df3b13e9a5cd8cbbcacabbe28`, module checksum
+`h1:oDfPiVgskqWnh9slic8Avdp+/Kd0NKWEJ2z2Ejghdq0=`. Its observed from-rest open-water
+ascent and held-ascent ledge controls live in `fixtures/bedsim-v0.1.4-liquid.jsonl`; the
+generator module state, command, source hash, and output hash are bound in the matching
+provenance JSON. The observed open-water ascent bobs and does not independently clear the
+surface. A horizontal collision plus a clear, dry raised probe authorizes the ledge boost.
+
+Regenerate it from `tools/bedsimtrace-v0.1.4` with `GOWORK=off go run .`. The replay uses
+`1e-6` tolerance because the v0.1.4 evidence is float32 output; this does not weaken the
+v0.1.3 `1e-12` gates.
+
 ## Remaining Phase 3 work
 
 - Generate and verify the authoritative runtime-ID collision registry for every supported block
   state, including compound shapes and friction/surface semantics.
 - Port the rest of bedsim's behavior: sneak edge avoidance, climbing,
-  cobwebs, liquids/swimming, slime/bed bounce, effects, knockback, teleport handling, gliding,
+  cobwebs, broader liquids/swimming, slime/bed bounce, effects, knockback, teleport handling, gliding,
   and special block/game-mode behavior.
 - Add dynamic movement attributes and bounding-box state from
   `ClientMovementPredictionSync`, plus authoritative snapshot identity for correction replay.

@@ -261,34 +261,40 @@ impl ScenarioWorld {
                 });
             }
         }
-        for value in [
-            self.physics.friction,
-            self.physics.horizontal_speed_factor,
-            self.physics.vertical_speed_factor,
-            self.physics.fluid_height_blocks,
-        ] {
-            if !value.is_finite() {
-                return Err(ConformanceError::InvalidScenarioWorld {
-                    line,
-                    reason: "non-finite movement metadata",
-                });
-            }
-        }
-        if self.physics.friction <= 0.0
-            || self.physics.horizontal_speed_factor <= 0.0
-            || self.physics.horizontal_speed_factor > 1.0
-            || self.physics.vertical_speed_factor <= 0.0
-            || self.physics.vertical_speed_factor > 1.0
-            || !(0.0..=1.0).contains(&self.physics.fluid_height_blocks)
-            || self.physics.flags.bits() & !crate::BlockPhysicsFlags::KNOWN_BITS != 0
-        {
-            return Err(ConformanceError::InvalidScenarioWorld {
-                line,
-                reason: "movement metadata is outside its pinned bounds",
-            });
-        }
+        validate_physics(self.physics, line)?;
         Ok(())
     }
+}
+
+/// Validates the movement facts stored by one scenario world.
+fn validate_physics(physics: BlockPhysicsFacts, line: usize) -> Result<(), ConformanceError> {
+    for value in [
+        physics.friction,
+        physics.horizontal_speed_factor,
+        physics.vertical_speed_factor,
+        physics.fluid_height_blocks,
+    ] {
+        if !value.is_finite() {
+            return Err(ConformanceError::InvalidScenarioWorld {
+                line,
+                reason: "non-finite movement metadata",
+            });
+        }
+    }
+    if physics.friction <= 0.0
+        || physics.horizontal_speed_factor <= 0.0
+        || physics.horizontal_speed_factor > 1.0
+        || physics.vertical_speed_factor <= 0.0
+        || physics.vertical_speed_factor > 1.0
+        || !(0.0..=1.0).contains(&physics.fluid_height_blocks)
+        || physics.flags.bits() & !crate::BlockPhysicsFlags::KNOWN_BITS != 0
+    {
+        return Err(ConformanceError::InvalidScenarioWorld {
+            line,
+            reason: "movement metadata is outside its pinned bounds",
+        });
+    }
+    Ok(())
 }
 
 impl CollisionWorld for ScenarioWorld {

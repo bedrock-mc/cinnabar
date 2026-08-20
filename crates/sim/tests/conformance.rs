@@ -1,11 +1,225 @@
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sim::{
-    Aabb, CollisionQuery, CollisionWorld, ConformanceError, MovementInput, PlayerState, Simulator,
-    TickResult, TraceRecord, Vec3, WorldQueryError, audit_scenario_trace_jsonl,
+    Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
+    ConformanceError, MovementInput, PlayerState, ScenarioEvidence, Simulator, TickResult,
+    TraceRecord, Vec3, WorldCollisionIdentity, WorldQueryError, audit_scenario_trace_jsonl,
     verify_legacy_trace_jsonl, verify_scenario_trace_jsonl, verify_trace_jsonl,
 };
 
 struct Floor;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiquidEvidenceScript {
+    #[serde(rename = "scenario")]
+    _scenario: Box<str>,
+    evidence: ScenarioEvidence,
+    initial: PlayerState,
+    steps: Vec<LiquidEvidenceStep>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiquidEvidenceStep {
+    world: LiquidEvidenceWorld,
+    input: MovementInput,
+    expected: TickResult,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiquidEvidenceWorld {
+    name: Box<str>,
+    origin: [i32; 3],
+    revision: u64,
+    boxes: Box<[Aabb]>,
+    physics: BlockPhysicsFacts,
+    physics_regions: Box<[LiquidPhysicsRegion]>,
+    unloaded: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiquidPhysicsRegion {
+    min: [i32; 3],
+    max: [i32; 3],
+    physics: BlockPhysicsFacts,
+}
+
+impl LiquidEvidenceWorld {
+    /// Validates the test-only liquid extensions without widening `ScenarioWorld`.
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.name.is_empty() || self.boxes.len() > 64 || self.physics_regions.len() > 64 {
+            return Err("world shape count is outside the bounded fixture contract");
+        }
+        validate_liquid_facts(self.physics)?;
+        for region in &self.physics_regions {
+            if region
+                .min
+                .into_iter()
+                .zip(region.max)
+                .any(|(min, max)| min >= max)
+            {
+                return Err("physics region is empty or inverted");
+            }
+            validate_liquid_facts(region.physics)?;
+        }
+        for (index, first) in self.physics_regions.iter().enumerate() {
+            for second in &self.physics_regions[index + 1..] {
+                if first
+                    .min
+                    .into_iter()
+                    .zip(first.max)
+                    .zip(second.min.into_iter().zip(second.max))
+                    .all(|((first_min, first_max), (second_min, second_max))| {
+                        first_min < second_max && second_min < first_max
+                    })
+                {
+                    return Err("physics regions overlap or shadow one another");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolves an explicitly regioned block after validation has excluded shadows.
+    fn physics_at(&self, block: [i32; 3]) -> BlockPhysicsFacts {
+        self.physics_regions
+            .iter()
+            .find(|region| {
+                region
+                    .min
+                    .into_iter()
+                    .zip(region.max)
+                    .zip(block)
+                    .all(|((min, max), value)| value >= min && value < max)
+            })
+            .map_or(self.physics, |region| region.physics)
+    }
+
+    /// Recomputes the generator's region-aware identity through the public wire format.
+    fn identity(&self) -> WorldCollisionIdentity {
+        let mut hash = Sha256::new();
+        hash.update(b"sim-scenario-world-v1\0");
+        for coordinate in self.origin {
+            hash.update(coordinate.to_le_bytes());
+        }
+        hash.update(self.revision.to_le_bytes());
+        hash.update(
+            u32::try_from(self.boxes.len())
+                .unwrap_or(u32::MAX)
+                .to_le_bytes(),
+        );
+        for shape in &self.boxes {
+            for value in [
+                shape.min.x,
+                shape.min.y,
+                shape.min.z,
+                shape.max.x,
+                shape.max.y,
+                shape.max.z,
+            ] {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        hash_liquid_facts(&mut hash, self.physics);
+        hash.update([u8::from(self.unloaded)]);
+        if !self.physics_regions.is_empty() {
+            hash.update(
+                u32::try_from(self.physics_regions.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for region in &self.physics_regions {
+                for coordinate in region.min.into_iter().chain(region.max) {
+                    hash.update(coordinate.to_le_bytes());
+                }
+                hash_liquid_facts(&mut hash, region.physics);
+            }
+        }
+        serde_json::from_value(serde_json::json!({
+            "protocol": 1001,
+            "id_space": "sequential",
+            "preg_sha256": <[u8; 32]>::from(hash.finalize()),
+            "chunks": [{
+                "dimension": 0,
+                "x": self.origin[0] >> 4,
+                "z": self.origin[2] >> 4,
+                "revision": self.revision,
+            }],
+        }))
+        .expect("the bounded liquid fixture identity uses the public wire format")
+    }
+}
+
+impl CollisionWorld for LiquidEvidenceWorld {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        if self.unloaded {
+            return Err(WorldQueryError::QueryExtentExceeded);
+        }
+        Ok(CollisionQuery {
+            value: self
+                .boxes
+                .iter()
+                .copied()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+            identity: self.identity(),
+        })
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        if self.unloaded {
+            return Err(WorldQueryError::QueryExtentExceeded);
+        }
+        Ok(BlockPhysicsSample {
+            layers: Box::new([self.physics_at(block)]),
+            identity: self.identity(),
+        })
+    }
+}
+
+/// Validates a region's facts using the public simulator input bounds.
+fn validate_liquid_facts(facts: BlockPhysicsFacts) -> Result<(), &'static str> {
+    if !facts.friction.is_finite()
+        || !facts.horizontal_speed_factor.is_finite()
+        || !facts.vertical_speed_factor.is_finite()
+        || !facts.fluid_height_blocks.is_finite()
+        || facts.friction <= 0.0
+        || !(0.0..=1.0).contains(&facts.horizontal_speed_factor)
+        || facts.horizontal_speed_factor == 0.0
+        || !(0.0..=1.0).contains(&facts.vertical_speed_factor)
+        || facts.vertical_speed_factor == 0.0
+        || !(0.0..=1.0).contains(&facts.fluid_height_blocks)
+        || facts.flags.bits() & !BlockPhysicsFlags::KNOWN_BITS != 0
+    {
+        return Err("physics facts are outside the bounded fixture contract");
+    }
+    Ok(())
+}
+
+/// Hashes test-local physics facts in the generator's published field order.
+fn hash_liquid_facts(hash: &mut Sha256, facts: BlockPhysicsFacts) {
+    for value in [
+        facts.friction,
+        facts.horizontal_speed_factor,
+        facts.vertical_speed_factor,
+        facts.fluid_height_blocks,
+    ] {
+        hash.update(value.to_bits().to_le_bytes());
+    }
+    hash.update([facts.flags.bits(), facts.surface_response as u8]);
+}
+
+/// Parses and validates a region-bearing v0.1.4 fixture script locally to this test.
+fn parse_liquid_evidence_script(json: &str) -> Result<LiquidEvidenceScript, &'static str> {
+    let script: LiquidEvidenceScript = serde_json::from_str(json).map_err(|_| "invalid JSON")?;
+    for step in &script.steps {
+        step.world.validate()?;
+    }
+    Ok(script)
+}
 
 impl CollisionWorld for Floor {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
@@ -210,6 +424,129 @@ fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
         format!("{:x}", Sha256::digest(trace)),
         provenance["sha256"].as_str().unwrap()
     );
+}
+
+/// Replays one fixture script and compares its float32-origin observations.
+fn replay_v014_liquid_script(script: LiquidEvidenceScript) {
+    assert_eq!(
+        script.evidence,
+        ScenarioEvidence::BedsimObservedWithManifestContext
+    );
+    let mut state = script.initial;
+    for step in script.steps {
+        let expected = step.expected;
+        let actual = Simulator::default()
+            .tick(&mut state, step.input, &step.world)
+            .expect("fixture world is loaded and bounded");
+        for (name, expected, actual) in [
+            ("position.x", expected.position.x, actual.position.x),
+            ("position.y", expected.position.y, actual.position.y),
+            ("position.z", expected.position.z, actual.position.z),
+            ("velocity.x", expected.velocity.x, actual.velocity.x),
+            ("velocity.y", expected.velocity.y, actual.velocity.y),
+            ("velocity.z", expected.velocity.z, actual.velocity.z),
+            ("movement.x", expected.movement.x, actual.movement.x),
+            ("movement.y", expected.movement.y, actual.movement.y),
+            ("movement.z", expected.movement.z, actual.movement.z),
+        ] {
+            assert!(
+                (expected - actual).abs() <= 1.0e-6,
+                "{} differs: expected {expected}, actual {actual}",
+                name
+            );
+        }
+        assert_eq!(actual.collisions, expected.collisions);
+        assert_eq!(actual.on_ground, expected.on_ground);
+        assert_eq!(actual.environment, expected.environment);
+        assert_eq!(actual.world_identity, expected.world_identity);
+    }
+}
+
+#[test]
+fn pinned_bedsim_v0_1_4_liquid_slice_replays_with_float32_tolerance() {
+    let mut scripts = 0;
+    for line in include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl").lines() {
+        scripts += 1;
+        replay_v014_liquid_script(parse_liquid_evidence_script(line).unwrap());
+    }
+    assert_eq!(scripts, 4);
+}
+
+#[test]
+fn liquid_fixture_parser_rejects_inverted_and_overlapping_regions() {
+    let line = include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl")
+        .lines()
+        .next()
+        .unwrap();
+    let mut inverted: serde_json::Value = serde_json::from_str(line).unwrap();
+    inverted["steps"][0]["world"]["physics_regions"][0]["min"][0] = serde_json::json!(1);
+    assert!(matches!(
+        parse_liquid_evidence_script(&inverted.to_string()),
+        Err("physics region is empty or inverted")
+    ));
+
+    let mut overlapping: serde_json::Value = serde_json::from_str(line).unwrap();
+    let region = overlapping["steps"][0]["world"]["physics_regions"][0].clone();
+    overlapping["steps"][0]["world"]["physics_regions"]
+        .as_array_mut()
+        .unwrap()
+        .push(region);
+    assert!(matches!(
+        parse_liquid_evidence_script(&overlapping.to_string()),
+        Err("physics regions overlap or shadow one another")
+    ));
+}
+
+#[test]
+fn pinned_bedsim_v0_1_4_liquid_provenance_binds_module_generator_and_bytes() {
+    let trace = include_bytes!("../fixtures/bedsim-v0.1.4-liquid.jsonl");
+    let provenance: serde_json::Value = serde_json::from_str(include_str!(
+        "../fixtures/bedsim-v0.1.4-liquid.provenance.json"
+    ))
+    .unwrap();
+    assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
+    assert_eq!(provenance["version"], "v0.1.4");
+    assert_eq!(
+        provenance["source_commit"],
+        "b55c95016bb53c3df3b13e9a5cd8cbbcacabbe28"
+    );
+    assert_eq!(
+        provenance["module_sum"],
+        "h1:oDfPiVgskqWnh9slic8Avdp+/Kd0NKWEJ2z2Ejghdq0="
+    );
+    assert_eq!(provenance["generator"], "tools/bedsimtrace-v0.1.4");
+    assert_eq!(provenance["generator_command"], "GOWORK=off go run .");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(trace)),
+        provenance["sha256"].as_str().unwrap()
+    );
+    for (path, field) in [
+        (
+            "../../../tools/bedsimtrace-v0.1.4/main.go",
+            "generator_source_sha256",
+        ),
+        ("../../../tools/bedsimtrace-v0.1.4/go.mod", "go_mod_sha256"),
+        ("../../../tools/bedsimtrace-v0.1.4/go.sum", "go_sum_sha256"),
+    ] {
+        let source = match path {
+            "../../../tools/bedsimtrace-v0.1.4/main.go" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.4/main.go")
+            }
+            "../../../tools/bedsimtrace-v0.1.4/go.mod" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.4/go.mod")
+            }
+            "../../../tools/bedsimtrace-v0.1.4/go.sum" => {
+                include_str!("../../../tools/bedsimtrace-v0.1.4/go.sum")
+            }
+            _ => unreachable!("the fixed v0.1.4 provenance file list is exhaustive"),
+        }
+        .replace("\r\n", "\n");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(source.as_bytes())),
+            provenance[field].as_str().unwrap(),
+            "{path}"
+        );
+    }
 }
 
 #[test]

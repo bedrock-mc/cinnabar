@@ -64,6 +64,22 @@ fn bounded_collision_boxes(
     world.collision_boxes(query)
 }
 
+/// Queries whether a bounded volume is occupied while preserving the exact
+/// world identity returned for the probe.
+pub(super) fn has_collision(
+    world: &impl CollisionWorld,
+    query: Aabb,
+) -> Result<crate::CollisionQuery<bool>, WorldQueryError> {
+    let colliders = bounded_collision_boxes(world, query)?;
+    Ok(crate::CollisionQuery {
+        value: colliders
+            .value
+            .into_iter()
+            .any(|shape| shape.intersects(query)),
+        identity: colliders.identity,
+    })
+}
+
 pub(super) fn clip_sneak_edge(
     world: &impl CollisionWorld,
     position: Vec3,

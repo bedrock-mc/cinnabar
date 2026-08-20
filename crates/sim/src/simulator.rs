@@ -5,11 +5,11 @@ mod input;
 mod state;
 
 use crate::{
-    CollisionWorld, Vec3,
+    Aabb, CollisionWorld, Vec3,
     math::{minecraft_cos, minecraft_sin},
 };
 use collision::{clip_sneak_edge, resolve_motion};
-use environment::sample;
+use environment::{contains_liquid, sample};
 
 pub use effects::MovementEffects;
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
@@ -44,6 +44,8 @@ const CLIMB_SPEED: f64 = 0.2;
 const SLIME_WALK_DAMPING: f64 = 0.4;
 /// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
 const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
+/// Pinned v0.1.4 observation for a clear water-to-ledge exit probe.
+const WATER_LEDGE_EXIT_VERTICAL_VELOCITY: f64 = 0.3;
 
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
 // latched sneak state, which start/stop edges can drive independently) from
@@ -229,6 +231,8 @@ impl Simulator {
             next.velocity.z = 0.0;
         }
 
+        let water_ledge_exit =
+            sampled.movement.in_water && (motion.collisions.x || motion.collisions.z);
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
             effects::apply_vertical(
@@ -238,11 +242,20 @@ impl Simulator {
                 NORMAL_GRAVITY_MULTIPLIER,
             );
         } else if sampled.movement.in_water || sampled.movement.in_lava {
-            let drag = if sampled.movement.in_lava { 0.5 } else { 0.8 };
+            // When both liquid facts overlap, the pinned v0.1.4 slice follows
+            // water travel rather than composing water gravity with lava drag.
+            let drag = if sampled.movement.in_water { 0.8 } else { 0.5 };
             next.velocity.x *= drag;
             next.velocity.y *= drag;
             next.velocity.z *= drag;
-            effects::apply_vertical(&mut next.velocity.y, input.effects, 0.02, 1.0);
+            // Pinned v0.1.4 open-water and ledge controls distinguish water's
+            // non-swimming gravity from lava's ordinary liquid gravity.
+            let gravity = if sampled.movement.in_water {
+                0.005
+            } else {
+                0.02
+            };
+            effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
         } else {
             let gravity = if input.effects.slow_falling && next.velocity.y < 0.0 {
                 0.01
@@ -257,6 +270,29 @@ impl Simulator {
             );
             next.velocity.x *= friction;
             next.velocity.z *= friction;
+        }
+        if water_ledge_exit {
+            if motion.collisions.x {
+                next.movement.x = 0.0;
+            }
+            if motion.collisions.z {
+                next.movement.z = 0.0;
+            }
+            // The pinned clear, blocked, and still-submerged cases distinguish
+            // this raised probe from the ordinary swept collision volume.
+            let probe = Aabb::player_at(next.position).translated(Vec3::new(
+                next.velocity.x,
+                next.velocity.y + 0.6 + state.position.y - next.position.y,
+                next.velocity.z,
+            ));
+            let collision_probe = collision::has_collision(world, probe)?;
+            let (liquid_probe, liquid_identity) =
+                contains_liquid(world, probe, sampled.block_samples)?;
+            identity = identity.merge(&collision_probe.identity)?;
+            identity = identity.merge(&liquid_identity)?;
+            if !collision_probe.value && !liquid_probe {
+                next.velocity.y = WATER_LEDGE_EXIT_VERTICAL_VELOCITY;
+            }
         }
         match sampled.movement.surface_response {
             crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
