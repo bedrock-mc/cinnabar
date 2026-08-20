@@ -16,6 +16,15 @@ Classification:
   exact-version native witness before it can be changed or accepted.
 - **Missing surface**: the required runtime path does not exist.
 - **Deliberate deviation**: owner-approved bring-up behavior that must remain labeled incomplete.
+- **Implementation landed**: the bounded code fix is locally integrated and reviewed, while any
+  wider native/live or surrounding parity gate remains open.
+
+## Landed audit tranches
+
+| IDs | Reviewed task head | Integrated commits | Evidence state |
+| --- | --- | --- | --- |
+| VPA-004 | `469fe1bb3bfcab865bb6bb2e468ebb4df5d9414d` | `e21e99b6` | App-owned verified cache and semantic-skip isolation; coordinator protocol/client suites, formatting, strict Clippy, architecture, and fresh Sol-high review passed. Local only, not pushed. |
+| VPA-008 | `582ac0a099123a61588fca90e9d55648a23e99ae` | `a63431b0`, `29e6baaa`, `6c7e2672` | Verified/predicted stack encoding, latest-wins retry, session reset, and server-forced cancellation; coordinator protocol/client suites, formatting, strict Clippy, architecture, and fresh Sol-high re-review passed. Local only, not pushed. |
 
 ## P0 — session, state, and player-visible blockers
 
@@ -24,11 +33,11 @@ Classification:
 | VPA-001 | Proven mismatch | Protocol 2168 runs against protocol-1001 world, light, physics, visual, and coverage carriers. | `app/src/asset_startup.rs`, `app/src/app.rs`, `tools/visualcoverage`, `plan.md` | Build and atomically bind one version-coherent 2168 carrier set; reject mixed sets before gameplay. |
 | VPA-002 | Deliberate deviation | Server-required packs are downgraded on the private hop; selected packs are retained but never extracted, merged, decrypted, applied, or presented. | `core/proxy/resource_pack_admission.go`, `crates/resource-pack`, `app/src/runtime/network` | Truthfully reject required packs until bounded stack application and revision-safe renderer/UI swap exist. |
 | VPA-003 | Missing surface | Post-login `Transfer` is forwarded/ignored instead of ending the old game session and starting a bounded replacement. | `core/proxy/proxy.go`, `crates/protocol/src/login.rs` | Add a transfer event, old-session teardown, cache/reset boundary, target validation, and replacement handoff. |
-| VPA-004 | Proven mismatch | Verified blob entries are recreated for each app network worker. Unrelated semantic packet skips abandon pending cached terrain. | `app/src/app.rs`, `app/src/menu/input.rs`, `crates/protocol/src/login.rs` | Land the reviewed app-owned cache and semantic-isolation tranche; keep each resolver session-scoped. |
+| VPA-004 | Implementation landed | Verified blob entries now survive app network-worker replacement through one process-owned cache; unrelated semantic skips leave pending cached terrain intact. | `app/src/app.rs`, `app/src/menu/input.rs`, `crates/protocol/src/login.rs` | Preserve this boundary while the separate cache ordering, miss timing, and persistent-storage gates remain open. |
 | VPA-005 | Proven mismatch | Request-mode retries/unavailable results can mark a column/cohort complete without authoritative sections. | `crates/client-world/src/stream/retries.rs`, `cohort.rs`, `sequencing.rs` | Separate response completion from authoritative section readiness and keep acceptance false after exhaustion. |
 | VPA-006 | Proven mismatch | A malformed request-mode `LevelChunk` can enter required cohort membership before its biome/tail decode succeeds. | `crates/client-world/src/stream/sequencing.rs` | Record required membership only after successful semantic admission, or schedule explicit bounded recovery. |
 | VPA-007 | Proven mismatch | Block-item routes are omitted from the icon carrier; many sprite items are keyed by atlas aliases while UI lookup uses network item identifiers. | `crates/asset-compiler/src/entity/item.rs`, `icon.rs`, `app/src/ui_runtime/presentation.rs` | Add an authority-backed item identity to icon/model route, including rendered block-item icons and family variants. |
-| VPA-008 | Proven mismatch | Hotbar selection sends an empty item, silently loses a full-channel send, and suppresses a same-slot retry. | `crates/protocol/src/item.rs`, `app/src/hotbar.rs` | Land the checked stack-aware, ledger-tristate, latest-wins retry tranche. |
+| VPA-008 | Implementation landed | Hotbar selection sends the checked current ledger prediction, preserves unknown/empty/present, retries a full channel, and cancels stale pending sends on a valid server-forced selection. | `crates/protocol/src/item.rs`, `app/src/hotbar.rs`, `app/src/ui_runtime/inventory_ledger.rs` | Preserve this boundary while selected-store unification and native/live equipment acceptance remain open. |
 | VPA-009 | Proven mismatch | Selected-stack authority is split between the HUD mirror and inventory ledger, so prediction can disagree across inventory, hotbar, viewmodel, equipment, and packets. | `app/src/ui_runtime/gameplay_authority.rs`, `gameplay_hud.rs`, `inventory_ledger.rs` | Make one selected snapshot authority feed every consumer and test accepted/rejected pending mutations. |
 | VPA-010 | Proven mismatch | Raw, analogue, and processed `PlayerAuthInput` vectors collapse to the same processed sample. | `crates/input/src/router.rs`, `app/src/movement.rs` | Preserve device/raw axes and independently measured processing stages through packet construction. |
 | VPA-011 | Proven mismatch | Jump/sneak/sprint flags are derived from held input rather than processed transitions; swim, climb, flight, item-use, and related states are absent. | `app/src/movement/encoding.rs`, `app/src/movement/physics.rs` | Introduce processed movement state and exact per-mode flag witnesses before changing the encoder. |

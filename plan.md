@@ -81,6 +81,16 @@ product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase c
 audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
 outside git.
 
+Two bounded fixes from that audit are locally integrated and independently approved, but not
+pushed: `e21e99b6` makes verified blob entries process-owned across network-worker replacement and
+isolates unrelated semantic skips from pending cache transactions; `a63431b0` through `6c7e2672`
+send the checked current ledger prediction in `MobEquipment`, retain one latest-wins selection
+through backpressure, and cancel stale pending sends on a valid server-forced selection. Fresh
+coordinator protocol/client suites, formatting, strict Clippy, architecture enforcement, and a
+fresh Sol-high re-review passed. These commits close only their bounded implementation defects;
+cache ordering/timing, selected-store unification, item rendering, and native/live acceptance
+remain open.
+
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
