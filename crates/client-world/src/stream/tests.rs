@@ -183,6 +183,42 @@ fn malformed_sub_chunk_payload_is_fatal_but_unknown_result_is_survivable() {
     );
 }
 
+#[test]
+fn extreme_sub_chunk_y_overflow_is_survivable_decode_policy() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.accept_decode_completion(DecodeCompletion {
+        sequence: 1,
+        event: PreparedWorldEvent::InlineLevelChunk {
+            event: LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 0 },
+                payload: Vec::new(),
+            },
+            decoded: Err(world::DecodeError::SubChunkYOverflow {
+                first: i32::MAX,
+                offset: 1,
+            }),
+            duration: std::time::Duration::ZERO,
+        },
+        queue_wait: std::time::Duration::ZERO,
+    });
+    stream.apply_ready();
+
+    assert!(stream.take_fatal_error().is_none());
+    assert_eq!(stream.stats().decode_errors, 1);
+    assert_eq!(stream.pending_decode.len(), 0);
+}
+
 mod light_scheduler;
 
 mod mesh_dependency;

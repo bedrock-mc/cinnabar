@@ -86,7 +86,8 @@ impl DecodeError {
             | Self::TooManyStorages { .. }
             | Self::TooManySubChunks { .. }
             | Self::TooManyBiomeStorages { .. }
-            | Self::SubChunkIndexMismatch { .. } => None,
+            | Self::SubChunkIndexMismatch { .. }
+            | Self::SubChunkYOverflow { .. } => None,
             Self::BlockEntity(error) => match error {
                 BlockEntityError::MissingReservedEntryCount
                 | BlockEntityError::TrailingBytes { .. }
@@ -114,7 +115,6 @@ impl DecodeError {
                 Some("malformed chunk VarInt")
             }
             Self::TrailingBytes { .. } => Some("trailing chunk bytes"),
-            Self::SubChunkYOverflow { .. } => Some("chunk coordinate overflow"),
         }
     }
 }
