@@ -24,6 +24,13 @@ fn uniform(y: i8, runtime_id: u32) -> Vec<u8> {
     bytes
 }
 
+/// Builds one uniform biome storage for transaction-scanning tests.
+fn uniform_biome(runtime_id: u32) -> Vec<u8> {
+    let mut bytes = vec![1];
+    bytes.extend(zig_zag_i32(runtime_id as i32));
+    bytes
+}
+
 #[test]
 fn public_prefix_decode_can_be_committed_without_redecoding() {
     let key = SubChunkKey::new(0, 4, -4, 7);
@@ -103,6 +110,46 @@ fn later_malformed_sub_chunk_produces_no_committable_column() {
     let after = store.sub_chunk(lower_key).unwrap();
     assert!(Arc::ptr_eq(&before, &after));
     assert_eq!(after.runtime_id(0, 0, 0, 0), Some(7));
+}
+
+#[test]
+fn semantic_index_mismatch_cannot_hide_later_malformed_chunk_wire() {
+    let mut later_block_is_truncated = uniform(-3, 11);
+    later_block_is_truncated.push(9);
+    let block_error = DecodedLevelChunk::decode(-4, 2, &later_block_is_truncated).unwrap_err();
+    assert!(block_error.wire_error_reason().is_some());
+
+    let mut later_biome_is_truncated = uniform(-3, 11);
+    later_biome_is_truncated.push(1);
+    let biome_error =
+        DecodedLevelChunk::decode_with_biomes(-4, 1, -4, 1, &later_biome_is_truncated).unwrap_err();
+    assert!(biome_error.wire_error_reason().is_some());
+
+    let mut reserved_prefix_is_missing = uniform(-3, 11);
+    reserved_prefix_is_missing.extend(uniform_biome(4));
+    let tail_error = DecodedLevelChunk::decode_with_biomes_and_block_entities(
+        ChunkKey::new(0, 0, 0),
+        -4,
+        1,
+        -4,
+        1,
+        &reserved_prefix_is_missing,
+    )
+    .unwrap_err();
+    assert!(tail_error.wire_error_reason().is_some());
+}
+
+#[test]
+fn complete_index_mismatch_remains_survivable_decode_policy() {
+    let error = DecodedLevelChunk::decode(-4, 1, &uniform(-3, 11)).unwrap_err();
+    assert_eq!(
+        error,
+        DecodeError::SubChunkIndexMismatch {
+            expected: -4,
+            actual: -3,
+        }
+    );
+    assert!(error.wire_error_reason().is_none());
 }
 
 #[test]

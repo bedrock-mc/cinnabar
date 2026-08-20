@@ -89,31 +89,45 @@ impl DecodedLevelChunk {
         sub_chunk_count: usize,
         payload: &[u8],
     ) -> Result<Self, DecodeError> {
+        let (decoded, semantic_error) =
+            Self::scan_blocks(first_sub_chunk_y, sub_chunk_count, payload)?;
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
+        Ok(decoded)
+    }
+    /// Scans every declared block sub-chunk while deferring the first semantic error.
+    fn scan_blocks(
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        payload: &[u8],
+    ) -> Result<(Self, Option<DecodeError>), DecodeError> {
         if sub_chunk_count > MAX_LEVEL_SUBCHUNKS {
             return Err(DecodeError::TooManySubChunks {
                 count: sub_chunk_count,
                 max: MAX_LEVEL_SUBCHUNKS,
             });
         }
-
         let mut sub_chunks = BTreeMap::new();
         let mut consumed = 0;
+        let mut semantic_error = None;
         for offset in 0..sub_chunk_count {
-            let offset_i32 = i32::try_from(offset).map_err(|_| DecodeError::SubChunkYOverflow {
-                first: first_sub_chunk_y,
-                offset,
-            })?;
-            let expected_y = first_sub_chunk_y.checked_add(offset_i32).ok_or(
-                DecodeError::SubChunkYOverflow {
+            let offset_i32 = i32::try_from(offset).expect("bounded sub-chunk count fits i32");
+            let Some(expected_y) = first_sub_chunk_y.checked_add(offset_i32) else {
+                return Err(semantic_error.unwrap_or(DecodeError::SubChunkYOverflow {
                     first: first_sub_chunk_y,
                     offset,
-                },
-            )?;
-            let (sub_chunk, used) = SubChunk::decode_prefix(&payload[consumed..])?;
+                }));
+            };
+            let (sub_chunk, used) = match SubChunk::decode_prefix(&payload[consumed..]) {
+                Ok(decoded) => decoded,
+                Err(error) if error.wire_error_reason().is_some() => return Err(error),
+                Err(error) => return Err(semantic_error.unwrap_or(error)),
+            };
             if let Some(actual) = sub_chunk.y_index() {
                 let actual = i32::from(actual);
                 if actual != expected_y {
-                    return Err(DecodeError::SubChunkIndexMismatch {
+                    semantic_error.get_or_insert(DecodeError::SubChunkIndexMismatch {
                         expected: expected_y,
                         actual,
                     });
@@ -124,15 +138,17 @@ impl DecodedLevelChunk {
                 sub_chunks.insert(expected_y, Arc::new(sub_chunk));
             }
         }
-        Ok(Self {
-            sub_chunks,
-            biomes: None,
-            block_entities: None,
-            block_bytes_consumed: consumed,
-            bytes_consumed: consumed,
-        })
+        Ok((
+            Self {
+                sub_chunks,
+                biomes: None,
+                block_entities: None,
+                block_bytes_consumed: consumed,
+                bytes_consumed: consumed,
+            },
+            semantic_error,
+        ))
     }
-
     /// Decodes a complete inline LevelChunk block prefix followed by its full
     /// dense biome column, committing neither if any storage is malformed.
     pub fn decode_with_biomes(
@@ -142,20 +158,44 @@ impl DecodedLevelChunk {
         biome_storage_count: usize,
         payload: &[u8],
     ) -> Result<Self, DecodeError> {
-        let mut decoded = Self::decode(first_sub_chunk_y, sub_chunk_count, payload)?;
-        let biomes = DecodedBiomeColumn::decode(
+        let (decoded, semantic_error) = Self::scan_biomes(
+            first_sub_chunk_y,
+            sub_chunk_count,
+            biome_base_sub_chunk_y,
+            biome_storage_count,
+            payload,
+        )?;
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
+        Ok(decoded)
+    }
+    /// Scans the block and biome prefixes while preserving the first non-wire error.
+    fn scan_biomes(
+        first_sub_chunk_y: i32,
+        sub_chunk_count: usize,
+        biome_base_sub_chunk_y: i32,
+        biome_storage_count: usize,
+        payload: &[u8],
+    ) -> Result<(Self, Option<DecodeError>), DecodeError> {
+        let (mut decoded, semantic_error) =
+            Self::scan_blocks(first_sub_chunk_y, sub_chunk_count, payload)?;
+        let biomes = match DecodedBiomeColumn::decode(
             biome_base_sub_chunk_y,
             biome_storage_count,
             &payload[decoded.block_bytes_consumed..],
-        )?;
+        ) {
+            Ok(decoded) => decoded,
+            Err(error) if error.wire_error_reason().is_some() => return Err(error),
+            Err(error) => return Err(semantic_error.unwrap_or(error)),
+        };
         decoded.bytes_consumed = decoded
             .block_bytes_consumed
             .checked_add(biomes.bytes_consumed())
             .expect("decoded prefixes cannot exceed the input slice");
         decoded.biomes = Some(biomes);
-        Ok(decoded)
+        Ok((decoded, semantic_error))
     }
-
     /// Decodes the complete inline LevelChunk transaction: packed blocks,
     /// dense biomes, the border-block prefix, and every sparse block entity.
     pub fn decode_with_biomes_and_block_entities(
@@ -166,22 +206,29 @@ impl DecodedLevelChunk {
         biome_storage_count: usize,
         payload: &[u8],
     ) -> Result<Self, DecodeError> {
-        let mut decoded = Self::decode_with_biomes(
+        let (mut decoded, semantic_error) = Self::scan_biomes(
             first_sub_chunk_y,
             sub_chunk_count,
             biome_base_sub_chunk_y,
             biome_storage_count,
             payload,
         )?;
-        let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
+        let block_entities = match DecodedBlockEntities::decode_level_chunk_tail(
             chunk,
             &payload[decoded.bytes_consumed..],
-        )?;
+        ) {
+            Ok(decoded) => decoded,
+            Err(error) if error.wire_error_reason().is_some() => return Err(error.into()),
+            Err(error) => return Err(semantic_error.unwrap_or_else(|| error.into())),
+        };
         decoded.bytes_consumed = decoded
             .bytes_consumed
             .checked_add(block_entities.bytes_consumed())
             .expect("decoded prefixes cannot exceed the input slice");
         decoded.block_entities = Some(block_entities);
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
         Ok(decoded)
     }
 

@@ -119,6 +119,45 @@ fn chunk_tail_requires_zero_reserved_prefix_and_in_scope_unique_positions() {
 }
 
 #[test]
+fn semantic_entity_scope_error_cannot_hide_later_truncated_entity() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let foreign = block_entity("Chest", [32, 64, 0]);
+    let mut malformed_tail = vec![0];
+    malformed_tail.extend_from_slice(&foreign);
+    malformed_tail.push(10);
+
+    let malformed = DecodedBlockEntities::decode_level_chunk_tail(chunk, &malformed_tail)
+        .expect_err("later entity is truncated");
+    assert!(malformed.wire_error_reason().is_some());
+
+    let mut complete_tail = vec![0];
+    complete_tail.extend_from_slice(&foreign);
+    let semantic = DecodedBlockEntities::decode_level_chunk_tail(chunk, &complete_tail)
+        .expect_err("complete foreign position is semantic");
+    assert!(matches!(semantic, BlockEntityError::OutsideChunk { .. }));
+    assert!(semantic.wire_error_reason().is_none());
+}
+
+#[test]
+fn semantic_subchunk_index_mismatch_cannot_hide_truncated_entity_tail() {
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    let mut malformed = uniform_sub_chunk(-3, 9);
+    malformed.push(10);
+    let wire = DecodedSubChunk::decode(key, &malformed).unwrap_err();
+    assert!(wire.wire_error_reason().is_some());
+
+    let semantic = DecodedSubChunk::decode(key, &uniform_sub_chunk(-3, 9)).unwrap_err();
+    assert!(matches!(
+        semantic,
+        world::DecodeError::SubChunkIndexMismatch {
+            expected: -4,
+            actual: -3,
+        }
+    ));
+    assert!(semantic.wire_error_reason().is_none());
+}
+
+#[test]
 fn inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail() {
     let chunk = ChunkKey::new(0, 1, 2);
     let sub_chunk = SubChunkKey::from_chunk(chunk, -4);

@@ -144,7 +144,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
                 dimension: 0,
                 position,
-                nbt: vec![1],
+                nbt: vec![1, 0, 0],
             }),
         )
         .unwrap();

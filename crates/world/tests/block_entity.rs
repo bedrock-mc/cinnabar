@@ -132,8 +132,22 @@ fn network_little_endian_prefix_retains_exact_bytes_and_root_identity() {
 
 #[test]
 fn root_must_be_a_compound() {
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&[1]),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
     let error = BlockEntityNbt::decode_prefix(&[1, 0, 7]).unwrap_err();
     assert_eq!(error, BlockEntityNbtError::RootNotCompound { tag: 1 });
+
+    let mut semantic_then_policy = vec![9, 0, 1];
+    zigzag_i32(
+        i32::try_from(MAX_NBT_COLLECTION_LENGTH + 1).unwrap(),
+        &mut semantic_then_policy,
+    );
+    assert_eq!(
+        BlockEntityNbt::decode_prefix(&semantic_then_policy).unwrap_err(),
+        BlockEntityNbtError::RootNotCompound { tag: 9 }
+    );
 }
 
 #[test]
@@ -156,6 +170,23 @@ fn malformed_or_ambiguous_root_fields_are_rejected() {
     assert_eq!(
         BlockEntityNbt::decode_prefix(&partial_position).unwrap_err(),
         BlockEntityNbtError::PartialPosition
+    );
+
+    let mut semantic_then_policy = vec![10, 0];
+    named_header(3, b"id", &mut semantic_then_policy);
+    zigzag_i32(0, &mut semantic_then_policy);
+    named_header(8, b"later", &mut semantic_then_policy);
+    var_u32(
+        u32::try_from(MAX_NBT_STRING_BYTES + 1).unwrap(),
+        &mut semantic_then_policy,
+    );
+    assert_eq!(
+        BlockEntityNbt::decode_prefix(&semantic_then_policy).unwrap_err(),
+        BlockEntityNbtError::InvalidRootFieldType {
+            field: "id",
+            expected: 8,
+            actual: 3,
+        }
     );
 }
 

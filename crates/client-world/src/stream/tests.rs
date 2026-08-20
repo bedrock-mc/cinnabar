@@ -272,7 +272,7 @@ fn semantic_live_block_entity_shape_remains_survivable() {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
                 dimension: 0,
                 position: [0, 0, 0],
-                nbt: vec![1],
+                nbt: vec![1, 0, 0],
             }),
         )
         .expect("admit semantic block-entity shape");

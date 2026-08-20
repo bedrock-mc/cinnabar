@@ -83,28 +83,57 @@ impl BlockEntityNbt {
     /// encoded bytes. Trailing input belongs to subsequent block entities or
     /// the containing packet and is not consumed.
     pub fn decode_prefix(input: &[u8]) -> Result<(Self, usize), BlockEntityNbtError> {
+        let (nbt, consumed, semantic_error) = Self::scan_prefix(input)?;
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
+        Ok((nbt, consumed))
+    }
+
+    /// Structurally scans one complete named root value and returns any deferred semantic error.
+    fn scan_prefix(
+        input: &[u8],
+    ) -> Result<(Self, usize, Option<BlockEntityNbtError>), BlockEntityNbtError> {
         let mut reader = Reader::new(input);
         let root = reader.read_u8("root tag")?;
-        if root != 10 {
-            return Err(BlockEntityNbtError::RootNotCompound { tag: root });
-        }
         let _root_name = reader.read_string("root name")?;
         let mut state = ScanState::default();
         state.visit_tag()?;
+        if root != 10 {
+            let mut semantic_error = Some(BlockEntityNbtError::RootNotCompound { tag: root });
+            prefer_wire_or_first_semantic(
+                scan_payload(root, &mut reader, &mut state, 0),
+                &mut semantic_error,
+            )?;
+            let consumed = reader.position();
+            return Ok((
+                Self {
+                    bytes: Arc::from(&input[..consumed]),
+                    id: None,
+                    embedded_position: None,
+                    note_candidate: RootByteCandidate::Absent,
+                    powered_candidate: RootByteCandidate::Absent,
+                },
+                consumed,
+                semantic_error,
+            ));
+        }
         state.enter_container(0)?;
 
         let mut id = None;
         let mut position = [None; 3];
         let mut note_candidate = RootByteCandidate::Absent;
         let mut powered_candidate = RootByteCandidate::Absent;
-        let mut semantic_error = None;
+        let mut semantic_error: Option<BlockEntityNbtError> = None;
         loop {
-            let tag = reader.read_u8("compound tag")?;
+            let tag =
+                prefer_wire_or_first_semantic(reader.read_u8("compound tag"), &mut semantic_error)?;
             if tag == 0 {
                 break;
             }
-            state.visit_tag()?;
-            let name = reader.read_string("tag name")?;
+            prefer_wire_or_first_semantic(state.visit_tag(), &mut semantic_error)?;
+            let name =
+                prefer_wire_or_first_semantic(reader.read_string("tag name"), &mut semantic_error)?;
             match name {
                 "id" => {
                     if tag != 8 {
@@ -113,10 +142,16 @@ impl BlockEntityNbt {
                             expected: 8,
                             actual: tag,
                         });
-                        scan_payload(tag, &mut reader, &mut state, 1)?;
+                        prefer_wire_or_first_semantic(
+                            scan_payload(tag, &mut reader, &mut state, 1),
+                            &mut semantic_error,
+                        )?;
                         continue;
                     }
-                    let value = Arc::<str>::from(reader.read_string("id value")?);
+                    let value = Arc::<str>::from(prefer_wire_or_first_semantic(
+                        reader.read_string("id value"),
+                        &mut semantic_error,
+                    )?);
                     if id.is_some() {
                         semantic_error
                             .get_or_insert(BlockEntityNbtError::DuplicateRootField { field: "id" });
@@ -137,10 +172,16 @@ impl BlockEntityNbt {
                             expected: 3,
                             actual: tag,
                         });
-                        scan_payload(tag, &mut reader, &mut state, 1)?;
+                        prefer_wire_or_first_semantic(
+                            scan_payload(tag, &mut reader, &mut state, 1),
+                            &mut semantic_error,
+                        )?;
                         continue;
                     }
-                    let value = reader.read_zigzag_i32("position")?;
+                    let value = prefer_wire_or_first_semantic(
+                        reader.read_zigzag_i32("position"),
+                        &mut semantic_error,
+                    )?;
                     if position[slot].is_some() {
                         semantic_error
                             .get_or_insert(BlockEntityNbtError::DuplicateRootField { field });
@@ -148,24 +189,29 @@ impl BlockEntityNbt {
                         position[slot] = Some(value);
                     }
                 }
-                "note" => {
-                    scan_root_byte_candidate(&mut note_candidate, tag, &mut reader, &mut state)?
-                }
-                "powered" => {
-                    scan_root_byte_candidate(&mut powered_candidate, tag, &mut reader, &mut state)?
-                }
-                _ => scan_payload(tag, &mut reader, &mut state, 1)?,
+                "note" => prefer_wire_or_first_semantic(
+                    scan_root_byte_candidate(&mut note_candidate, tag, &mut reader, &mut state),
+                    &mut semantic_error,
+                )?,
+                "powered" => prefer_wire_or_first_semantic(
+                    scan_root_byte_candidate(&mut powered_candidate, tag, &mut reader, &mut state),
+                    &mut semantic_error,
+                )?,
+                _ => prefer_wire_or_first_semantic(
+                    scan_payload(tag, &mut reader, &mut state, 1),
+                    &mut semantic_error,
+                )?,
             }
         }
 
         let embedded_position = match position {
             [None, None, None] => None,
             [Some(x), Some(y), Some(z)] => Some([x, y, z]),
-            _ => return Err(BlockEntityNbtError::PartialPosition),
+            _ => {
+                semantic_error.get_or_insert(BlockEntityNbtError::PartialPosition);
+                None
+            }
         };
-        if let Some(error) = semantic_error {
-            return Err(error);
-        }
         let consumed = reader.position();
         Ok((
             Self {
@@ -176,6 +222,7 @@ impl BlockEntityNbt {
                 powered_candidate,
             },
             consumed,
+            semantic_error,
         ))
     }
 
@@ -256,11 +303,14 @@ impl DecodedBlockEntities {
         key: BlockEntityKey,
         payload: &[u8],
     ) -> Result<BlockEntityNbt, BlockEntityError> {
-        let (nbt, consumed) = BlockEntityNbt::decode_prefix(payload)?;
+        let (nbt, consumed, semantic_error) = BlockEntityNbt::scan_prefix(payload)?;
         if consumed != payload.len() {
             return Err(BlockEntityError::TrailingBytes {
                 remaining: payload.len() - consumed,
             });
+        }
+        if let Some(error) = semantic_error {
+            return Err(error.into());
         }
         if let Some(actual) = nbt.embedded_position()
             && actual != key.position()
@@ -312,17 +362,28 @@ pub struct DecodedSubChunk {
 impl DecodedSubChunk {
     pub fn decode(key: SubChunkKey, payload: &[u8]) -> Result<Self, DecodeError> {
         let (sub_chunk, consumed) = SubChunk::decode_prefix(payload)?;
-        if let Some(actual) = sub_chunk.y_index() {
+        let semantic_error = if let Some(actual) = sub_chunk.y_index() {
             let actual = i32::from(actual);
             if actual != key.y {
-                return Err(DecodeError::SubChunkIndexMismatch {
+                Some(DecodeError::SubChunkIndexMismatch {
                     expected: key.y,
                     actual,
-                });
+                })
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
         let block_entities =
-            DecodedBlockEntities::decode_sub_chunk_tail(key, &payload[consumed..])?;
+            match DecodedBlockEntities::decode_sub_chunk_tail(key, &payload[consumed..]) {
+                Ok(decoded) => decoded,
+                Err(error) if error.wire_error_reason().is_some() => return Err(error.into()),
+                Err(error) => return Err(semantic_error.unwrap_or_else(|| error.into())),
+            };
+        if let Some(error) = semantic_error {
+            return Err(error);
+        }
         Ok(Self {
             sub_chunk,
             block_entities,
@@ -363,14 +424,30 @@ fn decode_scoped_entities(
 ) -> Result<DecodedBlockEntities, BlockEntityError> {
     let mut entities = BTreeMap::new();
     let mut consumed = 0;
+    let mut scanned_entities = 0;
+    let mut semantic_error = None;
     while consumed < payload.len() {
-        if entities.len() == max_entities {
-            return Err(BlockEntityError::TooManyEntities { max: max_entities });
+        if scanned_entities == max_entities {
+            return Err(
+                semantic_error.unwrap_or(BlockEntityError::TooManyEntities { max: max_entities })
+            );
         }
-        let (nbt, used) = BlockEntityNbt::decode_prefix(&payload[consumed..])?;
-        let position = nbt
-            .embedded_position()
-            .ok_or(BlockEntityError::MissingPosition)?;
+        let scan = BlockEntityNbt::scan_prefix(&payload[consumed..]);
+        let (nbt, used, nbt_semantic_error) = match scan {
+            Ok(scan) => scan,
+            Err(error) if error.wire_error_reason().is_some() => return Err(error.into()),
+            Err(error) => return Err(semantic_error.unwrap_or_else(|| error.into())),
+        };
+        scanned_entities += 1;
+        consumed += used;
+        if let Some(error) = nbt_semantic_error {
+            semantic_error.get_or_insert(error.into());
+            continue;
+        }
+        let Some(position) = nbt.embedded_position() else {
+            semantic_error.get_or_insert(BlockEntityError::MissingPosition);
+            continue;
+        };
         let dimension = match scope {
             BlockEntityScope::Chunk(key) => key.dimension,
             BlockEntityScope::SubChunk(key) => key.dimension,
@@ -378,23 +455,29 @@ fn decode_scoped_entities(
         let key = BlockEntityKey::new(dimension, position[0], position[1], position[2]);
         match scope {
             BlockEntityScope::Chunk(expected) if key.chunk() != expected => {
-                return Err(BlockEntityError::OutsideChunk {
+                semantic_error.get_or_insert(BlockEntityError::OutsideChunk {
                     expected,
                     actual: key,
                 });
+                continue;
             }
             BlockEntityScope::SubChunk(expected) if key.sub_chunk() != expected => {
-                return Err(BlockEntityError::OutsideSubChunk {
+                semantic_error.get_or_insert(BlockEntityError::OutsideSubChunk {
                     expected,
                     actual: key,
                 });
+                continue;
             }
             BlockEntityScope::Chunk(_) | BlockEntityScope::SubChunk(_) => {}
         }
-        if entities.insert(key, Arc::new(nbt)).is_some() {
-            return Err(BlockEntityError::DuplicatePosition { key });
+        if entities.contains_key(&key) {
+            semantic_error.get_or_insert(BlockEntityError::DuplicatePosition { key });
+            continue;
         }
-        consumed += used;
+        entities.insert(key, Arc::new(nbt));
+    }
+    if let Some(error) = semantic_error {
+        return Err(error);
     }
     Ok(DecodedBlockEntities {
         entities,
@@ -451,6 +534,18 @@ impl BlockEntityError {
             Self::Nbt(error) => error.wire_error_reason(),
             _ => None,
         }
+    }
+}
+
+/// Lets later malformed wire override a deferred semantic error while preserving first policy.
+fn prefer_wire_or_first_semantic<T>(
+    result: Result<T, BlockEntityNbtError>,
+    semantic_error: &mut Option<BlockEntityNbtError>,
+) -> Result<T, BlockEntityNbtError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) if error.wire_error_reason().is_some() => Err(error),
+        Err(error) => Err(semantic_error.take().unwrap_or(error)),
     }
 }
 

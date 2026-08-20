@@ -881,6 +881,8 @@ fn decode_empty_mob_equipment(
 }
 
 #[cfg(test)]
+mod raw_inventory_provenance_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod wire_provenance_tests;

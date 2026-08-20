@@ -494,16 +494,26 @@ pub(crate) fn validate_raw_inventory_packet(
     raw: &jolyne::raw::RawPacket,
 ) -> Result<(), InventoryPacketError> {
     let mut body = raw.body().clone();
-    match raw.id {
+    let mut semantic_error = None;
+    let scanned = match raw.id {
         McpePacketName::InventoryContentPacket => {
             read_var_i32(&mut body)?;
             let count = read_count(&mut body)?;
-            validate_slot_count(count)?;
+            if count > MAX_CONTAINER_SLOTS {
+                defer_inventory_error(
+                    &mut semantic_error,
+                    InventoryPacketError::TooManySlots {
+                        count,
+                        max: MAX_CONTAINER_SLOTS,
+                    },
+                );
+            }
             for _ in 0..count {
-                scan_item_descriptor(&mut body)?;
+                scan_item_descriptor(&mut body, &mut semantic_error)?;
             }
             scan_full_container(&mut body)?;
-            scan_item_descriptor(&mut body)?;
+            scan_item_descriptor(&mut body, &mut semantic_error)?;
+            true
         }
         McpePacketName::InventorySlotPacket => {
             // The container ID is a plain byte in 1.26.40, not a varint.
@@ -513,23 +523,49 @@ pub(crate) fn validate_raw_inventory_packet(
                 scan_full_container(&mut body)?;
             }
             if read_presence(&mut body)? {
-                scan_item_descriptor(&mut body)?;
+                scan_item_descriptor(&mut body, &mut semantic_error)?;
             }
-            scan_item_descriptor(&mut body)?;
+            scan_item_descriptor(&mut body, &mut semantic_error)?;
+            true
         }
-        McpePacketName::ItemStackResponsePacket => scan_stack_responses(&mut body)?,
-        _ => {}
+        McpePacketName::ItemStackResponsePacket => {
+            scan_stack_responses(&mut body, &mut semantic_error)?;
+            true
+        }
+        _ => false,
+    };
+    if scanned && body.has_remaining() {
+        return Err(InventoryPacketError::MalformedWire);
+    }
+    if let Some(error) = semantic_error {
+        return Err(error);
     }
     Ok(())
 }
 
-fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+/// Retains the first semantic or policy error while structural scanning continues.
+fn defer_inventory_error(
+    semantic_error: &mut Option<InventoryPacketError>,
+    error: InventoryPacketError,
+) {
+    if semantic_error.is_none() {
+        *semantic_error = Some(error);
+    }
+}
+
+fn scan_stack_responses(
+    body: &mut Bytes,
+    semantic_error: &mut Option<InventoryPacketError>,
+) -> Result<(), InventoryPacketError> {
     let response_count = read_count(body)?;
     if response_count > MAX_STACK_RESPONSES {
-        return Err(InventoryPacketError::TooManyResponses {
-            count: response_count,
-            max: MAX_STACK_RESPONSES,
-        });
+        defer_inventory_error(
+            semantic_error,
+            InventoryPacketError::TooManyResponses {
+                count: response_count,
+                max: MAX_STACK_RESPONSES,
+            },
+        );
     }
     for _ in 0..response_count {
         take_u8(body)?;
@@ -542,19 +578,25 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
         }
         let container_count = read_count(body)?;
         if container_count > MAX_RESPONSE_CONTAINERS {
-            return Err(InventoryPacketError::TooManyResponseContainers {
-                count: container_count,
-                max: MAX_RESPONSE_CONTAINERS,
-            });
+            defer_inventory_error(
+                semantic_error,
+                InventoryPacketError::TooManyResponseContainers {
+                    count: container_count,
+                    max: MAX_RESPONSE_CONTAINERS,
+                },
+            );
         }
         for _ in 0..container_count {
             scan_full_container(body)?;
             let slot_count = read_count(body)?;
             if slot_count > MAX_CONTAINER_SLOTS {
-                return Err(InventoryPacketError::TooManyResponseSlots {
-                    count: slot_count,
-                    max: MAX_CONTAINER_SLOTS,
-                });
+                defer_inventory_error(
+                    semantic_error,
+                    InventoryPacketError::TooManyResponseSlots {
+                        count: slot_count,
+                        max: MAX_CONTAINER_SLOTS,
+                    },
+                );
             }
             for _ in 0..slot_count {
                 // requested_slot, slot, amount
@@ -567,8 +609,8 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
                 }
                 // The two custom names are one redactable string, but both halves
                 // are unconditional adjacent strings on the wire.
-                scan_response_name(body)?;
-                scan_response_name(body)?;
+                scan_response_name(body, semantic_error)?;
+                scan_response_name(body, semantic_error)?;
                 read_var_i32(body)?;
             }
         }
@@ -576,13 +618,19 @@ fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
     Ok(())
 }
 
-fn scan_response_name(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+fn scan_response_name(
+    body: &mut Bytes,
+    semantic_error: &mut Option<InventoryPacketError>,
+) -> Result<(), InventoryPacketError> {
     let length = read_count(body)?;
     if length > MAX_RESPONSE_NAME_BYTES {
-        return Err(InventoryPacketError::ResponseNameTooLong {
-            bytes: length,
-            max: MAX_RESPONSE_NAME_BYTES,
-        });
+        defer_inventory_error(
+            semantic_error,
+            InventoryPacketError::ResponseNameTooLong {
+                bytes: length,
+                max: MAX_RESPONSE_NAME_BYTES,
+            },
+        );
     }
     take_bytes(body, length)
 }
@@ -594,23 +642,32 @@ fn scan_response_name(body: &mut Bytes) -> Result<(), InventoryPacketError> {
 /// net ID (presence byte then one zigzag varint -- the old model wrote two
 /// varints here for its `empty`/`id` pair), `block_runtime_id` varint, and the
 /// length-prefixed user-data buffer.
-fn scan_item_descriptor(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+fn scan_item_descriptor(
+    body: &mut Bytes,
+    semantic_error: &mut Option<InventoryPacketError>,
+) -> Result<(), InventoryPacketError> {
     take_bytes(body, 4)?;
     read_var_i32(body)?;
     if read_presence(body)? {
         read_var_i32(body)?;
     }
     read_var_i32(body)?;
-    scan_item_extra(body)
+    scan_item_extra(body, semantic_error)
 }
 
-fn scan_item_extra(body: &mut Bytes) -> Result<(), InventoryPacketError> {
+fn scan_item_extra(
+    body: &mut Bytes,
+    semantic_error: &mut Option<InventoryPacketError>,
+) -> Result<(), InventoryPacketError> {
     let bytes = read_count(body)?;
     if bytes > MAX_ITEM_EXTRA_BYTES {
-        return Err(InventoryPacketError::ItemExtraTooLarge {
-            bytes,
-            max: MAX_ITEM_EXTRA_BYTES,
-        });
+        defer_inventory_error(
+            semantic_error,
+            InventoryPacketError::ItemExtraTooLarge {
+                bytes,
+                max: MAX_ITEM_EXTRA_BYTES,
+            },
+        );
     }
     take_bytes(body, bytes)
 }

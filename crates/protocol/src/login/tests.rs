@@ -470,8 +470,8 @@ fn live_inventory_content_checks_slot_count_before_owned_decoder() {
     assert!(!decoder_called.get());
     assert!(matches!(
         error,
-        ProtocolError::World(crate::WorldPacketError::Inventory(
-            crate::InventoryPacketError::TooManySlots { .. }
+        ProtocolError::World(crate::WorldPacketError::Wire(
+            crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
         ))
     ));
 }
@@ -533,7 +533,9 @@ fn live_stack_response_checks_nested_counts_before_owned_decoder() {
         assert!(
             matches!(
                 error,
-                ProtocolError::World(crate::WorldPacketError::Inventory(_))
+                ProtocolError::World(crate::WorldPacketError::Wire(
+                    crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
+                ))
             ),
             "unexpected {label} error: {error:?}"
         );
@@ -568,8 +570,8 @@ fn live_inventory_items_check_extra_length_before_owned_decoder() {
         assert!(!decoder_called.get());
         assert!(matches!(
             error,
-            ProtocolError::World(crate::WorldPacketError::Inventory(
-                crate::InventoryPacketError::ItemExtraTooLarge { .. }
+            ProtocolError::World(crate::WorldPacketError::Wire(
+                crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
             ))
         ));
     }
