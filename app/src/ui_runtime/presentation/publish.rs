@@ -103,7 +103,6 @@ pub(crate) fn publish_ui_runtime(
         });
     }
     runtime.expire_gameplay_effects(now_millis);
-    runtime.observe_selected_item_identity(now_millis);
     let skin = client_world.stream.as_ref().and_then(|stream| {
         let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
         let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
@@ -227,6 +226,7 @@ pub(crate) fn refresh_hud_frame(
         .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
     let mut hotbar_durability = [None; 9];
     let mut hotbar_icons = [None; 9];
+    let mut hotbar_stacks: [Option<protocol::NetworkItemStack>; 9] = Default::default();
     let mut inventory_icons = super::hud_layout::InventoryIcons::default();
     for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
         if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
@@ -248,13 +248,29 @@ pub(crate) fn refresh_hud_frame(
             .as_deref()
             .and_then(|id| presentation.item_icon(id, stack.metadata))
     });
+    let selected_snapshot = runtime.selected_stack_snapshot();
+    let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
+    let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown
+        | crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => None,
+    });
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
-        if let Some(stack) = runtime.presented_hotbar_stack(slot as u8) {
+        let slot = slot as u8;
+        let stack = if selected_slot == Some(slot) {
+            selected_stack
+        } else if runtime.gameplay_hud().hotbar_known() {
+            runtime.gameplay_hud().hotbar_stack(slot)
+        } else {
+            None
+        };
+        if let Some(stack) = stack {
             let identifier = resolve_identifier(stack);
             *durability = item_facts::durability_fraction(stack, identifier.as_deref());
-            hotbar_icons[slot] = identifier
+            hotbar_icons[usize::from(slot)] = identifier
                 .as_deref()
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
+            hotbar_stacks[usize::from(slot)] = Some(stack.clone());
         }
     }
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
@@ -280,16 +296,17 @@ pub(crate) fn refresh_hud_frame(
                 .and_then(|id| presentation.item_icon(id, stack.metadata))
         })
     });
-    let held_item_icon = runtime.selected_stack().and_then(|stack| {
+    let held_item_icon = selected_stack.and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
             .and_then(|id| presentation.item_icon(id, stack.metadata))
     });
     presentation.set_item_viewmodels(held_item_icon, offhand_icon);
     let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
-    let selected_item_name = runtime.selected_stack().and_then(|stack| {
+    let selected_item_name = selected_stack.and_then(|stack| {
         resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
     });
+    let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
         stream
             .filter(|stream| {
@@ -301,10 +318,12 @@ pub(crate) fn refresh_hud_frame(
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let player_preview_icon = presentation.player_preview_icon();
     let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
+    runtime.observe_selected_item_identity_value(selected_identity, now_millis);
     let frame = presentation.hud_frame_mut();
     frame.first_person = first_person;
     frame.mount_health = mount_health;
     frame.hotbar_durability = hotbar_durability;
+    frame.hotbar_stacks = hotbar_stacks;
     frame.offhand_durability = offhand_durability;
     frame.hotbar_icons = hotbar_icons;
     frame.inventory_icons = inventory_icons;

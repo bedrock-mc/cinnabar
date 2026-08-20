@@ -441,6 +441,7 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
 
     let mut frame = first_person_frame();
     frame.selected_item_name = Some(std::sync::Arc::from("Emerald"));
+    frame.hotbar_stacks[0] = Some(item(5, 16));
     frame.hotbar_durability[0] = Some(0.5);
     *presentation.hud_frame_mut() = frame;
 

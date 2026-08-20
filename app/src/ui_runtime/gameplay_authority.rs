@@ -8,6 +8,16 @@ use protocol::{ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, InventoryEv
 use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
+use crate::ui_runtime::inventory_ledger::PlayerInventorySlot;
+
+/// One borrowed view of the selected hotbar slot and its tri-state stack authority.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct SelectedStackSnapshot<'a> {
+    /// The selected physical hotbar slot.
+    pub(crate) slot: u8,
+    /// The authoritative, predicted, or bounded bootstrap state for that slot.
+    pub(crate) state: PlayerInventorySlot<'a>,
+}
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
 const MILLIS_PER_SERVER_TICK: u64 = 50;
@@ -139,6 +149,7 @@ impl UiRuntime {
                 self.local_selected_equipment
                     .as_ref()
                     .map(|equipment| equipment.event.selected_slot)
+                    .filter(|slot| *slot < protocol::HOTBAR_SLOT_COUNT)
             })
             .or_else(|| {
                 self.player_game_mode
@@ -147,19 +158,34 @@ impl UiRuntime {
             })
     }
 
-    /// The authoritative stack in the selected hotbar slot: inventory content
-    /// when known, otherwise the last main-hand MobEquipment echo for the same
-    /// slot. `None` when the slot is empty or contents are unknown.
-    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
+    /// Borrows the selected slot and its one tri-state stack authority.
+    pub(crate) fn selected_stack_snapshot(&self) -> Option<SelectedStackSnapshot<'_>> {
         let slot = self.selected_hotbar_slot()?;
-        if self.gameplay_hud.hotbar_known() {
-            return self.gameplay_hud.hotbar_stack(slot);
+        let ledger_state = self.inventory_ledger.slot_state(slot)?;
+        let state = match ledger_state {
+            PlayerInventorySlot::Unknown => self
+                .local_selected_equipment
+                .as_ref()
+                .filter(|equipment| equipment.event.selected_slot == slot)
+                .map_or(PlayerInventorySlot::Unknown, |equipment| {
+                    if equipment.event.stack.is_empty() {
+                        PlayerInventorySlot::Empty
+                    } else {
+                        PlayerInventorySlot::Present(&equipment.event.stack)
+                    }
+                }),
+            known => known,
+        };
+        Some(SelectedStackSnapshot { slot, state })
+    }
+
+    /// Returns the present selected stack, preserving the existing optional API.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
+        match self.selected_stack_snapshot()?.state {
+            PlayerInventorySlot::Present(stack) => Some(stack),
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => None,
         }
-        self.local_selected_equipment
-            .as_ref()
-            .filter(|equipment| equipment.event.selected_slot == slot)
-            .map(|equipment| &equipment.event.stack)
-            .filter(|stack| !stack.is_empty())
     }
 
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
@@ -169,12 +195,12 @@ impl UiRuntime {
     /// The stack presented in one hotbar cell: the authoritative inventory
     /// mirror when known, otherwise the MobEquipment echo for the selected
     /// slot — authoritative before any container content has arrived.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn presented_hotbar_stack(&self, slot: u8) -> Option<&protocol::NetworkItemStack> {
-        self.gameplay_hud.hotbar_stack(slot).or_else(|| {
-            (self.selected_hotbar_slot() == Some(slot))
-                .then(|| self.selected_stack())
-                .flatten()
-        })
+        if self.selected_hotbar_slot() != Some(slot) {
+            return self.gameplay_hud.hotbar_stack(slot);
+        }
+        self.selected_stack()
     }
 
     /// The estimated authoritative tick at `now_millis`: the last observed
@@ -242,10 +268,20 @@ impl UiRuntime {
     /// Refreshes the selected-item identity clock. Runs before presentation so
     /// the label timer starts when the authoritative selection (slot or
     /// contents) changes, exactly like the Java reference behavior.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn observe_selected_item_identity(&mut self, now_millis: u64) {
         let identity = self
             .selected_stack()
             .map(|stack| (stack.network_id, stack.metadata));
+        self.observe_selected_item_identity_value(identity, now_millis);
+    }
+
+    /// Updates the selected-item clock from an already-sampled frame identity.
+    pub(crate) fn observe_selected_item_identity_value(
+        &mut self,
+        identity: Option<(i32, u32)>,
+        now_millis: u64,
+    ) {
         if identity != self.last_selected_identity {
             self.last_selected_identity = identity;
             self.last_selected_identity_change_millis = if identity.is_some() {

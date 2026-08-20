@@ -105,12 +105,18 @@ fn flush_pending_hotbar_selection(
         return;
     };
 
-    let packet = match runtime.inventory_ledger().slot_state(target) {
-        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown) | None => return,
-        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty) => {
+    let Some(snapshot) = runtime.selected_stack_snapshot() else {
+        return;
+    };
+    if snapshot.slot != target {
+        return;
+    }
+    let packet = match snapshot.state {
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => return,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
             select_hotbar_slot_packet(runtime_id, target, &protocol::NetworkItemStack::empty())
         }
-        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack)) => {
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
             select_hotbar_slot_packet(runtime_id, target, stack)
         }
     };
@@ -197,6 +203,69 @@ mod tests {
 
         assert_eq!(sends, 0);
         assert_eq!(runtime.pending_hotbar_selection(), Some(2));
+        assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn matching_equipment_bootstrap_sends_while_ledger_slot_is_unknown() {
+        let mut runtime = identified_runtime();
+        let equipment_stack = present_stack();
+        runtime.queue_local_hotbar_selection(2);
+        runtime.retain_local_selected_equipment(
+            1,
+            protocol::EquipmentEvent {
+                actor_runtime_id: 42,
+                stack: equipment_stack.clone(),
+                inventory_slot: 2,
+                selected_slot: 2,
+                window_id: 0,
+                handedness: Some(protocol::ActorHandedness::Right),
+            },
+        );
+        let mut sent = None;
+        let mut fatal = None;
+
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            sent = Some(packet);
+            Ok(())
+        });
+
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        let expected = select_hotbar_slot_packet(42, 2, &equipment_stack).unwrap();
+        assert_eq!(
+            protocol::encode(&sent.unwrap(), &session).unwrap(),
+            protocol::encode(&expected, &session).unwrap()
+        );
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn full_retry_rebuilds_packet_from_the_current_selected_snapshot() {
+        let mut runtime = identified_runtime();
+        let first = present_stack();
+        publish_slot(&mut runtime, 2, first);
+        runtime.queue_local_hotbar_selection(2);
+        let mut fatal = None;
+
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            Err(PacketSendError::Full(packet))
+        });
+        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
+
+        let mut retried = None;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            retried = Some(packet);
+            Ok(())
+        });
+
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        let expected = select_hotbar_slot_packet(42, 2, &NetworkItemStack::empty()).unwrap();
+        assert_eq!(
+            protocol::encode(&retried.unwrap(), &session).unwrap(),
+            protocol::encode(&expected, &session).unwrap()
+        );
+        assert_eq!(runtime.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 

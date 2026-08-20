@@ -722,6 +722,112 @@ fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
 }
 
 #[test]
+fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: NetworkItemStack::empty(),
+            storage_item: None,
+        }));
+
+    assert_eq!(runtime.selected_stack(), None);
+    assert_eq!(runtime.presented_hotbar_stack(2), None);
+
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: stack(77),
+            storage_item: None,
+        }));
+
+    assert_eq!(
+        runtime.selected_stack().map(|item| item.network_id),
+        Some(77)
+    );
+    assert_eq!(
+        runtime
+            .presented_hotbar_stack(2)
+            .map(|item| item.network_id),
+        Some(77)
+    );
+}
+
+#[test]
+fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 3,
+            selected_slot: 3,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(runtime.selected_stack(), None);
+
+    let mut equipment_only = UiRuntime::new(1);
+    equipment_only.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 250,
+            selected_slot: 250,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(equipment_only.selected_hotbar_slot(), None);
+    assert_eq!(equipment_only.selected_stack(), None);
+}
+
+#[test]
+fn non_forcing_server_selection_does_not_override_local_prediction() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_selected_slot(2);
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 6,
+                select_slot: false,
+            }),
+        )
+        .unwrap();
+
+    runtime.drain_pending_inventory();
+
+    assert_eq!(runtime.selected_hotbar_slot(), Some(2));
+}
+
+#[test]
 fn player_list_overlay_rows_pair_names_with_resolved_list_scores() {
     let mut runtime = UiRuntime::new(1);
     runtime

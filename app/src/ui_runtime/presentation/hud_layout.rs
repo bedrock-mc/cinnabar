@@ -53,6 +53,8 @@ pub(crate) struct HudFrame {
     pub mount_health: Option<(f32, f32)>,
     pub hotbar_durability: [Option<f32>; 9],
     pub offhand_durability: Option<f32>,
+    /// Exact stack state published for each occupied hotbar cell this frame.
+    pub hotbar_stacks: [Option<protocol::NetworkItemStack>; 9],
     /// Item icons resolved from the authoritative registry this frame.
     pub hotbar_icons: [Option<IconRef>; 9],
     pub inventory_icons: InventoryIcons,
@@ -279,14 +281,14 @@ impl<'a> HudLayout<'a> {
         }
         // Stack counts and durability bars over each occupied slot.
         for slot in 0..9u8 {
-            let Some(stack) = runtime.presented_hotbar_stack(slot).cloned() else {
+            let Some(stack) = frame.hotbar_stacks[usize::from(slot)].as_ref() else {
                 continue;
             };
             let cell = [left + 3.0 + f32::from(slot) * 20.0, g.gui_height - 19.0];
             if let Some(icon) = frame.hotbar_icons[usize::from(slot)] {
                 self.icon_gui(icon, cell)?;
             }
-            self.stack_decorations(&stack, cell, frame.hotbar_durability[usize::from(slot)])?;
+            self.stack_decorations(stack, cell, frame.hotbar_durability[usize::from(slot)])?;
         }
         if let Some(stack) = offhand {
             if let Some(icon) = frame.offhand_icon {
@@ -376,9 +378,6 @@ impl<'a> HudLayout<'a> {
         };
         let elapsed = frame.now_millis.saturating_sub(changed);
         if elapsed >= LABEL_WINDOW_MILLIS {
-            return Ok(());
-        }
-        if runtime.selected_stack().is_none() {
             return Ok(());
         }
         let Some(name) = frame.selected_item_name.clone() else {
