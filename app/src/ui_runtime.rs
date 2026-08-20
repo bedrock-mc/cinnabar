@@ -174,6 +174,7 @@ pub struct UiRuntime {
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
     local_selected_slot: Option<u8>,
+    pending_hotbar_selection: Option<u8>,
     server_selected_slot: Option<u8>,
     gameplay_hud: GameplayHudState,
     inventory_ledger: PlayerInventoryLedger,
@@ -241,6 +242,7 @@ impl UiRuntime {
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
             local_selected_slot: None,
+            pending_hotbar_selection: None,
             server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
             inventory_ledger,
@@ -665,6 +667,7 @@ impl UiRuntime {
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
         self.local_selected_slot = None;
+        self.pending_hotbar_selection = None;
         self.server_selected_slot = None;
         self.gameplay_hud.clear();
         self.inventory_ledger.begin_session(session_id);

@@ -24,6 +24,16 @@ pub enum InventoryPendingState {
     AwaitingResponse,
 }
 
+/// The authoritative knowledge retained for one player-inventory slot.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum PlayerInventorySlot<'a> {
+    /// No server inventory update has established this slot yet.
+    Unknown,
+    /// The server established that this slot contains no item.
+    Empty,
+    /// The server established the exact stack currently present in this slot.
+    Present(&'a NetworkItemStack),
+}
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum Cell {
     Inventory(u8),
@@ -144,6 +154,23 @@ impl PlayerInventoryLedger {
             session_generation,
             ..Self::default()
         };
+    }
+
+    /// Returns whether one authoritative player-inventory slot is unknown, empty, or present.
+    /// `None` means the requested slot is outside the player inventory.
+    #[must_use]
+    pub fn slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
+        let index = usize::from(slot);
+        if index >= PLAYER_INVENTORY_SLOT_COUNT {
+            return None;
+        }
+        if !self.known[index] {
+            return Some(PlayerInventorySlot::Unknown);
+        }
+        Some(match self.slots[index].as_ref() {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None => PlayerInventorySlot::Empty,
+        })
     }
 
     #[must_use]

@@ -9,7 +9,7 @@ use bevy::{
     input::mouse::AccumulatedMouseScroll,
     prelude::{Res, ResMut},
 };
-use protocol::{HOTBAR_SLOT_COUNT, select_hotbar_slot_packet};
+use protocol::{HOTBAR_SLOT_COUNT, Packet, select_hotbar_slot_packet};
 use semantic_input::Action;
 
 use crate::{
@@ -82,30 +82,168 @@ pub(crate) fn select_hotbar_slot(
         requested = Some((((current + cycle) % slots + slots) % slots) as u8);
     }
 
-    let Some(target) = requested else {
+    if let Some(target) = requested {
+        runtime.queue_local_hotbar_selection(target);
+    }
+
+    flush_pending_hotbar_selection(&mut runtime, &mut client_world.fatal_error, |packet| {
+        network.send_hotbar_packet(packet)
+    });
+}
+
+/// Attempts the latest pending hotbar selection once and retains it when authority or transport
+/// is not ready.
+fn flush_pending_hotbar_selection(
+    runtime: &mut UiRuntime,
+    fatal_error: &mut Option<String>,
+    mut send: impl FnMut(Packet) -> Result<(), PacketSendError>,
+) {
+    let Some(target) = runtime.pending_hotbar_selection() else {
         return;
     };
-
-    if runtime.selected_hotbar_slot() == Some(target) {
-        // The highlight is already on this slot; keep the local prediction sticky but skip a
-        // redundant network packet.
-        runtime.set_local_selected_slot(target);
-        return;
-    }
-    runtime.set_local_selected_slot(target);
-
-    // Notify the server with the vanilla held-slot packet (MobEquipment). It must address the
-    // local player by its StartGame runtime id; before that is known we predict locally only.
     let Some(runtime_id) = runtime.local_runtime_id() else {
         return;
     };
-    match network.send_hotbar_packet(select_hotbar_slot_packet(runtime_id, target)) {
-        // A dropped selection under backpressure is tolerable: the local prediction still moved
-        // the highlight, and the next selection supersedes it.
-        Ok(()) | Err(PacketSendError::Full(_)) => {}
+
+    let packet = match runtime.inventory_ledger().slot_state(target) {
+        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown) | None => return,
+        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty) => {
+            select_hotbar_slot_packet(runtime_id, target, &protocol::NetworkItemStack::empty())
+        }
+        Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack)) => {
+            select_hotbar_slot_packet(runtime_id, target, stack)
+        }
+    };
+    let packet = match packet {
+        Ok(packet) => packet,
+        Err(error) => {
+            record_fatal_error(
+                fatal_error,
+                format!("hotbar selection packet validation failed: {error}"),
+            );
+            return;
+        }
+    };
+    match send(packet) {
+        Ok(()) => {
+            runtime.clear_pending_hotbar_selection(target);
+        }
+        Err(PacketSendError::Full(_)) => {}
         Err(PacketSendError::Closed(_)) => record_fatal_error(
-            &mut client_world.fatal_error,
+            fatal_error,
             "hotbar selection send failed because the network command channel closed".to_owned(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use protocol::{
+        ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
+    };
+
+    use super::*;
+
+    /// Publishes one authoritative player-inventory slot into a UI runtime.
+    fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: u16::from(slot),
+                },
+                stack,
+                storage_item: None,
+            }));
+    }
+
+    /// Creates a runtime with the local actor identity needed by MobEquipment.
+    fn identified_runtime() -> UiRuntime {
+        let mut runtime = UiRuntime::new(1);
+        runtime.publish_local_runtime_id(1, 42).unwrap();
+        runtime
+    }
+
+    #[test]
+    fn unknown_slot_retains_pending_selection_without_sending() {
+        let mut runtime = identified_runtime();
+        runtime.queue_local_hotbar_selection(2);
+        let mut sends = 0;
+        let mut fatal = None;
+
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_packet| {
+            sends += 1;
+            Ok::<(), PacketSendError>(())
+        });
+
+        assert_eq!(sends, 0);
+        assert_eq!(runtime.pending_hotbar_selection(), Some(2));
+        assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn full_send_retries_next_frame_without_new_input() {
+        let mut runtime = identified_runtime();
+        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
+        runtime.queue_local_hotbar_selection(2);
+        let mut attempts = 0;
+        let mut fatal = None;
+
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            attempts += 1;
+            Err(PacketSendError::Full(packet))
+        });
+        assert_eq!(runtime.pending_hotbar_selection(), Some(2));
+
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+            attempts += 1;
+            Ok(())
+        });
+
+        assert_eq!(attempts, 2);
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(fatal, None);
+    }
+
+    #[test]
+    fn newer_selection_supersedes_pending_selection() {
+        let mut runtime = UiRuntime::new(1);
+        runtime.queue_local_hotbar_selection(2);
+        runtime.queue_local_hotbar_selection(7);
+
+        assert_eq!(runtime.selected_hotbar_slot(), Some(7));
+        assert_eq!(runtime.pending_hotbar_selection(), Some(7));
+    }
+
+    #[test]
+    fn same_slot_input_does_not_suppress_an_unsent_pending_selection() {
+        let mut runtime = identified_runtime();
+        publish_slot(&mut runtime, 4, NetworkItemStack::empty());
+        runtime.queue_local_hotbar_selection(4);
+        let mut fatal = None;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            Err(PacketSendError::Full(packet))
+        });
+
+        runtime.queue_local_hotbar_selection(4);
+        let mut sent = false;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+            sent = true;
+            Ok(())
+        });
+
+        assert!(sent);
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+    }
+
+    #[test]
+    fn begin_session_clears_pending_hotbar_selection() {
+        let mut runtime = UiRuntime::new(1);
+        runtime.queue_local_hotbar_selection(5);
+
+        runtime.begin_session(2);
+
+        assert_eq!(runtime.pending_hotbar_selection(), None);
     }
 }

@@ -18,6 +18,30 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
+    /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
+    pub(crate) fn queue_local_hotbar_selection(&mut self, slot: u8) {
+        if self.selected_hotbar_slot() == Some(slot) && self.pending_hotbar_selection.is_none() {
+            self.set_local_selected_slot(slot);
+            return;
+        }
+        self.set_local_selected_slot(slot);
+        self.pending_hotbar_selection = Some(slot);
+    }
+
+    /// Returns the latest locally selected slot whose packet has not entered the network queue.
+    pub(crate) const fn pending_hotbar_selection(&self) -> Option<u8> {
+        self.pending_hotbar_selection
+    }
+
+    /// Clears a pending hotbar selection only when it is still the slot that was sent.
+    pub(crate) fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
+        if self.pending_hotbar_selection != Some(slot) {
+            return false;
+        }
+        self.pending_hotbar_selection = None;
+        true
+    }
+
     /// Installs an explicit authoritative game mode. Stats are never
     /// fabricated or cleared here: attributes remain the only stat authority,
     /// and visibility is a pure presentation gate on the mode. Production

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bedrock_client::ui_runtime::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryGestureError, InventoryPendingState,
-    PlayerInventoryLedger,
+    PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger, PlayerInventorySlot,
 };
 use bedrock_client::ui_runtime::{UiRuntime, flush_inventory_send};
 use protocol::{
@@ -551,4 +551,21 @@ fn window_zero_cursor_slot_does_not_shadow_player_slot_recovery() {
         assert_eq!(ledger.displayed_stack(0), Some(&player_authority));
         assert_eq!(ledger.cursor_stack(), Some(&cursor_authority));
     }
+}
+
+#[test]
+fn player_slot_state_distinguishes_unknown_empty_and_present() {
+    let mut ledger = PlayerInventoryLedger::default();
+    assert_eq!(ledger.slot_state(0), Some(PlayerInventorySlot::Unknown));
+
+    ledger.apply(&slot_update(0, NetworkItemStack::empty()));
+    assert_eq!(ledger.slot_state(0), Some(PlayerInventorySlot::Empty));
+
+    let present = stack(1, 1, -1);
+    ledger.apply(&slot_update(1, present.clone()));
+    assert_eq!(
+        ledger.slot_state(1),
+        Some(PlayerInventorySlot::Present(&present))
+    );
+    assert_eq!(ledger.slot_state(PLAYER_INVENTORY_SLOT_COUNT as u8), None);
 }

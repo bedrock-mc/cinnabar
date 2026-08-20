@@ -12,6 +12,8 @@ use valentine::bedrock::{
     },
 };
 
+use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
+
 /// The single item shape 1.26.40 puts on the wire.
 ///
 /// Protocol 1001 modelled three separate item encodings (`Item`, `ItemNew`,
@@ -29,25 +31,32 @@ pub const HOTBAR_SLOT_COUNT: u8 = 9;
 ///
 /// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a
 /// `MobEquipment` packet against the inventory window (`PlayerHotbar` is server->client and is not
-/// what a client sends). Servers validate only the 0-8 slot range; the held item is reconciled if
-/// it disagrees (Dragonfly's `VerifySlot` re-syncs rather than disconnecting), so an empty item is
-/// safe when inventory contents are not tracked. `runtime_id` must be the local player's
-/// StartGame-assigned runtime id — servers reject a foreign runtime id on this packet.
-#[must_use]
-pub fn select_hotbar_slot_packet(runtime_id: u64, slot: u8) -> crate::Packet {
-    let slot = slot.min(HOTBAR_SLOT_COUNT - 1);
-    MobEquipmentPacket {
+/// what a client sends). The selected stack must be the exact known player-inventory value: this
+/// boundary verifies its retained bytes and shape before converting it to the vendor wire type.
+/// `runtime_id` must be the local player's StartGame-assigned runtime id — servers reject a
+/// foreign runtime id on this packet.
+pub fn select_hotbar_slot_packet(
+    runtime_id: u64,
+    slot: u8,
+    stack: &NetworkItemStack,
+) -> Result<crate::Packet, InventoryPacketError> {
+    if slot >= HOTBAR_SLOT_COUNT {
+        return Err(InventoryPacketError::InvalidSelectedSlot(i32::from(slot)));
+    }
+    let verified = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)?;
+    let item = verified.into_vendor_item(0)?;
+    Ok(MobEquipmentPacket {
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
         },
-        item: ItemStackDescriptor::default(),
+        item,
         slot,
         selected_slot: slot,
         // The inventory container. 1.26.40 carries the raw ID rather than a
         // named WindowId enum.
         container_id: 0,
     }
-    .into()
+    .into())
 }
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;
@@ -736,31 +745,82 @@ fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
 
 #[cfg(test)]
 mod hotbar_tests {
+    use valentine::bedrock::context::BedrockSession;
     use valentine::bedrock::version::v1_26_44::McpePacketData;
 
     use super::*;
+    use crate::InventoryPacketError;
+
+    /// Builds one non-empty stack with retained bytes suitable for round-trip tests.
+    fn selected_stack() -> NetworkItemStack {
+        let extra_data: Arc<[u8]> = Arc::from([0_u8, 0, 0, 0, 0, 0, 0, 0]);
+        NetworkItemStack {
+            network_id: 7,
+            metadata: 3,
+            stack_network_id: 13,
+            count: 4,
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            block_runtime_id: 92,
+            extra_data,
+        }
+    }
 
     #[test]
-    fn select_hotbar_slot_packet_builds_a_mob_equipment_selection() {
-        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(4242, 3).data
-        else {
+    fn selected_stack_survives_mob_equipment_encode_decode_and_normalize() {
+        let expected = selected_stack();
+        let packet = select_hotbar_slot_packet(4242, 3, &expected).unwrap();
+        let session = BedrockSession { shield_item_id: 0 };
+        let encoded = crate::encode(&packet, &session).unwrap();
+        let mut decoded = crate::decode_batch(encoded, &session).unwrap();
+        let McpePacketData::MobEquipmentPacket(packet) = decoded.remove(0).data else {
             panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
         };
         assert_eq!(packet.target_runtime_id.actor_runtime_id, 4242);
         assert_eq!(packet.slot, 3);
         assert_eq!(packet.selected_slot, 3);
         assert_eq!(packet.container_id, 0);
-        // Inventory contents are not tracked, so the held item is empty (air); servers reconcile.
+        assert_eq!(packet.item.user_data_buffer, expected.extra_data.as_ref());
+        assert_eq!(normalize_equipment(*packet).unwrap().stack, expected);
+    }
+
+    #[test]
+    fn known_empty_hotbar_slot_encodes_the_canonical_empty_descriptor() {
+        let McpePacketData::MobEquipmentPacket(packet) =
+            select_hotbar_slot_packet(1, 2, &NetworkItemStack::empty())
+                .unwrap()
+                .data
+        else {
+            panic!("hotbar selection must build a MobEquipment packet");
+        };
         assert_eq!(packet.item, ItemStackDescriptor::default());
     }
 
     #[test]
-    fn select_hotbar_slot_packet_clamps_out_of_range_slots() {
-        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(1, 200).data
-        else {
-            panic!("hotbar selection must build a MobEquipment packet");
-        };
-        assert_eq!(packet.slot, HOTBAR_SLOT_COUNT - 1);
-        assert_eq!(packet.selected_slot, HOTBAR_SLOT_COUNT - 1);
+    fn invalid_hotbar_slot_fails_instead_of_clamping() {
+        assert_eq!(
+            select_hotbar_slot_packet(1, HOTBAR_SLOT_COUNT, &NetworkItemStack::empty())
+                .unwrap_err(),
+            InventoryPacketError::InvalidSelectedSlot(i32::from(HOTBAR_SLOT_COUNT))
+        );
+    }
+
+    #[test]
+    fn invalid_hotbar_stack_digest_fails_instead_of_sending_air() {
+        let mut stack = selected_stack();
+        stack.nbt_digest = [0; 32];
+        assert_eq!(
+            select_hotbar_slot_packet(1, 0, &stack).unwrap_err(),
+            InventoryPacketError::DigestMismatch
+        );
+    }
+
+    #[test]
+    fn invalid_hotbar_stack_shape_fails_instead_of_sending_air() {
+        let mut stack = selected_stack();
+        stack.network_id = i32::from(i16::MAX) + 1;
+        assert_eq!(
+            select_hotbar_slot_packet(1, 0, &stack).unwrap_err(),
+            InventoryPacketError::InvalidItemNetworkId(stack.network_id)
+        );
     }
 }
