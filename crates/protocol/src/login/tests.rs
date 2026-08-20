@@ -1099,11 +1099,13 @@ fn absolute_actor_move_rejects_truncated_and_trailing_bodies() {
         .expect_err("malformed absolute actor move");
         assert!(matches!(
             error,
-            ProtocolError::World(crate::WorldPacketError::Actor(
-                crate::ActorPacketError::InvalidAbsoluteMoveLength {
-                    actual: found,
-                    expected: 16,
-                }
+            ProtocolError::World(crate::WorldPacketError::Wire(
+                crate::WorldWireError::Actor(
+                    crate::ActorPacketError::InvalidAbsoluteMoveLength {
+                        actual: found,
+                        expected: 16,
+                    }
+                )
             )) if found == actual
         ));
     }

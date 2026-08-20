@@ -108,11 +108,14 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
         .get_mut(&keys[3].y)
         .unwrap()
         .retry_attempts = super::MAX_SUB_CHUNK_RETRIES;
-    let malformed = world::DecodedSubChunk::decode(keys[3], &[0xff]).unwrap_err();
+    let bounded_policy_rejection = world::DecodeError::TooManyStorages {
+        count: world::MAX_STORAGE_COUNT + 1,
+        max: world::MAX_STORAGE_COUNT,
+    };
     apply_sub_chunk_result(
         &mut stream,
         keys[3],
-        super::PreparedSubChunkResult::Decoded(Err(malformed)),
+        super::PreparedSubChunkResult::Decoded(Err(bounded_policy_rejection)),
     );
 
     stream
@@ -920,15 +923,16 @@ fn transient_unavailable_results_retry_boundedly_then_complete_without_wedging()
 }
 
 #[test]
-fn decode_failures_retry_boundedly_and_invalid_dimension_is_terminal_normalization() {
+fn bounded_decode_rejections_retry_and_invalid_dimension_is_terminal_normalization() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
     for attempt in 0..=super::MAX_SUB_CHUNK_RETRIES {
         apply_sub_chunk_result(
             &mut stream,
             key,
-            super::PreparedSubChunkResult::Decoded(Err(world::DecodeError::UnsupportedVersion(
-                255,
-            ))),
+            super::PreparedSubChunkResult::Decoded(Err(world::DecodeError::TooManyStorages {
+                count: world::MAX_STORAGE_COUNT + 1,
+                max: world::MAX_STORAGE_COUNT,
+            })),
         );
         if attempt < super::MAX_SUB_CHUNK_RETRIES {
             assert_eq!(stream.take_requests().len(), 1);

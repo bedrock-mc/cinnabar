@@ -98,6 +98,6 @@ pub use world::{
     PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT,
     SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
     SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
-    request_sub_chunk_column, vanilla_dimension_range,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError, air_network_id,
+    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };

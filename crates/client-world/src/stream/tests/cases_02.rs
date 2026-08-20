@@ -725,7 +725,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
 }
 
 #[test]
-fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
+fn malformed_request_level_chunk_is_session_fatal() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -759,7 +759,11 @@ fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
 
-    assert_eq!(stream.stats().decode_errors, 1);
+    assert!(matches!(
+        stream.take_fatal_error(),
+        Some(super::WorldStreamFatalError::ChunkDecode { sequence: 2, .. })
+    ));
+    assert_eq!(stream.stats().decode_errors, 0);
     assert!(stream.take_requests().is_empty());
     assert_eq!(
         stream
@@ -800,22 +804,6 @@ fn request_level_chunk_joins_required_cohort_only_after_decode_and_admission() {
     stream
         .submit(
             2,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: key.dimension,
-                x: key.x,
-                z: key.z,
-                mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                payload: vec![1, 18],
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-
-    assert!(!stream.required_columns().contains(&key));
-
-    stream
-        .submit(
-            3,
             request_level_chunk_event(
                 key.dimension,
                 key.x,
@@ -825,6 +813,8 @@ fn request_level_chunk_joins_required_cohort_only_after_decode_and_admission() {
             ),
         )
         .unwrap();
+
+    assert!(!stream.required_columns().contains(&key));
     complete_pending_decode_jobs(&mut stream);
 
     assert!(stream.required_columns().contains(&key));

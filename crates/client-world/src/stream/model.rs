@@ -666,6 +666,8 @@ pub enum WorldStreamError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum WorldStreamFatalError {
+    #[error("world sequence {sequence} carries malformed chunk wire: {reason}")]
+    ChunkDecode { sequence: u64, reason: &'static str },
     #[error("light solve failed for {key:?}: {error}")]
     LightSolve {
         key: SubChunkKey,

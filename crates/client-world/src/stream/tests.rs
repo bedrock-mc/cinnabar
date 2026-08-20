@@ -65,6 +65,124 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
     assert_eq!(payload.as_ptr(), pointer);
 }
 
+#[test]
+fn malformed_inline_level_chunk_becomes_a_fifo_fatal() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 1 },
+                payload: vec![0xff],
+            }),
+        )
+        .expect("admit malformed opaque payload");
+    stream
+        .submit(2, WorldEvent::SetTime(protocol::SetTimeEvent { time: 7 }))
+        .expect("admit valid FIFO successor");
+
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(stream.take_committed_controls().is_empty());
+    assert!(matches!(
+        stream.take_fatal_error(),
+        Some(WorldStreamFatalError::ChunkDecode { sequence: 1, .. })
+    ));
+}
+
+#[test]
+fn malformed_retained_level_chunk_bytes_become_a_typed_fatal() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit_level_chunk_bytes(
+            9,
+            LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 1 },
+                payload: Vec::new(),
+            },
+            bytes::Bytes::from_static(&[0xff]),
+        )
+        .expect("admit retained malformed payload");
+    for sequence in 1..9 {
+        stream
+            .commit(sequence)
+            .expect("fill the FIFO positions before the retained payload");
+    }
+
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(matches!(
+        stream.take_fatal_error(),
+        Some(WorldStreamFatalError::ChunkDecode { sequence: 9, .. })
+    ));
+}
+
+#[test]
+fn malformed_sub_chunk_payload_is_fatal_but_unknown_result_is_survivable() {
+    let (mut stream, key) = stream_with_one_expected_sub_chunk();
+    stream
+        .submit(
+            2,
+            WorldEvent::SubChunks(SubChunkBatchEvent {
+                dimension: 0,
+                entries: vec![SubChunkEntryEvent {
+                    position: [key.x, key.y, key.z],
+                    result: SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(0xfe)),
+                }],
+            }),
+        )
+        .expect("unknown result is a semantic control");
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.take_fatal_error().is_none());
+
+    let (mut stream, key) = stream_with_one_expected_sub_chunk();
+    stream
+        .submit(
+            2,
+            WorldEvent::SubChunks(SubChunkBatchEvent {
+                dimension: 0,
+                entries: vec![SubChunkEntryEvent {
+                    position: [key.x, key.y, key.z],
+                    result: SubChunkResult::Success {
+                        payload: vec![0xff],
+                    },
+                }],
+            }),
+        )
+        .expect("admit malformed opaque sub-chunk payload");
+    complete_pending_decode_jobs(&mut stream);
+    assert!(matches!(
+        stream.take_fatal_error(),
+        Some(WorldStreamFatalError::ChunkDecode { sequence: 2, .. })
+    ));
+    assert!(
+        stream.take_requests().is_empty(),
+        "fatal wire must not retry"
+    );
+}
+
 mod light_scheduler;
 
 mod mesh_dependency;

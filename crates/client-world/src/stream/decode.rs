@@ -9,6 +9,9 @@ impl WorldStream {
             .saturating_add(1);
         self.in_flight_decode_jobs = self.in_flight_decode_jobs.saturating_sub(1);
         self.stats.observe_decode_queue_wait(completion.queue_wait);
+        if self.fatal_decode_failure {
+            return;
+        }
         if self.blocking_block_updates == Some(completion.sequence)
             && matches!(&completion.event, PreparedWorldEvent::BlockUpdates { .. })
         {
@@ -56,6 +59,9 @@ impl WorldStream {
             .collect()
     }
     pub(super) fn dispatch_decode_jobs(&mut self) {
+        if self.fatal_decode_failure {
+            return;
+        }
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
         for _ in 0..budget {

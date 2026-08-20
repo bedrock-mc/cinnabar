@@ -361,6 +361,8 @@ pub enum ItemPacketError {
     UnsupportedItemNbtVersion(u8),
     #[error("item NBT is malformed")]
     InvalidItemNbt,
+    #[error("item packet has malformed or truncated canonical wire data")]
+    MalformedWire,
     #[error("failed to encode validated item data")]
     ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]

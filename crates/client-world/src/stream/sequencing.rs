@@ -5,6 +5,19 @@ pub(super) fn chunk_commit_is_mutation_failure(error: &DecodeError) -> bool {
 }
 
 impl WorldStream {
+    /// Latches the first FIFO-ordered malformed chunk payload as the session fatal.
+    fn record_chunk_decode_fatal(&mut self, sequence: u64, reason: &'static str) {
+        if self.fatal_decode_failure {
+            return;
+        }
+        self.fatal_decode_failure = true;
+        self.fatal_light_failure = true;
+        if self.fatal_error.is_none() {
+            self.fatal_error = Some(WorldStreamFatalError::ChunkDecode { sequence, reason });
+        }
+        self.pending_decode.clear();
+    }
+
     pub(super) fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
@@ -35,6 +48,9 @@ impl WorldStream {
                     self.submitted.remove(&sequence);
                     self.heavy_sequences.remove(&sequence);
                     self.apply_prepared_with_sequence(event, Some(sequence));
+                    if self.fatal_decode_failure {
+                        break;
+                    }
                     self.cancel_request_reservation(sequence);
                 }
             }
@@ -127,7 +143,15 @@ impl WorldStream {
                         );
                         self.stats.last_chunk_commit_at = Some(now);
                     }
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
+                    Err(error) => match error.wire_error_reason() {
+                        Some(reason) => self.record_chunk_decode_fatal(
+                            sequence.expect("decoded LevelChunk has a network sequence"),
+                            reason,
+                        ),
+                        None => {
+                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                        }
+                    },
                 }
             }
             PreparedWorldEvent::RequestLevelChunk {
@@ -138,7 +162,15 @@ impl WorldStream {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 match decoded {
                     Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
+                    Err(error) => match error.wire_error_reason() {
+                        Some(reason) => self.record_chunk_decode_fatal(
+                            sequence.expect("decoded LevelChunk has a network sequence"),
+                            reason,
+                        ),
+                        None => {
+                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                        }
+                    },
                 }
             }
             PreparedWorldEvent::SubChunks {
@@ -210,7 +242,15 @@ impl WorldStream {
                             };
                             (true, committed)
                         }
-                        PreparedSubChunkResult::Decoded(Err(_)) => {
+                        PreparedSubChunkResult::Decoded(Err(error)) => {
+                            if let Some(reason) = error.wire_error_reason() {
+                                self.record_chunk_decode_fatal(
+                                    sequence
+                                        .expect("decoded SubChunk batch has a network sequence"),
+                                    reason,
+                                );
+                                return;
+                            }
                             self.stats.phase2_outcomes.malformed =
                                 self.stats.phase2_outcomes.malformed.saturating_add(1);
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::BlockEntityError;
+use crate::{BlockEntityError, BlockEntityNbtError};
 
 /// The process-wide collision revision identity space has been exhausted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -74,6 +74,49 @@ pub enum DecodeError {
 
     #[error("sub-chunk Y index overflow for first index {first} and offset {offset}")]
     SubChunkYOverflow { first: i32, offset: usize },
+}
+
+impl DecodeError {
+    /// Returns a stable malformed-wire reason, excluding bounded policy and
+    /// semantically unusable but structurally complete data.
+    #[must_use]
+    pub const fn wire_error_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::CollisionRevision(_)
+            | Self::TooManyStorages { .. }
+            | Self::TooManySubChunks { .. }
+            | Self::TooManyBiomeStorages { .. }
+            | Self::SubChunkIndexMismatch { .. } => None,
+            Self::BlockEntity(error) => match error {
+                BlockEntityError::MissingReservedEntryCount
+                | BlockEntityError::TrailingBytes { .. }
+                | BlockEntityError::Nbt(
+                    BlockEntityNbtError::UnknownTag { .. }
+                    | BlockEntityNbtError::UnexpectedEof { .. }
+                    | BlockEntityNbtError::VarIntTooLong
+                    | BlockEntityNbtError::VarIntOverflow
+                    | BlockEntityNbtError::VarLongTooLong
+                    | BlockEntityNbtError::VarLongOverflow
+                    | BlockEntityNbtError::NegativeLength { .. }
+                    | BlockEntityNbtError::InvalidUtf8
+                    | BlockEntityNbtError::NonEmptyEndList,
+                ) => Some("malformed block-entity wire"),
+                _ => None,
+            },
+            Self::UnexpectedEof { .. } => Some("truncated chunk payload"),
+            Self::UnsupportedVersion(_)
+            | Self::DiskPaletteInNetworkData { .. }
+            | Self::UnsupportedBitsPerIndex(_) => Some("invalid chunk encoding"),
+            Self::BiomeCopyWithoutPrevious { .. }
+            | Self::InvalidPaletteLength { .. }
+            | Self::PaletteIndexOutOfBounds { .. } => Some("invalid chunk palette"),
+            Self::VarIntTooLong { .. } | Self::VarIntOverflow { .. } => {
+                Some("malformed chunk VarInt")
+            }
+            Self::TrailingBytes { .. } => Some("trailing chunk bytes"),
+            Self::SubChunkYOverflow { .. } => Some("chunk coordinate overflow"),
+        }
+    }
 }
 
 /// Errors produced before mutating packed block storage.

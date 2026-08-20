@@ -204,7 +204,13 @@ impl<T: Transport> PlaySession<T> {
     /// tearing down the session, counting it for observability. Genuine wire
     /// decode/transport errors stay fatal and are returned unchanged.
     fn skip_or_fail_world(&mut self, error: ProtocolError) -> Result<(), ProtocolError> {
-        skip_semantic_world_error(error, &mut self.world_skips)
+        match skip_semantic_world_error(error, &mut self.world_skips) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.reset_blob_cache_pending();
+                Err(error)
+            }
+        }
     }
 
     /// Count of world packets skipped because normalization rejected them.
@@ -637,7 +643,10 @@ fn skip_semantic_world_error(
     error: ProtocolError,
     world_skips: &mut u64,
 ) -> Result<(), ProtocolError> {
-    if matches!(error, ProtocolError::World(_)) {
+    if matches!(
+        error,
+        ProtocolError::World(ref world) if !matches!(world, crate::WorldPacketError::Wire(_))
+    ) {
         *world_skips = world_skips.saturating_add(1);
         Ok(())
     } else {
@@ -805,8 +814,8 @@ fn decode_empty_mob_equipment(
     raw: &RawPacket,
 ) -> Result<Option<crate::EquipmentEvent>, ProtocolError> {
     let malformed = || {
-        ProtocolError::World(crate::world::WorldPacketError::Item(
-            crate::ItemPacketError::ItemEncodingFailed,
+        ProtocolError::World(crate::world::WorldPacketError::from(
+            crate::ItemPacketError::MalformedWire,
         ))
     };
     let contradictory = || {
@@ -865,3 +874,5 @@ fn decode_empty_mob_equipment(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wire_provenance_tests;

@@ -181,19 +181,35 @@ fn normalize_weather_level(level: f32) -> f32 {
     }
 }
 
+/// Provenance-preserving failures in an otherwise decoded world packet body.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum WorldWireError {
+    #[error(transparent)]
+    Actor(ActorPacketError),
+
+    #[error(transparent)]
+    Item(ItemPacketError),
+
+    #[error(transparent)]
+    Inventory(InventoryPacketError),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldPacketError {
+    #[error("malformed inner world packet wire: {0}")]
+    Wire(WorldWireError),
+
     #[error(transparent)]
-    Actor(#[from] ActorPacketError),
+    Actor(ActorPacketError),
 
     #[error(transparent)]
     Ui(#[from] UiPacketError),
 
     #[error(transparent)]
-    Item(#[from] ItemPacketError),
+    Item(ItemPacketError),
 
     #[error(transparent)]
-    Inventory(#[from] InventoryPacketError),
+    Inventory(InventoryPacketError),
 
     #[error("BiomeDefinitionList has {count} definitions, exceeding {max}")]
     TooManyBiomeDefinitions { count: usize, max: usize },
@@ -266,6 +282,51 @@ pub enum WorldPacketError {
 
     #[error("SubChunkRequest base Y {base_y} plus offset {offset} overflows i32")]
     SubChunkRequestYOverflow { base_y: i32, offset: usize },
+}
+
+impl From<ActorPacketError> for WorldPacketError {
+    fn from(error: ActorPacketError) -> Self {
+        if matches!(
+            &error,
+            ActorPacketError::InvalidAbsoluteMoveRuntimeId
+                | ActorPacketError::InvalidAbsoluteMoveLength { .. }
+                | ActorPacketError::Item(
+                    ItemPacketError::InvalidItemNbt | ItemPacketError::MalformedWire
+                )
+        ) {
+            Self::Wire(WorldWireError::Actor(error))
+        } else {
+            Self::Actor(error)
+        }
+    }
+}
+
+impl From<ItemPacketError> for WorldPacketError {
+    fn from(error: ItemPacketError) -> Self {
+        if matches!(
+            error,
+            ItemPacketError::InvalidItemNbt | ItemPacketError::MalformedWire
+        ) {
+            Self::Wire(WorldWireError::Item(error))
+        } else {
+            Self::Item(error)
+        }
+    }
+}
+
+impl From<InventoryPacketError> for WorldPacketError {
+    fn from(error: InventoryPacketError) -> Self {
+        if matches!(
+            error,
+            InventoryPacketError::MalformedWire
+                | InventoryPacketError::InvalidItemNbt
+                | InventoryPacketError::InvalidItemExtra
+        ) {
+            Self::Wire(WorldWireError::Inventory(error))
+        } else {
+            Self::Inventory(error)
+        }
+    }
 }
 
 /// Converts a generated packet into the bounded world surface used by the app.

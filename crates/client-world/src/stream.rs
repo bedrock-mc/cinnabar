@@ -264,6 +264,7 @@ pub struct WorldStream {
     last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
+    fatal_decode_failure: bool,
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,

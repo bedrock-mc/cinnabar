@@ -150,6 +150,7 @@ impl WorldStream {
             last_dispatched_light_batch: HashMap::new(),
             light_waiters: HashMap::new(),
             fatal_light_failure: false,
+            fatal_decode_failure: false,
             fatal_error: None,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
