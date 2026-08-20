@@ -607,6 +607,7 @@ fn scan_payload(
         6 => reader.skip(8, "double"),
         7 => {
             let len = reader.read_collection_length("byte array")?;
+            reader.check_collection_limit(len, 1, "byte array")?;
             reader.skip(len, "byte array")
         }
         8 => {
@@ -619,6 +620,13 @@ fn scan_payload(
             let len = reader.read_collection_length("list")?;
             if element_tag == 0 && len != 0 {
                 return Err(BlockEntityNbtError::NonEmptyEndList);
+            }
+            if len != 0 {
+                reader.check_collection_limit(
+                    len,
+                    minimum_payload_size(element_tag)?,
+                    "list elements",
+                )?;
             }
             for _ in 0..len {
                 state.visit_tag()?;
@@ -640,6 +648,7 @@ fn scan_payload(
         }
         11 => {
             let len = reader.read_collection_length("int array")?;
+            reader.check_collection_limit(len, 1, "int array elements")?;
             for _ in 0..len {
                 reader.skip_zigzag_i32("int array element")?;
             }
@@ -647,11 +656,25 @@ fn scan_payload(
         }
         12 => {
             let len = reader.read_collection_length("long array")?;
+            reader.check_collection_limit(len, 1, "long array elements")?;
             for _ in 0..len {
                 reader.skip_zigzag_i64("long array element")?;
             }
             Ok(())
         }
+        _ => Err(BlockEntityNbtError::UnknownTag { tag }),
+    }
+}
+
+/// Returns the constant minimum encoded bytes for one NBT payload value.
+fn minimum_payload_size(tag: u8) -> Result<usize, BlockEntityNbtError> {
+    match tag {
+        1 => Ok(1),
+        2 => Ok(2),
+        3 | 4 | 7 | 8 | 10 | 11 | 12 => Ok(1),
+        5 => Ok(4),
+        6 => Ok(8),
+        9 => Ok(2),
         _ => Err(BlockEntityNbtError::UnknownTag { tag }),
     }
 }
@@ -680,27 +703,52 @@ impl<'a> Reader<'a> {
         len: usize,
         context: &'static str,
     ) -> Result<&'a [u8], BlockEntityNbtError> {
-        let end = self
-            .position
-            .checked_add(len)
-            .ok_or(BlockEntityNbtError::TooManyBytes {
-                max: MAX_BLOCK_ENTITY_NBT_BYTES,
-            })?;
+        self.require_remaining(len, context)?;
+        let end = self.position + len;
         if end > MAX_BLOCK_ENTITY_NBT_BYTES {
             return Err(BlockEntityNbtError::TooManyBytes {
                 max: MAX_BLOCK_ENTITY_NBT_BYTES,
             });
         }
-        let bytes =
-            self.input
-                .get(self.position..end)
-                .ok_or(BlockEntityNbtError::UnexpectedEof {
-                    context,
-                    needed: len,
-                    remaining: self.input.len().saturating_sub(self.position),
-                })?;
+        let bytes = &self.input[self.position..end];
         self.position = end;
         Ok(bytes)
+    }
+
+    /// Proves that a declared field has enough bytes without advancing the reader.
+    fn require_remaining(
+        &self,
+        len: usize,
+        context: &'static str,
+    ) -> Result<(), BlockEntityNbtError> {
+        let remaining = self.input.len().saturating_sub(self.position);
+        if remaining < len {
+            Err(BlockEntityNbtError::UnexpectedEof {
+                context,
+                needed: len,
+                remaining,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Applies the collection work limit after proving the constant minimum payload exists.
+    fn check_collection_limit(
+        &self,
+        len: usize,
+        minimum_element_bytes: usize,
+        context: &'static str,
+    ) -> Result<(), BlockEntityNbtError> {
+        if len <= MAX_NBT_COLLECTION_LENGTH {
+            return Ok(());
+        }
+        let minimum_bytes = len.saturating_mul(minimum_element_bytes);
+        self.require_remaining(minimum_bytes, context)?;
+        Err(BlockEntityNbtError::CollectionTooLong {
+            len,
+            max: MAX_NBT_COLLECTION_LENGTH,
+        })
     }
 
     fn skip(&mut self, len: usize, context: &'static str) -> Result<(), BlockEntityNbtError> {
@@ -764,19 +812,12 @@ impl<'a> Reader<'a> {
         if value < 0 {
             return Err(BlockEntityNbtError::NegativeLength { value });
         }
-        let len = value as usize;
-        if len > MAX_NBT_COLLECTION_LENGTH {
-            Err(BlockEntityNbtError::CollectionTooLong {
-                len,
-                max: MAX_NBT_COLLECTION_LENGTH,
-            })
-        } else {
-            Ok(len)
-        }
+        Ok(value as usize)
     }
 
     fn read_string(&mut self, context: &'static str) -> Result<&'a str, BlockEntityNbtError> {
         let len = self.read_var_u32(context)? as usize;
+        self.require_remaining(len, context)?;
         if len > MAX_NBT_STRING_BYTES {
             return Err(BlockEntityNbtError::StringTooLong {
                 len,

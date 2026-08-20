@@ -82,8 +82,7 @@ pub struct DecodedLevelChunk {
 }
 
 impl DecodedLevelChunk {
-    /// Purely decodes and validates every block sub-chunk in a LevelChunk
-    /// prefix. No [`ChunkStore`] is touched if any later sub-chunk is malformed.
+    /// Decodes every block sub-chunk without touching [`ChunkStore`] on later failure.
     pub fn decode(
         first_sub_chunk_y: i32,
         sub_chunk_count: usize,
@@ -113,18 +112,19 @@ impl DecodedLevelChunk {
         let mut semantic_error = None;
         for offset in 0..sub_chunk_count {
             let offset_i32 = i32::try_from(offset).expect("bounded sub-chunk count fits i32");
-            let Some(expected_y) = first_sub_chunk_y.checked_add(offset_i32) else {
-                return Err(semantic_error.unwrap_or(DecodeError::SubChunkYOverflow {
+            let expected_y = first_sub_chunk_y.checked_add(offset_i32);
+            if expected_y.is_none() {
+                semantic_error.get_or_insert(DecodeError::SubChunkYOverflow {
                     first: first_sub_chunk_y,
                     offset,
-                }));
-            };
+                });
+            }
             let (sub_chunk, used) = match SubChunk::decode_prefix(&payload[consumed..]) {
                 Ok(decoded) => decoded,
                 Err(error) if error.wire_error_reason().is_some() => return Err(error),
                 Err(error) => return Err(semantic_error.unwrap_or(error)),
             };
-            if let Some(actual) = sub_chunk.y_index() {
+            if let (Some(expected_y), Some(actual)) = (expected_y, sub_chunk.y_index()) {
                 let actual = i32::from(actual);
                 if actual != expected_y {
                     semantic_error.get_or_insert(DecodeError::SubChunkIndexMismatch {
@@ -134,7 +134,9 @@ impl DecodedLevelChunk {
                 }
             }
             consumed += used;
-            if !sub_chunk.has_no_storages() {
+            if let Some(expected_y) = expected_y
+                && !sub_chunk.has_no_storages()
+            {
                 sub_chunks.insert(expected_y, Arc::new(sub_chunk));
             }
         }
@@ -149,8 +151,7 @@ impl DecodedLevelChunk {
             semantic_error,
         ))
     }
-    /// Decodes a complete inline LevelChunk block prefix followed by its full
-    /// dense biome column, committing neither if any storage is malformed.
+    /// Decodes blocks and dense biomes without returning a partial transaction.
     pub fn decode_with_biomes(
         first_sub_chunk_y: i32,
         sub_chunk_count: usize,
@@ -196,8 +197,7 @@ impl DecodedLevelChunk {
         decoded.biomes = Some(biomes);
         Ok((decoded, semantic_error))
     }
-    /// Decodes the complete inline LevelChunk transaction: packed blocks,
-    /// dense biomes, the border-block prefix, and every sparse block entity.
+    /// Decodes packed blocks, dense biomes, the reserved prefix, and sparse entities.
     pub fn decode_with_biomes_and_block_entities(
         chunk: ChunkKey,
         first_sub_chunk_y: i32,

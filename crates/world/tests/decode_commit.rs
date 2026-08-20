@@ -31,6 +31,13 @@ fn uniform_biome(runtime_id: u32) -> Vec<u8> {
     bytes
 }
 
+/// Builds one legacy uniform sub-chunk without an embedded Y index.
+fn legacy_uniform(runtime_id: u32) -> Vec<u8> {
+    let mut bytes = vec![1, 1];
+    bytes.extend(zig_zag_i32(runtime_id as i32));
+    bytes
+}
+
 #[test]
 fn public_prefix_decode_can_be_committed_without_redecoding() {
     let key = SubChunkKey::new(0, 4, -4, 7);
@@ -150,6 +157,57 @@ fn complete_index_mismatch_remains_survivable_decode_policy() {
         }
     );
     assert!(error.wire_error_reason().is_none());
+}
+
+#[test]
+fn y_overflow_scans_remaining_declared_transaction_for_wire_errors() {
+    let first = legacy_uniform(5);
+    let mut truncated_second = first.clone();
+    truncated_second.push(1);
+    let second_error = DecodedLevelChunk::decode(i32::MAX, 2, &truncated_second).unwrap_err();
+    assert!(second_error.wire_error_reason().is_some());
+
+    let mut missing_tail = [first.clone(), legacy_uniform(6)].concat();
+    missing_tail.extend(uniform_biome(7));
+    let tail_error = DecodedLevelChunk::decode_with_biomes_and_block_entities(
+        ChunkKey::new(0, 0, 0),
+        i32::MAX,
+        2,
+        0,
+        1,
+        &missing_tail,
+    )
+    .unwrap_err();
+    assert!(tail_error.wire_error_reason().is_some());
+}
+
+#[test]
+fn complete_y_overflow_remains_survivable_decode_policy() {
+    let blocks = [legacy_uniform(5), legacy_uniform(6)].concat();
+    let error = DecodedLevelChunk::decode(i32::MAX, 2, &blocks).unwrap_err();
+    assert_eq!(
+        error,
+        DecodeError::SubChunkYOverflow {
+            first: i32::MAX,
+            offset: 1,
+        }
+    );
+    assert!(error.wire_error_reason().is_none());
+
+    let mut transaction = blocks;
+    transaction.extend(uniform_biome(7));
+    transaction.push(0);
+    let complete = DecodedLevelChunk::decode_with_biomes_and_block_entities(
+        ChunkKey::new(0, 0, 0),
+        i32::MAX,
+        2,
+        0,
+        1,
+        &transaction,
+    )
+    .unwrap_err();
+    assert!(matches!(complete, DecodeError::SubChunkYOverflow { .. }));
+    assert!(complete.wire_error_reason().is_none());
 }
 
 #[test]
