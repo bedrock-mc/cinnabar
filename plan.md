@@ -81,7 +81,7 @@ product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase c
 audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
 outside git.
 
-Four bounded audit fixes are locally integrated and independently approved, but not pushed.
+Five bounded audit fixes are locally integrated and independently approved, but not pushed.
 `e21e99b6` makes verified blob entries process-owned across network-worker replacement and isolates
 unrelated semantic skips from pending cache transactions. `a63431b0` through `6c7e2672` send the
 checked current ledger prediction in `MobEquipment`, retain one latest-wins selection through
@@ -89,10 +89,20 @@ backpressure, and cancel stale pending sends on a valid server-forced selection.
 failed request-mode columns outside loaded/cohort readiness and admits required LevelChunks only
 after successful decode and world admission. `9dfecb80` skips non-finite remote player poses and
 unknown equipment containers at the semantic boundary without ending the session or overwriting
-usable actor state. Fresh coordinator crate suites, formatting, strict Clippy, architecture
-enforcement, and fresh Sol-high review passed for each tranche. These commits close only their
-bounded implementation defects; cache ordering/timing, selected-store unification, item rendering,
-broader actor behavior, exact chunk retention, and native/live acceptance remain open.
+usable actor state. `c4ccc81c` and `5cbfbcea` remove the persistent gameplay player preview and keep
+it confined to personal inventory across Open-before-Content plus 27/54-slot storage lifecycles.
+Fresh coordinator crate suites, formatting, strict Clippy, architecture enforcement, and fresh
+Sol-high review passed for each tranche. These commits close only their bounded implementation
+defects; cache ordering/timing, selected-store unification, item rendering, inventory-preview
+geometry and animation, broader actor behavior, exact chunk retention, and native/live acceptance
+remain open.
+
+The next item and water traces found no safe approximation to land. Sprite icons currently mix
+atlas-alias identity with canonical live registry identity, while block items need a separate 3-D
+renderer; the repository has no complete authoritative crosswalk and filename inference is
+forbidden. Held jump reaches simulation, but water state is only a broad fluid-intersection boolean
+with no measured surface-ascent, pose, or water-to-ground transition, and production physics content
+is still version-stale. VPA-007 and VPA-013 therefore remain open until those authorities exist.
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
