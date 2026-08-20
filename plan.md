@@ -81,21 +81,17 @@ product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase c
 audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
 outside git.
 
-**Active audit continuation handoff (2026-08-20):** no worker is still running. Two disjoint
-tranches are locally committed in coordinator-created worktrees, but neither is reviewed,
-integrated, or pushed. The selected-stack authority tranche is on
-`agent/parity-selected-snapshot` at `2a17459881ea5f586b8e1cb937c4ad7337882924`, based on
-`c043a070d4d5d0c0fc37467b4a1bffffff62bc06`, in
-`/Users/hashim/Downloads/cinnabar-parity-selected-snapshot`. The malformed-inner-wire provenance
-tranche is on `agent/parity-wire-provenance` at
-`dcc060cd4d732a06f4da4e7e89b8879013812d39`, with the same base, in
-`/Users/hashim/Downloads/cinnabar-parity-wire-provenance`. Both worktrees are clean and their
-focused/full crate suites, formatting, strict Clippy, architecture, and diff checks were reported
-green by their Sol writers. The next coordinator must inspect both complete `base..head` ranges,
-rerun parent verification, obtain fresh Sol-high review, integrate only approved heads, update the
-audit ledger, run canonical pre-push gates, and push `dev`. Do not infer approval from this handoff.
+**Repository-wide audit wrap (2026-08-21):** all research and writing workers are finished. The
+selected-stack authority task head `2a17459881ea5f586b8e1cb937c4ad7337882924` was independently
+approved and integrated as `9d6e291b` plus `d90d8764`. The malformed-inner-wire task head
+`14e2ceedf3fdc58a60141410731605cef03e4f81` completed repeated fix-first review cycles and received
+a final fresh Sol-high `ship` verdict; it is integrated history-preservingly as `2e6feae1`,
+`83198075`, `e0277132`, `1322fb49`, `8e647d01`, and `eb017fac`. Coordinator world, protocol,
+client-world, app, strict Clippy, formatting, architecture, and diff gates passed at the reviewed
+heads. The durable remaining mismatch inventory and exact native/live gates are in
+`docs/tracking/vanilla-parity-audit.md`; no open row is closed by this audit alone.
 
-Six bounded audit fixes are integrated and independently approved on `dev`.
+Eight bounded audit fixes are integrated and independently approved on `dev`.
 `e21e99b6` makes verified blob entries process-owned across network-worker replacement and isolates
 unrelated semantic skips from pending cache transactions. `a63431b0` through `6c7e2672` send the
 checked current ledger prediction in `MobEquipment`, retain one latest-wins selection through
@@ -112,6 +108,25 @@ Sol-high review passed for each tranche. These commits close only their bounded 
 defects; cache ordering/timing, selected-store unification, item rendering, inventory-preview
 geometry and animation, broader actor behavior, exact chunk retention, and native/live acceptance
 remain open.
+
+The 2026-08-21 parallel audit additionally confirmed the existing version-coherence, resource-pack,
+post-login transfer, movement/input/pose, actor/viewmodel, audio, menu/settings/touch, auth recovery,
+control, local-world, shutdown, Windows transport, packaging, and visual-calibration gaps. New
+bounded rows VPA-122 through VPA-139 and VPA-209 through VPA-212 record container identity,
+response fan-out, deferred close, item-container data, gameplay item-use, item identity/components,
+server camera instructions, forms, player-list binding, toast/scoreboard/boss behavior, non-HUD
+inventory layout, upstream blob-cache capability, persistent blob storage, credential permissions,
+saved-server durability, archive/runtime cleanup, Windows backend negotiation, and Java-HUD
+calibration. These are code-backed findings, not completed implementations.
+
+Cross-repository disposition is narrow: no required `bedsim` or `bedrock-docs` correction was
+established. Future resource-pack/cache handoff changes may require
+`HashimTheArab/gophertunnel:resource-pack-changes`; never push them to `lunar`. Local-world work
+requires a new Dragonfly lifecycle integration in Cinnabar. Exact movement modes and flags,
+correction semantics, chunk/cache ordering and retention, UI timings/layouts, rendering transforms,
+lighting/atmosphere/liquids, audio mixing, Windows ACL/DPI/backend behavior, packaging, and every
+native visual/performance gate remain unconfirmed until the matching live tests named in the audit
+ledger are run.
 
 The item trace found no safe approximation to land. Sprite icons currently mix atlas-alias identity
 with canonical live registry identity, while block items need a separate 3-D renderer; the
