@@ -81,15 +81,18 @@ product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase c
 audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
 outside git.
 
-Two bounded fixes from that audit are locally integrated and independently approved, but not
-pushed: `e21e99b6` makes verified blob entries process-owned across network-worker replacement and
-isolates unrelated semantic skips from pending cache transactions; `a63431b0` through `6c7e2672`
-send the checked current ledger prediction in `MobEquipment`, retain one latest-wins selection
-through backpressure, and cancel stale pending sends on a valid server-forced selection. Fresh
-coordinator protocol/client suites, formatting, strict Clippy, architecture enforcement, and a
-fresh Sol-high re-review passed. These commits close only their bounded implementation defects;
-cache ordering/timing, selected-store unification, item rendering, and native/live acceptance
-remain open.
+Four bounded audit fixes are locally integrated and independently approved, but not pushed.
+`e21e99b6` makes verified blob entries process-owned across network-worker replacement and isolates
+unrelated semantic skips from pending cache transactions. `a63431b0` through `6c7e2672` send the
+checked current ledger prediction in `MobEquipment`, retain one latest-wins selection through
+backpressure, and cancel stale pending sends on a valid server-forced selection. `76f8c87c` keeps
+failed request-mode columns outside loaded/cohort readiness and admits required LevelChunks only
+after successful decode and world admission. `9dfecb80` skips non-finite remote player poses and
+unknown equipment containers at the semantic boundary without ending the session or overwriting
+usable actor state. Fresh coordinator crate suites, formatting, strict Clippy, architecture
+enforcement, and fresh Sol-high review passed for each tranche. These commits close only their
+bounded implementation defects; cache ordering/timing, selected-store unification, item rendering,
+broader actor behavior, exact chunk retention, and native/live acceptance remain open.
 
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
