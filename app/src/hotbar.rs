@@ -138,9 +138,13 @@ fn flush_pending_hotbar_selection(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use protocol::{
-        ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
+        ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent,
+        ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse, StackResponseStatus,
     };
+    use sha2::{Digest, Sha256};
 
     use super::*;
 
@@ -163,6 +167,19 @@ mod tests {
         let mut runtime = UiRuntime::new(1);
         runtime.publish_local_runtime_id(1, 42).unwrap();
         runtime
+    }
+
+    /// Builds one valid non-empty stack for outbound hotbar packet tests.
+    fn present_stack() -> NetworkItemStack {
+        NetworkItemStack {
+            network_id: 7,
+            metadata: 3,
+            stack_network_id: 13,
+            count: 4,
+            nbt_digest: Sha256::digest([]).into(),
+            block_runtime_id: 92,
+            extra_data: Arc::from([]),
+        }
     }
 
     #[test]
@@ -245,5 +262,64 @@ mod tests {
         runtime.begin_session(2);
 
         assert_eq!(runtime.pending_hotbar_selection(), None);
+    }
+
+    #[test]
+    fn predicted_slot_state_drives_packet_and_rollback_restores_authority() {
+        let mut runtime = identified_runtime();
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        let authoritative = present_stack();
+        publish_slot(&mut runtime, 0, authoritative.clone());
+        let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        assert_eq!(
+            runtime.inventory_ledger().slot_state(0),
+            Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty)
+        );
+
+        runtime.queue_local_hotbar_selection(0);
+        let mut predicted_packet = None;
+        let mut fatal = None;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            predicted_packet = Some(packet);
+            Ok(())
+        });
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        let predicted_bytes = protocol::encode(&predicted_packet.unwrap(), &session).unwrap();
+        let empty_packet = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
+        assert_eq!(
+            predicted_bytes,
+            protocol::encode(&empty_packet, &session).unwrap()
+        );
+
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    status: StackResponseStatus::Rejected,
+                    request_id,
+                    containers: Arc::from([]),
+                }]),
+            }));
+        assert_eq!(
+            runtime.inventory_ledger().slot_state(0),
+            Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative))
+        );
+
+        runtime.queue_local_hotbar_selection(1);
+        runtime.queue_local_hotbar_selection(0);
+        let mut restored_packet = None;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            restored_packet = Some(packet);
+            Ok(())
+        });
+        let restored_bytes = protocol::encode(&restored_packet.unwrap(), &session).unwrap();
+        let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
+        assert_eq!(
+            restored_bytes,
+            protocol::encode(&authoritative_packet, &session).unwrap()
+        );
+        assert_eq!(fatal, None);
     }
 }
