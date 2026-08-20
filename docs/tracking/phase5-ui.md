@@ -103,12 +103,14 @@ section remain open, so no phase checkbox is closed by this delta.
   reference matrix (GUI scales 2/3/4/Auto at 1280x720, 1920x1080, 2560x1440,
   100%/150% desktop scaling, macOS Retina). No such pass has been performed
   on this branch; unit geometry/draw-list tests are not a substitute.
-- [x] Hotbar/offhand item icon pixels: the pinned item-icon carrier resolves
-  vanilla identifiers and metadata to nearest-neighbour atlas pixels; unknown
-  Zeqa/custom identifiers fail closed without disturbing authoritative stack
-  state. The same resolved pixels feed the first-person main-hand/offhand
-  presentation; the world-model hand/item renderer remains a follow-up to the
-  renderer workstream.
+- [ ] Complete hotbar/offhand item icon pixels. Sprite-routed identifiers that
+  exactly match the icon catalog can present nearest-neighbour atlas pixels,
+  but block-item routes are deliberately omitted from the icon carrier and
+  several legacy item families use atlas aliases rather than the network item
+  identifier. Those stacks therefore remain blank. Add an authority-backed
+  item-identity route for sprite families and rendered block items before this
+  gate can close. The renderer-owned first-person/world item path also remains
+  separate follow-up work.
 - [ ] Non-English locales (only the pinned `en_US` table is compiled; locale
   selection is future work).
 - [x] Below-name world anchoring: bounded player name/objective plates are

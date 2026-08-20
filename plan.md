@@ -74,6 +74,13 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Current integration snapshot (2026-08-16)
 
+**Repository-wide parity audit follow-up (2026-08-20):** the durable mismatch inventory is
+tracked in `docs/tracking/vanilla-parity-audit.md`. It covers protocol/cache/session, world
+retention, movement/input, HUD/inventory/entities, assets/meshing/render/resource packs, and
+product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase completion. The
+audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
+outside git.
+
 This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
 below without deleting their historical evidence. The code audit covers the Bedrock
 1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
