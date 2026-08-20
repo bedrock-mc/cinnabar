@@ -17,13 +17,13 @@ use protocol::{
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
-    NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
-    PacketSendError, ReadinessIngressCounter, SequencedWorldEvent, WORLD_EVENT_CAPACITY,
-    WorldIngress, bounded_counter_log_due, run_network_pump, send_control_event_or_cancel,
-    send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
-    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
-    wait_for_send_or_cancel, wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent, NetworkHandle,
+    NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession, PacketSendError,
+    ReadinessIngressCounter, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress,
+    bounded_counter_log_due, run_network_pump, send_control_event_or_cancel, send_event_or_cancel,
+    send_final_blob_cache_telemetry, send_world_event_or_cancel, start_game_inventory_authority,
+    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
 };
 
 #[path = "physics_send_tests.rs"]
@@ -73,23 +73,6 @@ fn readiness_ingress_counter_excludes_transport_only_events() {
     counter.record_consumed(&local_move.event);
     assert_eq!(counter.pending(), 0);
 }
-#[test]
-fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
-    let config = NetworkConfig {
-        session_generation: 7,
-        socket_dir: std::path::PathBuf::from("core.sock"),
-        display_name: "cache-owner".to_owned(),
-        client_blob_cache: protocol::ClientBlobCache::default(),
-    };
-    let reconnect = config.clone();
-    let hash = config
-        .client_blob_cache
-        .insert(b"verified-across-session")
-        .expect("seed verified blob");
-
-    assert!(reconnect.client_blob_cache.contains(hash));
-}
-
 #[test]
 fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
     assert!(bounded_counter_log_due(0, 1));

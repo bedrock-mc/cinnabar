@@ -71,13 +71,14 @@ use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
     AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
-    BlockPos, CerealizerNetworkItemStackDescriptorSerializedData,
+    BlockPos, CerealizerNetworkItemStackDescriptorSerializedData, ClientCacheMissResponsePacket,
     CorrectPlayerMovePredictionPacket, EnumsAnimatePacketPayloadAction as AnimatePacketAction,
     EnumsPlayerRespawnState as RespawnPacketState, GameRule, GameRuleRuleValue,
     GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MobEquipmentPacket,
-    MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket, SetTimePacket, TextPacket,
-    TextPacketBody, TextPacketPayloadMessageOnly, UpdateBlockPacket, Vec2, Vec3,
+    LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MissingBlobData,
+    MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket,
+    SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly, UpdateBlockPacket,
+    Vec2, Vec3,
 };
 
 #[test]
@@ -201,6 +202,67 @@ fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() 
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
     ));
+}
+
+#[test]
+fn unrelated_world_semantic_skip_does_not_recover_pending_cached_terrain() {
+    let cache = ClientBlobCache::default();
+    let missing_payload = b"late terrain blob";
+    let missing = crate::client_blob_hash(missing_payload);
+    let mut resolver = BlobCacheResolver::new(cache);
+    resolver
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
+        .expect("pending cached column");
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    let mut world_skips = 0;
+    skip_semantic_world_error(
+        ProtocolError::World(crate::WorldPacketError::Ui(
+            crate::UiPacketError::UnknownEnum {
+                kind: "text category",
+                value: 3,
+            },
+        )),
+        &mut world_skips,
+    )
+    .expect("unrelated semantic rejection is skipped");
+    assert_eq!(world_skips, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![MissingBlobData {
+                blob_id: missing,
+                blob_data: missing_payload.to_vec(),
+            }],
+        })
+        .expect("late cache miss response resolves normally");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::Packet(Packet {
+            data: McpePacketData::LevelChunkPacket(_),
+            ..
+        }))
+    ));
+}
+
+#[test]
+fn fatal_session_reset_clears_pending_without_clearing_verified_entries() {
+    let cache = ClientBlobCache::default();
+    let verified = cache
+        .insert(b"verified terrain")
+        .expect("seed verified blob");
+    let missing = crate::client_blob_hash(b"missing terrain");
+    let mut resolver = BlobCacheResolver::new(cache.clone());
+    resolver
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
+        .expect("pending cached column");
+
+    resolver.reset_pending();
+
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(cache.contains(verified));
 }
 
 #[test]

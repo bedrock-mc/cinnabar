@@ -204,15 +204,7 @@ impl<T: Transport> PlaySession<T> {
     /// tearing down the session, counting it for observability. Genuine wire
     /// decode/transport errors stay fatal and are returned unchanged.
     fn skip_or_fail_world(&mut self, error: ProtocolError) -> Result<(), ProtocolError> {
-        if matches!(error, ProtocolError::World(_)) {
-            self.world_skips = self.world_skips.saturating_add(1);
-            if let Some(resolver) = self.blob_cache.as_mut() {
-                resolver.recover_pending()?;
-            }
-            Ok(())
-        } else {
-            Err(error)
-        }
+        skip_semantic_world_error(error, &mut self.world_skips)
     }
 
     /// Count of world packets skipped because normalization rejected them.
@@ -637,6 +629,19 @@ impl<T: Transport> PlaySession<T> {
         }
         self.reset_blob_cache_pending();
         ProtocolError::Session(error)
+    }
+}
+
+/// Counts and skips a semantic world error without changing unrelated session state.
+fn skip_semantic_world_error(
+    error: ProtocolError,
+    world_skips: &mut u64,
+) -> Result<(), ProtocolError> {
+    if matches!(error, ProtocolError::World(_)) {
+        *world_skips = world_skips.saturating_add(1);
+        Ok(())
+    } else {
+        Err(error)
     }
 }
 

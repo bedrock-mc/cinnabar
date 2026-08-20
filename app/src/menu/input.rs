@@ -124,6 +124,7 @@ pub(crate) fn drive_menu_connection(
     mut menu: ResMut<MenuRuntime>,
     mut guard: ResMut<CoreProcessGuard>,
     mut network: ResMut<NetworkHandle>,
+    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
     mut resource_packs: ResMut<crate::runtime::network::ResourcePackAdmissionState>,
     mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
@@ -166,7 +167,7 @@ pub(crate) fn drive_menu_connection(
             session_generation: generation,
             socket_dir,
             display_name: menu.display_name.clone(),
-            client_blob_cache: protocol::ClientBlobCache::default(),
+            client_blob_cache: client_blob_cache.cache(),
         }) {
             Ok(replacement) => {
                 runtime.begin_session(generation);

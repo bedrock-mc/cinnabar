@@ -5,8 +5,8 @@ use bevy::{
     anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
-        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, SystemSet,
-        Update, Window, default,
+        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, Resource,
+        SystemSet, Update, Window, default,
     },
     render::{
         RenderPlugin,
@@ -103,6 +103,16 @@ const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v1001.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
+
+#[derive(Debug, Clone, Default, Resource)]
+pub(crate) struct ClientBlobCacheOwner(protocol::ClientBlobCache);
+
+impl ClientBlobCacheOwner {
+    /// Returns a shared handle to the process-lifetime verified blob cache.
+    pub(crate) fn cache(&self) -> protocol::ClientBlobCache {
+        self.0.clone()
+    }
+}
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ClientFrameSet {
@@ -464,12 +474,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
+    let client_blob_cache = ClientBlobCacheOwner::default();
     let network = if connection_requested {
         spawn_network(NetworkConfig {
             session_generation: 1,
             socket_dir,
             display_name: args.display_name.clone(),
-            client_blob_cache: protocol::ClientBlobCache::default(),
+            client_blob_cache: client_blob_cache.cache(),
         })
         .context("spawn Bedrock network worker")?
     } else {
@@ -536,6 +547,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(shutdown_watchdog.clone())
         .insert_resource(present_mode_runtime)
         .insert_resource(core_process)
+        .insert_resource(client_blob_cache)
         .insert_resource(network)
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(ClientWorld::new_with_entity_assets(
@@ -707,6 +719,41 @@ mod schedule_tests {
     use bevy::ecs::schedule::Schedules;
 
     use super::*;
+
+    #[test]
+    fn network_config_call_sites_share_the_process_blob_cache() {
+        let replacing_initializer = [
+            "client_blob_cache: protocol::ClientBlobCache",
+            "::default()",
+        ]
+        .concat();
+        for source in [include_str!("app.rs"), include_str!("menu/input.rs")] {
+            assert!(
+                !source.contains(&replacing_initializer),
+                "network configuration must clone the app-owned cache"
+            );
+        }
+
+        let owner = ClientBlobCacheOwner::default();
+        let first = NetworkConfig {
+            session_generation: 7,
+            socket_dir: std::path::PathBuf::from("first-core.sock"),
+            display_name: "cache-owner".to_owned(),
+            client_blob_cache: owner.cache(),
+        };
+        let hash = first
+            .client_blob_cache
+            .insert(b"verified-across-session")
+            .expect("seed verified blob before replacement");
+        let replacement = NetworkConfig {
+            session_generation: 8,
+            socket_dir: std::path::PathBuf::from("replacement-core.sock"),
+            display_name: "cache-owner".to_owned(),
+            client_blob_cache: owner.cache(),
+        };
+
+        assert!(replacement.client_blob_cache.contains(hash));
+    }
 
     #[test]
     fn production_update_schedule_initializes_without_dependency_cycles() {
