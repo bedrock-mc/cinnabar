@@ -1,6 +1,6 @@
 # Multi-agent workflow
 
-Load this when coordinating agents or Luna CLI worker threads on a non-trivial
+Load this when coordinating agents on a non-trivial
 implementation, protocol, asset, rendering, performance, or integration tranche.
 For read-only diagnosis or review, apply only the preflight, evidence, and
 reporting portions; do not create branches, edit, commit, integrate, or push
@@ -17,8 +17,8 @@ completion outrank list price.
 | Root coordinator and integrator | `gpt-5.6-sol` | `high` | Own decomposition, architectural consistency, synthesis, integration, review of worker evidence, and the final completion decision. |
 | Implementation writer | `gpt-5.6-sol` | `medium` | Use for all production code, behavior changes, refactors, tests tied to changed behavior, and fixes that may ship. Run at most two isolated writers concurrently. |
 | Independent reviewer | `gpt-5.6-sol` | `high` | Use after implementation for architecture, correctness, protocol, concurrency, performance, security, and player-visible review. This must be a fresh agent when independence is required. |
-| Read-only explorer | `gpt-5.6-luna` | `xhigh` or `max` | Use a Fast Codex CLI worker thread for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Use `max` for subtle or ambiguity-heavy work. Return concise evidence to the Sol-high coordinator; do not make shipping edits or give final approval. |
-| Mechanical read-only worker | `gpt-5.6-luna` | `xhigh` | Use a Fast Codex CLI worker thread for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
+| Read-only explorer | `gpt-5.6-luna` | `xhigh` or `max` | Use an in-process subagent for repository mapping, targeted research, dependency tracing, test/log triage, and other bounded read-only investigations. Use `max` for subtle or ambiguity-heavy work. Return concise evidence to the Sol-high coordinator; do not make shipping edits or give final approval. |
+| Mechanical read-only worker | `gpt-5.6-luna` | `xhigh` | Use an in-process subagent for inventories, classification, extraction, and repetitive scans with an explicit output schema. Escalate on ambiguity. |
 
 The normal starting topology is one Sol-high coordinator, zero to two isolated
 Sol-medium writers, zero to two Luna read-only workers, and one fresh Sol-high
