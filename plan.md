@@ -81,6 +81,20 @@ product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase c
 audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
 outside git.
 
+**Active audit continuation handoff (2026-08-20):** no worker is still running. Two disjoint
+tranches are locally committed in coordinator-created worktrees, but neither is reviewed,
+integrated, or pushed. The selected-stack authority tranche is on
+`agent/parity-selected-snapshot` at `2a17459881ea5f586b8e1cb937c4ad7337882924`, based on
+`c043a070d4d5d0c0fc37467b4a1bffffff62bc06`, in
+`/Users/hashim/Downloads/cinnabar-parity-selected-snapshot`. The malformed-inner-wire provenance
+tranche is on `agent/parity-wire-provenance` at
+`dcc060cd4d732a06f4da4e7e89b8879013812d39`, with the same base, in
+`/Users/hashim/Downloads/cinnabar-parity-wire-provenance`. Both worktrees are clean and their
+focused/full crate suites, formatting, strict Clippy, architecture, and diff checks were reported
+green by their Sol writers. The next coordinator must inspect both complete `base..head` ranges,
+rerun parent verification, obtain fresh Sol-high review, integrate only approved heads, update the
+audit ledger, run canonical pre-push gates, and push `dev`. Do not infer approval from this handoff.
+
 Six bounded audit fixes are integrated and independently approved on `dev`.
 `e21e99b6` makes verified blob entries process-owned across network-worker replacement and isolates
 unrelated semantic skips from pending cache transactions. `a63431b0` through `6c7e2672` send the
