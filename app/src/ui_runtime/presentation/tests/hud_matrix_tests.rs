@@ -74,47 +74,59 @@ fn player_preview_only_renders_in_the_personal_inventory() {
         "the personal inventory retains its player preview"
     );
 
-    runtime.toggle_inventory();
-    runtime
-        .enqueue_inventory_event(
-            1,
-            1,
-            InventoryEvent::Open(ContainerOpenEvent {
-                container: ContainerIdentity {
-                    window_id: Some(7),
-                    slot_type: None,
-                    dynamic_id: None,
-                },
-                window_type: 0,
-                position: [0; 3],
-                runtime_entity_id: 0,
-            }),
-        )
-        .unwrap();
-    runtime
-        .enqueue_inventory_event(
-            1,
-            2,
-            InventoryEvent::Content(InventoryContentEvent {
-                container: ContainerIdentity {
-                    window_id: Some(7),
-                    slot_type: Some(7),
-                    dynamic_id: None,
-                },
-                slots: vec![NetworkItemStack::empty(); 27].into(),
-                storage_item: NetworkItemStack::empty(),
-            }),
-        )
-        .unwrap();
-    runtime.drain_pending_inventory();
-    let storage = build(&mut presentation, &runtime, 0);
-    assert!(
-        storage
-            .batches
-            .iter()
-            .all(|batch| batch.texture_page != u32::from(preview.page)),
-        "storage screens never gain the personal-inventory preview"
-    );
+    for (window_id, slot_count) in [(7, 27), (8, 54)] {
+        let mut storage_runtime = UiRuntime::new(1);
+        storage_runtime
+            .enqueue_inventory_event(
+                1,
+                1,
+                InventoryEvent::Open(ContainerOpenEvent {
+                    container: ContainerIdentity {
+                        window_id: Some(window_id),
+                        slot_type: None,
+                        dynamic_id: None,
+                    },
+                    window_type: 0,
+                    position: [0; 3],
+                    runtime_entity_id: 0,
+                }),
+            )
+            .unwrap();
+        storage_runtime.drain_pending_inventory();
+        let awaiting_content = build(&mut presentation, &storage_runtime, 0);
+        assert!(
+            awaiting_content
+                .batches
+                .iter()
+                .all(|batch| batch.texture_page != u32::from(preview.page)),
+            "an opened storage window waiting for content stays preview-free"
+        );
+
+        storage_runtime
+            .enqueue_inventory_event(
+                1,
+                2,
+                InventoryEvent::Content(InventoryContentEvent {
+                    container: ContainerIdentity {
+                        window_id: Some(window_id),
+                        slot_type: Some(7),
+                        dynamic_id: None,
+                    },
+                    slots: vec![NetworkItemStack::empty(); slot_count].into(),
+                    storage_item: NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+        storage_runtime.drain_pending_inventory();
+        let storage = build(&mut presentation, &storage_runtime, 0);
+        assert!(
+            storage
+                .batches
+                .iter()
+                .all(|batch| batch.texture_page != u32::from(preview.page)),
+            "supported storage screens stay preview-free"
+        );
+    }
 }
 
 /// Applies authoritative full 20/20 health and hunger; stats are never

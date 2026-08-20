@@ -50,7 +50,9 @@ impl HudLayout<'_> {
             }
         }
         self.player_box([origin[0] + 26.0, origin[1] + 8.0], [51.0, 72.0])?;
-        if let Some(preview) = frame.player_preview {
+        if runtime.inventory_ledger().storage_generation().is_none()
+            && let Some(preview) = frame.player_preview
+        {
             self.inventory_preview(preview, [origin[0] + 30.0, origin[1] + 10.0])?;
         }
         let offhand_slot = [origin[0] + 77.0, origin[1] + 62.0];
