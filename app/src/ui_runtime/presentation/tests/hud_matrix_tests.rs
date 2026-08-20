@@ -4,7 +4,8 @@
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorMetadata, ActorMetadataValue, ArmorEquipmentEvent,
-    ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack, PlayerGameMode,
+    ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent, NetworkItemStack,
+    PlayerGameMode,
 };
 
 use super::{fixture_font, fixture_hud};
@@ -42,6 +43,78 @@ fn first_person_frame() -> HudFrame {
         first_person: true,
         ..HudFrame::default()
     }
+}
+
+#[test]
+fn player_preview_only_renders_in_the_personal_inventory() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.set_player_preview_skin(None, Default::default());
+    let preview = presentation
+        .player_preview_icon()
+        .expect("the fixture texture array has room for the player preview");
+    presentation.hud_frame_mut().player_preview = Some(preview);
+    let mut runtime = UiRuntime::new(1);
+
+    let gameplay = build(&mut presentation, &runtime, 0);
+    assert!(
+        gameplay
+            .batches
+            .iter()
+            .all(|batch| batch.texture_page != u32::from(preview.page)),
+        "ordinary gameplay has no persistent player preview"
+    );
+
+    runtime.toggle_inventory();
+    let personal_inventory = build(&mut presentation, &runtime, 0);
+    assert!(
+        personal_inventory
+            .batches
+            .iter()
+            .any(|batch| batch.texture_page == u32::from(preview.page)),
+        "the personal inventory retains its player preview"
+    );
+
+    runtime.toggle_inventory();
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity {
+                    window_id: Some(7),
+                    slot_type: None,
+                    dynamic_id: None,
+                },
+                window_type: 0,
+                position: [0; 3],
+                runtime_entity_id: 0,
+            }),
+        )
+        .unwrap();
+    runtime
+        .enqueue_inventory_event(
+            1,
+            2,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity {
+                    window_id: Some(7),
+                    slot_type: Some(7),
+                    dynamic_id: None,
+                },
+                slots: vec![NetworkItemStack::empty(); 27].into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    let storage = build(&mut presentation, &runtime, 0);
+    assert!(
+        storage
+            .batches
+            .iter()
+            .all(|batch| batch.texture_page != u32::from(preview.page)),
+        "storage screens never gain the personal-inventory preview"
+    );
 }
 
 /// Applies authoritative full 20/20 health and hunger; stats are never

@@ -50,28 +50,6 @@ impl HudLayout<'_> {
         Ok(())
     }
 
-    pub(super) fn player_preview(&mut self, preview: IconRef) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let [x, y] = g.logical([4.0, 4.0]);
-        // The raster includes transparent breathing room around the model;
-        // this keeps the corner avatar close to vanilla HUD proportions at
-        // the Java GUI scale instead of dominating the gameplay view.
-        self.nodes.push(
-            UiNode::new(
-                UiNodeId::new(*self.next_id),
-                None,
-                rect(x, y, x + 24.0 * g.scale, y + 28.0 * g.scale)?,
-            )
-            .with_visual(UiVisual::Sprite {
-                texture_page: preview.page,
-                uv: preview.uv,
-                color: [255; 4],
-            }),
-        );
-        *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
     /// First-person item presentation. Skin-backed arm geometry is paired
     /// with cached, depth-rasterized item geometry instead of flat icon quads.
     pub(super) fn held_items(

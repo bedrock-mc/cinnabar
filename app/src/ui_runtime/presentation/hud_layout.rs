@@ -67,8 +67,8 @@ pub(crate) struct HudFrame {
     /// world renderer does not yet own an item model, so this is the
     /// nearest-neighbour item carrier used by the compatibility viewmodel.
     pub held_item_icon: Option<IconRef>,
-    /// Cached software-rendered 3-D local avatar shown in the gameplay HUD's
-    /// upper-left corner.
+    /// Cached software-rendered 3-D local avatar shown by the personal
+    /// inventory screen.
     pub player_preview: Option<IconRef>,
     /// Skin-backed first-person arm carriers. These are separate from the
     /// item atlas so an empty hand still has the same silhouette as the
@@ -214,9 +214,6 @@ impl<'a> HudLayout<'a> {
         let shows_hotbar = mode_allows_hotbar && runtime.selected_hotbar_slot().is_some();
         let survival_stats = runtime.survival_stats_visible();
 
-        if let Some(preview) = frame.player_preview {
-            self.player_preview(preview)?;
-        }
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;
             self.crosshair()?;
