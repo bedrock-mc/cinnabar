@@ -837,18 +837,23 @@ fn decode_empty_mob_equipment(
     }
     let count = body.get_u16_le();
     let metadata = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
+    let mut contradictory_shape = count != 0 || metadata != 0;
     if !body.has_remaining() {
         return Err(malformed());
     }
     let has_stack_id = body.get_u8();
     if has_stack_id != 0 {
-        return Err(contradictory());
+        let _stack_id = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
+        contradictory_shape = true;
     }
     let block_runtime_id = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
-    let extra_len = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
-    if count != 0 || metadata != 0 || block_runtime_id != 0 || extra_len != 0 {
-        return Err(contradictory());
+    let extra_len = usize::try_from(wire::read_var_u32(&mut body).map_err(|_| malformed())?)
+        .unwrap_or(usize::MAX);
+    if body.remaining() < extra_len {
+        return Err(malformed());
     }
+    body.advance(extra_len);
+    contradictory_shape |= block_runtime_id != 0 || extra_len != 0;
     if body.remaining() < 3 {
         return Err(malformed());
     }
@@ -860,6 +865,9 @@ fn decode_empty_mob_equipment(
         return Err(ProtocolError::TrailingPacketBytes {
             remaining: body.remaining(),
         });
+    }
+    if contradictory_shape {
+        return Err(contradictory());
     }
     Ok(Some(
         crate::item::normalize_empty_equipment(

@@ -413,6 +413,21 @@ pub enum BlockEntityError {
     TrailingBytes { remaining: usize },
 }
 
+impl BlockEntityError {
+    /// Returns a stable malformed-wire reason while leaving bounded policy and
+    /// semantically invalid block-entity shapes survivable.
+    #[must_use]
+    pub const fn wire_error_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::MissingReservedEntryCount | Self::TrailingBytes { .. } => {
+                Some("malformed block-entity wire")
+            }
+            Self::Nbt(error) => error.wire_error_reason(),
+            _ => None,
+        }
+    }
+}
+
 fn require_root_type(name: &str, actual: u8, expected: u8) -> Result<(), BlockEntityNbtError> {
     if actual == expected {
         Ok(())
@@ -716,4 +731,24 @@ pub enum BlockEntityNbtError {
     },
     #[error("block-entity position must contain all of x, y, and z or none")]
     PartialPosition,
+}
+
+impl BlockEntityNbtError {
+    /// Returns a stable reason only for malformed NBT bytes, excluding policy
+    /// limits and structurally complete semantic shape errors.
+    #[must_use]
+    pub const fn wire_error_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::UnknownTag { .. }
+            | Self::UnexpectedEof { .. }
+            | Self::VarIntTooLong
+            | Self::VarIntOverflow
+            | Self::VarLongTooLong
+            | Self::VarLongOverflow
+            | Self::NegativeLength { .. }
+            | Self::InvalidUtf8
+            | Self::NonEmptyEndList => Some("malformed block-entity NBT wire"),
+            _ => None,
+        }
+    }
 }

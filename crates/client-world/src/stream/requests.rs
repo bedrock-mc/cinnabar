@@ -2,6 +2,9 @@ use super::*;
 
 impl WorldStream {
     pub fn take_requests(&mut self) -> Vec<PendingSubChunkRequest> {
+        if self.fatal_decode_failure {
+            return Vec::new();
+        }
         let mut ready = Vec::new();
         loop {
             self.pump_deferred_recovery_requests();
@@ -21,6 +24,9 @@ impl WorldStream {
         ready
     }
     pub fn pop_next_request(&mut self) -> Option<PendingSubChunkRequest> {
+        if self.fatal_decode_failure {
+            return None;
+        }
         self.pump_deferred_recovery_requests();
         self.requests
             .pop_next(self.last_request_player_chunk, &self.required_columns)
@@ -51,7 +57,7 @@ impl WorldStream {
         &mut self,
         request: PendingSubChunkRequest,
     ) -> Result<(), Box<PendingSubChunkRequest>> {
-        if self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
+        if self.fatal_decode_failure || self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
             return Err(Box::new(request));
         }
         self.requests.retry_front(request);

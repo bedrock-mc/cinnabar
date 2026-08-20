@@ -130,6 +130,63 @@ fn complete_item_descriptor_with_truncated_nbt_is_inner_wire_fatal() {
 }
 
 #[test]
+fn contradictory_empty_equipment_still_scans_declared_wire_before_semantic_skip() {
+    let mut missing_stack_id = BytesMut::new();
+    wire::write_var_u64(&mut missing_stack_id, 42);
+    missing_stack_id.put_i16_le(0);
+    missing_stack_id.put_u16_le(0);
+    wire::write_var_u32(&mut missing_stack_id, 0);
+    missing_stack_id.put_u8(1);
+
+    let mut missing_extra = BytesMut::new();
+    wire::write_var_u64(&mut missing_extra, 42);
+    missing_extra.put_i16_le(0);
+    missing_extra.put_u16_le(0);
+    wire::write_var_u32(&mut missing_extra, 0);
+    missing_extra.put_u8(0);
+    wire::write_var_u32(&mut missing_extra, 0);
+    wire::write_var_u32(&mut missing_extra, 2);
+
+    for body in [missing_stack_id, missing_extra] {
+        let error = decode_world_raw_with(
+            raw_packet(McpePacketName::MobEquipmentPacket, &body),
+            0,
+            |_| unreachable!("empty equipment uses the raw decoder"),
+        )
+        .expect_err("truncated declared empty-equipment field");
+        assert!(matches!(
+            error,
+            ProtocolError::World(crate::WorldPacketError::Wire(crate::WorldWireError::Item(
+                crate::ItemPacketError::MalformedWire
+            )))
+        ));
+    }
+
+    let mut complete_contradiction = BytesMut::new();
+    wire::write_var_u64(&mut complete_contradiction, 42);
+    complete_contradiction.put_i16_le(0);
+    complete_contradiction.put_u16_le(0);
+    wire::write_var_u32(&mut complete_contradiction, 0);
+    complete_contradiction.put_u8(1);
+    wire::write_var_u32(&mut complete_contradiction, 7);
+    wire::write_var_u32(&mut complete_contradiction, 0);
+    wire::write_var_u32(&mut complete_contradiction, 2);
+    complete_contradiction.extend_from_slice(&[0xaa, 0xbb, 0, 0, 0]);
+    let semantic = decode_world_raw_with(
+        raw_packet(McpePacketName::MobEquipmentPacket, &complete_contradiction),
+        0,
+        |_| unreachable!("empty equipment uses the raw decoder"),
+    )
+    .expect_err("complete contradictory descriptor is semantic");
+    assert!(matches!(
+        semantic,
+        ProtocolError::World(crate::WorldPacketError::Item(
+            crate::ItemPacketError::ContradictoryStackId
+        ))
+    ));
+}
+
+#[test]
 fn semantic_world_rejections_remain_skippable_before_the_next_valid_packet() {
     let mut world_skips = 0;
     let unknown_container = decode_world_raw_with(raw_mob_equipment(1, &[0; 10], -1), 0, |raw| {

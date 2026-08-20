@@ -227,6 +227,9 @@ impl WorldStream {
             self.stats.sub_chunk_retries_scheduled.saturating_add(1);
     }
     pub(super) fn expire_sub_chunk_deadlines(&mut self, now: Instant) {
+        if self.fatal_decode_failure {
+            return;
+        }
         // Older deferred retries own newly free outbound slots. Expirations
         // observed in this pass must never bypass that FIFO.
         self.pump_deferred_retries();
@@ -281,6 +284,9 @@ impl WorldStream {
         debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
     }
     pub(super) fn pump_deferred_retries(&mut self) {
+        if self.fatal_decode_failure {
+            return;
+        }
         self.pump_deferred_recovery_requests();
         while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
             let Some(key) = self.deferred_retries.pop_front() else {
@@ -297,6 +303,9 @@ impl WorldStream {
     }
 
     pub(super) fn pump_deferred_recovery_requests(&mut self) {
+        if self.fatal_decode_failure {
+            return;
+        }
         while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
             let Some(request) = self.deferred_recovery_requests.pop_front() else {
                 break;

@@ -219,6 +219,141 @@ fn extreme_sub_chunk_y_overflow_is_survivable_decode_policy() {
     assert_eq!(stream.pending_decode.len(), 0);
 }
 
+#[test]
+fn malformed_live_block_entity_wire_is_fifo_fatal() {
+    for payload in [vec![10, 1, 0xff], vec![10, 1]] {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream
+            .submit(
+                1,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position: [0, 0, 0],
+                    nbt: payload,
+                }),
+            )
+            .expect("admit malformed live block-entity payload");
+        stream
+            .submit(2, WorldEvent::SetTime(SetTimeEvent { time: 7 }))
+            .expect("admit FIFO successor");
+
+        complete_pending_decode_jobs(&mut stream);
+
+        assert!(matches!(
+            stream.take_fatal_error(),
+            Some(WorldStreamFatalError::ChunkDecode { sequence: 1, .. })
+        ));
+        assert!(stream.take_committed_controls().is_empty());
+    }
+}
+
+#[test]
+fn semantic_live_block_entity_shape_remains_survivable() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                dimension: 0,
+                position: [0, 0, 0],
+                nbt: vec![1],
+            }),
+        )
+        .expect("admit semantic block-entity shape");
+    stream
+        .submit(2, WorldEvent::SetTime(SetTimeEvent { time: 7 }))
+        .expect("admit FIFO successor");
+
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(stream.take_fatal_error().is_none());
+    assert_eq!(stream.stats().decode_errors, 1);
+    assert!(matches!(
+        stream.take_committed_controls().as_slice(),
+        [CommittedControlEvent::SetTime {
+            sequence: 2,
+            update: SetTimeEvent { time: 7 }
+        }]
+    ));
+}
+
+#[test]
+fn decode_fatal_stays_terminal_across_later_polls() {
+    let (mut stream, keys, request) = stream_with_unsent_sub_chunks(1);
+    let target = ViewCohort::from_publisher(0, [0, 64, 0], 16);
+    stream.committed_view_cohort = Some(target);
+    stream.required_columns = BTreeSet::from([keys[0].chunk()]);
+    stream.loaded_columns.insert(keys[0].chunk());
+    assert!(stream.cohort_status(target).target_is_complete());
+
+    acknowledge_request_sent(
+        &mut stream,
+        &request,
+        Instant::now() - super::SUB_CHUNK_RESPONSE_TIMEOUT,
+    );
+    let ready_chunk = ChunkKey::new(0, 1, 0);
+    stream.requests.push_ready(
+        PendingSubChunkRequest {
+            packet: request_sub_chunk_column(0, ready_chunk.x, ready_chunk.z, -4, 1)
+                .expect("build ready terminality witness"),
+            dimension: 0,
+            chunk: ready_chunk,
+            base_sub_chunk_y: -4,
+            count: 1,
+        },
+        false,
+    );
+    stream
+        .submit(
+            2,
+            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                dimension: 0,
+                position: [0, 0, 0],
+                nbt: vec![10, 1],
+            }),
+        )
+        .expect("admit fatal live block-entity payload");
+    stream
+        .submit(3, WorldEvent::SetTime(SetTimeEvent { time: 9 }))
+        .expect("admit queued FIFO successor");
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.fatal_decode_failure);
+    let retries_before = stream.stats().sub_chunk_retries_scheduled;
+
+    stream.poll([0.0; 3], 0);
+
+    assert!(stream.take_committed_controls().is_empty());
+    assert!(stream.take_requests().is_empty());
+    assert_eq!(stream.stats().sub_chunk_retries_scheduled, retries_before);
+    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(!stream.cohort_status(target).target_is_complete());
+    assert!(
+        !stream
+            .phase2_publication_snapshot(keys[0].chunk())
+            .required_cohort_stable
+    );
+    assert!(matches!(
+        stream.take_fatal_error(),
+        Some(WorldStreamFatalError::ChunkDecode { sequence: 2, .. })
+    ));
+}
+
 mod light_scheduler;
 
 mod mesh_dependency;

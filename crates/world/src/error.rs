@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{BlockEntityError, BlockEntityNbtError};
+use crate::BlockEntityError;
 
 /// The process-wide collision revision identity space has been exhausted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -88,22 +88,7 @@ impl DecodeError {
             | Self::TooManyBiomeStorages { .. }
             | Self::SubChunkIndexMismatch { .. }
             | Self::SubChunkYOverflow { .. } => None,
-            Self::BlockEntity(error) => match error {
-                BlockEntityError::MissingReservedEntryCount
-                | BlockEntityError::TrailingBytes { .. }
-                | BlockEntityError::Nbt(
-                    BlockEntityNbtError::UnknownTag { .. }
-                    | BlockEntityNbtError::UnexpectedEof { .. }
-                    | BlockEntityNbtError::VarIntTooLong
-                    | BlockEntityNbtError::VarIntOverflow
-                    | BlockEntityNbtError::VarLongTooLong
-                    | BlockEntityNbtError::VarLongOverflow
-                    | BlockEntityNbtError::NegativeLength { .. }
-                    | BlockEntityNbtError::InvalidUtf8
-                    | BlockEntityNbtError::NonEmptyEndList,
-                ) => Some("malformed block-entity wire"),
-                _ => None,
-            },
+            Self::BlockEntity(error) => error.wire_error_reason(),
             Self::UnexpectedEof { .. } => Some("truncated chunk payload"),
             Self::UnsupportedVersion(_)
             | Self::DiskPaletteInNetworkData { .. }

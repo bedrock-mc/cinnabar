@@ -16,6 +16,22 @@ impl WorldStream {
             self.fatal_error = Some(WorldStreamFatalError::ChunkDecode { sequence, reason });
         }
         self.pending_decode.clear();
+        self.ordered.ready.clear();
+        self.submitted.clear();
+        self.heavy_sequences.clear();
+        self.blocking_block_updates = None;
+        self.requests = RequestQueue::default();
+        self.transport_pending_requests = 0;
+        self.requested_sub_chunks.clear();
+        self.request_collision_failures.clear();
+        self.sub_chunk_deadlines.clear();
+        self.correlated_sub_chunk_attempts.clear();
+        self.admitted_sub_chunk_replies.clear();
+        self.deferred_retries.clear();
+        self.deferred_retry_set.clear();
+        self.deferred_recovery_requests.clear();
+        self.committed_view_cohort = None;
+        self.required_columns.clear();
     }
 
     pub(super) fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
@@ -23,7 +39,7 @@ impl WorldStream {
         self.stats.normalization_reasons.record(reason);
     }
     pub(super) fn apply_ready(&mut self) {
-        if self.blocking_block_updates.is_some() {
+        if self.fatal_decode_failure || self.blocking_block_updates.is_some() {
             return;
         }
         while let Some(event) = self.ordered.pop_next() {
@@ -64,6 +80,9 @@ impl WorldStream {
         event: PreparedWorldEvent,
         sequence: Option<u64>,
     ) {
+        if self.fatal_decode_failure {
+            return;
+        }
         match event {
             PreparedWorldEvent::InlineLevelChunk {
                 event,
@@ -398,9 +417,15 @@ impl WorldStream {
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
                         }
                     },
-                    Err(_) => {
-                        self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
-                    }
+                    Err(error) => match error.wire_error_reason() {
+                        Some(reason) => self.record_chunk_decode_fatal(
+                            sequence.expect("decoded BlockActorData has a network sequence"),
+                            reason,
+                        ),
+                        None => {
+                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                        }
+                    },
                 }
             }
             PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
@@ -411,6 +436,9 @@ impl WorldStream {
         }
     }
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
+        if self.fatal_decode_failure {
+            return;
+        }
         match event {
             WorldEvent::BiomeDefinitions(event) => {
                 let live = event
