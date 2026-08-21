@@ -402,6 +402,11 @@ impl UiPresentationRuntime {
         self.safe_area = safe_area;
     }
 
+    #[cfg(test)]
+    pub(crate) fn hud_frame(&self) -> &HudFrame {
+        &self.hud_frame
+    }
+
     pub(crate) fn hud_frame_mut(&mut self) -> &mut HudFrame {
         &mut self.hud_frame
     }

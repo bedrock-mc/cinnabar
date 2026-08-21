@@ -18,6 +18,7 @@ use crate::ui_runtime::SequencedUiEvent;
 mod hud_matrix_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
+mod tab_binding_tests;
 
 #[test]
 fn start_game_survival_presents_the_hotbar_and_waits_for_attribute_authority() {

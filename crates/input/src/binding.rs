@@ -266,6 +266,7 @@ fn default_bindings() -> Vec<ActionBinding> {
         (Sprint, 0xe4),
         (CyclePerspective, 0x3e),
         (Menu, 0x29),
+        (PlayerList, 0x2b),
         (Hotbar1, 0x1e),
         (Hotbar2, 0x1f),
         (Hotbar3, 0x20),
@@ -339,6 +340,10 @@ fn default_bindings() -> Vec<ActionBinding> {
         (Menu, 7),
         (Sprint, 8),
         (CyclePerspective, 11),
+        // Provisional default: no version-matched native controller mapping
+        // for the player list has been measured; RightThumb is the unclaimed
+        // face-adjacent hold control on this layout.
+        (PlayerList, 9),
     ] {
         bind(&mut bindings, action, Gameplay, GamepadButton(button));
     }
@@ -389,6 +394,7 @@ fn default_bindings() -> Vec<ActionBinding> {
         (LookDown, touch::LOOK_DOWN, Gameplay),
         (LookLeft, touch::LOOK_LEFT, Gameplay),
         (LookRight, touch::LOOK_RIGHT, Gameplay),
+        (PlayerList, touch::PLAYER_LIST, Gameplay),
     ] {
         bind(&mut bindings, action, context, TouchControl(hit_id));
     }

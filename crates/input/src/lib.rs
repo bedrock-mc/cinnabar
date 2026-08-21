@@ -53,4 +53,5 @@ pub mod touch {
     pub const LOOK_DOWN: u16 = 29;
     pub const LOOK_LEFT: u16 = 30;
     pub const LOOK_RIGHT: u16 = 31;
+    pub const PLAYER_LIST: u16 = 32;
 }

@@ -120,6 +120,10 @@ impl Default for TouchControlLayout {
             .collect();
         controls.extend([
             TouchControl {
+                hit_id: crate::touch::PLAYER_LIST,
+                kind: TouchControlKind::Button,
+            },
+            TouchControl {
                 hit_id: crate::touch::LOOK_UP,
                 kind: TouchControlKind::LookAxis(TouchAxis::YNegative),
             },
