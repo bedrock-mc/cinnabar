@@ -367,14 +367,14 @@ fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
     std::fs::write(bridge_endpoint_path(&socket_dir), "stale publication").unwrap();
     assert!(bridge_endpoint_exists(&socket_dir));
 
-    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+    crate::menu::core_process::clear_stale_bridge_endpoint(&socket_dir)
         .expect("a publication left by an earlier core must be removable");
 
     assert!(
         !bridge_endpoint_exists(&socket_dir),
         "a stale publication would satisfy the core wait before the new core binds"
     );
-    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+    crate::menu::core_process::clear_stale_bridge_endpoint(&socket_dir)
         .expect("clearing an absent publication must succeed");
 
     let _ = std::fs::remove_dir_all(socket_dir);

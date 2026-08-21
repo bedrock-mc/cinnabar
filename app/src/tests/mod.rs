@@ -54,6 +54,7 @@ use crate::acceptance::{
         orient_acceptance_camera, orient_mutation_camera,
     },
 };
+use crate::menu::core_process::{CoreProcessGuard, CoreStopOutcome};
 use crate::metrics::{DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot};
 use crate::runtime::network::{
     NetworkControlEvent,
@@ -267,6 +268,7 @@ mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
+mod core_process;
 mod finish;
 mod inventory;
 mod inventory_schedule;

@@ -1,3 +1,5 @@
+use std::process::{Command, Stdio};
+
 use super::*;
 
 pub(super) fn validated_auth_cache(
@@ -177,6 +179,7 @@ mod tests {
 
     use super::*;
     use crate::install_layout::{InstallEnvironment, Platform};
+    use crate::menu::core_process::core_command_for_address;
 
     fn launch_layout_with_spaces() -> InstallLayout {
         InstallLayout::resolve(

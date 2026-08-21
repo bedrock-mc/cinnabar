@@ -8,28 +8,28 @@
 
 mod account;
 pub(crate) mod auth;
+pub(crate) mod core_process;
 mod input;
 
 use auth::{AuthState, AuthSupervisor};
 
+pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
+use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{drive_menu_connection, drive_menu_input, recover_menu_session_failure};
 
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    process::Child,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    install_layout::InstallLayout,
-    runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
-    ui_runtime::presentation::IconRef,
-};
+use crate::{install_layout::InstallLayout, ui_runtime::presentation::IconRef};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -808,116 +808,6 @@ impl Drop for MenuRuntime {
         self.stop_catalog();
         let _ = fs::remove_file(&self.catalog_path);
     }
-}
-
-#[derive(Debug, Resource, Default)]
-pub(crate) struct CoreProcessGuard {
-    child: Option<Child>,
-}
-
-impl CoreProcessGuard {
-    pub(crate) fn replace(&mut self, child: Child) {
-        self.stop();
-        self.child = Some(child);
-    }
-
-    pub(crate) fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-impl Drop for CoreProcessGuard {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-pub(crate) fn spawn_core_for_address(
-    layout: &InstallLayout,
-    socket_dir: &Path,
-    address: &str,
-    auth_cache: Option<&Path>,
-) -> Result<Child> {
-    let executable = core_executable(layout).ok_or_else(|| {
-        anyhow::anyhow!(
-            "bedrock-core executable was not found at {}",
-            layout.core_executable.display()
-        )
-    })?;
-    clear_stale_bridge_endpoint(socket_dir)?;
-    let mut command =
-        core_command_for_address(layout, &executable, socket_dir, address, auth_cache);
-    let child = command
-        .spawn()
-        .with_context(|| format!("spawn {} for {address}", executable.display()))?;
-    Ok(child)
-}
-
-fn core_command_for_address(
-    layout: &InstallLayout,
-    executable: &Path,
-    socket_dir: &Path,
-    address: &str,
-    auth_cache: Option<&Path>,
-) -> Command {
-    let mut command = Command::new(executable);
-    command
-        .arg("-socket-dir")
-        .arg(socket_dir)
-        .arg("-upstream")
-        .arg(address)
-        .arg("-resource-pack-cache-dir")
-        .arg(layout.resource_pack_cache_dir())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    if let Some(auth_cache) = auth_cache {
-        command.arg("-auth-cache").arg(auth_cache);
-    }
-    command
-}
-
-/// Drops any endpoint publication left behind by an earlier core.
-///
-/// [`wait_for_core`] can only observe that the endpoint exists, so a stale
-/// publication would satisfy it immediately and the client would dial a socket
-/// nothing is listening on. Clearing it first means the wait observes the newly
-/// spawned core's own bind.
-pub(crate) fn clear_stale_bridge_endpoint(socket_dir: &Path) -> Result<()> {
-    let endpoint = bridge_endpoint_path(socket_dir);
-    match fs::remove_file(&endpoint) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error)
-            .with_context(|| format!("remove stale bridge endpoint {}", endpoint.display())),
-    }
-}
-
-pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
-    for _ in 0..100 {
-        if bridge_endpoint_exists(socket_dir) {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    bail!(
-        "bedrock-core did not publish its endpoint at {}",
-        socket_dir.display()
-    )
-}
-
-fn core_executable(layout: &InstallLayout) -> Option<PathBuf> {
-    layout
-        .core_executable
-        .is_file()
-        .then(|| layout.core_executable.clone())
-}
-
-fn auth_cache_path(layout: &InstallLayout) -> Option<PathBuf> {
-    Some(layout.auth_cache()).filter(|path| path.is_file())
 }
 
 /// Condenses a runtime error into something that fits the menu message area.
