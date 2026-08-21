@@ -6,6 +6,14 @@ pub const DEFAULT_TITLE_FADE_IN_TICKS: u32 = 10;
 pub const DEFAULT_TITLE_STAY_TICKS: u32 = 70;
 pub const DEFAULT_TITLE_FADE_OUT_TICKS: u32 = 20;
 
+/// Explicitly provisional toast display duration.
+///
+/// No authoritative version-matched Bedrock measurement of the native toast
+/// duration or transition timing exists yet, so this bounded value only
+/// stops toasts from rendering forever; it must not be read as a vanilla
+/// parity claim and needs native calibration before that gate can close.
+pub const PROVISIONAL_TOAST_DURATION_MILLIS: u64 = 5_000;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedStat {
     current: u16,
@@ -114,9 +122,29 @@ pub struct Toast {
     pub message: Arc<str>,
     pub fifo_sequence: u64,
     pub received_millis: u64,
+    pub expires_millis: u64,
 }
 
 impl Toast {
+    pub fn new(
+        title: Arc<str>,
+        message: Arc<str>,
+        fifo_sequence: u64,
+        received_millis: u64,
+    ) -> Self {
+        Self {
+            title,
+            message,
+            fifo_sequence,
+            received_millis,
+            expires_millis: received_millis.saturating_add(PROVISIONAL_TOAST_DURATION_MILLIS),
+        }
+    }
+
+    pub const fn visible_at(&self, now_millis: u64) -> bool {
+        now_millis < self.expires_millis
+    }
+
     fn retained_bytes(&self) -> usize {
         self.title.len() + self.message.len()
     }
@@ -357,6 +385,17 @@ impl HudStore {
         {
             self.actionbar = None;
         }
+        // Toasts arrive in receive order with a fixed provisional duration,
+        // so expiry is monotone from the front.
+        while let Some(front) = self.toasts.front() {
+            if front.visible_at(now_millis) {
+                break;
+            }
+            let removed = self.toasts.pop_front().expect("front checked above");
+            self.toast_retained_bytes = self
+                .toast_retained_bytes
+                .saturating_sub(removed.retained_bytes());
+        }
     }
 
     pub fn view_nodes(&self, now_millis: u64) -> Box<[HudViewNode]> {
@@ -393,6 +432,9 @@ impl HudStore {
             }
         }
         for toast in &self.toasts {
+            if !toast.visible_at(now_millis) {
+                continue;
+            }
             nodes.push(HudViewNode {
                 role: HudViewRole::ToastTitle,
                 source_sequence: toast.fifo_sequence,

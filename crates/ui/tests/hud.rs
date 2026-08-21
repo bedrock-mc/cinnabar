@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use ui::{BoundedStat, HudStore, HudViewRole, MAX_TOASTS, TitleDurations, Toast};
+use ui::{
+    BoundedStat, HudStore, HudViewRole, MAX_TOASTS, PROVISIONAL_TOAST_DURATION_MILLIS,
+    TitleDurations, Toast,
+};
 
 #[test]
 fn title_durations_expire_from_monotonic_arrival_time() {
@@ -40,6 +43,7 @@ fn toast_queue_is_bounded_and_view_nodes_preserve_fifo_order() {
             message: Arc::from(format!("message {sequence}")),
             fifo_sequence: sequence,
             received_millis: sequence,
+            expires_millis: u64::MAX,
         });
     }
 
@@ -50,6 +54,77 @@ fn toast_queue_is_bounded_and_view_nodes_preserve_fifo_order() {
     assert_eq!(nodes[0].source_sequence, 2);
     assert_eq!(nodes[0].role, HudViewRole::ToastTitle);
     assert_eq!(nodes[1].role, HudViewRole::ToastMessage);
+}
+
+#[test]
+fn toasts_expire_after_the_provisional_duration() {
+    let mut hud = HudStore::default();
+    hud.push_toast(Toast::new(Arc::from("hello"), Arc::from("world"), 9, 1_000));
+
+    assert_eq!(
+        hud.toasts().front().unwrap().expires_millis,
+        1_000 + PROVISIONAL_TOAST_DURATION_MILLIS
+    );
+    assert!(!hud.view_nodes(5_999).is_empty());
+
+    // Exactly at expiry the toast stops rendering, and expire() removes it
+    // together with its retained-byte accounting.
+    assert!(
+        hud.view_nodes(1_000 + PROVISIONAL_TOAST_DURATION_MILLIS)
+            .is_empty()
+    );
+    hud.expire(1_000 + PROVISIONAL_TOAST_DURATION_MILLIS);
+    assert!(hud.toasts().is_empty());
+}
+
+#[test]
+fn toast_expiry_prunes_only_expired_fronts_in_order() {
+    let mut hud = HudStore::default();
+    let mut first = Toast::new(Arc::from("one"), Arc::from("m"), 1, 0);
+    first.expires_millis = 100;
+    let mut second = Toast::new(Arc::from("two"), Arc::from("m"), 2, 10);
+    second.expires_millis = 200;
+    let third = Toast::new(Arc::from("three"), Arc::from("m"), 3, 20);
+    hud.push_toast(first);
+    hud.push_toast(second);
+    hud.push_toast(third);
+
+    hud.expire(150);
+
+    assert_eq!(hud.toasts().len(), 2);
+    assert_eq!(hud.toasts().front().unwrap().fifo_sequence, 2);
+    let nodes = hud.view_nodes(150);
+    assert_eq!(nodes.len(), 4);
+    assert_eq!(nodes[0].source_sequence, 2);
+
+    // The provisional duration keeps the last toast alive well past 250 ms.
+    hud.expire(20 + PROVISIONAL_TOAST_DURATION_MILLIS);
+    assert!(hud.toasts().is_empty());
+}
+
+#[test]
+fn expired_toasts_release_their_retained_byte_budget() {
+    let mut hud = HudStore::default();
+    let large_title = Arc::from("t".repeat(100_000).into_boxed_str());
+    let large_message = Arc::from("m".repeat(50_000).into_boxed_str());
+
+    let mut first = Toast::new(Arc::clone(&large_title), Arc::clone(&large_message), 1, 0);
+    first.expires_millis = 100;
+    let mut second = Toast::new(Arc::clone(&large_title), Arc::clone(&large_message), 2, 0);
+    second.expires_millis = 200;
+    hud.push_toast(first);
+    // The second toast exceeds the shared byte budget, so the first is
+    // evicted from the front.
+    let forced_evictions = hud.push_toast(second);
+    assert_eq!(forced_evictions, 1);
+
+    hud.expire(300);
+    let third = Toast::new(Arc::clone(&large_title), Arc::clone(&large_message), 3, 0);
+    assert_eq!(
+        hud.push_toast(third),
+        0,
+        "expired toasts must release their retained bytes"
+    );
 }
 
 #[test]

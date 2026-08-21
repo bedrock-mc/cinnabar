@@ -121,12 +121,8 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         match event {
             HudEvent::Toast { title, message } => {
-                self.hud.push_toast(Toast {
-                    title,
-                    message,
-                    fifo_sequence,
-                    received_millis: event_millis,
-                });
+                self.hud
+                    .push_toast(Toast::new(title, message, fifo_sequence, event_millis));
             }
             HudEvent::Health { health } => {
                 // A negative or overflowing SetHealth is semantically odd but
