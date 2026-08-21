@@ -10,21 +10,21 @@ mod account;
 pub(crate) mod auth;
 pub(crate) mod core_process;
 mod input;
+pub(crate) mod servers;
 
 use auth::{AuthState, AuthSupervisor};
 
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{drive_menu_connection, drive_menu_input, recover_menu_session_failure};
+use servers::{load_servers, save_servers};
 
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Child,
     time::{SystemTime, UNIX_EPOCH},
 };
-
-use anyhow::{Context, Result};
 
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
@@ -267,7 +267,7 @@ impl MenuRuntime {
         layout: InstallLayout,
     ) -> Self {
         let config_path = layout.server_file();
-        let servers = load_servers(&config_path);
+        let loaded = load_servers(&config_path);
         Self {
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
@@ -284,10 +284,10 @@ impl MenuRuntime {
             field: None,
             name: String::new(),
             address: String::new(),
-            message: None,
+            message: loaded.recovery_message,
             gui_scale: gui_scale.clamp(1, 4),
             display_name,
-            servers,
+            servers: loaded.servers,
             config_path,
             pending_connect: None,
             connecting: false,
@@ -822,22 +822,6 @@ fn session_failure_message(error: &str) -> String {
         condensed.push('…');
     }
     format!("Disconnected: {condensed}")
-}
-
-fn load_servers(path: &Path) -> Vec<SavedServer> {
-    let Ok(bytes) = fs::read(path) else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&bytes).unwrap_or_default()
-}
-
-fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let bytes = serde_json::to_vec_pretty(servers).context("encode saved servers")?;
-    fs::write(path, bytes).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
 }
 
 fn now_unix() -> u64 {
