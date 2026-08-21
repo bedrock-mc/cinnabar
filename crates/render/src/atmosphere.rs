@@ -21,6 +21,16 @@ const WATER_FOG_END: f32 = 32.0;
 const LAVA_FOG_COLOR: [f32; 3] = [0.45, 0.08, 0.0];
 const LAVA_FOG_END: f32 = 3.0;
 
+/// Explicitly provisional boss-environment response constants. No
+/// version-matched native Bedrock capture of the boss-driven sky darkening
+/// or world fog exists yet; they must be calibrated against native evidence
+/// before any visual acceptance gate closes.
+pub const PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH: f32 = 0.5;
+pub const PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS: f32 = 96.0;
+pub const PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS: f32 = 160.0;
+const BOSS_DARKEN_ZENITH_TARGET: [f32; 3] = [0.12, 0.14, 0.16];
+const BOSS_DARKEN_HORIZON_TARGET: [f32; 3] = [0.22, 0.24, 0.26];
+
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct AtmosphereTextureAssets {
     runtime: Option<Arc<RuntimeAtmosphereAssets>>,
@@ -290,6 +300,69 @@ impl AtmosphereFrame {
             let colour = rgb8_to_linear(fog.rgb8);
             self.fog_color_start = Vec4::new(colour[0], colour[1], colour[2], fog.start);
             self.fog_end_time.x = fog.end;
+        }
+        self
+    }
+
+    /// Responds to explicit boss-bar environment requests.
+    ///
+    /// No version-matched native Bedrock capture of the boss-driven sky
+    /// darkening or world-fog effect exists yet, so these bounded constants
+    /// only make the retained flags observable end to end. They must not be
+    /// read as a vanilla parity claim; native calibration has to replace
+    /// them before any visual acceptance gate can close, and that calibration
+    /// must also adjudicate the dim-versus-target-mix semantics (mixing toward
+    /// fixed targets can slightly brighten an already-dark night sky).
+    #[must_use]
+    pub fn with_boss_environment(mut self, darken_sky: bool, world_fog: bool) -> Self {
+        let zenith = [
+            self.sky_zenith_rain.x,
+            self.sky_zenith_rain.y,
+            self.sky_zenith_rain.z,
+        ];
+        let horizon = [
+            self.sky_horizon_thunder.x,
+            self.sky_horizon_thunder.y,
+            self.sky_horizon_thunder.z,
+        ];
+        if darken_sky {
+            let strength = PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH.clamp(0.0, 1.0);
+            let darkened_zenith = mix3(zenith, BOSS_DARKEN_ZENITH_TARGET, strength);
+            let darkened_horizon = mix3(horizon, BOSS_DARKEN_HORIZON_TARGET, strength);
+            self.sky_zenith_rain = Vec4::new(
+                darkened_zenith[0],
+                darkened_zenith[1],
+                darkened_zenith[2],
+                self.sky_zenith_rain.w,
+            );
+            self.sky_horizon_thunder = Vec4::new(
+                darkened_horizon[0],
+                darkened_horizon[1],
+                darkened_horizon[2],
+                self.sky_horizon_thunder.w,
+            );
+        }
+        if world_fog {
+            // Follow the storm model's convention of deriving the fog tint
+            // from the current sky so the two effects compose predictably.
+            let final_zenith = [
+                self.sky_zenith_rain.x,
+                self.sky_zenith_rain.y,
+                self.sky_zenith_rain.z,
+            ];
+            let final_horizon = [
+                self.sky_horizon_thunder.x,
+                self.sky_horizon_thunder.y,
+                self.sky_horizon_thunder.z,
+            ];
+            let colour = mix3(final_horizon, final_zenith, 0.18);
+            self.fog_color_start = Vec4::new(
+                colour[0],
+                colour[1],
+                colour[2],
+                PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS,
+            );
+            self.fog_end_time.x = PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS;
         }
         self
     }

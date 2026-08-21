@@ -14,8 +14,10 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_directional_illuminance,
-    cloud_fog_factor, cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
+    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
+    PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS,
+    cloud_directional_illuminance, cloud_fog_factor, cloud_texture_offset, cloud_weather_colour,
+    moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -110,6 +112,98 @@ fn exact_environment_values_replace_only_sky_and_fog_fields() {
         applied.cloud_texture_offset(),
         baseline.cloud_texture_offset()
     );
+}
+
+#[test]
+fn boss_environment_without_requests_is_an_exact_identity() {
+    let baseline = AtmosphereFrame::from_bedrock_time(18_000.0, 0.3, 0.2);
+    let applied = baseline.with_boss_environment(false, false);
+    assert_eq!(applied, baseline);
+}
+
+#[test]
+fn boss_darkening_mixes_sky_toward_the_provisional_targets() {
+    let baseline = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    let darkened = baseline.with_boss_environment(true, false);
+
+    let strength = PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH;
+    assert!(darkened.sky_zenith()[1] < baseline.sky_zenith()[1]);
+    assert!(darkened.sky_horizon()[1] < baseline.sky_horizon()[1]);
+    for channel in 0..3 {
+        let expected_zenith = baseline.sky_zenith()[channel]
+            + ([0.12, 0.14, 0.16][channel] - baseline.sky_zenith()[channel]) * strength;
+        assert!((darkened.sky_zenith()[channel] - expected_zenith).abs() < 1e-6);
+    }
+    // Celestial state and weather channels stay untouched.
+    assert_eq!(darkened.sun_direction(), baseline.sun_direction());
+    assert_eq!(darkened.moon_phase(), baseline.moon_phase());
+    assert_eq!(darkened.day_fraction(), baseline.day_fraction());
+    assert_eq!(
+        darkened.cloud_texture_offset(),
+        baseline.cloud_texture_offset()
+    );
+    assert_eq!(darkened.rain_level(), baseline.rain_level());
+    assert_eq!(darkened.thunder_level(), baseline.thunder_level());
+    // Without a fog request both fog distances and tint are unchanged.
+    assert_eq!(darkened.fog_start(), baseline.fog_start());
+    assert_eq!(darkened.fog_end(), baseline.fog_end());
+    assert_eq!(darkened.fog_color(), baseline.fog_color());
+}
+
+#[test]
+fn boss_world_fog_pulls_distances_inward_and_derives_the_tint() {
+    let baseline = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    let fogged = baseline.with_boss_environment(false, true);
+
+    assert_eq!(fogged.fog_start(), PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS);
+    assert_eq!(fogged.fog_end(), PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS);
+    assert!(fogged.fog_end() >= fogged.fog_start());
+    // A fog-only request leaves the sky and celestial channels unchanged.
+    assert_eq!(fogged.sky_zenith(), baseline.sky_zenith());
+    assert_eq!(fogged.sky_horizon(), baseline.sky_horizon());
+    assert_eq!(fogged.sun_direction(), baseline.sun_direction());
+    assert_eq!(
+        fogged.cloud_texture_offset(),
+        baseline.cloud_texture_offset()
+    );
+    let zenith = baseline.sky_zenith();
+    let horizon = baseline.sky_horizon();
+    let expected: [f32; 3] = std::array::from_fn(|channel| {
+        horizon[channel] + (zenith[channel] - horizon[channel]) * 0.18
+    });
+    for (channel, expected_value) in expected.iter().enumerate() {
+        assert!((fogged.fog_color()[channel] - expected_value).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn combined_boss_requests_stay_finite_and_ordered() {
+    let frame = AtmosphereFrame::from_bedrock_time(12_345.0, 0.4, 0.4)
+        .with_camera_medium(meshing::CameraMedium::Air)
+        .with_boss_environment(true, true);
+    assert!(frame.sky_zenith().iter().all(|value| value.is_finite()));
+    assert!(frame.sky_horizon().iter().all(|value| value.is_finite()));
+    assert!(frame.fog_color().iter().all(|value| value.is_finite()));
+    assert!(frame.fog_end() >= frame.fog_start());
+}
+
+#[test]
+fn boss_requests_override_a_client_profile_in_air() {
+    let profiled = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0).with_environment_profile(
+        Some(0x12_34_56),
+        Some(ResolvedFog {
+            start: 235.52,
+            end: 256.0,
+            rgb8: 0x0B_08_0C,
+        }),
+    );
+    let bossed = profiled.with_boss_environment(false, true);
+
+    // Boss fog wins over the profile fog in air.
+    assert_eq!(bossed.fog_start(), PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS);
+    assert_eq!(bossed.fog_end(), PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS);
+    // A fog-only request leaves the profiled sky channels exactly as set.
+    assert_eq!(bossed.sky_zenith(), profiled.sky_zenith());
 }
 
 fn rgb8_to_linear(rgb: u32) -> [f32; 3] {

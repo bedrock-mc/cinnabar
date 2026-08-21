@@ -6,8 +6,11 @@ use bevy::{
 use meshing::CameraMedium;
 use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
 use render::AtmosphereFrame;
+use ui::BossBarView;
 
 use client_world::CommittedControlEvent;
+
+use crate::ui_runtime::UiRuntime;
 
 mod numeric;
 mod profile_lookup;
@@ -311,19 +314,25 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
+    boss_bars: Res<UiRuntime>,
     atmosphere_assets: Res<render::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
 ) {
     let (mut frame, mut route) = outputs;
+    let state = derive_boss_environment(&boss_bars.boss_bars().stacked());
     let Some(assets) = atmosphere_assets.runtime() else {
-        *frame =
-            derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0);
+        *frame = apply_boss_environment(
+            derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0),
+            medium.0,
+            state,
+        );
         *route = EnvironmentProfileRoute::default();
         return;
     };
@@ -336,8 +345,41 @@ pub(crate) fn update_atmosphere_frame(
         assets.biome_profiles(),
         assets.fog_profiles(),
     );
-    *frame = next_frame;
+    *frame = apply_boss_environment(next_frame, medium.0, state);
     *route = next_route;
+}
+
+/// Explicit environment requests retained by active boss bars.
+///
+/// The pinned protocol-2168 `BossEvent` wire carries no sky-darkening or
+/// world-fog fields, so live servers leave both flags unset and this state
+/// is inert until a bar explicitly requests an effect.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BossEnvironmentState {
+    pub(crate) darken_sky: bool,
+    pub(crate) world_fog: bool,
+}
+
+pub(crate) fn derive_boss_environment(bars: &[BossBarView]) -> BossEnvironmentState {
+    BossEnvironmentState {
+        darken_sky: bars.iter().any(|bar| bar.style.darken_sky == Some(true)),
+        world_fog: bars
+            .iter()
+            .any(|bar| bar.style.create_world_fog == Some(true)),
+    }
+}
+
+/// Boss effects respond only in air; water and lava media own their fog
+/// completely and must not be overridden by a boss flag.
+fn apply_boss_environment(
+    frame: AtmosphereFrame,
+    medium: CameraMedium,
+    state: BossEnvironmentState,
+) -> AtmosphereFrame {
+    match medium {
+        CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
+        CameraMedium::Water | CameraMedium::Lava => frame,
+    }
 }
 
 #[cfg(test)]
@@ -349,11 +391,86 @@ mod tests {
     };
 
     use super::{
-        EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
-        bind_session_generation, derive_atmosphere_frame, derive_atmosphere_frame_for_medium,
+        BossEnvironmentState, EnvironmentContext, WeatherState, WorldClock, apply_boss_environment,
+        apply_environment_control, bind_session_generation, derive_atmosphere_frame,
+        derive_atmosphere_frame_for_medium, derive_boss_environment,
         derive_profiled_atmosphere_frame, replace_session, visual_world_time,
     };
     use client_world::CommittedControlEvent;
+    use std::sync::Arc;
+    use ui::{BossBarView, BossColor, BossOverlay, BossStyle};
+
+    fn boss_bar_view(darken_sky: Option<bool>, create_world_fog: Option<bool>) -> BossBarView {
+        BossBarView {
+            target_entity_id: 1,
+            title: Arc::from("boss"),
+            filtered_title: Arc::from(""),
+            health: 1.0,
+            style: BossStyle {
+                color: BossColor::Red,
+                overlay: BossOverlay::Notched10,
+                darken_sky,
+                create_world_fog,
+            },
+        }
+    }
+
+    #[test]
+    fn boss_environment_requires_an_explicit_true_request() {
+        assert_eq!(
+            derive_boss_environment(&[]),
+            BossEnvironmentState::default()
+        );
+        for flag_darken in [None, Some(false)] {
+            for flag_fog in [None, Some(false)] {
+                assert_eq!(
+                    derive_boss_environment(&[boss_bar_view(flag_darken, flag_fog)]),
+                    BossEnvironmentState::default(),
+                    "flags {flag_darken:?}/{flag_fog:?} must stay inert"
+                );
+            }
+        }
+        assert!(derive_boss_environment(&[boss_bar_view(Some(true), None)]).darken_sky);
+        assert!(!derive_boss_environment(&[boss_bar_view(Some(true), None)]).world_fog);
+        assert!(derive_boss_environment(&[boss_bar_view(None, Some(true))]).world_fog);
+        let both = derive_boss_environment(&[
+            boss_bar_view(None, None),
+            boss_bar_view(Some(false), Some(false)),
+            boss_bar_view(Some(true), Some(true)),
+        ]);
+        assert!(both.darken_sky && both.world_fog);
+    }
+
+    #[test]
+    fn boss_effects_apply_only_in_air_and_removal_restores_the_exact_frame() {
+        use meshing::CameraMedium;
+
+        let clock = WorldClock::default();
+        let weather = WeatherState::default();
+        let baseline = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Air);
+        let state = BossEnvironmentState {
+            darken_sky: true,
+            world_fog: true,
+        };
+        let darkened_air = apply_boss_environment(baseline, CameraMedium::Air, state);
+        assert_ne!(darkened_air, baseline);
+
+        // Water and lava media keep their complete medium fog.
+        let water = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Water);
+        assert_eq!(
+            apply_boss_environment(water, CameraMedium::Water, state),
+            water
+        );
+
+        // Removal (no active bars) means the next derived frame matches the
+        // exact baseline again; modifiers are never stacked across frames.
+        let cleared = derive_boss_environment(&[]);
+        let fresh = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Air);
+        assert_eq!(
+            apply_boss_environment(fresh, CameraMedium::Air, cleared),
+            baseline
+        );
+    }
 
     fn bootstrap(
         initial_time: i64,
