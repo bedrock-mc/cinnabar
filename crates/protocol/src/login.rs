@@ -16,7 +16,7 @@ use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, WorldEvent, into_world_event,
+    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, WorldEvent, into_world_event,
 };
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
@@ -91,6 +91,7 @@ pub struct PlaySession<T: Transport = SocketTransport> {
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
     pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
+    server_disconnect: Option<ServerDisconnectEvent>,
 }
 
 struct PendingBlobCacheDelivery {
@@ -193,7 +194,38 @@ impl<T: Transport> PlaySession<T> {
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_delivery: None,
+            server_disconnect: None,
         }
+    }
+
+    /// Takes the most recent normalized server-initiated disconnect, if any.
+    pub fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
+        self.server_disconnect.take()
+    }
+
+    fn retain_server_disconnect(&mut self, packet: &Packet) {
+        if let Some(event) = ServerDisconnectEvent::from_packet_data(&packet.data) {
+            self.server_disconnect = Some(event);
+        }
+    }
+
+    /// Decodes one session-boundary packet, retains any disconnect reason it
+    /// carries, and resets the cache for the immediate boundary. Malformed
+    /// wire stays fatal.
+    async fn absorb_boundary_packet(
+        &mut self,
+        raw: RawPacket,
+        name: McpePacketName,
+    ) -> Result<(), ProtocolError> {
+        let packet = match self.stream.decode_raw_packet(raw) {
+            Ok(packet) => packet,
+            Err(error) => return Err(self.fail_session(error)),
+        };
+        self.retain_server_disconnect(&packet);
+        if let Some(resolver) = self.blob_cache.as_mut() {
+            reset_cache_for_immediate_boundary(resolver, name)?;
+        }
+        Ok(())
     }
 
     /// Takes the validated ordered resource-pack archives captured during login.
@@ -309,6 +341,14 @@ impl<T: Transport> PlaySession<T> {
                         continue;
                     }
                 }
+            }
+            if matches!(
+                raw.id,
+                McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
+            ) {
+                let name = raw.id;
+                self.absorb_boundary_packet(raw, name).await?;
+                continue;
             }
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
@@ -536,14 +576,7 @@ impl<T: Transport> PlaySession<T> {
                 packet_name,
                 McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
             ) {
-                if let Err(error) = self.stream.decode_raw_packet(raw) {
-                    return Err(self.fail_session(error));
-                }
-                let resolver = self
-                    .blob_cache
-                    .as_mut()
-                    .expect("enabled path owns a resolver");
-                reset_cache_for_immediate_boundary(resolver, packet_name)?;
+                self.absorb_boundary_packet(raw, packet_name).await?;
                 continue;
             }
 

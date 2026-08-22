@@ -14,14 +14,16 @@ use flate2::Compression;
 use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
+use jolyne::valentine::EnumsConnectionDisconnectFailReason;
 use jolyne::valentine::{
     ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
     ClientCacheMissResponsePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
-    DimensionType, ItemData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData, McpePacketName,
-    MissingBlobData, NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm,
-    NetworkStackLatencyPacket, PackInstanceId, PlayStatusPacket, PlayStatusPacketStatus,
-    RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
+    DimensionType, DisconnectPacket, DisconnectPacketMessages, ItemData, ItemRegistryPacket,
+    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData,
+    McpePacketName, MissingBlobData, NetworkSettingsPacket,
+    NetworkSettingsPacketCompressionAlgorithm, NetworkStackLatencyPacket, PackInstanceId,
+    PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
+    RequestNetworkSettingsPacket,
     ResourcePackClientResponsePacketResponse, ResourcePackStackPacket, ResourcePacksInfoPacket,
     ServerToClientHandshakePacket, ServerboundLoadingScreenPacket,
     ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
@@ -38,8 +40,11 @@ use valentine::protocol::wire;
 
 type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 
+#[path = "login_state/disconnect_reason.rs"]
+mod disconnect_reason;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
+use disconnect_reason::{PlayEpilogue, disconnect_epilogue_packets};
 
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
@@ -193,6 +198,7 @@ struct ServerScript {
     non_empty_pack_stack: bool,
     cache_enabled: bool,
     cache_play_script: CachePlayScript,
+    epilogue: PlayEpilogue,
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
@@ -214,6 +220,7 @@ impl ServerScript {
             non_empty_pack_stack,
             cache_enabled,
             cache_play_script,
+            epilogue: PlayEpilogue::Default,
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
@@ -478,7 +485,7 @@ impl ServerScript {
                         CachePlayScript::ResolveValid => {
                             let payload = b"cached-column";
                             let hash = protocol::client_blob_hash(payload);
-                            self.enqueue_encrypted(&[
+                            let mut traffic = vec![
                                 McpePacket::from(LevelChunkPacket {
                                     chunk_position: ChunkPos { x: 8, z: -10 },
                                     dimension_id: DimensionType { value: 0 },
@@ -488,7 +495,9 @@ impl ServerScript {
                                 }),
                                 McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
                                 McpePacket::from(SetTimePacket { time: 34_567 }),
-                            ]);
+                            ];
+                            traffic.extend(disconnect_epilogue_packets(self.epilogue));
+                            self.enqueue_encrypted(&traffic);
                         }
                         CachePlayScript::TruncatedMissResponse => {
                             self.enqueue_encrypted_raw_packet(
@@ -515,7 +524,7 @@ impl ServerScript {
                     // request-mode sentinel in 1.26.40, so it is simply invalid.
                     // Latency probes ride the same batch: only the from-server
                     // probe may be answered, and never with its flag set.
-                    self.enqueue_encrypted(&[
+                    let mut traffic = vec![
                         McpePacket::from(LevelChunkPacket {
                             subchunks_count: u32::MAX,
                             ..Default::default()
@@ -536,7 +545,15 @@ impl ServerScript {
                             is_from_server: false,
                         }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
-                    ]);
+                    ];
+                    traffic.extend(disconnect_epilogue_packets(self.epilogue));
+                    self.enqueue_encrypted(&traffic);
+                    if self.epilogue == PlayEpilogue::TruncatedDisconnect {
+                        self.enqueue_encrypted_raw_packet(
+                            McpePacketName::DisconnectPacket,
+                            &[0x00],
+                        );
+                    }
                 }
                 self.stage = 8;
             }
@@ -604,6 +621,7 @@ impl ServerScript {
                     ) {
                         response.push(McpePacket::from(SetTimePacket { time: 45_678 }));
                     }
+                    response.extend(disconnect_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&response);
                     self.stage = 9;
                     return;

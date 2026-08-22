@@ -230,3 +230,33 @@ pub(crate) fn recover_menu_session_failure(
     client_world.pending_surface_spawn = None;
     client_world.fatal_error = None;
 }
+
+#[cfg(test)]
+mod session_failure_message_tests {
+    use super::super::MenuRuntime;
+
+    const KICK: &str =
+        "server disconnected: We've detected movement cheats (network read failed: closed)";
+
+    #[test]
+    fn launcher_renders_the_server_reason_in_the_menu_message() {
+        let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+        assert!(menu.absorb_session_failure(KICK));
+        assert_eq!(
+            menu.view().message.as_deref(),
+            Some(
+                "Disconnected: server disconnected: We've detected movement cheats (network read failed: closed)"
+            )
+        );
+    }
+
+    #[test]
+    fn launcher_falls_back_to_the_transport_failure_without_a_reason() {
+        let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+        assert!(menu.absorb_session_failure("network session failed: closed"));
+        assert_eq!(
+            menu.view().message.as_deref(),
+            Some("Disconnected: network session failed: closed")
+        );
+    }
+}
