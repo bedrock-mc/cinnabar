@@ -7,7 +7,9 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::version::v1_26_44::{McpePacketData, McpePacketName};
+use valentine::bedrock::version::v1_26_44::{
+    McpePacketData, McpePacketName, NetworkStackLatencyPacket,
+};
 use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
@@ -285,6 +287,10 @@ impl<T: Transport> PlaySession<T> {
                 }
             };
             self.packet_id_trace.observe(raw.id);
+            if raw.id == McpePacketName::NetworkStackLatencyPacket {
+                self.answer_network_stack_latency_probe(raw).await?;
+                continue;
+            }
             if raw.id == McpePacketName::LevelChunkPacket {
                 let raw = raw.into_retention_bounded();
                 let borrowed = raw
@@ -326,6 +332,36 @@ impl<T: Transport> PlaySession<T> {
         crate::codec::validate_packet(&packet)?;
         self.stream.send_packet(packet).await?;
         Ok(())
+    }
+
+    /// Answers one server latency probe by echoing its exact creation time
+    /// with the from-server flag cleared.
+    ///
+    /// Mojang's protocol documentation defines `NetworkStackLatency` (115) as
+    /// a ping packet carrying `Creation Time` (uint64) and `Is From Server`
+    /// (boolean), sent from both directions; vanilla clients reply to server
+    /// probes immediately, which is the behavior latency-gated servers
+    /// observe. Probes not marked from-server are ignored. Malformed probe
+    /// wire stays fatal like every other decode failure.
+    async fn answer_network_stack_latency_probe(
+        &mut self,
+        raw: RawPacket,
+    ) -> Result<(), ProtocolError> {
+        let packet = match self.stream.decode_raw_packet(raw) {
+            Ok(packet) => packet,
+            Err(error) => return Err(self.fail_session(error)),
+        };
+        let McpePacketData::NetworkStackLatencyPacket(probe) = packet.data else {
+            unreachable!("NetworkStackLatency packet ID decoded to another variant")
+        };
+        if !probe.is_from_server {
+            return Ok(());
+        }
+        let echo = NetworkStackLatencyPacket {
+            creation_time: probe.creation_time,
+            is_from_server: false,
+        };
+        self.send(echo.into()).await
     }
 
     /// Starts a bounded, secret-safe packet-ID trace for native acceptance.
@@ -486,6 +522,10 @@ impl<T: Transport> PlaySession<T> {
             self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
+            if packet_name == McpePacketName::NetworkStackLatencyPacket {
+                self.answer_network_stack_latency_probe(raw).await?;
+                continue;
+            }
             let raw = if packet_name == McpePacketName::LevelChunkPacket {
                 raw.into_retention_bounded()
             } else {

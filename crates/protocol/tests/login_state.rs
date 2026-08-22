@@ -20,11 +20,12 @@ use jolyne::valentine::{
     DimensionType, ItemData, ItemRegistryPacket, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData, McpePacketName,
     MissingBlobData, NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm,
-    PackInstanceId, PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
-    RequestNetworkSettingsPacket, ResourcePackClientResponsePacketResponse,
-    ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
-    ServerboundLoadingScreenPacket, ServerboundLoadingScreenPacketLoadingScreenPacketType,
-    SetLocalPlayerAsInitializedPacket, SetTimePacket, StartGamePacket,
+    NetworkStackLatencyPacket, PackInstanceId, PlayStatusPacket, PlayStatusPacketStatus,
+    RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
+    ResourcePackClientResponsePacketResponse, ResourcePackStackPacket, ResourcePacksInfoPacket,
+    ServerToClientHandshakePacket, ServerboundLoadingScreenPacket,
+    ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
+    SetTimePacket, StartGamePacket,
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
@@ -512,6 +513,8 @@ impl ServerScript {
                     // skipped, not disconnect the session; the following SetTime
                     // still arrives in order. A negative count is no longer a
                     // request-mode sentinel in 1.26.40, so it is simply invalid.
+                    // Latency probes ride the same batch: only the from-server
+                    // probe may be answered, and never with its flag set.
                     self.enqueue_encrypted(&[
                         McpePacket::from(LevelChunkPacket {
                             subchunks_count: u32::MAX,
@@ -524,6 +527,14 @@ impl ServerScript {
                             serialized_chunk_data: vec![0x5a; 1024 * 1024],
                             ..Default::default()
                         }),
+                        McpePacket::from(NetworkStackLatencyPacket {
+                            creation_time: 777,
+                            is_from_server: true,
+                        }),
+                        McpePacket::from(NetworkStackLatencyPacket {
+                            creation_time: 888,
+                            is_from_server: false,
+                        }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
                     ]);
                 }
@@ -531,6 +542,21 @@ impl ServerScript {
             }
             8 => {
                 let packets = self.decode_encrypted_client(frame);
+                // A server latency probe is answered immediately with the
+                // identical creation time and the from-server flag cleared.
+                if let [
+                    McpePacket {
+                        data:
+                            McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
+                                creation_time: 777,
+                                is_from_server: false,
+                            }),
+                        ..
+                    },
+                ] = packets.as_slice()
+                {
+                    return;
+                }
                 if self.cache_enabled {
                     let expected_hash = match self.cache_play_script {
                         CachePlayScript::ResolveValid => {
