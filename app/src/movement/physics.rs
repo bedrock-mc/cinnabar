@@ -45,6 +45,11 @@ pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> 
 }
 
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
+///
+/// The held sprint request is narrowed into processed sprint state here so the
+/// simulator and the outbound `PlayerAuthInput` flags always agree: vanilla
+/// sprints only while moving forward, so a request held during backward,
+/// strafe-only, or stationary input is not an active sprint.
 #[must_use]
 pub fn physics_movement_input(
     right_forward: [f32; 2],
@@ -52,12 +57,13 @@ pub fn physics_movement_input(
     active: bool,
     jumping: bool,
     sneaking: bool,
-    sprinting: bool,
+    sprint_request: bool,
     _use_held: bool,
 ) -> MovementInput {
     if !active {
         return MovementInput::default();
     }
+    let sprinting = sprint_request && right_forward[1] > 0.0;
     MovementInput {
         strafe: -f64::from(right_forward[0]),
         forward: f64::from(right_forward[1]),

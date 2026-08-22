@@ -485,6 +485,29 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
 }
 
 #[test]
+fn processed_sprint_requires_forward_movement_input() {
+    // Vanilla sprints only while moving forward. A held sprint request with
+    // backward, strafe-only, or no movement input is not an active sprint:
+    // neither the simulator speed nor the outbound flags may claim one.
+    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+    assert!(!backward.sprinting, "backward input cannot sprint");
+    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, false);
+    assert!(!strafe_only.sprinting, "strafe-only input cannot sprint");
+    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, false);
+    assert!(!stationary.sprinting, "stationary input cannot sprint");
+
+    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
+    assert!(forward.sprinting);
+    assert_eq!(forward.forward, 1.0);
+
+    // Sneaking does not cancel an active sprint: vanilla keeps the faster
+    // sneak-sprint pace, so the forward gate alone decides processed sprint.
+    let sneaking_forward =
+        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, false);
+    assert!(sneaking_forward.sprinting);
+}
+
+#[test]
 fn jump_edge_is_latched_across_render_frames_until_the_next_fixed_tick() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
