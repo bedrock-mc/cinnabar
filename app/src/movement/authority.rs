@@ -24,10 +24,6 @@ pub enum PhysicsAuthorityFault {
     },
     OutboxOverflow,
     InvalidCompletedSample,
-    PhysicsTickOverflow {
-        due: u64,
-        dropped: u64,
-    },
     PhysicsSimulationError {
         due: u64,
         tick_index: usize,

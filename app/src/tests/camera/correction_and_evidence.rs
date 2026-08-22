@@ -814,28 +814,6 @@ fn phase3_simulation_fault_evidence_preserves_frame_and_error_context() {
 }
 
 #[test]
-fn phase3_tick_overflow_evidence_preserves_due_and_dropped_counts() {
-    let fault = PhysicsAuthorityFaultRecord {
-        session_generation: 7,
-        fault: PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: 200,
-            dropped: 192,
-        },
-        next_tick: 41,
-        pending_count: 0,
-    };
-    let mut evidence = Phase3EvidenceEmitter::default();
-
-    let markers = evidence.observe_authority_fault(fault);
-    let json: serde_json::Value =
-        serde_json::from_str(markers[0].strip_prefix("RUST_MCBE_PHASE3_EVENT=").unwrap())
-            .unwrap();
-    assert_eq!(json["fault"], "physics_tick_overflow");
-    assert_eq!(json["detail"]["due"], 200);
-    assert_eq!(json["detail"]["dropped"], 192);
-}
-
-#[test]
 fn phase3_evidence_producer_stays_bounded_after_record_limits() {
     let frame = |physics_tick| Phase3EvidenceFrame {
         session_generation: 7,

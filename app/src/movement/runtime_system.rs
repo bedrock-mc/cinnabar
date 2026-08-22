@@ -86,6 +86,19 @@ pub(crate) fn advance_local_physics(
         &mut *movement_effects,
     );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
+    if frame.dropped_ticks != 0 {
+        // Time starvation keeps the retained samples contiguous and monotonic,
+        // so the outbound stream remains a valid 20 Hz sequence and the server
+        // can still reconcile it. Record the stall instead of permanently
+        // revoking authority over a load symptom; a live Venity session died
+        // exactly here when join-time streaming stalls dropped seven of
+        // fifteen due ticks.
+        debug!(
+            due = frame.due_ticks,
+            dropped = frame.dropped_ticks,
+            "local physics dropped excess catch-up ticks"
+        );
+    }
     let authority_fault = physics_authority_fault_for_frame(&frame);
     if blocker != *previous_blocker {
         if authority_fault.is_none()
@@ -123,12 +136,6 @@ pub(crate) fn physics_authority_fault_for_frame(
         .is_some_and(is_transient_collision_unavailability)
     {
         return None;
-    }
-    if frame.dropped_ticks != 0 {
-        return Some(PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: frame.due_ticks,
-            dropped: frame.dropped_ticks,
-        });
     }
 
     let error = frame.blocked.as_ref()?;

@@ -482,10 +482,6 @@ impl PhysicsAuthorityFaultRecord {
             PhysicsAuthorityFault::InvalidCompletedSample => {
                 ("invalid_completed_sample", serde_json::Value::Null)
             }
-            PhysicsAuthorityFault::PhysicsTickOverflow { due, dropped } => (
-                "physics_tick_overflow",
-                serde_json::json!({"due": due, "dropped": dropped}),
-            ),
             PhysicsAuthorityFault::PhysicsSimulationError {
                 due,
                 tick_index,

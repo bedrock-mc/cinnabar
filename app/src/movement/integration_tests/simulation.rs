@@ -409,7 +409,11 @@ fn unknown_runtime_id_collision_data_is_also_deferred_as_transient() {
 }
 
 #[test]
-fn local_physics_catch_up_overflow_remains_fatal_and_reports_due_ticks() {
+fn local_physics_catch_up_overflow_stays_contiguous_and_keeps_authority() {
+    // A render-frame stall that exceeds the per-frame tick budget drops the
+    // excess due time instead of simulating it late. The retained samples stay
+    // contiguous and monotonic, so the outbound input stream remains a valid
+    // 20 Hz sequence and time starvation alone must not revoke authority.
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
 
@@ -422,27 +426,23 @@ fn local_physics_catch_up_overflow_remains_fatal_and_reports_due_ticks() {
         200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64
     );
     assert!(physics.history_len() <= 32);
-
-    let fault = physics_authority_fault_for_frame(&frame).expect("catch-up overflow fault");
     assert_eq!(
-        fault,
-        PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: 200,
-            dropped: 200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64,
-        }
+        physics_authority_fault_for_frame(&frame),
+        None,
+        "time starvation is not an authority fault"
     );
+
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.record_physics_fault(fault);
-    assert!(!ticker.physics_is_authorized());
-    assert!(matches!(
-        ticker.take_authority_fault().unwrap().fault,
-        PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: 200,
-            dropped: 192
-        }
-    ));
+    let mut ticks = Vec::new();
+    for sample in &frame.samples {
+        ticker.enqueue_completed_physics(sample.clone()).unwrap();
+        ticks.push(sample.tick);
+    }
+    assert_eq!(ticks, (1..=MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64).collect::<Vec<_>>());
+    assert!(ticker.physics_is_authorized());
+    assert!(ticker.take_authority_fault().is_none());
 }
 
 #[test]
