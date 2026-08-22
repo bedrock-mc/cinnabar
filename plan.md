@@ -74,6 +74,29 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Current integration snapshot (2026-08-16)
 
+**LBSG anti-cheat diagnosis and live movement tranche (2026-08-22):** a ranked read-only
+investigation attributed the Lifeboat "movement cheats" rejections to semantic state vanilla
+never claims plus server-authoritative signals the client consumed and ignored, led by
+sprint-without-forward claims, discarded `SetActorMotion` knockback, never-set teleport
+acknowledgement, unanswered latency probes, and the catch-up overflow that permanently silenced
+the outbound input stream mid-session. Five bounded tranches landed on `dev/ox-alpha`:
+`e304b9af` gates processed sprint on forward movement input for both simulator and encoder;
+`39076d8e` ingests local-player knockback as tick-keyed prediction overlays that survive
+correction replay; `e219f0e3` answers server `NetworkStackLatency` probes with an exact-timestamp
+echo; `60977327` adds the authenticated Venity live target across launcher, validators, app args,
+and all 93 Pester contracts; `aaccc94c` stops revoking movement authority over catch-up overflow,
+keeping retained samples contiguous so the 20 Hz stream stays reconcilable. Each tranche has
+regression coverage plus green focused suites, strict Clippy/formatting, and architecture checks.
+A first authenticated Venity candidate run reproduced the exact historical death: join-time
+streaming stalls dropped seven of fifteen due ticks and permanently revoked authority. After
+`aaccc94c`, a second authenticated Venity run held `outbound_authorized=true` through 2,762
+transmitted physics packets and 148 seconds of debug-build streaming stalls with zero authority
+faults and zero decode errors; the session ended only when Venity's upstream RakNet read timed
+out against a stationary, unregistered client — an idle-kick profile, not a movement-cheat
+rejection. Remaining live-gate work: organic-movement drivers, the HandledTeleport window and
+jump/sneak flag witnesses, sustained-session survival on both live targets, and native stall
+measurement for the provisional overflow policy.
+
 **Repository-wide parity audit follow-up (2026-08-20):** the durable mismatch inventory is
 tracked in `docs/tracking/vanilla-parity-audit.md`. It covers protocol/cache/session, world
 retention, movement/input, HUD/inventory/entities, assets/meshing/render/resource packs, and
