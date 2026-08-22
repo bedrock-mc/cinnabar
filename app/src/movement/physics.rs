@@ -222,6 +222,10 @@ pub struct PhysicsSampleContext {
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
     pub input_mode: PlayerInputMode,
+    /// Pre-normalization controlling-device movement sample.
+    pub raw_move_vector: [f32; 2],
+    /// Analog-axis sample of the controlling device.
+    pub analogue_move_vector: [f32; 2],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -231,6 +235,10 @@ pub struct PhysicsMovementSample {
     /// Predicted end-of-tick velocity carried by PlayerAuthInput.PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
+    /// Pre-normalization device sample carried to PlayerAuthInput raw input.
+    pub raw_move_vector: [f32; 2],
+    /// Analog-axis sample carried to PlayerAuthInput analog input.
+    pub analogue_move_vector: [f32; 2],
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
@@ -511,6 +519,8 @@ impl LocalPhysicsController {
                             result.velocity.z as f32,
                         ],
                         move_vector: [-input.strafe as f32, input.forward as f32],
+                        raw_move_vector: context.raw_move_vector,
+                        analogue_move_vector: context.analogue_move_vector,
                         pitch: context.pitch,
                         yaw: input.yaw_degrees as f32,
                         head_yaw: context.head_yaw,

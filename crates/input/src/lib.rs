@@ -1,6 +1,7 @@
 //! Vendor-independent, renderer-independent semantic input primitives.
 
 mod action;
+mod axes;
 mod binding;
 mod device;
 mod router;

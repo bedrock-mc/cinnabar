@@ -34,6 +34,20 @@ impl SemanticInputSnapshot {
     }
 
     #[must_use]
+    pub fn raw_movement(&self) -> [f32; 2] {
+        self.0
+            .as_ref()
+            .map_or([0.0; 2], |snapshot| snapshot.raw_movement)
+    }
+
+    #[must_use]
+    pub fn analogue_movement(&self) -> [f32; 2] {
+        self.0
+            .as_ref()
+            .map_or([0.0; 2], |snapshot| snapshot.analogue_movement)
+    }
+
+    #[must_use]
     pub fn look_delta(&self) -> [f32; 2] {
         self.0
             .as_ref()
@@ -339,8 +353,48 @@ pub(crate) fn synchronize_semantic_input_authority(
 
 #[cfg(test)]
 mod tests {
+    use core::num::NonZeroU64;
+
     use super::SemanticInputRuntime;
-    use semantic_input::{Action, ControllerFrame, DeviceFrame, ReleaseReason};
+    use semantic_input::{
+        Action, ActionPhase, ActionSnapshot, ControllerFrame, DeviceFrame, InputMode, ReleaseReason,
+    };
+
+    use crate::semantic_controls::SemanticInputSnapshot;
+
+    fn snapshot_with_carriers(
+        movement: [f32; 2],
+        raw_movement: [f32; 2],
+        analogue_movement: [f32; 2],
+    ) -> SemanticInputSnapshot {
+        SemanticInputSnapshot(Some(ActionSnapshot {
+            frame_sequence: 1,
+            authority_generation: NonZeroU64::MIN,
+            movement,
+            raw_movement,
+            analogue_movement,
+            look_delta: [0.0; 2],
+            input_mode: InputMode::GamePad,
+            phases: [ActionPhase::default(); Action::COUNT],
+            release_reasons: [None; Action::COUNT],
+        }))
+    }
+
+    #[test]
+    fn absent_snapshots_report_zero_move_carriers() {
+        let snapshot = SemanticInputSnapshot::default();
+        assert_eq!(snapshot.movement(), [0.0; 2]);
+        assert_eq!(snapshot.raw_movement(), [0.0; 2]);
+        assert_eq!(snapshot.analogue_movement(), [0.0; 2]);
+    }
+
+    #[test]
+    fn present_snapshots_expose_each_move_carrier_independently() {
+        let snapshot = snapshot_with_carriers([0.6, 0.8], [1.0, 0.8], [0.6, 0.8]);
+        assert_eq!(snapshot.movement(), [0.6, 0.8]);
+        assert_eq!(snapshot.raw_movement(), [1.0, 0.8]);
+        assert_eq!(snapshot.analogue_movement(), [0.6, 0.8]);
+    }
 
     #[test]
     fn cursor_unlock_does_not_synthesize_controller_disconnect() {

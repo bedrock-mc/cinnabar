@@ -188,7 +188,19 @@ impl ReleaseReason {
 pub struct ActionSnapshot {
     pub frame_sequence: u64,
     pub authority_generation: NonZeroU64,
+    /// Unit-clamped movement consumed by simulation and packet construction.
     pub movement: [f32; 2],
+    /// Controlling-device differential before magnitude normalization.
+    ///
+    /// The controlling device is [`Self::input_mode`]: one deterministic
+    /// per-frame selection (latest activity sequence wins, ties retain the
+    /// active mode, fixed fallback order otherwise), so exactly one device
+    /// class contributes to these carriers.
+    pub raw_movement: [f32; 2],
+    /// Analog-axis contribution of the controlling device (post-deadzone
+    /// gamepad axes); equals [`Self::raw_movement`] for device classes
+    /// without analog movement axes.
+    pub analogue_movement: [f32; 2],
     pub look_delta: [f32; 2],
     pub input_mode: InputMode,
     pub phases: [ActionPhase; Action::COUNT],

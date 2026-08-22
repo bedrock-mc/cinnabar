@@ -11,6 +11,8 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
             position: [1.0, 2.0, 3.0],
             velocity: [0.1, 0.2, 0.3],
             move_vector: [0.0; 2],
+            raw_move_vector: [0.0; 2],
+            analogue_move_vector: [0.0; 2],
             pitch: 0.0,
             yaw: 0.0,
             head_yaw: 0.0,
