@@ -63,6 +63,8 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         position,
         velocity: [0.125, -0.0784, -0.25],
         move_vector: [0.0, 1.0],
+        raw_move_vector: [0.0, 1.0],
+        analogue_move_vector: [0.0, 1.0],
         pitch: 10.0,
         yaw: 20.0,
         head_yaw: 20.0,
@@ -142,3 +144,4 @@ include!("integration_tests/basics.rs");
 include!("integration_tests/replay_retry.rs");
 include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
+include!("integration_tests/vector_carriers.rs");

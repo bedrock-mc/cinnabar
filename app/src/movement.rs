@@ -295,6 +295,11 @@ impl MovementTicker {
         if !completed.position.into_iter().all(f32::is_finite)
             || !completed.velocity.into_iter().all(f32::is_finite)
             || !completed.move_vector.into_iter().all(f32::is_finite)
+            || !completed.raw_move_vector.into_iter().all(f32::is_finite)
+            || !completed
+                .analogue_move_vector
+                .into_iter()
+                .all(f32::is_finite)
             || !completed.camera_orientation.into_iter().all(f32::is_finite)
             || ![completed.pitch, completed.yaw, completed.head_yaw]
                 .into_iter()
@@ -361,8 +366,8 @@ impl MovementTicker {
             position: sample.position,
             delta: sample.velocity,
             move_vector,
-            analogue_move_vector: move_vector,
-            raw_move_vector: sample.move_vector,
+            analogue_move_vector: sample.analogue_move_vector,
+            raw_move_vector: sample.raw_move_vector,
             pitch: sample.pitch,
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,

@@ -127,6 +127,63 @@ fn movement_hints_map_to_their_protocol_2168_list_ids() {
 }
 
 #[test]
+fn device_class_move_carriers_survive_encoding_distinctly() {
+    let mut gamepad_style = snapshot();
+    gamepad_style.input_mode = PlayerInputMode::GamePad;
+    gamepad_style.move_vector = [0.780_869_4, 0.624_695_04];
+    gamepad_style.analogue_move_vector = [0.6, 0.8];
+    gamepad_style.raw_move_vector = [1.0, 0.8];
+
+    let packet = player_auth_input(gamepad_style).expect("valid gamepad input");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        (input.move_vector.x, input.move_vector.y),
+        (0.780_869_4, 0.624_695_04)
+    );
+    assert_eq!(
+        (input.analog_move_vector.x, input.analog_move_vector.y),
+        (0.6, 0.8)
+    );
+    assert_eq!(
+        (input.raw_move_vector.x, input.raw_move_vector.y),
+        (1.0, 0.8)
+    );
+    assert_ne!(input.move_vector.x, input.raw_move_vector.x);
+    assert_ne!(input.analog_move_vector.x, input.raw_move_vector.x);
+    assert_ne!(input.input_mode, EnumsInputMode::Mouse);
+
+    let mut keyboard_style = snapshot();
+    keyboard_style.move_vector = [
+        std::f32::consts::FRAC_1_SQRT_2,
+        std::f32::consts::FRAC_1_SQRT_2,
+    ];
+    keyboard_style.analogue_move_vector = [-1.0, 1.0];
+    keyboard_style.raw_move_vector = [-1.0, 1.0];
+
+    let packet = player_auth_input(keyboard_style).expect("valid keyboard input");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        (input.move_vector.x, input.move_vector.y),
+        (
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2
+        )
+    );
+    assert_eq!(
+        (input.analog_move_vector.x, input.analog_move_vector.y),
+        (-1.0, 1.0)
+    );
+    assert_eq!(
+        (input.raw_move_vector.x, input.raw_move_vector.y),
+        (-1.0, 1.0)
+    );
+}
+
+#[test]
 fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_position = snapshot();
     invalid_position.position[1] = f32::NAN;
@@ -135,6 +192,14 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_rotation = snapshot();
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
+
+    let mut invalid_raw_carrier = snapshot();
+    invalid_raw_carrier.raw_move_vector[0] = f32::NAN;
+    assert!(player_auth_input(invalid_raw_carrier).is_err());
+
+    let mut invalid_analogue_carrier = snapshot();
+    invalid_analogue_carrier.analogue_move_vector[1] = f32::INFINITY;
+    assert!(player_auth_input(invalid_analogue_carrier).is_err());
 
     let mut maximum_tick = snapshot();
     maximum_tick.tick = u64::MAX;

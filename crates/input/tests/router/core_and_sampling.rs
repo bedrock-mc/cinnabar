@@ -537,6 +537,170 @@ fn default_layout_rejects_arbitrary_touch_binding_and_frame_ids() {
 }
 
 #[test]
+fn keyboard_carriers_preserve_the_unnormalized_digital_device_sample() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                keys: vec![0x07, 0x1a], // D + W
+                ..KeyboardMouseFrame::default()
+            }),
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(snapshot.raw_movement, [1.0, 1.0]);
+    assert_eq!(snapshot.analogue_movement, [1.0, 1.0]);
+    assert!((snapshot.movement[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
+    assert!((snapshot.movement[1] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
+}
+
+#[test]
+fn gamepad_stick_carriers_keep_the_post_deadzone_analogue_sample() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 1,
+                activity_sequence: 1,
+                axes: [0.6, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.input_mode, semantic_input::InputMode::GamePad);
+    assert_eq!(snapshot.raw_movement, [0.6, 0.8]);
+    assert_eq!(snapshot.analogue_movement, [0.6, 0.8]);
+    assert_eq!(snapshot.movement, [0.6, 0.8]);
+}
+
+#[test]
+fn gamepad_sub_deadzone_stick_reports_zero_in_every_carrier() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 1,
+                activity_sequence: 1,
+                axes: [0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ..ControllerFrame::default()
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.raw_movement, [0.0, 0.0]);
+    assert_eq!(snapshot.analogue_movement, [0.0, 0.0]);
+    assert_eq!(snapshot.movement, [0.0, 0.0]);
+}
+
+#[test]
+fn gamepad_digital_buttons_separate_the_raw_and_analogue_carriers() {
+    let mut bindings = ControlSettings::default().bindings().to_vec();
+    bindings.push(ActionBinding {
+        action: Action::MoveRight,
+        context: InputContext::Gameplay,
+        chord: empty_chord(PhysicalControl::GamepadButton(14)),
+    });
+    let settings =
+        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let mut router = SemanticInputRouter::default();
+    router.replace_bindings(settings).unwrap();
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 1,
+                activity_sequence: 1,
+                axes: [0.6, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                buttons: vec![14],
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.input_mode, semantic_input::InputMode::GamePad);
+    assert_eq!(snapshot.raw_movement, [1.0, 0.8]);
+    assert_eq!(snapshot.analogue_movement, [0.6, 0.8]);
+    let processed_magnitude = snapshot.movement[0].hypot(snapshot.movement[1]);
+    assert!((processed_magnitude - 1.0).abs() < 0.000_001);
+    assert_ne!(snapshot.movement, snapshot.raw_movement);
+    assert_ne!(snapshot.analogue_movement, snapshot.raw_movement);
+    assert_ne!(
+        snapshot.analogue_movement[0].hypot(snapshot.analogue_movement[1]),
+        0.0
+    );
+}
+
+#[test]
+fn all_digital_gamepad_layout_reports_an_empty_analogue_axis_sample() {
+    let mut bindings = ControlSettings::default().bindings().to_vec();
+    for (action, button) in [
+        (Action::MoveRight, 14),
+        (Action::MoveLeft, 13),
+        (Action::MoveForward, 12),
+        (Action::MoveBackward, 10),
+    ] {
+        bindings.push(ActionBinding {
+            action,
+            context: InputContext::Gameplay,
+            chord: empty_chord(PhysicalControl::GamepadButton(button)),
+        });
+    }
+    let settings =
+        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let mut router = SemanticInputRouter::default();
+    router.replace_bindings(settings).unwrap();
+    router
+        .route(DeviceFrame {
+            controllers: vec![ControllerFrame {
+                device_id: 1,
+                activity_sequence: 1,
+                axes: [0.0; 8],
+                buttons: vec![12],
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.input_mode, semantic_input::InputMode::GamePad);
+    assert_eq!(snapshot.raw_movement, [0.0, 1.0]);
+    assert_eq!(snapshot.analogue_movement, [0.0, 0.0]);
+    assert_eq!(snapshot.movement, [0.0, 1.0]);
+}
+
+#[test]
+fn touch_joystick_carriers_equal_the_bounded_device_sample() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            touches: vec![semantic_input::TouchContact {
+                contact_id: 1,
+                activity_sequence: 1,
+                position: [0.25, 0.5],
+                delta: [0.0, 0.0],
+                hit_id: None,
+            }],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+
+    assert_eq!(snapshot.input_mode, semantic_input::InputMode::Touch);
+    assert_eq!(snapshot.raw_movement, [0.0, 1.0]);
+    assert_eq!(snapshot.analogue_movement, [0.0, 1.0]);
+    assert_eq!(snapshot.movement, [0.0, 1.0]);
+}
+
+#[test]
 fn custom_touch_layout_is_shared_by_settings_and_frame_validation() {
     let layout = TouchControlLayout::new(vec![touch_button(55)]).unwrap();
     let settings = ControlSettings::new_with_touch_layout(

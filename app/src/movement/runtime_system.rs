@@ -56,6 +56,8 @@ pub(crate) fn advance_local_physics(
         }
     });
     let movement = input.movement();
+    let raw_movement = input.raw_movement();
+    let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
     let mut input = physics_movement_input(
@@ -81,6 +83,8 @@ pub(crate) fn advance_local_physics(
             head_yaw: yaw,
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
             input_mode,
+            raw_move_vector: raw_movement,
+            analogue_move_vector: analogue_movement,
         },
         &world,
         &mut *movement_effects,
