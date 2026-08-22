@@ -5,15 +5,17 @@
 //! count/stack-network-id corrections applied directly to the retained
 //! stack, the server's custom display names and durability damage are kept
 //! as one [`StackResponseOverlay`] keyed to that cell. The overlay travels
-//! with its predicted stack through a pending gesture, and each correction
-//! restates only what changed: an omitted (empty or nonpositive) field
-//! retains the previously accepted value until the server affirms a new one
-//! or another authoritative path replaces the cell, so a retained name or
-//! damage value can never silently outlive its stack. That guarantee is
-//! scoped deliberately: a well-formed accepted correction that restates a
-//! changed positive stack-network id updates the retained stack in place,
-//! and this module does not claim that unstated overlay fields follow such
-//! an id change. Rejected requests roll back without writing one.
+//! with its predicted stack through a pending gesture. Each correction
+//! restates only what changed: empty name halves and nonpositive durability
+//! are the wire's unstated encodings, so they never fabricate facts — a
+//! field stays absent until some accepted correction states it, a stated
+//! value replaces an earlier one, an omitted field keeps what the cell
+//! already retained, and presentation falls back to local derivation for
+//! every absent field. That guarantee is scoped deliberately: a well-formed
+//! accepted correction that restates a changed positive stack-network id
+//! updates the retained stack in place, and this module does not claim that
+//! unstated overlay fields follow such an id change. Rejected requests roll
+//! back without writing one.
 
 use std::sync::Arc;
 
@@ -23,16 +25,20 @@ use super::{Cell, GENERIC_STORAGE_SLOT_TYPE, PLAYER_INVENTORY_SLOT_COUNT, Player
 
 /// Authoritative presentation facts an accepted server correction attached
 /// to one inventory cell: custom display names plus the exact durability
-/// damage. The overlay never alters stack identity; replacing the cell
-/// through any other authoritative path drops it.
+/// damage. Every field is `None` while unstated, so absent facts stay
+/// genuinely absent and presentation keeps its local derivation instead of
+/// reading a defaulted value as authoritative. The overlay never alters
+/// stack identity; replacing the cell through any other authoritative path
+/// drops it.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct StackResponseOverlay {
-    /// Server-owned display name for this stack (empty when none was sent).
-    pub custom_name: Arc<str>,
-    /// Redacted half of the same redactable wire string pair.
-    pub filtered_custom_name: Arc<str>,
-    /// Authoritative damage for the presented durability bar.
-    pub durability_correction: i32,
+    /// Server-owned display name once a response states it.
+    pub custom_name: Option<Arc<str>>,
+    /// Redacted half of the same redactable wire string pair once stated.
+    pub filtered_custom_name: Option<Arc<str>>,
+    /// Authoritative damage for the presented durability bar once a
+    /// response states it.
+    pub durability_correction: Option<i32>,
 }
 
 impl PlayerInventoryLedger {
@@ -41,6 +47,20 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
         self.slot_overlays.get(usize::from(slot))?.as_ref()
+    }
+
+    /// The response overlay presented for one player-inventory slot,
+    /// following the same predicted-versus-committed stack authority as
+    /// [`PlayerInventorySlot`](super::PlayerInventorySlot): while a gesture
+    /// involving that slot is in flight the travelling predicted half
+    /// presents beside the predicted stack, otherwise the committed overlay.
+    #[must_use]
+    pub fn presented_slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
+        let cell = Cell::Inventory(slot);
+        if let Some(predicted) = self.predicted_cell_overlay(cell) {
+            return predicted;
+        }
+        self.cell_overlay(cell)
     }
 
     /// The authoritative response overlay retained for the cursor cell.
@@ -188,7 +208,8 @@ impl PlayerInventoryLedger {
     /// Empty name halves and nonpositive durability values are read as
     /// unstated rather than as erasures, so a lazy correction cannot strip a
     /// previously accepted name or damage value from a stack that is still
-    /// present.
+    /// present, and a first corrected cell keeps those fields genuinely
+    /// absent instead of defaulted.
     fn merge_cell_overlay(&mut self, cell: Cell, correction: &StackResponseSlot) {
         match cell {
             Cell::Inventory(slot) => {
@@ -222,23 +243,20 @@ impl PlayerInventoryLedger {
 }
 
 /// Merges one accepted correction into a cell's retained overlay, creating
-/// the overlay when this is the cell's first corrected response.
+/// the overlay when this is the cell's first corrected response. Only stated
+/// fields are written, so a fresh overlay keeps unstated facts absent.
 fn merge_response_overlay(
     entry: &mut Option<StackResponseOverlay>,
     correction: &StackResponseSlot,
 ) {
     let overlay = entry.get_or_insert_with(Default::default);
-    if !correction.custom_name.is_empty() && overlay.custom_name != correction.custom_name {
-        overlay.custom_name = Arc::clone(&correction.custom_name);
+    if !correction.custom_name.is_empty() {
+        overlay.custom_name = Some(Arc::clone(&correction.custom_name));
     }
-    if !correction.filtered_custom_name.is_empty()
-        && overlay.filtered_custom_name != correction.filtered_custom_name
-    {
-        overlay.filtered_custom_name = Arc::clone(&correction.filtered_custom_name);
+    if !correction.filtered_custom_name.is_empty() {
+        overlay.filtered_custom_name = Some(Arc::clone(&correction.filtered_custom_name));
     }
-    if correction.durability_correction > 0
-        && overlay.durability_correction != correction.durability_correction
-    {
-        overlay.durability_correction = correction.durability_correction;
+    if correction.durability_correction > 0 {
+        overlay.durability_correction = Some(correction.durability_correction);
     }
 }

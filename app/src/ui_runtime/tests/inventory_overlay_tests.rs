@@ -8,7 +8,7 @@ use std::sync::Arc;
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryContentEvent, InventoryEvent,
     InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, WorldBootstrap,
 };
 use sha2::{Digest, Sha256};
 
@@ -16,6 +16,10 @@ use super::*;
 use crate::ui_runtime::inventory_ledger::{
     GENERIC_STORAGE_SLOT_TYPE, GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS,
     PLAYER_INVENTORY_SLOT_COUNT, SMALL_STORAGE_SLOT_COUNT,
+};
+use crate::{
+    camera::CameraSettingsAuthority,
+    ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame, tests::fixture_font},
 };
 
 fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
@@ -119,9 +123,12 @@ fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
         .inventory_ledger()
         .slot_overlay(0)
         .expect("overlay retained");
-    assert_eq!(overlay.custom_name.as_ref(), "Renamed Blade");
-    assert_eq!(overlay.filtered_custom_name.as_ref(), "Filtered Blade");
-    assert_eq!(overlay.durability_correction, 125);
+    assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
+    assert_eq!(
+        overlay.filtered_custom_name.as_deref(),
+        Some("Filtered Blade")
+    );
+    assert_eq!(overlay.durability_correction, Some(125));
     // Cells the server did not correct carry no overlay.
     assert_eq!(runtime.inventory_ledger().slot_overlay(1), None);
     assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
@@ -134,7 +141,7 @@ fn authoritative_slot_replacement_clears_the_response_overlay() {
         runtime
             .inventory_ledger()
             .slot_overlay(0)
-            .is_some_and(|overlay| overlay.custom_name.as_ref() == "Renamed Blade")
+            .is_some_and(|overlay| overlay.custom_name.as_deref() == Some("Renamed Blade"))
     );
 
     publish_slot(&mut runtime, 0, ledger_stack(745, 41, 3));
@@ -178,7 +185,7 @@ fn cursor_updates_clear_the_cursor_response_overlay() {
         runtime
             .inventory_ledger()
             .cursor_overlay()
-            .map(|overlay| overlay.durability_correction),
+            .and_then(|overlay| overlay.durability_correction),
         Some(60)
     );
 
@@ -331,7 +338,7 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
         runtime
             .inventory_ledger()
             .storage_slot_overlay(3)
-            .map(|overlay| overlay.durability_correction),
+            .and_then(|overlay| overlay.durability_correction),
         Some(42)
     );
 
@@ -393,9 +400,12 @@ fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
         .inventory_ledger()
         .slot_overlay(0)
         .expect("overlay survives an omitting correction");
-    assert_eq!(overlay.custom_name.as_ref(), "Renamed Blade");
-    assert_eq!(overlay.filtered_custom_name.as_ref(), "Filtered Blade");
-    assert_eq!(overlay.durability_correction, 125);
+    assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
+    assert_eq!(
+        overlay.filtered_custom_name.as_deref(),
+        Some("Filtered Blade")
+    );
+    assert_eq!(overlay.durability_correction, Some(125));
 
     // An affirmative restatement replaces every stated field.
     let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
@@ -413,9 +423,12 @@ fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
         .inventory_ledger()
         .slot_overlay(0)
         .expect("overlay retained after the affirmative correction");
-    assert_eq!(overlay.custom_name.as_ref(), "New Name");
-    assert_eq!(overlay.filtered_custom_name.as_ref(), "New Filtered");
-    assert_eq!(overlay.durability_correction, 60);
+    assert_eq!(overlay.custom_name.as_deref(), Some("New Name"));
+    assert_eq!(
+        overlay.filtered_custom_name.as_deref(),
+        Some("New Filtered")
+    );
+    assert_eq!(overlay.durability_correction, Some(60));
 }
 
 #[test]
@@ -482,14 +495,14 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
         runtime
             .inventory_ledger()
             .cursor_overlay()
-            .map(|overlay| overlay.durability_correction),
+            .and_then(|overlay| overlay.durability_correction),
         Some(100)
     );
     assert_eq!(
         runtime
             .inventory_ledger()
             .slot_overlay(1)
-            .map(|overlay| overlay.durability_correction),
+            .and_then(|overlay| overlay.durability_correction),
         Some(200)
     );
 
@@ -512,9 +525,9 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
         .inventory_ledger()
         .cursor_overlay()
         .expect("beta's overlay travelled with beta");
-    assert_eq!(beta.custom_name.as_ref(), "Beta Blade");
-    assert_eq!(beta.filtered_custom_name.as_ref(), "Filtered Beta");
-    assert_eq!(beta.durability_correction, 200);
+    assert_eq!(beta.custom_name.as_deref(), Some("Beta Blade"));
+    assert_eq!(beta.filtered_custom_name.as_deref(), Some("Filtered Beta"));
+    assert_eq!(beta.durability_correction, Some(200));
 
     let landed = runtime
         .inventory_ledger()
@@ -525,8 +538,163 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
         .inventory_ledger()
         .slot_overlay(1)
         .expect("alpha's overlay travelled with alpha");
-    assert_eq!(alpha.custom_name.as_ref(), "Alpha Blade");
-    assert_eq!(alpha.filtered_custom_name.as_ref(), "Filtered Alpha");
-    assert_eq!(alpha.durability_correction, 100);
+    assert_eq!(alpha.custom_name.as_deref(), Some("Alpha Blade"));
+    assert_eq!(
+        alpha.filtered_custom_name.as_deref(),
+        Some("Filtered Alpha")
+    );
+    assert_eq!(alpha.durability_correction, Some(100));
     assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+}
+
+const IRON_SWORD_NETWORK_ID: i32 = 309;
+
+/// Builds a damaged vanilla iron sword whose retained user data carries the
+/// fixed little-endian root `Damage` integer, digest-bound like the wire.
+fn damaged_sword(damage: i32) -> NetworkItemStack {
+    let mut extra = Vec::new();
+    extra.extend_from_slice(&(-1_i16).to_le_bytes());
+    extra.push(1);
+    extra.push(10);
+    extra.extend_from_slice(&0_u16.to_le_bytes());
+    extra.push(3);
+    extra.extend_from_slice(&6_u16.to_le_bytes());
+    extra.extend_from_slice(b"Damage");
+    extra.extend_from_slice(&damage.to_le_bytes());
+    extra.push(0);
+    NetworkItemStack {
+        network_id: IRON_SWORD_NETWORK_ID,
+        metadata: 0,
+        stack_network_id: -1,
+        count: 1,
+        nbt_digest: Sha256::digest(&extra).into(),
+        block_runtime_id: 0,
+        extra_data: Arc::from(extra),
+    }
+}
+
+fn world_stream() -> client_world::WorldStream {
+    client_world::WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+/// Publishes one HUD frame and reads the selected hotbar cell's durability.
+fn presented_selected_durability(
+    runtime: &mut UiRuntime,
+    stream: &client_world::WorldStream,
+) -> Option<f32> {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    refresh_hud_frame(
+        runtime,
+        &mut presentation,
+        Some(stream),
+        &CameraSettingsAuthority::default(),
+        1_000,
+    );
+    presentation.hud_frame().hotbar_durability[0]
+}
+
+/// Takes the selected sword onto the cursor and places it back through one
+/// accepted response whose only restatement is the given final correction.
+fn round_tripped_selected_sword(final_correction: StackResponseSlot) -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    publish_slot(&mut runtime, 0, damaged_sword(125));
+    runtime.set_local_selected_slot(0);
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response(take, Some(12), None, Vec::new()));
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        place,
+        Some(12),
+        None,
+        vec![final_correction],
+    ));
+    runtime
+}
+
+#[test]
+fn count_only_corrections_keep_the_locally_derived_durability_bar() {
+    let mut runtime = round_tripped_selected_sword(correction(0, 1, -1, "", "", 0));
+    let stream = world_stream();
+
+    let overlay = runtime
+        .inventory_ledger()
+        .slot_overlay(0)
+        .expect("the corrected cell retains its response overlay");
+    assert_eq!(
+        overlay.durability_correction, None,
+        "unstated durability must stay absent instead of defaulting"
+    );
+    assert_eq!(overlay.custom_name.as_deref(), None);
+    assert_eq!(overlay.filtered_custom_name.as_deref(), None);
+
+    let presented = presented_selected_durability(&mut runtime, &stream);
+    let derived = item_facts::durability_fraction(
+        runtime.inventory_ledger().displayed_stack(0).unwrap(),
+        Some("minecraft:iron_sword"),
+    );
+    assert!(
+        derived.is_some_and(|fraction| (fraction - 0.5).abs() < 0.01),
+        "the local damage tag alone must still derive the bar: {derived:?}"
+    );
+    assert_eq!(
+        presented, derived,
+        "a count-only correction must not silence locally derived durability"
+    );
+}
+
+#[test]
+fn stated_durability_corrections_override_the_local_damage_tag() {
+    // The local tag reads half-worn (125/250), but the accepted correction
+    // restates fully damaged (250): presentation must follow the server.
+    let mut runtime = round_tripped_selected_sword(correction(0, 1, -1, "", "", 250));
+    let stream = world_stream();
+
+    let presented = presented_selected_durability(&mut runtime, &stream);
+    assert_eq!(
+        presented,
+        Some(0.0),
+        "the stated correction must override local derivation"
+    );
+}
+
+#[test]
+fn prior_retained_overlays_survive_a_rejected_response() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                status: StackResponseStatus::Rejected,
+                request_id,
+                containers: Arc::from([]),
+            }]),
+        }));
+
+    let restored = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(restored.network_id, 745);
+    assert_eq!(restored.count, 2);
+    let overlay = runtime
+        .inventory_ledger()
+        .slot_overlay(0)
+        .expect("the committed overlay survives rejection");
+    assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
+    assert_eq!(
+        overlay.filtered_custom_name.as_deref(),
+        Some("Filtered Blade")
+    );
+    assert_eq!(overlay.durability_correction, Some(125));
 }

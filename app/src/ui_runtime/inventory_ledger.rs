@@ -623,6 +623,19 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// The travelling overlay of the predicted half occupying `cell`, or
+    /// `None` when no in-flight gesture touches that cell.
+    fn predicted_cell_overlay(&self, cell: Cell) -> Option<Option<&StackResponseOverlay>> {
+        let prediction = &self.pending.as_ref()?.prediction;
+        if prediction.source == cell {
+            Some(prediction.source_overlay.as_ref())
+        } else if prediction.destination == cell {
+            Some(prediction.destination_overlay.as_ref())
+        } else {
+            None
+        }
+    }
+
     fn cell(&self, cell: Cell) -> Option<&NetworkItemStack> {
         match cell {
             Cell::Inventory(slot) => self.slots.get(usize::from(slot))?.as_ref(),
