@@ -134,7 +134,10 @@ pub(crate) fn durability_fraction_for_damage(identifier: Option<&str>, damage: u
 /// durability correction over locally derived NBT damage. A negative
 /// correction is semantically odd wire data and falls back to local
 /// derivation; a zero correction keeps the bar hidden exactly like a pristine
-/// stack.
+/// stack. Reading the wire correction as maximum-minus-remaining damage is a
+/// provisional domain pinned from the reference server implementation, not a
+/// natively measured Bedrock contract; presentation changes only after that
+/// measurement exists.
 #[must_use]
 pub(crate) fn cell_durability_fraction(
     stack: &NetworkItemStack,

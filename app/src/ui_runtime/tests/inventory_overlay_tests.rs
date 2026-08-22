@@ -417,3 +417,116 @@ fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
     assert_eq!(overlay.filtered_custom_name.as_ref(), "New Filtered");
     assert_eq!(overlay.durability_correction, 60);
 }
+
+#[test]
+fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    publish_slot(&mut runtime, 0, ledger_stack(745, 13, 2));
+    publish_slot(&mut runtime, 1, ledger_stack(846, 24, 3));
+
+    // One take whose accepted response affirms distinct authoritative facts
+    // for both touched cells: alpha travels to the cursor with the stack it
+    // describes, and beta stays attached to its slot.
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                status: StackResponseStatus::Accepted,
+                request_id: take,
+                containers: Arc::from([
+                    StackResponseContainer {
+                        container: ContainerIdentity {
+                            window_id: None,
+                            slot_type: Some(59),
+                            dynamic_id: None,
+                        },
+                        slots: Arc::from([correction(
+                            0,
+                            2,
+                            13,
+                            "Alpha Blade",
+                            "Filtered Alpha",
+                            100,
+                        )]),
+                    },
+                    StackResponseContainer {
+                        container: ContainerIdentity {
+                            window_id: None,
+                            slot_type: Some(12),
+                            dynamic_id: None,
+                        },
+                        slots: Arc::from([correction(
+                            1,
+                            3,
+                            24,
+                            "Beta Blade",
+                            "Filtered Beta",
+                            200,
+                        )]),
+                    },
+                ]),
+            }]),
+        }));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .cursor_stack()
+            .map(|stack| stack.network_id),
+        Some(745)
+    );
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .cursor_overlay()
+            .map(|overlay| overlay.durability_correction),
+        Some(100)
+    );
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .slot_overlay(1)
+            .map(|overlay| overlay.durability_correction),
+        Some(200)
+    );
+
+    // Swapping the occupied slot with the cursor must move each retained
+    // overlay with its own stack: the cursor receives beta's facts and slot 1
+    // receives alpha's, while the vacated source cell keeps none.
+    let swap = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response(swap, Some(12), None, Vec::new()));
+
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .cursor_stack()
+            .map(|stack| stack.network_id),
+        Some(846)
+    );
+    let beta = runtime
+        .inventory_ledger()
+        .cursor_overlay()
+        .expect("beta's overlay travelled with beta");
+    assert_eq!(beta.custom_name.as_ref(), "Beta Blade");
+    assert_eq!(beta.filtered_custom_name.as_ref(), "Filtered Beta");
+    assert_eq!(beta.durability_correction, 200);
+
+    let landed = runtime
+        .inventory_ledger()
+        .displayed_stack(1)
+        .map(|s| s.network_id);
+    assert_eq!(landed, Some(745));
+    let alpha = runtime
+        .inventory_ledger()
+        .slot_overlay(1)
+        .expect("alpha's overlay travelled with alpha");
+    assert_eq!(alpha.custom_name.as_ref(), "Alpha Blade");
+    assert_eq!(alpha.filtered_custom_name.as_ref(), "Filtered Alpha");
+    assert_eq!(alpha.durability_correction, 100);
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+}

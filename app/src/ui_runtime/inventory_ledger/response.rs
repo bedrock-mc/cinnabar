@@ -9,8 +9,11 @@
 //! restates only what changed: an omitted (empty or nonpositive) field
 //! retains the previously accepted value until the server affirms a new one
 //! or another authoritative path replaces the cell, so a retained name or
-//! damage value can never silently outlive or misdescribe its stack.
-//! Rejected requests roll back without writing one.
+//! damage value can never silently outlive its stack. That guarantee is
+//! scoped deliberately: a well-formed accepted correction that restates a
+//! changed positive stack-network id updates the retained stack in place,
+//! and this module does not claim that unstated overlay fields follow such
+//! an id change. Rejected requests roll back without writing one.
 
 use std::sync::Arc;
 
