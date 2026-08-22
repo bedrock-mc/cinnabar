@@ -1,9 +1,10 @@
 use super::super::retained_hud::{
-    MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS, MAX_PRESENTED_SCOREBOARD_ROWS,
-    SCOREBOARD_HORIZONTAL_PADDING, SCOREBOARD_LIST_OFFSET, SCOREBOARD_MAIN_HORIZONTAL_EXPANSION,
-    SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_BACKGROUND_HEIGHT,
-    SCOREBOARD_TITLE_WIDTH, ScoreboardPresentationScope, project_below_name_scores,
-    project_scoreboard_for_scope, required_sidebar_owner_ids,
+    MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS, MAX_PRESENTED_SCOREBOARD_HEARTS,
+    MAX_PRESENTED_SCOREBOARD_ROWS, PresentedScoreValue, SCOREBOARD_HORIZONTAL_PADDING,
+    SCOREBOARD_LIST_OFFSET, SCOREBOARD_MAIN_HORIZONTAL_EXPANSION, SCOREBOARD_NAME_WIDTH,
+    SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_BACKGROUND_HEIGHT, SCOREBOARD_TITLE_WIDTH,
+    ScoreboardPresentationScope, project_below_name_scores, project_scoreboard_for_scope,
+    required_sidebar_owner_ids,
 };
 use super::*;
 use ui::ScoreOwner;
@@ -40,7 +41,10 @@ fn scoreboard_projection_uses_authoritative_order_and_fake_player_names() {
     assert_eq!(sidebar.title.as_ref(), "Wins");
     assert_eq!(sidebar.rows.len(), 2);
     assert_eq!(sidebar.rows[0].label.as_ref(), "Alpha");
-    assert_eq!(sidebar.rows[0].score, "9");
+    assert_eq!(
+        sidebar.rows[0].value,
+        PresentedScoreValue::Text(Arc::from("9"))
+    );
     assert_eq!(sidebar.rows[1].label.as_ref(), "Beta");
 }
 
@@ -72,13 +76,178 @@ fn scoreboard_slots_remain_scoped_to_their_native_surfaces_and_resolve_protocol_
     assert_eq!(projected.rows[0].label.as_ref(), "Alex");
     assert_eq!(projected.rows[1].label.as_ref(), "Horse");
     assert_eq!(projected.rows[2].label.as_ref(), "Server");
+}
+
+#[test]
+fn hearts_objectives_project_bounded_non_decimal_score_values() {
+    let mut runtime = UiRuntime::new(1);
+    install_mixed_scoreboard_slot_with_criteria(
+        &mut runtime,
+        "sidebar",
+        "health",
+        &[(1, ProtocolScoreIdentity::FakePlayer(Arc::from("Alex")), 13)],
+    );
+
+    let sidebar = project_scoreboard_for_scope(
+        runtime.scoreboards(),
+        ScoreboardPresentationScope::HudSidebar,
+        |_| None,
+    )
+    .unwrap();
+
+    assert_eq!(
+        sidebar.rows[0].value,
+        PresentedScoreValue::Hearts {
+            full_hearts: 6,
+            half_heart: true,
+        }
+    );
+    assert_ne!(
+        sidebar.rows[0].value,
+        PresentedScoreValue::Text(Arc::from("13"))
+    );
+
+    let mut capped_runtime = UiRuntime::new(1);
+    install_mixed_scoreboard_slot_with_criteria(
+        &mut capped_runtime,
+        "sidebar",
+        "hearts",
+        &[(
+            1,
+            ProtocolScoreIdentity::FakePlayer(Arc::from("Alex")),
+            4_096,
+        )],
+    );
+    let capped = project_scoreboard_for_scope(
+        capped_runtime.scoreboards(),
+        ScoreboardPresentationScope::HudSidebar,
+        |_| None,
+    )
+    .unwrap();
+    assert_eq!(
+        capped.rows[0].value,
+        PresentedScoreValue::Hearts {
+            full_hearts: MAX_PRESENTED_SCOREBOARD_HEARTS,
+            half_heart: false,
+        }
+    );
+}
+
+#[test]
+fn unresolvable_owner_ids_fall_back_to_their_raw_retained_identity() {
+    let mut runtime = UiRuntime::new(1);
+    install_mixed_scoreboard_slot(
+        &mut runtime,
+        "sidebar",
+        &[
+            (3, ProtocolScoreIdentity::Player(17), 3),
+            (4, ProtocolScoreIdentity::Entity(23), 2),
+            (5, ProtocolScoreIdentity::FakePlayer(Arc::from("Server")), 1),
+        ],
+    );
+
+    let projected = project_scoreboard_for_scope(
+        runtime.scoreboards(),
+        ScoreboardPresentationScope::HudSidebar,
+        |_| None,
+    )
+    .unwrap();
+
+    assert_eq!(projected.rows.len(), 3);
+    assert_eq!(projected.rows[0].label.as_ref(), "17");
+    assert_eq!(projected.rows[1].label.as_ref(), "23");
+    assert_eq!(projected.rows[2].label.as_ref(), "Server");
+    assert_eq!(
+        projected.rows[2].value,
+        PresentedScoreValue::Text(Arc::from("1"))
+    );
+}
+
+#[test]
+fn xuid_keyed_owner_ids_resolve_through_the_roster_map_then_fall_back_cleanly() {
+    const XUID_KEYED_OWNER: i64 = 2535406042983449;
+    let mut runtime = UiRuntime::new(1);
+    install_mixed_scoreboard_slot(
+        &mut runtime,
+        "sidebar",
+        &[
+            (3, ProtocolScoreIdentity::Player(XUID_KEYED_OWNER), 5),
+            (4, ProtocolScoreIdentity::Entity(999), 2),
+        ],
+    );
+
+    let resolved = project_scoreboard_for_scope(
+        runtime.scoreboards(),
+        ScoreboardPresentationScope::HudSidebar,
+        |owner| {
+            matches!(owner, ScoreOwner::Player(id) if *id == XUID_KEYED_OWNER)
+                .then(|| Arc::from("KnownPlayer"))
+        },
+    )
+    .unwrap();
+    assert_eq!(resolved.rows.len(), 2);
+    assert_eq!(resolved.rows[0].label.as_ref(), "KnownPlayer");
+    assert_eq!(resolved.rows[1].label.as_ref(), "999");
+
+    let fallback = project_scoreboard_for_scope(
+        runtime.scoreboards(),
+        ScoreboardPresentationScope::HudSidebar,
+        |_| None,
+    )
+    .unwrap();
+    assert_eq!(fallback.rows.len(), 2);
+    assert_eq!(fallback.rows[0].label.as_ref(), "2535406042983449");
+    assert_eq!(fallback.rows[1].label.as_ref(), "999");
+}
+
+#[test]
+fn hearts_sidebar_renders_a_bounded_sprite_row_instead_of_decimal_text() {
+    let mut runtime = UiRuntime::new(1);
+    install_mixed_scoreboard_slot_with_criteria(
+        &mut runtime,
+        "sidebar",
+        "dummy",
+        &[(1, ProtocolScoreIdentity::FakePlayer(Arc::from("Alex")), 20)],
+    );
+    // Spectator isolates the sidebar from survival stat sprites.
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Spectator);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.set_native_scoreboard_opacity(77, 88);
+
+    let integer_build = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 3,
+            local_millis: 0,
+            server_tick: None,
+            event: UiEvent::Objective(ObjectiveEvent::Display {
+                display_slot: Arc::from("sidebar"),
+                objective_name: Arc::from("objective"),
+                display_name: Arc::from("Objective"),
+                criteria_name: Arc::from("health"),
+                sort_order: 1,
+            }),
+        })
+        .unwrap();
+    let hearts_build = presentation
+        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .unwrap();
+
+    // Ten heart sprite quads replace the two shadowed decimal glyphs.
+    assert_eq!(
+        hearts_build.vertices.len() - integer_build.vertices.len(),
+        MAX_PRESENTED_SCOREBOARD_HEARTS as usize * 4 - 2 * 8
+    );
+    // No decimal score text remains on the sidebar.
     assert!(
-        project_scoreboard_for_scope(
-            runtime.scoreboards(),
-            ScoreboardPresentationScope::HudSidebar,
-            |_| None,
-        )
-        .is_none()
+        hearts_build
+            .vertices
+            .iter()
+            .all(|vertex| vertex.color != [255, 0, 0, 255])
     );
 }
 
@@ -285,6 +454,15 @@ fn install_mixed_scoreboard_slot(
     slot: &str,
     rows: &[(i64, ProtocolScoreIdentity, i32)],
 ) {
+    install_mixed_scoreboard_slot_with_criteria(runtime, slot, "dummy", rows);
+}
+
+fn install_mixed_scoreboard_slot_with_criteria(
+    runtime: &mut UiRuntime,
+    slot: &str,
+    criteria_name: &str,
+    rows: &[(i64, ProtocolScoreIdentity, i32)],
+) {
     runtime
         .apply(SequencedUiEvent {
             session_id: 1,
@@ -295,7 +473,7 @@ fn install_mixed_scoreboard_slot(
                 display_slot: Arc::from(slot),
                 objective_name: Arc::from("objective"),
                 display_name: Arc::from("Objective"),
-                criteria_name: Arc::from("dummy"),
+                criteria_name: Arc::from(criteria_name),
                 sort_order: 1,
             }),
         })
