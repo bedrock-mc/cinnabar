@@ -558,6 +558,10 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
         peak_outbound_requests: 5,
         peak_pending_mesh_jobs: 9,
         peak_in_flight_mesh_jobs: 8,
+        player_auth_input_sent_count: 21,
+        outbound_budget_drop_count: 2,
+        peak_pending_outbox_depth: 6,
+        outbound_halted_by_authority_fault: false,
         nontransparent_gpu_upload_bytes: 3_072,
         gpu_upload_bytes: 4_096,
         transparent_sort_request_generation: 11,
@@ -645,6 +649,10 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
             "  \"peak_outbound_requests\": 5,\n",
             "  \"peak_pending_mesh_jobs\": 9,\n",
             "  \"peak_in_flight_mesh_jobs\": 8,\n",
+            "  \"player_auth_input_sent_count\": 21,\n",
+            "  \"outbound_budget_drop_count\": 2,\n",
+            "  \"peak_pending_outbox_depth\": 6,\n",
+            "  \"outbound_halted_by_authority_fault\": false,\n",
             "  \"nontransparent_gpu_upload_bytes\": 3072,\n",
             "  \"gpu_upload_bytes\": 4096,\n",
             "  \"transparent_sort_request_generation\": 11,\n",
@@ -692,4 +700,45 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
         )
     );
     let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn outbound_movement_telemetry_tracks_high_water_marks_and_latest_halt_state() {
+    let mut metrics = MetricsCollector::new();
+    metrics.record_outbound_movement_telemetry(3, 5, false);
+    metrics.record_outbound_movement_telemetry(2, 9, true);
+    metrics.add_outbound_budget_drops(1);
+    metrics.add_outbound_budget_drops(2);
+
+    let report = metrics.report();
+    assert_eq!(report.player_auth_input_sent_count, 3);
+    assert_eq!(report.peak_pending_outbox_depth, 9);
+    assert!(report.outbound_halted_by_authority_fault);
+    assert_eq!(report.outbound_budget_drop_count, 3);
+}
+
+#[test]
+fn outbound_movement_telemetry_freezes_after_the_timed_session_deadline() {
+    let mut metrics = MetricsCollector::new();
+    metrics.finish_timed_session(std::time::Instant::now());
+    metrics.record_outbound_movement_telemetry(7, 11, true);
+    metrics.add_outbound_budget_drops(4);
+
+    let report = metrics.report();
+    assert_eq!(report.player_auth_input_sent_count, 0);
+    assert_eq!(report.peak_pending_outbox_depth, 0);
+    assert!(!report.outbound_halted_by_authority_fault);
+    assert_eq!(report.outbound_budget_drop_count, 0);
+}
+
+#[test]
+fn outbound_movement_telemetry_serializes_discriminating_field_names() {
+    let mut metrics = MetricsCollector::new();
+    metrics.record_outbound_movement_telemetry(1, 2, true);
+
+    let encoded = serde_json::to_value(metrics.report()).expect("report JSON");
+    assert_eq!(encoded["player_auth_input_sent_count"], 1);
+    assert_eq!(encoded["outbound_budget_drop_count"], 0);
+    assert_eq!(encoded["peak_pending_outbox_depth"], 2);
+    assert_eq!(encoded["outbound_halted_by_authority_fault"], true);
 }

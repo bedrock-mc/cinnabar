@@ -4,6 +4,7 @@ mod actor;
 mod audio;
 mod blob_cache;
 mod codec;
+mod disconnect;
 mod interaction;
 mod inventory;
 mod item;
@@ -39,6 +40,7 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
+pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     click_block_packet, destroy_block_packet, use_actor_packet,

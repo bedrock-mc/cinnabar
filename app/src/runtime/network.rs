@@ -62,7 +62,7 @@ pub(crate) use resource_packs::{
 };
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
-    spawn_network,
+    session_failure_display, spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
@@ -527,6 +527,7 @@ pub(crate) fn receive_network_events(
             NetworkControlEvent::Failed {
                 message,
                 decode_error_count,
+                server_disconnect,
             } => {
                 resource_pack_admission.clear_current();
                 movement.deactivate();
@@ -534,12 +535,10 @@ pub(crate) fn receive_network_events(
                 avatar.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
-                error!(decode_error_count, "network session failed: {message}");
+                let failure = session_failure_display(&message, server_disconnect.as_ref());
+                error!(decode_error_count, "{failure}");
                 client_world.network_decode_errors = decode_error_count;
-                record_fatal_error(
-                    &mut client_world.fatal_error,
-                    format!("network session failed: {message}"),
-                );
+                record_fatal_error(&mut client_world.fatal_error, failure);
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 resource_pack_admission.clear_current();

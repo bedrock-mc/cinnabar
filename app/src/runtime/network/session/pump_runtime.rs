@@ -193,6 +193,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
+                            let server_disconnect = session.take_server_disconnect();
                             if let Some(chat) = chat {
                                 let _ = send_control_event_or_cancel(
                                     &control_event_tx,
@@ -209,6 +210,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                 "send",
                                 &error.to_string(),
                                 session.decode_error_count(),
+                                server_disconnect.as_ref(),
                             );
                             send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
@@ -217,6 +219,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                 NetworkControlEvent::Failed {
                                     message: error.to_string(),
                                     decode_error_count: session.decode_error_count(),
+                                    server_disconnect,
                                 },
                             )
                             .await;
@@ -248,10 +251,12 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                 ));
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
+                let server_disconnect = session.take_server_disconnect();
                 emit_network_pump_terminal_marker(
                     "receive",
                     &error.to_string(),
                     session.decode_error_count(),
+                    server_disconnect.as_ref(),
                 );
                 send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                 let _ = send_control_event_or_cancel(
@@ -260,6 +265,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     NetworkControlEvent::Failed {
                         message: error.to_string(),
                         decode_error_count: session.decode_error_count(),
+                        server_disconnect,
                     },
                 )
                 .await;

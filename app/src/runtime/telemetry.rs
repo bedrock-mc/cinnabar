@@ -306,6 +306,7 @@ pub(crate) fn send_player_auth_inputs(
     acceptance: Res<AcceptanceRun>,
     input: Res<SemanticInputSnapshot>,
     local_frame: Res<LocalPlayerFrameCarrier>,
+    mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
@@ -350,7 +351,10 @@ pub(crate) fn send_player_auth_inputs(
         Ok(_) => {}
         Err(MovementSendError::Transport(
             crate::runtime::network::session::PacketSendError::Full(_),
-        )) => movement.note_full_restore(),
+        )) => {
+            metrics.0.add_outbound_budget_drops(1);
+            movement.note_full_restore();
+        }
         Err(MovementSendError::Encode(error)) => {
             movement.deactivate();
             record_fatal_error(
@@ -382,6 +386,11 @@ pub(crate) fn send_player_auth_inputs(
             );
         }
     }
+    metrics.0.record_outbound_movement_telemetry(
+        movement.sent_physics_packet_count(),
+        movement.pending_count(),
+        movement.pending_authority_fault().is_some(),
+    );
 }
 
 pub(crate) fn update_visibility_diagnostics(

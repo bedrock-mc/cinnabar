@@ -13,7 +13,8 @@ use bevy::prelude::Resource;
 use bytes::Bytes;
 use protocol::{
     BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    PlayerGameMode, ServerDisconnectEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    normalize_authority,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -80,6 +81,7 @@ pub enum NetworkControlEvent {
     Failed {
         message: String,
         decode_error_count: u64,
+        server_disconnect: Option<ServerDisconnectEvent>,
     },
     Stopped {
         decode_error_count: u64,
@@ -503,6 +505,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     let _ = control_event_tx.try_send(NetworkControlEvent::Failed {
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
+                        server_disconnect: None,
                     });
                     return;
                 }
@@ -529,6 +532,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                             NetworkControlEvent::Failed {
                                 message: error.to_string(),
                                 decode_error_count: 0,
+                                server_disconnect: None,
                             },
                         )
                         .await;
@@ -631,6 +635,10 @@ trait NetworkSession: Send {
 
     fn decode_error_count(&self) -> u64;
 
+    fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
+        None
+    }
+
     fn blob_cache_enabled(&self) -> bool {
         false
     }
@@ -680,6 +688,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
+    }
+
+    fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
+        protocol::PlaySession::take_server_disconnect(self)
     }
 
     fn blob_cache_enabled(&self) -> bool {
@@ -827,9 +839,30 @@ fn bounded_counter_log_due(previous: u64, current: u64) -> bool {
     current != 0 && current > previous && (previous == 0 || current.ilog2() > previous.ilog2())
 }
 
-fn emit_network_pump_terminal_marker(stage: &'static str, message: &str, decode_errors: u64) {
+pub(crate) fn session_failure_display(
+    transport_message: &str,
+    server_disconnect: Option<&ServerDisconnectEvent>,
+) -> String {
+    match server_disconnect.and_then(|disconnect| disconnect.message.clone()) {
+        Some(reason) => format!("server disconnected: {reason} ({transport_message})"),
+        None => format!("network session failed: {transport_message}"),
+    }
+}
+
+fn emit_network_pump_terminal_marker(
+    stage: &'static str,
+    message: &str,
+    decode_errors: u64,
+    server_disconnect: Option<&ServerDisconnectEvent>,
+) {
     let mut stdout = std::io::stdout().lock();
-    write_network_pump_terminal_marker(&mut stdout, stage, message, decode_errors);
+    write_network_pump_terminal_marker(
+        &mut stdout,
+        stage,
+        message,
+        decode_errors,
+        server_disconnect,
+    );
     let _ = stdout.flush();
 }
 
@@ -838,14 +871,22 @@ fn write_network_pump_terminal_marker(
     stage: &'static str,
     message: &str,
     decode_errors: u64,
+    server_disconnect: Option<&ServerDisconnectEvent>,
 ) {
-    let marker = serde_json::json!({
+    let mut marker = serde_json::json!({
         "schema": "rust-mcbe-network-pump-terminal-v1",
         "outcome": "failed",
         "stage": stage,
         "message": message,
         "decode_error_count": decode_errors,
     });
+    if let Some(disconnect) = server_disconnect {
+        marker["server_disconnect"] = serde_json::json!({
+            "reason": disconnect.reason,
+            "message": disconnect.message,
+            "filtered_message": disconnect.filtered_message,
+        });
+    }
     let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
 }
 

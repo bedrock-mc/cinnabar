@@ -292,6 +292,10 @@ pub struct MetricsCollector {
     peak_outbound_requests: usize,
     peak_pending_mesh_jobs: usize,
     peak_in_flight_mesh_jobs: usize,
+    player_auth_input_sent_count: u64,
+    outbound_budget_drop_count: u64,
+    peak_pending_outbox_depth: usize,
+    outbound_halted_by_authority_fault: bool,
     gpu_upload_bytes: u64,
     transparent_sort: TransparentSortMetricsSnapshot,
     model_workload: ModelWorkloadMetricsSnapshot,
@@ -450,6 +454,10 @@ impl MetricsCollector {
             peak_outbound_requests: 0,
             peak_pending_mesh_jobs: 0,
             peak_in_flight_mesh_jobs: 0,
+            player_auth_input_sent_count: 0,
+            outbound_budget_drop_count: 0,
+            peak_pending_outbox_depth: 0,
+            outbound_halted_by_authority_fault: false,
             gpu_upload_bytes: 0,
             transparent_sort: TransparentSortMetricsSnapshot::default(),
             model_workload: ModelWorkloadMetricsSnapshot::default(),
@@ -623,6 +631,34 @@ impl MetricsCollector {
         self.decode_errors = self.decode_errors.saturating_add(count);
     }
 
+    /// Records one per-frame outbound movement sample. Sent counts and outbox
+    /// depth keep their running maxima; the authority-fault halt flag tracks
+    /// the latest observed state.
+    pub fn record_outbound_movement_telemetry(
+        &mut self,
+        sent_player_auth_inputs: u64,
+        pending_outbox_depth: usize,
+        halted_by_authority_fault: bool,
+    ) {
+        if self.finished.is_some() {
+            return;
+        }
+        self.player_auth_input_sent_count = self
+            .player_auth_input_sent_count
+            .max(sent_player_auth_inputs);
+        self.peak_pending_outbox_depth = self.peak_pending_outbox_depth.max(pending_outbox_depth);
+        self.outbound_halted_by_authority_fault = halted_by_authority_fault;
+    }
+
+    pub fn add_outbound_budget_drops(&mut self, dropped_send_attempts: u64) {
+        if self.finished.is_some() {
+            return;
+        }
+        self.outbound_budget_drop_count = self
+            .outbound_budget_drop_count
+            .saturating_add(dropped_send_attempts);
+    }
+
     pub fn record_pipeline_snapshot(&mut self, snapshot: PipelineMetricsSnapshot) {
         if self.finished.is_some() {
             self.gpu_upload_bytes = self.gpu_upload_bytes.max(snapshot.gpu_upload_bytes);
@@ -730,6 +766,10 @@ impl MetricsCollector {
             peak_outbound_requests: self.peak_outbound_requests,
             peak_pending_mesh_jobs: self.peak_pending_mesh_jobs,
             peak_in_flight_mesh_jobs: self.peak_in_flight_mesh_jobs,
+            player_auth_input_sent_count: self.player_auth_input_sent_count,
+            outbound_budget_drop_count: self.outbound_budget_drop_count,
+            peak_pending_outbox_depth: self.peak_pending_outbox_depth,
+            outbound_halted_by_authority_fault: self.outbound_halted_by_authority_fault,
             nontransparent_gpu_upload_bytes: self.gpu_upload_bytes,
             gpu_upload_bytes: self
                 .gpu_upload_bytes
