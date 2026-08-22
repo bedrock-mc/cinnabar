@@ -23,11 +23,10 @@ use jolyne::valentine::{
     McpePacketName, MissingBlobData, NetworkSettingsPacket,
     NetworkSettingsPacketCompressionAlgorithm, NetworkStackLatencyPacket, PackInstanceId,
     PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
-    RequestNetworkSettingsPacket,
-    ResourcePackClientResponsePacketResponse, ResourcePackStackPacket, ResourcePacksInfoPacket,
-    ServerToClientHandshakePacket, ServerboundLoadingScreenPacket,
-    ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
-    SetTimePacket, StartGamePacket,
+    RequestNetworkSettingsPacket, ResourcePackClientResponsePacketResponse,
+    ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
+    ServerboundLoadingScreenPacket, ServerboundLoadingScreenPacketLoadingScreenPacketType,
+    SetLocalPlayerAsInitializedPacket, SetTimePacket, StartGamePacket,
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
