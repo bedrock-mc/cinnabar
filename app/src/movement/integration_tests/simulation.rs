@@ -19,6 +19,125 @@ fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
     physics
 }
 
+fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) -> PhysicsMovementSample {
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        world,
+    );
+    assert!(
+        frame.blocked.is_none(),
+        "unexpected blocked tick: {:?}",
+        frame.blocked
+    );
+    assert_eq!(frame.samples.len(), 1);
+    frame.samples.into_iter().next().unwrap()
+}
+
+#[test]
+fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
+    let mut walking = LocalPhysicsController::default();
+    walking.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let plain = run_one_tick(&mut walking, &VersionedFloor(1));
+
+    let mut knocked = LocalPhysicsController::default();
+    knocked.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    knocked.queue_server_motion([0.45, 0.42, -0.35]);
+    let hit = run_one_tick(&mut knocked, &VersionedFloor(1));
+
+    assert_eq!(hit.tick, plain.tick);
+    assert!(
+        hit.position[0] > plain.position[0] + 0.2,
+        "knockback must dominate the first post-hit tick: {:?} vs {:?}",
+        hit.position,
+        plain.position
+    );
+    assert!(
+        hit.position[1] > plain.position[1],
+        "upward knockback must lift the arc"
+    );
+    assert!(hit.velocity[2] < plain.velocity[2]);
+
+    // The impulse is one-shot: the next tick shows gravity resuming and the
+    // arc continuing, not a fresh upward application.
+    let resumed = run_one_tick(&mut knocked, &VersionedFloor(1));
+    let resumed_plain = run_one_tick(&mut walking, &VersionedFloor(1));
+    assert!(
+        resumed.velocity[1] < hit.velocity[1],
+        "the upward impulse must not refire: {:?} then {:?}",
+        hit.velocity,
+        resumed.velocity
+    );
+    assert!(
+        resumed.velocity[2] < resumed_plain.velocity[2],
+        "lateral knockback momentum carries into the following tick"
+    );
+}
+
+#[test]
+fn non_finite_server_motion_is_ignored_and_inactive_controllers_drop_it() {
+    let mut physics = LocalPhysicsController::default();
+    physics.queue_server_motion([f32::NAN, 0.0, 0.0]);
+    physics.queue_server_motion([0.0, f32::INFINITY, 0.0]);
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+
+    let mut baseline = LocalPhysicsController::default();
+    baseline.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+
+    let hit = run_one_tick(&mut physics, &VersionedFloor(1));
+    let plain = run_one_tick(&mut baseline, &VersionedFloor(1));
+    assert_eq!(hit.position, plain.position);
+}
+
+#[test]
+fn correction_replay_reapplies_retained_server_motion_overlays() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let t101 = run_one_tick(&mut physics, &VersionedFloor(1));
+    physics.queue_server_motion([0.45, 0.42, -0.35]);
+    let t102 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let t103 = run_one_tick(&mut physics, &VersionedFloor(1));
+    assert_eq!(t102.tick, 102);
+    assert!(t102.position[0] > t101.position[0] + 0.2);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in [t101.clone(), t102.clone(), t103.clone()] {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let sent = ticker.pop_pending().unwrap();
+    assert_eq!(sent.snapshot.tick, 101);
+
+    // The server confirms tick 101 exactly where the client predicted it, so
+    // the replay's only job is to re-run 102..103 from that anchor.
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        t101.position,
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    ));
+
+    let replayed: Vec<_> = ticker
+        .pending_samples()
+        .iter()
+        .map(|pending| pending.snapshot.position)
+        .collect();
+    assert_eq!(replayed.as_slice(), &[t102.position, t103.position]);
+}
+
 #[test]
 fn local_physics_and_interpolation_are_equivalent_at_30_60_and_144_hz() {
     let at_30 = physics_after_one_second(30);

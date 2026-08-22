@@ -307,6 +307,14 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
+/// Bounded number of retained server motion overlays.
+///
+/// Overlays outlive their live application so a correction rewind that covers
+/// their tick can re-apply them; the bound keeps adversarial impulse floods
+/// finite, dropping the oldest entry first. Entries only ever match their own
+/// exact tick, so retained stale entries are inert until eviction.
+const LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY: usize = 8;
+
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
 /// This resource never owns a network sender or changes [`super::MovementTicker`]
@@ -325,6 +333,7 @@ pub struct LocalPhysicsController {
     dropped_tick_count: u64,
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
+    server_motions: VecDeque<sim::MotionOverlay>,
 }
 
 impl Default for LocalPhysicsController {
@@ -342,6 +351,7 @@ impl Default for LocalPhysicsController {
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
         }
     }
 }
@@ -360,8 +370,46 @@ impl LocalPhysicsController {
         self.jump_edge_pending = false;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.server_motions.clear();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
+    }
+
+    /// Retains one server-authoritative velocity impulse (knockback, launch,
+    /// explosion) to replace the pre-tick velocity of the next simulated tick.
+    ///
+    /// The overlay is keyed by that tick so a correction rewind covering it
+    /// re-applies the same replacement deterministically. Non-finite impulses
+    /// are ignored; when inactive there is no prediction timeline to enter.
+    pub fn queue_server_motion(&mut self, motion: [f32; 3]) {
+        if !motion.into_iter().all(f32::is_finite) {
+            return;
+        }
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        let velocity = Vec3::new(
+            f64::from(motion[0]),
+            f64::from(motion[1]),
+            f64::from(motion[2]),
+        );
+        let applies_at_tick = state.tick.saturating_add(1);
+        // A newer impulse supersedes an older one that has not been applied
+        // yet; both claim the same pre-tick slot.
+        if let Some(index) = self
+            .server_motions
+            .iter()
+            .position(|overlay| overlay.tick == applies_at_tick)
+        {
+            self.server_motions.remove(index);
+        }
+        if self.server_motions.len() == LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
+            self.server_motions.pop_front();
+        }
+        self.server_motions.push_back(sim::MotionOverlay {
+            tick: applies_at_tick,
+            velocity,
+        });
     }
 
     /// Replaces prediction state from a server network-position anchor.
@@ -402,6 +450,7 @@ impl LocalPhysicsController {
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.server_motions.clear();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -496,6 +545,20 @@ impl LocalPhysicsController {
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
             input.effects = effects.snapshot();
+            // A queued server impulse replaces this tick's starting velocity,
+            // mirroring how Bedrock applies knockback as an absolute velocity.
+            // The overlay is retained after application so a correction
+            // rewind covering its tick re-applies it deterministically;
+            // capacity bounds evict the oldest entries.
+            let next_tick = state.tick.saturating_add(1);
+            if let Some(overlay) = self
+                .server_motions
+                .iter()
+                .find(|overlay| overlay.tick == next_tick)
+                .copied()
+            {
+                state.velocity = overlay.velocity;
+            }
             let before = state.position;
             match self.history.predict(state, input, &self.simulator, world) {
                 Ok(result) => {
@@ -678,15 +741,18 @@ impl LocalPhysicsController {
             }
             corrected.collisions = sim::AxisCollisions::default();
         }
+        let motion_overlays: Vec<sim::MotionOverlay> =
+            self.server_motions.iter().copied().collect();
         let (replay, replayed_ticks) = self
             .history
-            .rewind_and_replay_traced(
+            .rewind_and_replay_traced_with_overlays(
                 self.state
                     .as_mut()
                     .expect("active correction checked for local state"),
                 corrected,
                 &self.simulator,
                 world,
+                &motion_overlays,
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
 

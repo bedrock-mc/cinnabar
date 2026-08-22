@@ -12,13 +12,13 @@ use assets::{
 };
 use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorLinkEvent,
-    ActorLinkType, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent, ActorSpawnEvent,
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockCrackAction, BlockCrackEvent,
-    BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent,
-    DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable,
-    UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    ActorLinkType, ActorMotionEvent, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent,
+    ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockCrackAction,
+    BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    ChunkResyncEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
+    MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
+    SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,

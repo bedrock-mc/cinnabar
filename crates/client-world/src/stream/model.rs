@@ -355,6 +355,12 @@ pub enum CommittedControlEvent {
         correction: PlayerMovementCorrectionEvent,
         resolved: ResolvedServerPosition,
     },
+    /// A server-authoritative velocity impulse for the local player
+    /// (knockback, explosion, launch). Other actors have no velocity consumer.
+    LocalActorMotion {
+        sequence: u64,
+        event: protocol::ActorMotionEvent,
+    },
     ChangeDimension {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,

@@ -761,6 +761,7 @@ fn decode_world_raw_with(
             | McpePacketName::RespawnPacket
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
+            | McpePacketName::SetActorMotionPacket
             | McpePacketName::SetTimePacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
@@ -880,6 +881,8 @@ fn decode_empty_mob_equipment(
     ))
 }
 
+#[cfg(test)]
+mod motion_tests;
 #[cfg(test)]
 mod raw_inventory_provenance_tests;
 #[cfg(test)]

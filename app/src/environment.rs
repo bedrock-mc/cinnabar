@@ -192,7 +192,8 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::Respawn { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
-        | CommittedControlEvent::LocalMovementSpeed { .. } => false,
+        | CommittedControlEvent::LocalMovementSpeed { .. }
+        | CommittedControlEvent::LocalActorMotion { .. } => false,
     }
 }
 

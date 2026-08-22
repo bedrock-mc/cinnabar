@@ -260,6 +260,19 @@ pub struct WeatherUpdateEvent {
     pub level: f32,
 }
 
+/// One server-authoritative velocity impulse for one actor.
+///
+/// Bedrock sends this after knockback, explosions, and other server-driven
+/// velocity changes. For the local player the impulse must enter prediction so
+/// the client follows the same arc instead of fighting corrections; other
+/// actors currently have no velocity consumer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorMotionEvent {
+    pub actor_runtime_id: u64,
+    pub motion: [f32; 3],
+    pub tick: u64,
+}
+
 /// One server-authoritative correction for the local player's predicted movement.
 ///
 /// Unlike [`MovePlayerEvent`], this packet carries no runtime ID: Bedrock sends it
@@ -316,6 +329,7 @@ pub enum WorldEvent {
     Respawn(RespawnEvent),
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
+    ActorMotion(ActorMotionEvent),
     SetTime(SetTimeEvent),
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),

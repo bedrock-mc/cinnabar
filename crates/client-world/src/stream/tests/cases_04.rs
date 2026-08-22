@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let motion = |actor_runtime_id: u64| {
+        WorldEvent::ActorMotion(ActorMotionEvent {
+            actor_runtime_id,
+            motion: [1.5, 0.25, -0.75],
+            tick: 7,
+        })
+    };
+
+    // A foreign actor's impulse has no velocity consumer yet.
+    stream.submit(1, motion(2)).unwrap();
+    stream.submit(2, motion(1)).unwrap();
+
+    let controls = stream.take_committed_controls();
+    let [super::CommittedControlEvent::LocalActorMotion { sequence, event }] = controls.as_slice()
+    else {
+        panic!("unexpected committed controls {controls:?}");
+    };
+    assert_eq!(*sequence, 2);
+    assert_eq!(event.actor_runtime_id, 1);
+    assert_eq!(event.motion, [1.5, 0.25, -0.75]);
+    assert_eq!(event.tick, 7);
+}
+
+#[test]
 fn respawn_commits_as_a_local_position_authority_change() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

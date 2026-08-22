@@ -38,13 +38,13 @@ mod events;
 mod game_mode;
 mod requests;
 pub use self::events::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
-    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
-    air_network_id, vanilla_dimension_range,
+    ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
+    BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
+    DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, MovePlayerMode,
+    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
+    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
+    WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -691,6 +691,20 @@ pub fn into_world_event(
                 on_ground: packet.on_ground,
                 teleported: mode.is_teleport(),
                 source_tick: packet.tick.inputtick,
+            })
+        }
+        McpePacketData::SetActorMotionPacket(packet) => {
+            let motion = [packet.motion.x, packet.motion.y, packet.motion.z];
+            if motion.iter().any(|value| !value.is_finite()) {
+                // A well-formed impulse with non-finite components cannot
+                // enter prediction; skip the whole packet instead of guessing
+                // a clamp. Truncation and other wire failures stay fatal.
+                return Ok(None);
+            }
+            WorldEvent::ActorMotion(ActorMotionEvent {
+                actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
+                motion,
+                tick: packet.tick.inputtick,
             })
         }
         McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {

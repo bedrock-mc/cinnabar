@@ -1,8 +1,10 @@
 mod acceptance_helpers;
+mod control_apply;
 
 pub(crate) use acceptance_helpers::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
+pub(crate) use control_apply::apply_committed_control;
 
 use std::{
     sync::{
@@ -58,7 +60,6 @@ use crate::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
-        telemetry::bedrock_camera_rotation,
         visibility::{AppMetrics, DiagnosticQuads},
     },
     ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
@@ -390,6 +391,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
+        if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
+            // A server-driven impulse (knockback, explosion) must enter the
+            // prediction timeline; without it the client keeps its pre-hit
+            // trajectory and fights corrections after every hit. It needs no
+            // spatial reconciliation and does not reset interpolation frames.
+            if movement.physics_is_authorized() {
+                local_physics.queue_server_motion(event.motion);
+            }
+            continue;
+        }
         let _ = refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
         let reset = match &control {
             CommittedControlEvent::PlayerMovementCorrection {
@@ -549,8 +560,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::DaylightCycle { .. }
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
-            | CommittedControlEvent::LocalMovementSpeed { .. } => {
-                unreachable!("environment-only controls return before spatial reconciliation")
+            | CommittedControlEvent::LocalMovementSpeed { .. }
+            | CommittedControlEvent::LocalActorMotion { .. } => {
+                unreachable!(
+                    "environment-only and impulse controls return before spatial reconciliation"
+                )
             }
         };
         movement.enforce_local_physics_authority(&mut local_physics);
@@ -940,61 +954,4 @@ pub(crate) fn flush_sub_chunk_requests(
         }
     }
     Ok(sent)
-}
-
-pub(crate) fn apply_committed_control(
-    control: CommittedControlEvent,
-    view: &mut LocalViewPose,
-    camera_settings: &mut CameraSettingsAuthority,
-    pending_surface_spawn: &mut Option<[i32; 2]>,
-) {
-    let resolved = match control {
-        CommittedControlEvent::MovePlayer {
-            movement, resolved, ..
-        } => {
-            info!(
-                runtime_id = movement.runtime_id,
-                position = ?movement.position,
-                "applying committed local MovePlayer"
-            );
-            if movement.yaw.is_finite() && movement.pitch.is_finite() {
-                view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
-            }
-            resolved
-        }
-        CommittedControlEvent::PlayerMovementCorrection {
-            correction,
-            resolved,
-            ..
-        } => {
-            info!(
-                tick = correction.tick,
-                position = ?correction.position,
-                "applying committed server-authoritative movement correction"
-            );
-            resolved
-        }
-        CommittedControlEvent::ChangeDimension { resolved, .. } => {
-            camera_settings.reset_perspective();
-            resolved
-        }
-        CommittedControlEvent::Respawn {
-            respawn, resolved, ..
-        } => {
-            info!(
-                state = respawn.state,
-                runtime_entity_id = respawn.runtime_entity_id,
-                position = ?respawn.position,
-                "applying committed Respawn"
-            );
-            resolved
-        }
-        CommittedControlEvent::SetTime { .. }
-        | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. }
-        | CommittedControlEvent::LocalMovementEffect { .. }
-        | CommittedControlEvent::LocalMovementSpeed { .. } => return,
-    };
-    view.set_eye_translation(Vec3::from_array(resolved.position));
-    *pending_surface_spawn = resolved.surface_anchor;
 }

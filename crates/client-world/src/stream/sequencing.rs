@@ -679,6 +679,16 @@ impl WorldStream {
                     resolved,
                 });
             }
+            WorldEvent::ActorMotion(motion) => {
+                let sequence = sequence.expect("sequenced actor motion commits through submit");
+                if motion.actor_runtime_id != self.local_player_runtime_id {
+                    return;
+                }
+                self.push_committed_control(CommittedControlEvent::LocalActorMotion {
+                    sequence,
+                    event: motion,
+                });
+            }
             WorldEvent::SetTime(update) => {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });

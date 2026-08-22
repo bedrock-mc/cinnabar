@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use thiserror::Error;
 
 use crate::{
-    CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult,
+    CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult, Vec3,
     simulator::validate_player_state,
 };
 
@@ -11,6 +11,19 @@ use crate::{
 struct PredictedFrame {
     input: MovementInput,
     state: PlayerState,
+}
+
+/// One server-authoritative velocity replacement applied immediately before
+/// the named tick's simulation.
+///
+/// Bedrock sends impulses such as knockback as absolute post-hit velocities,
+/// not accelerations. Keying the replacement by tick keeps live prediction and
+/// rewind replay deterministic: re-running a retained range re-applies the
+/// same overlay at the same tick instead of losing it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MotionOverlay {
+    pub tick: u64,
+    pub velocity: Vec3,
 }
 
 /// Bounded tick-keyed prediction history used by rewind corrections.
@@ -139,6 +152,23 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
+        self.rewind_and_replay_traced_with_overlays(current, corrected, simulator, world, &[])
+    }
+
+    /// [`Self::rewind_and_replay_traced`] with server motion overlays.
+    ///
+    /// Each overlay replaces the pre-tick velocity of exactly one replayed
+    /// tick, mirroring what live prediction applied when the impulse first
+    /// arrived. Unknown ticks never match; overlays are never consumed so
+    /// repeated replays stay deterministic.
+    pub fn rewind_and_replay_traced_with_overlays(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+        overlays: &[MotionOverlay],
+    ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
         validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
@@ -157,6 +187,13 @@ impl PredictionHistory {
         let mut replayed_state = corrected;
         let mut ticks = Vec::with_capacity(candidate.frames.len() - index - 1);
         for frame_index in (index + 1)..candidate.frames.len() {
+            let simulated_tick = candidate.frames[frame_index].state.tick;
+            if let Some(overlay) = overlays
+                .iter()
+                .find(|overlay| overlay.tick == simulated_tick)
+            {
+                replayed_state.velocity = overlay.velocity;
+            }
             let input = candidate.frames[frame_index].input;
             let tick = simulator.tick(&mut replayed_state, input, world)?;
             candidate.frames[frame_index].state = replayed_state.clone();
