@@ -252,6 +252,21 @@ impl PublicationAllowance {
         self.lock().live.len()
     }
 
+    /// Total bytes held by live payload permits; a value pinned near the
+    /// frame maximum while the render queue is empty means permits are
+    /// stranded downstream of admission.
+    #[must_use]
+    pub fn live_payload_bytes(&self) -> u64 {
+        self.lock()
+            .live
+            .values()
+            .map(|permit| match permit.class {
+                PublicationPermitClass::Payload { bytes } => bytes,
+                PublicationPermitClass::ZeroByte => 0,
+            })
+            .sum()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, PublicationAllowanceState> {
         self.inner
             .lock()

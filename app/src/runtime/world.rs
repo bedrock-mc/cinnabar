@@ -862,6 +862,7 @@ pub(crate) fn drive_world_stream(
     if let Some(stream) = client_world.stream.as_ref() {
         let stats = stream.stats();
         let previous = publication.diagnostics().last_work;
+        let allowance = publication.allowance();
         publication.finish_frame(PublicationFrameWork {
             mesh_jobs_dispatched: poll_report.mesh_jobs_dispatched,
             mesh_changes_published: published_items,
@@ -871,6 +872,9 @@ pub(crate) fn drive_world_stream(
             in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
             upload_queue_items: render_queue.retained_len(),
             upload_queue_bytes: render_queue.pending_bytes(),
+            allowance_live_permits: allowance.live_permits(),
+            allowance_live_payload_bytes: allowance.live_payload_bytes(),
+            stream_pending_mesh_changes: stream.pending_mesh_change_count(),
             ..previous
         });
     }
