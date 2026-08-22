@@ -461,8 +461,16 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    // cmd.exe keeps the space before `>>` in `echo label >> log`, so compare
+    // each line's trimmed label: the contract is the producer order.
+    let labels: Vec<String> = fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(str::trim_end)
+        .map(str::to_owned)
+        .collect();
     assert_eq!(
-        fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
+        labels,
         [
             "acquire",
             "world",
