@@ -389,6 +389,179 @@ fn local_close_with_held_cursor_requires_player_and_cursor_authority() {
     assert!(!ledger.resync_required());
 }
 
+/// A storage gesture whose admitted prediction awaits its response, followed
+/// by a local close request: the exact window that must retain its
+/// generation and journal until authority settles.
+fn closing_with_pending(dynamic_id: u32) -> (PlayerInventoryLedger, i32) {
+    let mut ledger = ready(27, dynamic_id);
+    ledger.apply(&player_content_with_first(stack(8, 2, 44)));
+    let request = ledger.begin_storage_click(2).unwrap();
+    ledger.mark_transport_enqueued(10);
+    ledger.request_storage_close();
+    (ledger, request)
+}
+
+#[test]
+fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() {
+    let (mut ledger, request) = closing_with_pending(900);
+    let generation = ledger
+        .storage_generation()
+        .expect("a pending prediction retains the closing window");
+    assert_eq!(
+        ledger.storage_identity().unwrap().dynamic_id,
+        Some(900),
+        "the container identity stays retained"
+    );
+    assert_eq!(
+        ledger.storage_stack(2).map(|stack| stack.stack_network_id),
+        None,
+        "the response journal keeps the predicted-away source cell"
+    );
+    assert_eq!(
+        ledger.cursor_stack().map(|stack| stack.stack_network_id),
+        Some(91)
+    );
+    assert_eq!(ledger.pending_request_id(), Some(request));
+    assert!(
+        ledger.pending_packet().unwrap().is_some(),
+        "the local ContainerClose still transmits"
+    );
+
+    // Every new gesture is blocked while the prediction awaits authority.
+    assert_eq!(
+        ledger.begin_storage_click(3),
+        Err(InventoryGestureError::Busy)
+    );
+    assert_eq!(ledger.begin_click(0), Err(InventoryGestureError::Busy));
+
+    // A duplicate close gesture cannot restart or requeue the close.
+    ledger.request_storage_close();
+    assert_eq!(ledger.storage_generation(), Some(generation));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(900));
+}
+
+#[test]
+fn accepted_response_reconciles_then_finishes_the_deferred_close() {
+    let (mut ledger, request) = closing_with_pending(910);
+    ledger.apply(&response(request, StackResponseStatus::Accepted));
+
+    assert_eq!(
+        ledger.cursor_stack().map(|stack| stack.stack_network_id),
+        Some(91),
+        "the retained prediction reconciled instead of being dropped"
+    );
+    assert_eq!(
+        ledger.storage_generation(),
+        None,
+        "the last pending resolution completed the close"
+    );
+    assert!(
+        ledger.resync_required(),
+        "a stack held out of a closed window needs authoritative restatement"
+    );
+    ledger.apply(&player_content());
+    ledger.apply(&cursor_content());
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn rejected_response_rolls_back_then_finishes_the_deferred_close() {
+    let (mut ledger, request) = closing_with_pending(911);
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+
+    assert_eq!(
+        ledger.cursor_stack().map(|stack| stack.stack_network_id),
+        None
+    );
+    assert_eq!(
+        ledger.storage_generation(),
+        None,
+        "the rejected prediction also completes the close"
+    );
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn closing_state_cannot_outlive_its_timeout_authority() {
+    let (mut ledger, _request) = closing_with_pending(920);
+    assert!(ledger.storage_generation().is_some());
+
+    ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+
+    assert_eq!(
+        ledger.storage_generation(),
+        None,
+        "the existing timeout recovery clears the closing window"
+    );
+    assert!(ledger.pending_request_id().is_none());
+    assert!(ledger.resync_required());
+    ledger.apply(&player_content());
+    ledger.apply(&cursor_content());
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn session_reset_clears_a_closing_window_immediately() {
+    let (mut ledger, _request) = closing_with_pending(930);
+    assert!(ledger.storage_generation().is_some());
+
+    ledger.begin_session(42);
+
+    assert_eq!(ledger.storage_generation(), None);
+    assert!(ledger.pending_request_id().is_none());
+    assert!(ledger.pending_packet().unwrap().is_none());
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn authoritative_close_settles_a_closing_window_immediately() {
+    let (mut ledger, request) = closing_with_pending(940);
+    assert!(ledger.storage_generation().is_some());
+
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+
+    assert_eq!(ledger.storage_generation(), None);
+    assert!(ledger.resync_required());
+    ledger.apply(&response(request, StackResponseStatus::Accepted));
+    assert_eq!(
+        ledger.cursor_stack().map(|stack| stack.stack_network_id),
+        None,
+        "the superseded prediction can no longer reconcile"
+    );
+    ledger.apply(&player_content());
+    ledger.apply(&cursor_content());
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn replacing_the_window_clears_a_closing_state_immediately() {
+    let (mut ledger, request) = closing_with_pending(950);
+    let old_generation = ledger.storage_generation().unwrap();
+
+    ledger.apply(&open(1, 0));
+    ledger.apply(&content(1, 951, 27));
+
+    let new_generation = ledger
+        .storage_generation()
+        .expect("the replacement window opened");
+    assert_ne!(new_generation, old_generation);
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(951));
+    ledger.apply(&response(request, StackResponseStatus::Accepted));
+    assert_eq!(
+        ledger.cursor_stack().map(|stack| stack.stack_network_id),
+        None,
+        "the stale prediction cannot touch the replacement"
+    );
+    ledger.apply(&player_content());
+    ledger.apply(&cursor_content());
+    assert!(!ledger.resync_required());
+    assert!(ledger.begin_storage_click(2).is_ok());
+}
+
 #[test]
 fn server_close_with_held_cursor_requires_player_and_cursor_in_both_orders() {
     for player_first in [true, false] {
