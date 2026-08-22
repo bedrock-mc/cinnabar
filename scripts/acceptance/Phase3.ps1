@@ -5,7 +5,7 @@ param(
     [string]$LogPath,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
+    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')]
     [string]$ExpectedTarget,
 
     [Parameter(Mandatory = $true)]

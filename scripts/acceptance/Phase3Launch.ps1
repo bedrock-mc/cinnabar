@@ -1,7 +1,7 @@
 function ConvertTo-Phase3Target {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
+        [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')]
         [string]$Target
     )
     switch ($Target.ToLowerInvariant()) {
@@ -10,6 +10,7 @@ function ConvertTo-Phase3Target {
         'zeqa' { return 'Zeqa' }
         'lbsg' { return 'Lbsg' }
         'zeno' { return 'Zeno' }
+        'venity' { return 'Venity' }
     }
 }
 
@@ -28,7 +29,7 @@ function ConvertTo-Phase3Scenario {
 
 function Get-Phase3TargetEndpoint {
     param(
-        [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')][string]$Target,
+        [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')][string]$Target,
         [string]$BdsEndpoint = '127.0.0.1:19132'
     )
     switch ($Target) {
@@ -37,12 +38,13 @@ function Get-Phase3TargetEndpoint {
         'Zeqa' { return 'zeqa.net:19132' }
         'Lbsg' { return 'play.lbsg.net:19132' }
         'Zeno' { return 'zenomc.org:19197' }
+        'Venity' { return 'play.venitymc.com:19132' }
     }
 }
 
 function New-Phase3LaunchPlan {
     param(
-        [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')][string]$Target,
+        [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')][string]$Target,
         [Parameter(Mandatory = $true)][string]$Endpoint,
         [Parameter(Mandatory = $true)][string]$RunId,
         [Parameter(Mandatory = $true)][string]$SocketDirectory,

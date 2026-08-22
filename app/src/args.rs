@@ -50,6 +50,7 @@ pub enum Phase3Target {
     Zeqa,
     Lbsg,
     Zeno,
+    Venity,
 }
 
 impl Phase3Target {
@@ -60,6 +61,7 @@ impl Phase3Target {
             Self::Zeqa => "Zeqa",
             Self::Lbsg => "Lbsg",
             Self::Zeno => "Zeno",
+            Self::Venity => "Venity",
         }
     }
 
@@ -70,6 +72,7 @@ impl Phase3Target {
             "Zeqa" => Ok(Self::Zeqa),
             "Lbsg" => Ok(Self::Lbsg),
             "Zeno" => Ok(Self::Zeno),
+            "Venity" => Ok(Self::Venity),
             _ => Err(ArgsError::InvalidPhase3Target(value)),
         }
     }
@@ -171,7 +174,9 @@ pub enum ArgsError {
     #[error("--vsync and --no-vsync cannot be used together")]
     ConflictingVsyncFlags,
 
-    #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, Lbsg, or Zeno, got {0:?}")]
+    #[error(
+        "--phase3-evidence-target must be one of Bds, Lunar, Zeqa, Lbsg, Zeno, or Venity, got {0:?}"
+    )]
     InvalidPhase3Target(String),
 
     #[error("--phase3-candidate-physics requires an attributable --phase3-evidence-target run")]

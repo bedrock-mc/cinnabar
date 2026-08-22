@@ -273,6 +273,7 @@ Describe 'Phase 3 production marker evidence validation' {
             Zeqa = 'zeqa.net:19132'
             Lbsg = 'play.lbsg.net:19132'
             Zeno = 'zenomc.org:19197'
+            Venity = 'play.venitymc.com:19132'
             Bds = '127.0.0.1:19132'
         }
         foreach ($target in $targets.Keys) {
@@ -292,7 +293,7 @@ Describe 'Phase 3 production marker evidence validation' {
     }
 
     It 'forbids missing authentication on all external plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 300 -Scenario CandidatePhysics } | Should Throw
@@ -300,7 +301,7 @@ Describe 'Phase 3 production marker evidence validation' {
     }
 
     It 'forbids sub-five-minute external plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
+        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')) {
             { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
                     -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
                     -DurationSeconds 299 -Scenario CandidatePhysics -AuthCache token.json } | Should Throw
