@@ -843,5 +843,6 @@ fn chat_focus_clears_stale_gameplay_touch_targets() {
 
 mod chat_tests;
 mod gameplay_hud_tests;
+mod inventory_overlay_tests;
 mod leniency_tests;
 mod retained_bounds_tests;

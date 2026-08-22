@@ -1,0 +1,419 @@
+//! Authoritative item-stack response overlays: accepted corrections retain
+//! server-owned display names and durability damage per cell, every other
+//! authoritative cell replacement clears or replaces them, and presentation
+//! prefers them over locally derived facts.
+
+use std::sync::Arc;
+
+use protocol::{
+    ContainerIdentity, InventoryAuthority, InventoryContentEvent, InventoryEvent,
+    InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus,
+};
+use sha2::{Digest, Sha256};
+
+use super::*;
+use crate::ui_runtime::inventory_ledger::{
+    GENERIC_STORAGE_SLOT_TYPE, GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS,
+    PLAYER_INVENTORY_SLOT_COUNT, SMALL_STORAGE_SLOT_COUNT,
+};
+
+fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
+    NetworkItemStack {
+        network_id,
+        metadata: 0,
+        stack_network_id,
+        count,
+        nbt_digest: Sha256::digest([]).into(),
+        block_runtime_id: 0,
+        extra_data: Arc::from([]),
+    }
+}
+
+fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: u16::from(slot),
+            },
+            stack,
+            storage_item: None,
+        }));
+}
+
+fn correction(
+    slot: u8,
+    count: u8,
+    item_stack_id: i32,
+    name: &str,
+    filtered_name: &str,
+    durability: i32,
+) -> StackResponseSlot {
+    StackResponseSlot {
+        slot,
+        hotbar_slot: slot,
+        count,
+        item_stack_id,
+        custom_name: Arc::from(name),
+        filtered_custom_name: Arc::from(filtered_name),
+        durability_correction: durability,
+    }
+}
+
+fn accepted_response(
+    request_id: i32,
+    slot_type: Option<u8>,
+    dynamic_id: Option<u32>,
+    slots: Vec<StackResponseSlot>,
+) -> InventoryEvent {
+    InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id,
+            containers: Arc::from([StackResponseContainer {
+                container: ContainerIdentity {
+                    window_id: None,
+                    slot_type,
+                    dynamic_id,
+                },
+                slots: Arc::from(slots),
+            }]),
+        }]),
+    })
+}
+
+/// Drives one take/place gesture pair so an accepted response corrects the
+/// freshly placed stack in player-inventory slot 0.
+fn corrected_sword_in_slot_zero() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    publish_slot(&mut runtime, 1, ledger_stack(745, 13, 4));
+    publish_slot(&mut runtime, 0, NetworkItemStack::empty());
+    let take = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response(take, Some(12), None, Vec::new()));
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        place,
+        Some(12),
+        None,
+        vec![correction(0, 2, 99, "Renamed Blade", "Filtered Blade", 125)],
+    ));
+    runtime
+}
+
+#[test]
+fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
+    let runtime = corrected_sword_in_slot_zero();
+
+    let displayed = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(displayed.network_id, 745);
+    assert_eq!(displayed.count, 2);
+    assert_eq!(displayed.stack_network_id, 99);
+    let overlay = runtime
+        .inventory_ledger()
+        .slot_overlay(0)
+        .expect("overlay retained");
+    assert_eq!(overlay.custom_name.as_ref(), "Renamed Blade");
+    assert_eq!(overlay.filtered_custom_name.as_ref(), "Filtered Blade");
+    assert_eq!(overlay.durability_correction, 125);
+    // Cells the server did not correct carry no overlay.
+    assert_eq!(runtime.inventory_ledger().slot_overlay(1), None);
+    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+}
+
+#[test]
+fn authoritative_slot_replacement_clears_the_response_overlay() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    assert!(
+        runtime
+            .inventory_ledger()
+            .slot_overlay(0)
+            .is_some_and(|overlay| overlay.custom_name.as_ref() == "Renamed Blade")
+    );
+
+    publish_slot(&mut runtime, 0, ledger_stack(745, 41, 3));
+
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    let replaced = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(replaced.count, 3);
+    assert_eq!(replaced.stack_network_id, 41);
+}
+
+#[test]
+fn full_inventory_content_replaces_overlays_of_every_rewritten_cell() {
+    let mut runtime = corrected_sword_in_slot_zero();
+
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: Arc::from(vec![ledger_stack(745, 5, 1); PLAYER_INVENTORY_SLOT_COUNT]),
+            storage_item: NetworkItemStack::empty(),
+        }));
+
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    let replaced = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(replaced.stack_network_id, 5);
+}
+
+#[test]
+fn cursor_updates_clear_the_cursor_response_overlay() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    // Taking the corrected sword moves it to the cursor; the same accepted
+    // response carries a cursor correction with its own authoritative names.
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        take,
+        Some(59),
+        None,
+        vec![correction(0, 2, 55, "Cursor Blade", "Cursor Blade", 60)],
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .cursor_overlay()
+            .map(|overlay| overlay.durability_correction),
+        Some(60)
+    );
+
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(0),
+                    slot_type: Some(59),
+                    dynamic_id: None,
+                },
+                slot: 0,
+            },
+            stack: ledger_stack(746, 88, 1),
+            storage_item: None,
+        }));
+
+    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+}
+
+#[test]
+fn empty_cell_corrections_clear_the_overlay_with_the_stack() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        take,
+        Some(12),
+        None,
+        vec![correction(0, 0, -1, "", "", 0)],
+    ));
+
+    assert_eq!(runtime.inventory_ledger().displayed_stack(0), None);
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+}
+
+#[test]
+fn rejected_responses_rollback_without_writing_overlays() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    publish_slot(&mut runtime, 0, ledger_stack(745, 13, 4));
+
+    let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                status: StackResponseStatus::Rejected,
+                request_id,
+                containers: Arc::from([]),
+            }]),
+        }));
+
+    let restored = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(restored.count, 4);
+    assert_eq!(restored.stack_network_id, 13);
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+}
+
+#[test]
+fn request_timeouts_clear_stale_overlays_through_recovery_marking() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+
+    let _request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    assert!(
+        runtime
+            .inventory_ledger_mut()
+            .mark_transport_enqueued(1_000)
+    );
+    assert!(
+        !runtime
+            .inventory_ledger_mut()
+            .poll_timeout(1_000 + INVENTORY_REQUEST_TIMEOUT_MILLIS)
+    );
+
+    assert!(runtime.inventory_ledger().resync_required());
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+}
+
+#[test]
+fn session_reset_discards_every_retained_overlay() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+
+    runtime.begin_session(2);
+
+    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+}
+
+#[test]
+fn storage_corrections_retain_overrides_until_storage_replacement() {
+    const STORAGE_WINDOW_ID: i32 = 4;
+    const STORAGE_DYNAMIC_ID: u32 = 9;
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(STORAGE_WINDOW_ID),
+            window_type: GENERIC_STORAGE_WINDOW_TYPE,
+            position: [0, 0, 0],
+            runtime_entity_id: 1,
+        }));
+    let mut contents = vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT];
+    contents[3] = ledger_stack(745, 13, 1);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity {
+                window_id: Some(STORAGE_WINDOW_ID),
+                slot_type: Some(GENERIC_STORAGE_SLOT_TYPE),
+                dynamic_id: Some(STORAGE_DYNAMIC_ID),
+            },
+            slots: Arc::from(contents),
+            storage_item: NetworkItemStack::empty(),
+        }));
+
+    let take = runtime
+        .inventory_ledger_mut()
+        .begin_storage_click(3)
+        .unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        take,
+        Some(GENERIC_STORAGE_SLOT_TYPE),
+        Some(STORAGE_DYNAMIC_ID),
+        Vec::new(),
+    ));
+    // Place the stack back; the server's return correction carries the
+    // authoritative names and damage for the restored storage cell.
+    let place = runtime
+        .inventory_ledger_mut()
+        .begin_storage_click(3)
+        .unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        place,
+        Some(GENERIC_STORAGE_SLOT_TYPE),
+        Some(STORAGE_DYNAMIC_ID),
+        vec![correction(3, 1, 77, "Stored Blade", "Stored Blade", 42)],
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .storage_slot_overlay(3)
+            .map(|overlay| overlay.durability_correction),
+        Some(42)
+    );
+
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(STORAGE_WINDOW_ID),
+                    slot_type: Some(GENERIC_STORAGE_SLOT_TYPE),
+                    dynamic_id: Some(STORAGE_DYNAMIC_ID),
+                },
+                slot: 3,
+            },
+            stack: ledger_stack(745, 91, 1),
+            storage_item: None,
+        }));
+    assert_eq!(runtime.inventory_ledger().storage_slot_overlay(3), None);
+    let replaced = runtime.inventory_ledger().storage_stack(3).unwrap();
+    assert_eq!(replaced.stack_network_id, 91);
+}
+
+#[test]
+fn selected_item_name_prefers_the_authoritative_custom_name() {
+    let mut runtime = corrected_sword_in_slot_zero();
+    runtime.set_local_selected_slot(0);
+    assert_eq!(
+        runtime
+            .selected_stack_custom_name()
+            .map(|name| name.to_string()),
+        Some("Renamed Blade".to_owned())
+    );
+
+    // Replacing the selected cell falls back to localized identifier naming.
+    publish_slot(&mut runtime, 0, ledger_stack(745, 41, 3));
+    assert_eq!(runtime.selected_stack_custom_name(), None);
+}
+
+#[test]
+fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
+    let mut runtime = corrected_sword_in_slot_zero();
+
+    // Cycling the corrected sword through the cursor and back, with a return
+    // correction that states no names and no positive durability, must not
+    // erase the retained overlay: the server restated only what changed.
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response(take, Some(59), None, Vec::new()));
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        place,
+        Some(12),
+        None,
+        vec![correction(0, 2, 99, "", "", 0)],
+    ));
+
+    let overlay = runtime
+        .inventory_ledger()
+        .slot_overlay(0)
+        .expect("overlay survives an omitting correction");
+    assert_eq!(overlay.custom_name.as_ref(), "Renamed Blade");
+    assert_eq!(overlay.filtered_custom_name.as_ref(), "Filtered Blade");
+    assert_eq!(overlay.durability_correction, 125);
+
+    // An affirmative restatement replaces every stated field.
+    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response(take, Some(59), None, Vec::new()));
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime.inventory_ledger_mut().apply(&accepted_response(
+        place,
+        Some(12),
+        None,
+        vec![correction(0, 2, 99, "New Name", "New Filtered", 60)],
+    ));
+    let overlay = runtime
+        .inventory_ledger()
+        .slot_overlay(0)
+        .expect("overlay retained after the affirmative correction");
+    assert_eq!(overlay.custom_name.as_ref(), "New Name");
+    assert_eq!(overlay.filtered_custom_name.as_ref(), "New Filtered");
+    assert_eq!(overlay.durability_correction, 60);
+}

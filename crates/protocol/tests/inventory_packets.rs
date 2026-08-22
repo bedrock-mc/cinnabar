@@ -344,6 +344,12 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             .as_ref(),
         "filtered"
     );
+    // The server-corrected damage rides the same slot payload; dropping it
+    // would leave presentation on a stale NBT-only durability estimate.
+    assert_eq!(
+        response.responses[0].containers[0].slots[0].durability_correction,
+        -3
+    );
 
     let open = ContainerOpenPacket {
         container_id: FIRST_CONTAINER,

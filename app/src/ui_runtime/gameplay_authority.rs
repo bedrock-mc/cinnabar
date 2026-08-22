@@ -188,6 +188,15 @@ impl UiRuntime {
         }
     }
 
+    /// The authoritative custom display name an accepted stack response
+    /// retained for the selected hotbar cell, when nonempty. Presentation
+    /// prefers it over the localized identifier fallback.
+    pub(crate) fn selected_stack_custom_name(&self) -> Option<Arc<str>> {
+        let slot = self.selected_hotbar_slot()?;
+        let overlay = self.inventory_ledger.slot_overlay(slot)?;
+        (!overlay.custom_name.is_empty()).then(|| Arc::clone(&overlay.custom_name))
+    }
+
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
         &self.gameplay_hud
     }
