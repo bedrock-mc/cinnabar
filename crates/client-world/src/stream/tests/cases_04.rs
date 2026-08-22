@@ -715,6 +715,43 @@ fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() 
 }
 
 #[test]
+fn starved_publication_tokens_still_dispatch_when_nothing_is_in_flight() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    stream
+        .store
+        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .unwrap();
+    stream.resident.insert(key);
+    stream.mark_light_changed_sources([key]);
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
+    stream.mark_dirty_exact(key, Instant::now());
+
+    // Exhaust the frame publication window entirely: without the starved
+    // dispatch floor this poll could never start meshing again.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
+
+    assert_eq!(stream.poll([0.0; 3], 32).mesh_jobs_dispatched, 1);
+}
+
+#[test]
 fn forced_remesh_returns_exact_resident_generation_manifest() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,

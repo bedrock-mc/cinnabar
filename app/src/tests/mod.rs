@@ -275,6 +275,7 @@ mod inventory_schedule;
 mod phase2_evidence;
 mod phase4_presentation;
 mod publication;
+mod publication_pressure;
 mod runtime_metrics;
 mod servers;
 mod teleport;
