@@ -11,6 +11,11 @@ const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const RECOVERY_STREAK_FRAMES: u32 = 120;
 const RENDER_QUEUE_PRESSURE_ITEMS: usize = 512;
 
+/// Under sustained genuine pressure the per-frame operation caps collapse
+/// toward this floor instead of one, so a draining backlog keeps making
+/// progress and the pressure state stays escapable.
+const MINIMUM_PRESSURE_OPERATIONS_PER_FRAME: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PublicationFrameWork {
     pub(crate) mesh_jobs_dispatched: usize,
@@ -21,6 +26,9 @@ pub(crate) struct PublicationFrameWork {
     pub(crate) in_flight_mesh_jobs: usize,
     pub(crate) upload_queue_items: usize,
     pub(crate) upload_queue_bytes: u64,
+    pub(crate) allowance_live_permits: usize,
+    pub(crate) allowance_live_payload_bytes: u64,
+    pub(crate) stream_pending_mesh_changes: usize,
     pub(crate) cohort_expected: usize,
     pub(crate) cohort_loaded: usize,
     pub(crate) resident_meshes: usize,
@@ -42,6 +50,9 @@ impl PublicationFrameWork {
             in_flight_mesh_jobs: 0,
             upload_queue_items: 0,
             upload_queue_bytes: 0,
+            allowance_live_permits: 0,
+            allowance_live_payload_bytes: 0,
+            stream_pending_mesh_changes: 0,
             cohort_expected: 0,
             cohort_loaded: 0,
             resident_meshes: 0,
@@ -80,6 +91,8 @@ pub(crate) struct PublicationController {
     allowance: PublicationAllowance,
     item_numerator_remainder: u128,
     byte_numerator_remainder: u128,
+    pressure_active: bool,
+    previous_upload_queue_items: usize,
     diagnostics: PublicationDiagnostics,
 }
 
@@ -116,6 +129,8 @@ impl PublicationController {
             allowance: PublicationAllowance::new(config),
             item_numerator_remainder: 0,
             byte_numerator_remainder: 0,
+            pressure_active: false,
+            previous_upload_queue_items: 0,
             diagnostics: PublicationDiagnostics {
                 budget,
                 ..Default::default()
@@ -199,8 +214,22 @@ impl PublicationController {
 
     fn update_pressure_state(&mut self) {
         let work = self.diagnostics.last_work;
-        let gpu_backlog = work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
-            || work.upload_queue_bytes >= self.config.maximum_frame_bytes;
+        if work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
+            || work.upload_queue_bytes >= self.config.maximum_frame_bytes
+        {
+            self.pressure_active = true;
+        } else if work.upload_queue_items < RENDER_QUEUE_PRESSURE_ITEMS / 2
+            && work.upload_queue_bytes < self.config.maximum_frame_bytes / 2
+        {
+            self.pressure_active = false;
+        }
+        let draining = work.upload_queue_items < self.previous_upload_queue_items;
+        self.previous_upload_queue_items = work.upload_queue_items;
+        // A backlog that is measurably draining proves the collapsed caps can
+        // keep up; halving further would only dig the one-operation trap that
+        // once starved live joins. Collapse only while the queue is stuck or
+        // still growing.
+        let gpu_backlog = self.pressure_active && !draining;
         if gpu_backlog {
             let previous_item_rate = self.item_rate_per_second;
             let previous_byte_rate = self.byte_rate_per_second;
@@ -209,12 +238,16 @@ impl PublicationController {
             self.item_rate_per_second = self.config.minimum_items_per_second;
             self.byte_rate_per_second = self.config.minimum_bytes_per_second;
             if self.zero_byte_operations_per_frame > 0 {
-                self.zero_byte_operations_per_frame =
-                    self.zero_byte_operations_per_frame.saturating_div(2).max(1);
+                self.zero_byte_operations_per_frame = self
+                    .zero_byte_operations_per_frame
+                    .saturating_div(2)
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
             }
             if self.item_operations_per_frame > 0 {
-                self.item_operations_per_frame =
-                    self.item_operations_per_frame.saturating_div(2).max(1);
+                self.item_operations_per_frame = self
+                    .item_operations_per_frame
+                    .saturating_div(2)
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
             }
             if self.item_rate_per_second != previous_item_rate
                 || self.byte_rate_per_second != previous_byte_rate
@@ -285,7 +318,7 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
         .mesh_changes_published
         .saturating_sub(work.mesh_payloads_published);
     format!(
-        "ADAPTIVE_PUBLICATION frame={} frame_us={} cap_items={} cap_bytes={} cap_zero={} under_target_streak={} decreases={} increases={} dispatched={} published={} published_payload_items={} published_zero_items={} published_bytes={} pending={} in_flight={} upload_items={} upload_bytes={} cohort_loaded={} cohort_expected={} resident={} cave={} frustum={} submitted={} gpu_completed={}",
+        "ADAPTIVE_PUBLICATION frame={} frame_us={} cap_items={} cap_bytes={} cap_zero={} under_target_streak={} decreases={} increases={} dispatched={} published={} published_payload_items={} published_zero_items={} published_bytes={} pending={} in_flight={} upload_items={} upload_bytes={} live_permits={} live_bytes={} stream_changes={} cohort_loaded={} cohort_expected={} resident={} cave={} frustum={} submitted={} gpu_completed={}",
         diagnostics.frame_sequence,
         diagnostics.observed_frame_time.as_micros(),
         diagnostics.budget.max_per_frame,
@@ -303,6 +336,9 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
         work.in_flight_mesh_jobs,
         work.upload_queue_items,
         work.upload_queue_bytes,
+        work.allowance_live_permits,
+        work.allowance_live_payload_bytes,
+        work.stream_pending_mesh_changes,
         work.cohort_loaded,
         work.cohort_expected,
         work.resident_meshes,

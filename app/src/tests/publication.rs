@@ -796,6 +796,9 @@ fn per_frame_work_distinguishes_backlog_from_visibility_loss() {
         in_flight_mesh_jobs: 11,
         upload_queue_items: 17,
         upload_queue_bytes: 2_000_000,
+        allowance_live_permits: 5,
+        allowance_live_payload_bytes: 900_000,
+        stream_pending_mesh_changes: 3,
         cohort_expected: 1_089,
         cohort_loaded: 900,
         resident_meshes: 850,
@@ -825,6 +828,9 @@ fn adaptive_publication_diagnostic_is_deterministic_and_cohort_tagged() {
         in_flight_mesh_jobs: 11,
         upload_queue_items: 17,
         upload_queue_bytes: 2_000_000,
+        allowance_live_permits: 5,
+        allowance_live_payload_bytes: 900_000,
+        stream_pending_mesh_changes: 3,
         cohort_expected: 1_089,
         cohort_loaded: 900,
         resident_meshes: 850,
@@ -837,7 +843,7 @@ fn adaptive_publication_diagnostic_is_deterministic_and_cohort_tagged() {
     let line = adaptive_publication_diagnostic_line(controller.diagnostics());
     assert_eq!(
         line,
-        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_payload_items=5 published_zero_items=0 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
+        "ADAPTIVE_PUBLICATION frame=1 frame_us=10000 cap_items=81 cap_bytes=1342177 cap_zero=256 under_target_streak=0 decreases=0 increases=0 dispatched=7 published=5 published_payload_items=5 published_zero_items=0 published_bytes=900000 pending=123 in_flight=11 upload_items=17 upload_bytes=2000000 live_permits=5 live_bytes=900000 stream_changes=3 cohort_loaded=900 cohort_expected=1089 resident=850 cave=700 frustum=410 submitted=410 gpu_completed=410"
     );
 }
 
@@ -1029,6 +1035,7 @@ fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
     assert_eq!(controller.diagnostics().multiplicative_decreases, 1);
     assert_eq!(controller.budget().max_zero_byte_operations_per_frame, 128);
 }
+
 #[test]
 fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     let config = PublicationServiceConfig::PHASE2_GATE;

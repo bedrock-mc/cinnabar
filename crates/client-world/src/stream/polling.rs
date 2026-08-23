@@ -3,6 +3,12 @@ use super::*;
 impl WorldStream {
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
 
+    /// Breaks the publication-token deadlock: when the allowance is exhausted
+    /// and nothing is in flight, a small floor keeps meshing alive so
+    /// completions can resume once permits retire instead of starving a live
+    /// join forever.
+    const STARVED_MESH_DISPATCH_FLOOR_PER_POLL: usize = 4;
+
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_request_player_chunk = Some(ChunkKey::new(
@@ -52,12 +58,17 @@ impl WorldStream {
         } else {
             max_mesh_jobs
         };
-        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(
-            camera_position,
-            mesh_budget
-                .min(live_publication_items)
-                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
-        );
+        let mut dispatch_budget = mesh_budget
+            .min(live_publication_items)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        if dispatch_budget == 0
+            && mesh_budget != 0
+            && self.in_flight.is_empty()
+            && !self.pending_mesh.is_empty()
+        {
+            dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL;
+        }
+        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(camera_position, dispatch_budget);
         report
     }
     pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {
