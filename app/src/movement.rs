@@ -3,23 +3,25 @@ use std::collections::VecDeque;
 use bevy::prelude::Resource;
 #[cfg(test)]
 use protocol::PlayerInputMode;
-use protocol::{
-    Packet, PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, player_auth_input,
-};
+use protocol::{PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags};
 
 mod authority;
 mod effects;
 mod encoding;
 mod evidence;
+mod outbox;
 mod physics;
 mod runtime_system;
+mod settle;
 mod speed_authority;
 mod trace;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
 pub(crate) use effects::LocalMovementEffectTimeline;
-use encoding::{input_flags, normalize_move_vector};
+use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
+pub use outbox::OUTBOX_CAPACITY;
+pub(crate) use outbox::flush_player_auth_inputs;
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
@@ -31,8 +33,6 @@ use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
 use tokio::sync::watch;
 pub(crate) use trace::{pending_trace_line, write_trace_line};
-
-pub const OUTBOX_CAPACITY: usize = 32;
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
@@ -118,23 +118,6 @@ struct PendingPhysicsSend {
     retry_after_cancellation: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct HeldInput {
-    jumping: bool,
-    sneaking: bool,
-    sprinting: bool,
-}
-
-impl From<&PhysicsMovementSample> for HeldInput {
-    fn from(sample: &PhysicsMovementSample) -> Self {
-        Self {
-            jumping: sample.jumping,
-            sneaking: sample.sneaking,
-            sprinting: sample.sprinting,
-        }
-    }
-}
-
 /// Bounded retry FIFO for completed, fixed-tick physics samples.
 ///
 /// There is intentionally no render-frame interpolation/enqueue path here:
@@ -167,6 +150,7 @@ pub struct MovementTicker {
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
+    tx_gate: settle::SpawnSettleGate,
     epoch_publisher: watch::Sender<u64>,
 }
 
@@ -199,6 +183,7 @@ impl MovementTicker {
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
+            tx_gate: settle::SpawnSettleGate::default(),
             epoch_publisher,
         }
     }
@@ -227,6 +212,10 @@ impl MovementTicker {
         self.pending_fault = None;
         self.next_admission_id = 0;
         self.terminal_drain = false;
+        // A StartGame bootstrap anchors a fresh provisional spawn-settle
+        // episode (see `settle`): transmission waits for the bounded stable
+        // window or its fail-open cap.
+        self.tx_gate.engage();
     }
 
     pub fn deactivate(&mut self) {
@@ -238,6 +227,7 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
+        self.tx_gate.disengage();
     }
 
     /// Selects the source allowed to drive outbound movement.
@@ -311,6 +301,12 @@ impl MovementTicker {
             self.fail_physics_authority(&fault);
             return Err(fault);
         }
+        if self.tx_gate.observe_admitted_sample(&completed) {
+            // This admission closed the settle window. Discard every sample
+            // withheld during the episode so resumed transmission starts here
+            // without replaying suppressed ticks.
+            self.outbox.clear();
+        }
         let snapshot = self.snapshot(&completed);
         let jump_started = snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits() != 0
             || completed.jump_repeated;
@@ -358,6 +354,7 @@ impl MovementTicker {
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
+        self.tx_gate.disengage();
     }
 
     fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
@@ -399,6 +396,13 @@ impl MovementTicker {
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
         self.outbox.pop_front()
+    }
+
+    /// Discards up to `budget` queued completed samples while the provisional
+    /// spawn-settle window withholds the transport hand-off.
+    fn withhold_settled_outbox(&mut self, budget: usize) {
+        let remaining = budget.min(self.outbox.len());
+        self.outbox.drain(..remaining);
     }
 
     fn sent_confirmation(&self, tick: u64) -> Option<PhysicsCorrectionConfirmation> {
@@ -561,6 +565,8 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
+        // A resolved surface spawn anchors a fresh provisional settle window.
+        self.tx_gate.engage();
         self.refresh_outbox_reconciliation();
     }
 
@@ -665,6 +671,14 @@ impl MovementTicker {
         self.outbox.iter().cloned().collect()
     }
 
+    /// Lifts the provisional spawn-settle window for transport-focused test
+    /// fixtures whose byte-level send assertions are orthogonal to settling;
+    /// dedicated gate coverage lives in `settle_tests`.
+    #[cfg(test)]
+    pub(crate) fn testing_lift_spawn_settle_gate(&mut self) {
+        self.tx_gate.disengage();
+    }
+
     #[must_use]
     pub fn pending_count(&self) -> usize {
         self.outbox.len().saturating_add(self.pending_sends.len())
@@ -753,6 +767,9 @@ impl MovementTicker {
                 self.previous_input = HeldInput::default();
                 self.outbox.clear();
                 self.sent_history.clear();
+                // A teleport-style snap anchors a fresh provisional settle
+                // window; a correction replay deliberately does not.
+                self.tx_gate.engage();
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -923,56 +940,6 @@ pub fn reconcile_candidate_physics_correction(
     }
 }
 
-pub(crate) fn flush_player_auth_inputs<E>(
-    ticker: &mut MovementTicker,
-    budget: usize,
-    evidence_context: Option<PhysicsTickEvidenceContext>,
-    mut send: impl FnMut(PhysicsSendIdentity, Packet) -> Result<(), E>,
-) -> Result<usize, MovementSendError<E>> {
-    if !ticker.physics_is_authorized() {
-        ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
-        return Ok(0);
-    }
-    if ticker.terminal_drain || ticker.has_unresolved_position_authority_change() {
-        ticker.refresh_outbox_reconciliation();
-        return Ok(0);
-    }
-    if !ticker.outbox.is_empty() && evidence_context.is_none() {
-        return Err(MovementSendError::MissingEvidenceContext);
-    }
-
-    let mut sent = 0;
-    for _ in 0..budget {
-        if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
-            ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
-            break;
-        }
-        let Some(sample) = ticker.pop_pending() else {
-            break;
-        };
-        let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
-        let identity = ticker.next_send_identity(&sample);
-        ticker.note_command_admitted(
-            identity,
-            sample,
-            evidence_context.expect("nonempty outbox requires staged evidence context"),
-        );
-        if let Err(error) = send(identity, packet) {
-            let sample = ticker
-                .restore_admitted(identity)
-                .map_err(|_| MovementSendError::RestoreOverflow)?;
-            ticker
-                .retry_front(sample)
-                .map_err(|_| MovementSendError::RestoreOverflow)?;
-            ticker.outbox_reconciliation = MovementOutboxReconciliation::TransportRestored;
-            return Err(MovementSendError::Transport(error));
-        }
-        sent += 1;
-    }
-    ticker.refresh_outbox_reconciliation();
-    Ok(sent)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -982,3 +949,5 @@ mod correction_tests;
 mod effects_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod settle_tests;

@@ -90,6 +90,9 @@ fn completed_physics_ticks_are_the_only_outbound_enqueue_path() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for tick in 1_001..=1_020 {
         ticker
             .enqueue_completed_physics(completed_sample(tick, [1.0, 64.0, 2.0]))
@@ -216,6 +219,9 @@ fn free_camera_authority_rejects_retry_enqueue() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(1_001, [2.0, 64.0, 3.0]))
         .unwrap();
@@ -482,7 +488,7 @@ impl CollisionWorld for Floor {
     }
 }
 
-struct VersionedFloor(u8);
+pub(super) struct VersionedFloor(pub(super) u8);
 
 impl CollisionWorld for VersionedFloor {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {

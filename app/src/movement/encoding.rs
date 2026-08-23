@@ -1,6 +1,24 @@
 use protocol::PlayerInputFlags;
 
-use super::{HeldInput, PhysicsMovementSample};
+use super::PhysicsMovementSample;
+
+/// Held jump/sneak/sprint state used to derive edge flags between ticks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct HeldInput {
+    jumping: bool,
+    sneaking: bool,
+    sprinting: bool,
+}
+
+impl From<&PhysicsMovementSample> for HeldInput {
+    fn from(sample: &PhysicsMovementSample) -> Self {
+        Self {
+            jumping: sample.jumping,
+            sneaking: sample.sneaking,
+            sprinting: sample.sprinting,
+        }
+    }
+}
 
 pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     let mut flags = PlayerInputFlags::NONE;

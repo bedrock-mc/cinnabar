@@ -38,6 +38,9 @@ fn ticker_with_samples(
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Correction suites assert byte-level transport behavior that is
+    // orthogonal to the provisional spawn-settle window.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -440,6 +443,7 @@ fn sent_confirmation_history_is_bounded_and_cleared_by_authority_boundaries() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    ticker.testing_lift_spawn_settle_gate();
     for _ in 0..=super::OUTBOX_CAPACITY {
         let sample = physics
             .advance(Duration::from_millis(50), Default::default(), &world)
@@ -474,6 +478,9 @@ fn sent_confirmation_history_is_bounded_and_cleared_by_authority_boundaries() {
     );
     assert!(ticker.sent_history.is_empty());
 
+    // The replacement StartGame anchors a fresh settle episode; lift it so
+    // the bounded-history accounting below keeps its original meaning.
+    ticker.testing_lift_spawn_settle_gate();
     ticker.set_source(MovementSource::Physics);
     let sample = physics
         .advance(Duration::from_millis(50), Default::default(), &world)

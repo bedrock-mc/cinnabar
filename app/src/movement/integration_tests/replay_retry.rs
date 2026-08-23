@@ -14,6 +14,9 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -111,6 +114,9 @@ fn retained_correction_cancels_admitted_future_ticks_and_requeues_replayed_posit
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -327,6 +333,9 @@ fn newest_retained_tick_correction_invalidates_its_admitted_packet_without_repla
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(frame.samples[0].clone())
         .unwrap();
@@ -385,6 +394,9 @@ fn invalidated_retries_resolve_before_a_newer_queued_tick_can_reach_the_wire() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -481,6 +493,9 @@ fn newer_correction_drops_a_retry_that_is_now_the_corrected_tick() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -559,6 +574,9 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
     let mut ticker = network.movement_ticker();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -657,6 +675,9 @@ fn snap_fallback_invalidates_transport_owned_commands() {
     let mut ticker = network.movement_ticker();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(frame.samples[0].clone())
         .unwrap();
