@@ -15,6 +15,7 @@ mod physics;
 mod runtime_system;
 mod settle;
 mod speed_authority;
+mod state;
 mod trace;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
 pub(crate) use correction_shape::reconcile_committed_correction;
@@ -34,6 +35,7 @@ pub use physics::{
 pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
+pub use state::ProcessedMovementState;
 use tokio::sync::watch;
 pub(crate) use trace::{pending_trace_line, write_trace_line};
 
@@ -864,6 +866,13 @@ impl MovementTicker {
                         .with_mask(
                             PlayerInputFlags::VERTICAL_COLLISION,
                             replayed.vertical_collision,
+                        )
+                        // The processed jump arc is simulated state: a correction
+                        // rebuilds it on the wire like the collision hints, so an
+                        // early server-reported landing cannot carry a phantom arc.
+                        .with_mask(
+                            PlayerInputFlags::JUMPING,
+                            replayed.processed.jump_arc_active,
                         );
                     pending.evidence.network_position = replayed.position;
                     Ok(Some(()))
@@ -986,3 +995,5 @@ mod effects_tests;
 mod integration_tests;
 #[cfg(test)]
 mod settle_tests;
+#[cfg(test)]
+mod state_tests;

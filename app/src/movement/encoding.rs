@@ -2,7 +2,12 @@ use protocol::PlayerInputFlags;
 
 use super::PhysicsMovementSample;
 
-/// Held jump/sneak/sprint state used to derive edge flags between ticks.
+/// Raw jump button state used to derive raw-carrier edges between ticks.
+///
+/// Only the physical-button families (`JumpDown`, the raw pressed/released/
+/// current carriers, and the press announcement) read this tracker. Processed
+/// families derive from each sample's [`ProcessedMovementState`] instead, so a
+/// button release cannot end a simulated state that is still in progress.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
     jumping: bool,
@@ -55,18 +60,27 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::VERTICAL_COLLISION;
     }
 
+    // Raw jump-button carriers track the physical button exactly.
     if sample.jumping {
-        flags |= PlayerInputFlags::JUMP_DOWN
-            | PlayerInputFlags::JUMPING
-            | PlayerInputFlags::JUMP_CURRENT_RAW;
+        flags |= PlayerInputFlags::JUMP_DOWN | PlayerInputFlags::JUMP_CURRENT_RAW;
         if !previous.jumping {
             flags |= PlayerInputFlags::START_JUMPING | PlayerInputFlags::JUMP_PRESSED_RAW;
         }
     } else if previous.jumping {
         flags |= PlayerInputFlags::JUMP_RELEASED_RAW;
     }
+    // Processed `Jumping` describes the simulated jump arc (VPA-011), not the
+    // held button: it opens on a ground takeoff, rides the airborne window,
+    // and closes when the simulator reports ground contact again. The exact
+    // vanilla assertion rule is still an open native measurement; this
+    // provisional contract is pinned witness-for-witness in `state_tests`.
+    if sample.processed.jump_arc_active {
+        flags |= PlayerInputFlags::JUMPING;
+    }
 
-    if sample.sneaking {
+    // No shared pose/mode authority exists yet (VPA-012), so processed sneak
+    // equals held sneak and these bytes are unchanged.
+    if sample.processed.sneaking {
         flags |= PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN;
         if !previous.sneaking {
             flags |= PlayerInputFlags::START_SNEAKING | PlayerInputFlags::SNEAK_PRESSED_RAW;
@@ -75,7 +89,7 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::STOP_SNEAKING | PlayerInputFlags::SNEAK_RELEASED_RAW;
     }
 
-    if sample.sprinting {
+    if sample.processed.sprinting {
         flags |= PlayerInputFlags::SPRINT_DOWN | PlayerInputFlags::SPRINTING;
         if !previous.sprinting {
             flags |= PlayerInputFlags::START_SPRINTING;

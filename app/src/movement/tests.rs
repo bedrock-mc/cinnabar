@@ -26,6 +26,7 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
             horizontal_collision: false,
             vertical_collision: false,
             jump_repeated: false,
+            processed: ProcessedMovementState::default(),
             world_identity: WorldCollisionIdentity::new(
                 sim::CollisionRegistryIdentity {
                     protocol: 1001,

@@ -242,6 +242,11 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     pressed.move_vector = [-1.0, 1.0];
     pressed.jumping = true;
     pressed.sprinting = true;
+    // A real takeoff fixture: the simulator consumed a grounded jump request
+    // and narrowed the held sprint, so the processed states ride along.
+    pressed.processed.jump_initiated = true;
+    pressed.processed.jump_arc_active = true;
+    pressed.processed.sprinting = true;
     pressed.horizontal_collision = true;
     pressed.vertical_collision = true;
 
