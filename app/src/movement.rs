@@ -60,9 +60,10 @@ pub(crate) enum MovementOutboxReconciliation {
     FullRestored,
     /// The outbound stream was healthy when the REMOTE side terminated the
     /// transport mid-session. This is a terminal classification only: it is
-    /// latched from a receive-side session failure and survives teardown so
-    /// terminal evidence can distinguish a remote-initiated close from a
-    /// client-authority fault.
+    /// latched from any receive-side session failure, including server-initiated
+    /// kicks, so it means "not an outbox-drain fault", never client exoneration;
+    /// the normalized disconnect reason remains the authority for why the
+    /// server hung up.
     RemoteClosed,
 }
 
