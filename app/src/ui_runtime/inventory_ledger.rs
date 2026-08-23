@@ -54,6 +54,9 @@ struct StorageWindow {
     revisions: Vec<u64>,
     overlays: Vec<Option<StackResponseOverlay>>,
     resync_required: bool,
+    /// Set by a local close while one admitted prediction still awaits its
+    /// response, retaining the generation and journal it reconciles against.
+    closing: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -603,6 +606,7 @@ impl PlayerInventoryLedger {
 
     fn rollback_pending(&mut self) {
         self.pending = None;
+        self.finish_closing();
     }
 
     fn require_authoritative_recovery(&mut self) {
@@ -610,6 +614,7 @@ impl PlayerInventoryLedger {
             self.mark_cell_recovery(pending.prediction.source);
             self.mark_cell_recovery(pending.prediction.destination);
         }
+        self.finish_closing();
     }
 
     fn predicted_cell(&self, cell: Cell) -> Option<Option<&NetworkItemStack>> {
@@ -739,6 +744,7 @@ impl PlayerInventoryLedger {
             revisions: Vec::new(),
             overlays: Vec::new(),
             resync_required: false,
+            closing: false,
         });
     }
 
@@ -809,9 +815,48 @@ impl PlayerInventoryLedger {
     }
 
     pub fn request_storage_close(&mut self) {
-        if let Some(storage) = self.storage.as_ref() {
-            self.queue_close(storage.window_id, GENERIC_STORAGE_WINDOW_TYPE);
+        let Some(storage) = self.storage.as_ref() else {
+            return;
+        };
+        if storage.closing {
+            // A prior local close is already waiting out its in-flight
+            // prediction; further close gestures stay blocked until
+            // authority settles the retained window.
+            return;
+        }
+        let (window_id, generation) = (storage.window_id, storage.generation);
+        self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE);
+        let awaiting_response = self.pending.as_ref().is_some_and(|pending| {
+            pending.state == InventoryPendingState::AwaitingResponse
+                && pending.storage_generation == Some(generation)
+        });
+        if awaiting_response {
+            // Retain the window so the outstanding response still
+            // reconciles against its exact generation and identity.
+            self.storage
+                .as_mut()
+                .expect("storage observed above")
+                .closing = true;
+        } else {
             self.close_storage(true);
+        }
+    }
+
+    /// Settles a locally requested close whose retained prediction is gone.
+    ///
+    /// The closing window survives exactly until that prediction resolves,
+    /// an authoritative close lands, or an existing timeout or recovery path
+    /// consumes it, so it can never outlive the ledger's timeout authority.
+    /// Settlement drops the generation and journal exactly like an immediate
+    /// close, including held-cursor restatement.
+    fn finish_closing(&mut self) {
+        if !self.storage.as_ref().is_some_and(|storage| storage.closing) || self.pending.is_some() {
+            return;
+        }
+        self.storage = None;
+        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
+            self.player_resync_required = true;
+            self.cursor_resync_required = true;
         }
     }
 
@@ -865,9 +910,11 @@ impl PlayerInventoryLedger {
             return;
         }
         let Some(pending) = self.pending.take() else {
+            self.finish_closing();
             return;
         };
         if pending.state != InventoryPendingState::AwaitingResponse {
+            self.finish_closing();
             return;
         }
         for cell in [pending.prediction.source, pending.prediction.destination] {
@@ -875,6 +922,7 @@ impl PlayerInventoryLedger {
                 self.mark_cell_recovery(cell);
             }
         }
+        self.finish_closing();
     }
 
     fn mark_cell_recovery(&mut self, cell: Cell) {

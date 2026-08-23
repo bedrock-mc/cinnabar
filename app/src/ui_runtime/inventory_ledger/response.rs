@@ -58,6 +58,13 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
+        self.reconcile_response(event);
+        // Whatever the outcome, the consuming path may have settled the last
+        // retained prediction of a locally closing window.
+        self.finish_closing();
+    }
+
+    fn reconcile_response(&mut self, event: &ItemStackResponseEvent) {
         let Some(request_id) = self.pending_request_id() else {
             return;
         };
