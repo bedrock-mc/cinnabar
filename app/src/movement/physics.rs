@@ -710,8 +710,9 @@ impl LocalPhysicsController {
         );
         // CorrectPlayerMovePrediction replaces the retained position at one
         // tick, then requires movement after that tick to be replayed from the
-        // corrected anchor. It does not supply a replacement velocity. Keep
-        // the retained dynamic state so a confirmation or small correction
+        // corrected anchor. Its wire `pos_delta` record is retained upstream
+        // but deliberately not trusted as a replacement velocity: replay keeps
+        // the simulated dynamic state so a confirmation or small correction
         // cannot restart acceleration from rest.
         corrected.position = feet;
         corrected.on_ground = on_ground;

@@ -16,9 +16,10 @@ use protocol::{
     ActorSpawnEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockCrackAction,
     BlockCrackEvent, BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent,
     ChunkResyncEvent, DaylightCycleUpdateEvent, HudEvent, LevelChunkEvent, LevelChunkMode,
-    MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
-    SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable, UiEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,

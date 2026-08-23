@@ -1125,6 +1125,7 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
         delta: [0.25, -0.5, 0.75],
         pitch: -12.0,
         yaw: 143.0,
+        subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 4_096,
     };

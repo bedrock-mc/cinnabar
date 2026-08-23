@@ -5,7 +5,6 @@ use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::LevelChunkPacketView;
 use valentine::bedrock::version::v1_26_44::{
     EnumsPlayerRespawnState as RespawnPacketState,
-    EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
 };
@@ -41,10 +40,11 @@ pub use self::events::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
     DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, MovePlayerMode,
-    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
-    WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
+    MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
+    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
+    vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -730,20 +730,31 @@ pub fn into_world_event(
             })
         }
         McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {
-            if packet.prediction_type != CorrectPlayerMovePredictionPacketPredictionType::Player {
+            let delta = [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z];
+            // A well-formed correction whose velocity record or rotation is not
+            // finite cannot enter prediction or camera state; skip the whole
+            // packet instead of guessing a clamp, exactly like SetActorMotion.
+            // The raw position is exempt: non-finite positions keep flowing so
+            // downstream resolution applies its documented sentinel recovery.
+            // Protocol 2168 carries no shape/mode field; prediction_type names
+            // the rewind subject and every subject is retained here.
+            if delta.iter().any(|value| !value.is_finite())
+                || !packet.rotation.x.is_finite()
+                || !packet.rotation.y.is_finite()
+            {
                 return Ok(None);
             }
-            let tick = packet.tick.inputtick;
             WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
                 position: [packet.pos.x, packet.pos.y, packet.pos.z],
-                delta: [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z],
+                delta,
                 // Vec2's components are (x, y) in 1.26.40; gophertunnel
                 // packet/correct_player_move_prediction.go writes Rotation as
                 // one Vec2 of (pitch, yaw).
                 pitch: packet.rotation.x,
                 yaw: packet.rotation.y,
+                subject: MovementCorrectionSubject::from(packet.prediction_type),
                 on_ground: packet.on_ground,
-                tick,
+                tick: packet.tick.inputtick,
             })
         }
         McpePacketData::SetTimePacket(packet) => {

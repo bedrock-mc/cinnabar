@@ -6,6 +6,7 @@ use protocol::PlayerInputMode;
 use protocol::{PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags};
 
 mod authority;
+mod correction_shape;
 mod effects;
 mod encoding;
 mod evidence;
@@ -16,6 +17,8 @@ mod settle;
 mod speed_authority;
 mod trace;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
+pub(crate) use correction_shape::reconcile_committed_correction;
+pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
 pub(crate) use effects::LocalMovementEffectTimeline;
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;

@@ -82,6 +82,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
         delta: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
+        subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick,
     };
@@ -106,6 +107,65 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
             },
         }]
     );
+}
+
+#[test]
+fn vehicle_correction_subject_commits_nothing_and_cannot_advance_the_tick_guard() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let correction = |subject, tick| PlayerMovementCorrectionEvent {
+        position: [50.0, 80.0, -50.0],
+        delta: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        subject,
+        on_ground: true,
+        tick,
+    };
+
+    // A vehicle rewind has no local-player consumer yet: it must not resolve a
+    // server position, commit a control, or advance the monotonic guard that
+    // would silence a later ordinary player correction.
+    stream
+        .submit(
+            1,
+            WorldEvent::PlayerMovementCorrection(correction(
+                MovementCorrectionSubject::Vehicle,
+                200,
+            )),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::PlayerMovementCorrection(correction(
+                MovementCorrectionSubject::Player,
+                100,
+            )),
+        )
+        .unwrap();
+
+    let controls = stream.take_committed_controls();
+    let [
+        super::CommittedControlEvent::PlayerMovementCorrection {
+            sequence,
+            correction,
+            ..
+        },
+    ] = controls.as_slice()
+    else {
+        panic!("unexpected committed controls {controls:?}");
+    };
+    assert_eq!(*sequence, 2);
+    assert_eq!(correction.tick, 100);
+    assert_eq!(correction.subject, MovementCorrectionSubject::Player);
 }
 
 #[test]

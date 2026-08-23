@@ -2,19 +2,18 @@ use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent,
-    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
+    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_44::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
-    ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
-    DimensionType, EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode,
+    ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, DimensionType,
+    EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode,
     EnumsPlayerRespawnState as RespawnPacketState,
-    EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData,
     LevelChunkPacket, LevelEventPacket, McpePacketData, MovePlayerPacket, MovePlayerPacketView,
@@ -491,58 +490,6 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
         };
         assert_eq!(event.mode, expected);
     }
-}
-
-#[test]
-fn normalizes_server_authoritative_movement_correction_to_the_local_player_surface() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        pos: Vec3 {
-            x: 27.5,
-            y: 111.0,
-            z: 91.5,
-        },
-        pos_delta: Vec3 {
-            x: 0.25,
-            y: -1.5,
-            z: 2.75,
-        },
-        rotation: Vec2 {
-            x: -12.25,
-            y: 143.5,
-        },
-        on_ground: true,
-        tick: PlayerInputTick { inputtick: 4_096 },
-        ..Default::default()
-    };
-
-    assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
-        Some(WorldEvent::PlayerMovementCorrection(
-            PlayerMovementCorrectionEvent {
-                position: [27.5, 111.0, 91.5],
-                delta: [0.25, -1.5, 2.75],
-                pitch: -12.25,
-                yaw: 143.5,
-                on_ground: true,
-                tick: 4_096,
-            }
-        ))
-    );
-}
-
-#[test]
-fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        prediction_type: CorrectPlayerMovePredictionPacketPredictionType::Vehicle,
-        pos: Vec3 {
-            x: 300.0,
-            y: 90.0,
-            z: -200.0,
-        },
-        ..Default::default()
-    };
-
-    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
 }
 
 #[test]

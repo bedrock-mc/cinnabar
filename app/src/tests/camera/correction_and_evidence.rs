@@ -51,12 +51,13 @@ fn correction_session_and_dimension_resets_invalidate_the_frozen_frame_generatio
 }
 
 #[test]
-fn committed_movement_correction_updates_position_without_overwriting_local_view_rotation() {
+fn committed_movement_correction_applies_server_rotation_to_the_view_pose() {
     let correction = PlayerMovementCorrectionEvent {
         position: [27.5, 111.0, 91.5],
         delta: [0.25, -0.5, 0.75],
         pitch: -15.0,
         yaw: 90.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
     };
@@ -80,8 +81,46 @@ fn committed_movement_correction_updates_position_without_overwriting_local_view
     );
 
     assert_eq!(view.eye_translation(), Vec3::new(27.5, 111.0, 91.5));
-    assert!(view.rotation().abs_diff_eq(local_rotation, 0.0001));
+    // The wire's rotation is authoritative for every admitted correction
+    // shape; the view pose must consume it instead of only position/ground.
+    assert!(
+        view.rotation()
+            .abs_diff_eq(bedrock_camera_rotation(90.0, -15.0), 0.0001)
+    );
     assert_eq!(pending_surface_spawn, None);
+}
+
+#[test]
+fn committed_correction_ignores_non_finite_rotation_defensively() {
+    let correction = PlayerMovementCorrectionEvent {
+        position: [1.0, 2.0, 3.0],
+        delta: [0.0; 3],
+        pitch: f32::NAN,
+        yaw: 45.0,
+        subject: protocol::MovementCorrectionSubject::Player,
+        on_ground: true,
+        tick: 9,
+    };
+    let local_rotation = Quat::from_euler(bevy::math::EulerRot::YXZ, 0.35, -0.2, 0.0);
+    let mut view = LocalViewPose::new(Vec3::ZERO, local_rotation);
+    let mut settings = CameraSettingsAuthority::default();
+    let mut pending_surface_spawn = None;
+
+    apply_committed_control(
+        CommittedControlEvent::PlayerMovementCorrection {
+            sequence: 8,
+            correction,
+            resolved: client_world::ResolvedServerPosition {
+                position: correction.position,
+                surface_anchor: None,
+            },
+        },
+        &mut view,
+        &mut settings,
+        &mut pending_surface_spawn,
+    );
+
+    assert!(view.rotation().abs_diff_eq(local_rotation, 0.0001));
 }
 
 #[test]
@@ -91,6 +130,7 @@ fn committed_correction_offsets_only_the_third_person_view() {
         delta: [0.0; 3],
         pitch: 10.0,
         yaw: 135.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 91,
     };
