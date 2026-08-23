@@ -99,6 +99,9 @@ fn replay_with_admitted_future_ticks(
     );
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Retry/cancellation suites assert byte-level transport behavior that is
+    // orthogonal to the provisional spawn-settle window.
+    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
