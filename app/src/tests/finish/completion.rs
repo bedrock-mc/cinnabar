@@ -117,6 +117,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
         delta: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 55,
     };
@@ -223,6 +224,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
         delta: [0.0; 3],
         pitch: movement.pitch,
         yaw: movement.yaw,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 1,
     };

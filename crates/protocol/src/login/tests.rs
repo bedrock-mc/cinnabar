@@ -1137,7 +1137,6 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
     batch.advance(1);
     let raw = decode_packet_raw(&mut batch).expect("raw movement correction");
     let decoder_called = Cell::new(false);
-
     let event = decode_world_raw_with(raw, 0, |raw| {
         decoder_called.set(true);
         raw.decode(&session)
@@ -1153,6 +1152,7 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
             delta: [0.5, -0.25, 1.0],
             pitch: -15.0,
             yaw: 90.25,
+            subject: crate::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 55,
         })

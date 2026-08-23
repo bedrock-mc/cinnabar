@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use super::integration_tests::{VersionedWall, evidence_context, forward_physics_input};
 use super::{
-    LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
+    CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape, LocalPhysicsController,
+    MovementSource, MovementTicker, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
     PhysicsSampleContext, flush_player_auth_inputs, reconcile_candidate_physics_correction,
+    reconcile_committed_correction,
 };
 use sim::{Aabb, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError};
 use world::{ChunkCollisionRevision, ChunkKey};
@@ -501,5 +503,220 @@ fn sent_confirmation_history_is_bounded_and_cleared_by_authority_boundaries() {
         ticker.next_tick(),
         next_tick,
         "surface-spawn reanchor invalidation must not alter scheduling"
+    );
+}
+
+/// Protocol 2168 carries no correction shape field, so the client derives one.
+/// An exactly matching server position with an agreeing ground flag confirms
+/// the prediction; anything else within the displacement bound replays, and a
+/// larger displacement snaps through the teleport anchor path.
+#[test]
+fn correction_shapes_classify_from_exact_agreement_then_displacement() {
+    let world = VersionedWall(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.advance_with_context(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let network_position = physics.network_position().unwrap();
+    let on_ground = physics.state().unwrap().on_ground;
+
+    assert_eq!(
+        physics.correction_shape(network_position, on_ground),
+        CorrectionShape::Confirmed,
+        "the server echoing the exact predicted position confirms it"
+    );
+    // A ground-flag disagreement is real information: it must replay instead
+    // of being silently absorbed by the confirming path.
+    assert_eq!(
+        physics.correction_shape(network_position, !on_ground),
+        CorrectionShape::Replay
+    );
+    let mut nearby = network_position;
+    nearby[0] += 0.001;
+    assert_eq!(
+        physics.correction_shape(nearby, on_ground),
+        CorrectionShape::Replay
+    );
+    let mut distant = network_position;
+    distant[2] += CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS + 1.0;
+    assert_eq!(
+        physics.correction_shape(distant, on_ground),
+        CorrectionShape::TeleportSnap
+    );
+    // Non-finite anchors cannot be reconciled spatially and fail toward the
+    // bounded teleport path, whose hard reanchor rejects them closed.
+    assert_eq!(
+        physics.correction_shape([f32::NAN; 3], on_ground),
+        CorrectionShape::TeleportSnap
+    );
+}
+
+#[test]
+fn a_rotation_only_correction_leaves_prediction_history_and_outbox_untouched() {
+    let world = VersionedWall(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.queue_server_motion([0.75, 4.5, -0.25]);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+
+    let state_before = physics.state().unwrap().clone();
+    let history_before = physics.history_len();
+    let network_position = physics.network_position().unwrap();
+    let on_ground = state_before.on_ground;
+    let mut ticker = ticker_with_samples(frame.samples.clone());
+    let next_tick_before = ticker.next_tick();
+
+    let reconciled = reconcile_committed_correction(
+        &mut ticker,
+        &mut physics,
+        network_position,
+        state_before.tick,
+        on_ground,
+        &world,
+    )
+    .expect("a confirming correction cannot fault");
+
+    assert_eq!(reconciled, None, "nothing spatial was applied");
+    assert_eq!(physics.state().unwrap(), &state_before);
+    assert_eq!(physics.history_len(), history_before);
+    assert_eq!(ticker.next_tick(), next_tick_before);
+    assert_eq!(
+        ticker.pending_count(),
+        frame.samples.len(),
+        "the outbound stream stays contiguous"
+    );
+}
+
+#[test]
+fn knockback_overlays_evolve_identically_through_a_confirming_correction() {
+    let build_twin = |world: &VersionedWall| {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+        physics.advance_with_context(
+            Duration::from_millis(100),
+            forward_physics_input(),
+            PhysicsSampleContext::default(),
+            world,
+        );
+        // Pending for the next tick: a newer impulse supersedes nothing here.
+        physics.queue_server_motion([0.5, 6.0, 0.125]);
+        physics
+    };
+    let world = VersionedWall(1);
+    let mut corrected = build_twin(&world);
+    let mut untouched = build_twin(&world);
+    let network_position = corrected.network_position().unwrap();
+    let tick = corrected.state().unwrap().tick;
+    let on_ground = corrected.state().unwrap().on_ground;
+
+    let reconciled = reconcile_committed_correction(
+        &mut ticker_with_samples([]),
+        &mut corrected,
+        network_position,
+        tick,
+        on_ground,
+        &world,
+    )
+    .expect("a confirming correction cannot fault");
+    assert_eq!(reconciled, None);
+
+    let corrected_frame = corrected.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let untouched_frame = untouched.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+
+    assert_eq!(corrected.state(), untouched.state());
+    assert_eq!(
+        corrected_frame.samples.last().map(|sample| sample.velocity),
+        untouched_frame.samples.last().map(|sample| sample.velocity),
+        "the queued impulse must drive the next tick exactly as without the correction"
+    );
+}
+
+#[test]
+fn nearby_corrections_replay_and_distant_ones_snap_like_the_teleport_anchor_path() {
+    let world = VersionedWall(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let retained_tick = frame.samples.last().unwrap().tick;
+    let mut ticker = ticker_with_samples(frame.samples.iter().cloned());
+
+    // The retained-tick small/full path keeps its established semantics:
+    // replace position+ground, retain velocity/movement/jump, replay later
+    // inputs.
+    let mut nearby = physics.network_position().unwrap();
+    nearby[0] += 0.001;
+    assert_eq!(
+        physics.correction_shape(nearby, true),
+        CorrectionShape::Replay
+    );
+    let replay_outcome = reconcile_committed_correction(
+        &mut ticker,
+        &mut physics,
+        nearby,
+        retained_tick,
+        true,
+        &world,
+    )
+    .unwrap()
+    .expect("nearby corrections apply");
+    assert!(matches!(
+        replay_outcome,
+        PhysicsCorrectionOutcome::Replayed { .. }
+    ));
+
+    // Beyond the displacement bound there is no retained input script that can
+    // reproduce the server position, so the existing teleport anchor semantics
+    // apply: snap, clear bounded outbound state, engage the settle window.
+    let mut distant = physics.network_position().unwrap();
+    distant[2] += CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS + 1.0;
+    assert_eq!(
+        physics.correction_shape(distant, false),
+        CorrectionShape::TeleportSnap
+    );
+    let snap_outcome = reconcile_committed_correction(
+        &mut ticker,
+        &mut physics,
+        distant,
+        retained_tick,
+        false,
+        &world,
+    )
+    .unwrap()
+    .expect("teleport-shaped corrections apply");
+    assert_eq!(
+        snap_outcome,
+        PhysicsCorrectionOutcome::Snapped {
+            tick: retained_tick
+        }
+    );
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "the snap clears bounded outbound prediction state"
     );
 }

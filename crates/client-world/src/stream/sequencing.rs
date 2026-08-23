@@ -657,6 +657,13 @@ impl WorldStream {
                 });
             }
             WorldEvent::PlayerMovementCorrection(correction) => {
+                // Vehicle rewind subjects have no local-player consumer yet;
+                // skipping here keeps them out of resolution, retention, and
+                // the correction-tick guard until riding rewind handling
+                // exists. The protocol record itself is retained upstream.
+                if !correction.subject.is_player() {
+                    return;
+                }
                 let sequence =
                     sequence.expect("sequenced movement corrections commit through submit");
                 if self

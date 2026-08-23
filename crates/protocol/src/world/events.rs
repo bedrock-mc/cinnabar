@@ -273,16 +273,53 @@ pub struct ActorMotionEvent {
     pub tick: u64,
 }
 
+/// The rewind-subject discriminant carried by `CorrectPlayerMovePrediction`.
+///
+/// Protocol 2168 has no correction-shape mode field (no Normal/Teleport/Rotation
+/// discriminant like [`MovePlayerMode`]). This enum is the packet's only
+/// discriminant and names which predicted body the server is rewinding, not how
+/// the correction must be applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementCorrectionSubject {
+    Player,
+    Vehicle,
+    Unknown(u8),
+}
+
+impl MovementCorrectionSubject {
+    #[must_use]
+    pub const fn is_player(self) -> bool {
+        matches!(self, Self::Player)
+    }
+}
+
+impl From<valentine::bedrock::version::v1_26_44::EnumsRewindType> for MovementCorrectionSubject {
+    fn from(subject: valentine::bedrock::version::v1_26_44::EnumsRewindType) -> Self {
+        match subject {
+            valentine::bedrock::version::v1_26_44::EnumsRewindType::Player => Self::Player,
+            valentine::bedrock::version::v1_26_44::EnumsRewindType::Vehicle => Self::Vehicle,
+            valentine::bedrock::version::v1_26_44::EnumsRewindType::Unknown(value) => {
+                Self::Unknown(value)
+            }
+        }
+    }
+}
+
 /// One server-authoritative correction for the local player's predicted movement.
 ///
 /// Unlike [`MovePlayerEvent`], this packet carries no runtime ID: Bedrock sends it
-/// directly to the player whose prediction is being corrected.
+/// directly to the player whose prediction is being corrected. The wire rotation
+/// is a pitch/yaw pair only; the packet carries no head-yaw field. `position`
+/// keeps its raw value including non-finite sentinels because downstream
+/// resolution owns that documented recovery policy, while `delta` and the
+/// rotation are validated finite before this event exists.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerMovementCorrectionEvent {
     pub position: [f32; 3],
     pub delta: [f32; 3],
     pub pitch: f32,
     pub yaw: f32,
+    pub subject: MovementCorrectionSubject,
     pub on_ground: bool,
     pub tick: u64,
 }

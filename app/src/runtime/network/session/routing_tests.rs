@@ -144,6 +144,7 @@ fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
         delta: [0.0; 3],
         pitch: -15.0,
         yaw: 90.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
     });

@@ -154,6 +154,7 @@ fn movement_correction_never_arms_full_view_teleport_tracking() {
         delta: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
     };

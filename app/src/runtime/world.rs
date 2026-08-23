@@ -54,7 +54,7 @@ use crate::{
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
-        reconcile_candidate_physics_correction,
+        reconcile_candidate_physics_correction, reconcile_committed_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -425,19 +425,22 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    match reconcile_candidate_physics_correction(
+                    // Shape classification (confirming / replay / teleport)
+                    // lives with the movement authority; a confirming
+                    // correction deliberately mutates no prediction state.
+                    match reconcile_committed_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
-                        PhysicsCorrectionMode::ReplayIfRetained,
                         &world,
                     ) {
-                        Ok(outcome) => phase3_evidence.note_correction(
+                        Ok(Some(outcome)) => phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
                         ),
+                        Ok(None) => {}
                         Err(fault) => warn!(
                             ?fault,
                             correction_tick = correction.tick,
