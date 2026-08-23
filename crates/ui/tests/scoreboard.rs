@@ -184,8 +184,9 @@ fn criteria_render_types_classify_into_explicit_presentation_intents() {
         ScoreRenderType::Integer
     );
 
-    // The classification rides the objective record, so scores applied under a
-    // hearts objective keep presenting through that objective's own intent.
+    // The classification rides the objective record, so applying scores under
+    // the now-Integer objective does not mutate its stored render type, and
+    // re-displaying with hearts criteria restores Hearts for later scores.
     store
         .apply(
             4,
@@ -202,6 +203,22 @@ fn criteria_render_types_classify_into_explicit_presentation_intents() {
     assert_eq!(
         store.sidebar().unwrap().render_type,
         ScoreRenderType::Integer
+    );
+
+    store
+        .apply(5, display_with_criteria("sidebar", "hp", "hearts", 0))
+        .unwrap();
+    store
+        .apply(
+            6,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([score("hp", 1, 7, ScoreOwner::FakePlayer(Arc::from("Alex")))]),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
     );
 }
 
