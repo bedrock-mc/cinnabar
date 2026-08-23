@@ -30,7 +30,9 @@ pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
 /// sidebar's single-row capacity, pending a version-matched native witness
 /// for hearts-style criteria. Overflowing scores present only this bound.
 pub(super) const MAX_PRESENTED_SCOREBOARD_HEARTS: u8 = 10;
-/// Vanilla hearts advance eight GUI pixels per heart with one-pixel overlap.
+/// Provisional hearts-row spacing: eight GUI pixels per heart with one-pixel
+/// overlap, pending independent version-matched native measurement like the
+/// row cap above.
 const SCOREBOARD_HEART_ADVANCE: f32 = 8.0;
 const NAMEPLATE_LINE_HEIGHT: f32 = 9.0;
 const NAMEPLATE_VERTICAL_GAP: f32 = 1.0;
@@ -400,6 +402,9 @@ fn prepare_score_cell(
             full_hearts,
             half_heart,
         } => {
+            // Without the required HUD carrier a hearts cell degrades honestly
+            // to an empty zero-width row (no fabricated sprites); production
+            // startup fails closed before this path can render.
             let Some(textures) = hud_textures else {
                 return Ok(PreparedScoreCell::Hearts {
                     texture_page: 0,
