@@ -1,11 +1,89 @@
 [CmdletBinding()]
 param(
     [switch]$AcceptEula,
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    # VPA-209 additive test overrides. They may only TIGHTEN a bound (a
+    # nonzero value greater than the built-in constant is refused), so they
+    # can never relax production safety; production callers omit them.
+    [long]$MaxArchiveEntriesOverride = 0,
+    [long]$MaxExpandedFileBytesOverride = 0,
+    [long]$MaxTotalExpandedBytesOverride = 0,
+    [double]$MaxPerEntryCompressionRatioOverride = 0,
+    [double]$MaxAggregateCompressionRatioOverride = 0
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ---------------------------------------------------------------------------
+# VPA-209 provisional extraction bounds.
+#
+# PROVISIONAL-UNLESS-MEASURED: these constants carry explicit headroom over
+# the pinned pack inventory measured locally from the exact pinned
+# bedrock-samples v1.26.30.32-preview-full artifact (payload stays outside
+# git): 21,493 entries (620 directory + 20,873 file), 297,074,336 bytes
+# total expanded, largest single file 3,460,610 bytes, largest legitimate
+# per-entry compression ratio about 120.5 (a .tga texture), aggregate
+# compression ratio 1.99. Raise a bound only after re-measuring a newer
+# pinned inventory; never loosen them to admit an unmeasured archive.
+# ---------------------------------------------------------------------------
+$script:DefaultMaxArchiveEntries = [long]65536
+$script:DefaultMaxExpandedFileBytes = [long]67108864          # 64 MiB
+$script:DefaultMaxTotalExpandedBytes = [long]1073741824       # 1 GiB
+$script:MinRatioSampleCompressedBytes = [long]4096
+$script:DefaultMaxPerEntryCompressionRatio = [double]500
+$script:DefaultMaxAggregateCompressionRatio = [double]100
+$script:ExtractionCopyBufferBytes = 1048576
+
+# Staging reclamation policy for runs interrupted by process death (Ctrl+C
+# between pipeline stops, kill, power loss). Provisional-unless-measured.
+$script:StaleStagingMaxAgeSeconds = [long]86400               # 24 hours
+$script:StaleStagingMaxRemaining = 4
+
+function Resolve-TightenedLimit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [long]$Default,
+        [Parameter(Mandatory = $true)]
+        [long]$Override,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($Override -lt 0) {
+        throw "-$Name must not be negative"
+    }
+    if ($Override -eq 0) {
+        return $Default
+    }
+    if ($Override -gt $Default) {
+        throw "-$Name $Override exceeds the built-in maximum $Default; overrides may only tighten bounds"
+    }
+    return $Override
+}
+
+function Resolve-TightenedRatioLimit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$Default,
+        [Parameter(Mandatory = $true)]
+        [double]$Override,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($Override -lt 0) {
+        throw "-$Name must not be negative"
+    }
+    if ($Override -eq 0) {
+        return $Default
+    }
+    if ($Override -gt $Default) {
+        throw "-$Name $Override exceeds the built-in maximum $Default; overrides may only tighten bounds"
+    }
+    return $Override
+}
 
 function ConvertTo-ExtendedLengthPath {
     param(
@@ -72,12 +150,74 @@ function Remove-ExtractionTree {
     }
 }
 
+function Remove-StaleExtractionStaging {
+    # VPA-209: reclaim staging directories abandoned by interrupted runs
+    # (process kill, power loss). Only siblings of the cache path whose name
+    # continues this script's own ".extracting" marker are considered; they
+    # are reclaimed when older than MaxAgeSeconds, or when more than
+    # MaxRemaining fresher leftovers exist (oldest deleted first).
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CachePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CacheParent,
+        [Parameter(Mandatory = $true)]
+        [long]$MaxAgeSeconds,
+        [Parameter(Mandatory = $true)]
+        [int]$MaxRemaining
+    )
+
+    if (-not [System.IO.Directory]::Exists($CacheParent)) {
+        return
+    }
+    $prefix = (Split-Path -Leaf $CachePath) + ".extracting"
+    $candidates = [System.Collections.Generic.List[System.IO.DirectoryInfo]]::new()
+    foreach ($child in [System.IO.Directory]::EnumerateDirectories($CacheParent)) {
+        $leaf = [System.IO.Path]::GetFileName($child)
+        if ($leaf.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+            $candidates.Add([System.IO.DirectoryInfo]::new($child))
+        }
+    }
+    if ($candidates.Count -eq 0) {
+        return
+    }
+
+    $ordered = @($candidates | Sort-Object -Property LastWriteTimeUtc -Descending)
+    $utcNow = [System.DateTime]::UtcNow
+    $kept = 0
+    $reclaimed = 0
+    foreach ($candidate in $ordered) {
+        $ageSeconds = ($utcNow - $candidate.LastWriteTimeUtc).TotalSeconds
+        if ($kept -lt $MaxRemaining -and $ageSeconds -le [double]$MaxAgeSeconds) {
+            $kept++
+            continue
+        }
+        Remove-ExtractionTree -Path $candidate.FullName
+        $reclaimed++
+    }
+    if ($reclaimed -gt 0) {
+        Write-Output "Reclaimed $reclaimed stale extraction staging director(y/ies)"
+    }
+}
+
 function Expand-ZipArchiveBounded {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ArchivePath,
         [Parameter(Mandatory = $true)]
-        [string]$DestinationPath
+        [string]$DestinationPath,
+        [Parameter(Mandatory = $true)]
+        [long]$MaxArchiveEntries,
+        [Parameter(Mandatory = $true)]
+        [long]$MaxExpandedFileBytes,
+        [Parameter(Mandatory = $true)]
+        [long]$MaxTotalExpandedBytes,
+        [Parameter(Mandatory = $true)]
+        [long]$MinRatioSampleCompressedBytes,
+        [Parameter(Mandatory = $true)]
+        [double]$MaxPerEntryCompressionRatio,
+        [Parameter(Mandatory = $true)]
+        [double]$MaxAggregateCompressionRatio
     )
 
     Add-Type -AssemblyName System.IO.Compression
@@ -96,6 +236,8 @@ function Expand-ZipArchiveBounded {
     $invalidFileNameCharacters = [System.IO.Path]::GetInvalidFileNameChars()
     $nodes = @{}
     $plannedEntries = [System.Collections.Generic.List[object]]::new()
+    $declaredTotalExpanded = [long]0
+    $declaredTotalCompressed = [long]0
 
     $archiveStream = [System.IO.File]::OpenRead($ArchivePath)
     try {
@@ -105,6 +247,9 @@ function Expand-ZipArchiveBounded {
             $false
         )
         try {
+            if ($zip.Entries.Count -gt $MaxArchiveEntries) {
+                throw "archive entry count $($zip.Entries.Count) exceeds the maximum $MaxArchiveEntries"
+            }
             foreach ($entry in $zip.Entries) {
                 $rawName = [string]$entry.FullName
                 if ([string]::IsNullOrWhiteSpace($rawName) -or
@@ -192,24 +337,99 @@ function Expand-ZipArchiveBounded {
                     }
                 }
 
+                # VPA-209: reject link entries before anything is written.
+                # System.IO.Compression never materializes symlinks, so the
+                # high Unix mode bits are the only signal; S_IFLNK is 0xA000.
+                $externalAttributes = [int]$entry.ExternalAttributes
+                if ((($externalAttributes -shr 16) -band 0xF000) -eq 0xA000) {
+                    throw "unsafe ZIP entry '$rawName': link entries are not allowed"
+                }
+
+                # VPA-209: declared expanded bounds and per-entry bomb ratio,
+                # checked against the central directory before any bytes are
+                # written. The runtime copy below re-enforces both byte caps
+                # against ACTUAL output, because a hostile archive can lie in
+                # its central directory.
+                if (-not $isDirectory) {
+                    $declaredExpanded = [long]$entry.Length
+                    $declaredCompressed = [long]$entry.CompressedLength
+                    if ($declaredExpanded -gt $MaxExpandedFileBytes) {
+                        throw "ZIP entry '$rawName' declared expanded size $declaredExpanded exceeds the maximum $MaxExpandedFileBytes bytes"
+                    }
+                    if ($declaredCompressed -ge $MinRatioSampleCompressedBytes -and
+                        [double]$declaredExpanded -gt ($MaxPerEntryCompressionRatio * [double]$declaredCompressed)) {
+                        throw (
+                            "ZIP entry '{0}' compression ratio {1}:{2} exceeds the per-entry maximum {3}" -f
+                                $rawName,
+                                $declaredExpanded,
+                                $declaredCompressed,
+                                $MaxPerEntryCompressionRatio
+                        )
+                    }
+                }
+                $declaredTotalExpanded += [long]$entry.Length
+                if ($declaredTotalExpanded -gt $MaxTotalExpandedBytes) {
+                    throw "archive total declared expanded size $declaredTotalExpanded exceeds the maximum $MaxTotalExpandedBytes bytes"
+                }
+                $declaredTotalCompressed += [long]$entry.CompressedLength
+
                 $plannedEntries.Add([pscustomobject]@{
                     Entry = $entry
                     Destination = $entryDestination
                     Directory = $isDirectory
+                    RawName = $rawName
                 })
             }
 
+            # VPA-209: aggregate bomb ratio over the whole central directory.
+            # A weighted average can never exceed the largest per-entry ratio,
+            # so this guard only fires for distributed bombs whose individual
+            # entries each stay under the per-entry threshold.
+            if ($declaredTotalCompressed -ge $MinRatioSampleCompressedBytes -and
+                [double]$declaredTotalExpanded -gt ($MaxAggregateCompressionRatio * [double]$declaredTotalCompressed)) {
+                throw (
+                    "archive aggregate compression ratio {0}:{1} exceeds the aggregate maximum {2}" -f
+                        $declaredTotalExpanded,
+                        $declaredTotalCompressed,
+                        $MaxAggregateCompressionRatio
+                )
+            }
+
+            # VPA-209: publishing tens of thousands of small files makes
+            # repeated CreateDirectory calls measurable; remember which
+            # directories were already ensured this run.
+            $ensuredDirectories =
+                [System.Collections.Generic.HashSet[string]]::new(
+                    [System.StringComparer]::OrdinalIgnoreCase
+                )
+            foreach ($node in $nodes.Values) {
+                if ([string]$node.Kind -ne "directory") {
+                    continue
+                }
+                $nodePath = [string]$node.Path
+                $absoluteNode = Join-Path $destinationRoot $nodePath
+                if (-not $ensuredDirectories.Add($absoluteNode)) {
+                    continue
+                }
+                [System.IO.Directory]::CreateDirectory(
+                    (ConvertTo-ExtendedLengthPath -Path $absoluteNode)
+                ) | Out-Null
+            }
+
+            $copyBuffer = New-Object byte[] $ExtractionCopyBufferBytes
+            $totalWritten = [long]0
             foreach ($planned in $plannedEntries) {
                 $extendedDestination = ConvertTo-ExtendedLengthPath -Path ([string]$planned.Destination)
                 if ([bool]$planned.Directory) {
-                    [System.IO.Directory]::CreateDirectory($extendedDestination) | Out-Null
                     continue
                 }
 
                 $parent = [System.IO.Path]::GetDirectoryName([string]$planned.Destination)
-                [System.IO.Directory]::CreateDirectory(
-                    (ConvertTo-ExtendedLengthPath -Path $parent)
-                ) | Out-Null
+                if ($ensuredDirectories.Add($parent)) {
+                    [System.IO.Directory]::CreateDirectory(
+                        (ConvertTo-ExtendedLengthPath -Path $parent)
+                    ) | Out-Null
+                }
                 $inputStream = $planned.Entry.Open()
                 try {
                     $outputStream = [System.IO.FileStream]::new(
@@ -219,7 +439,22 @@ function Expand-ZipArchiveBounded {
                         [System.IO.FileShare]::None
                     )
                     try {
-                        $inputStream.CopyTo($outputStream)
+                        $fileWritten = [long]0
+                        while ($true) {
+                            $read = $inputStream.Read($copyBuffer, 0, $copyBuffer.Length)
+                            if ($read -le 0) {
+                                break
+                            }
+                            $outputStream.Write($copyBuffer, 0, $read)
+                            $fileWritten += [long]$read
+                            $totalWritten += [long]$read
+                            if ($fileWritten -gt $MaxExpandedFileBytes) {
+                                throw "ZIP entry '$([string]$planned.RawName)' expanded size exceeded the maximum $MaxExpandedFileBytes bytes during extraction"
+                            }
+                            if ($totalWritten -gt $MaxTotalExpandedBytes) {
+                                throw "archive total expanded size exceeded the maximum $MaxTotalExpandedBytes bytes during extraction"
+                            }
+                        }
                     } finally {
                         $outputStream.Dispose()
                     }
@@ -244,6 +479,21 @@ $manifestPath = Join-Path $repoRoot "assets\vanilla-source.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "vanilla source manifest is missing: $manifestPath"
 }
+
+# VPA-209: resolve effective bounds. Overrides may only tighten.
+$maxArchiveEntries = Resolve-TightenedLimit -Default $script:DefaultMaxArchiveEntries `
+    -Override $MaxArchiveEntriesOverride -Name "MaxArchiveEntriesOverride"
+$maxExpandedFileBytes = Resolve-TightenedLimit -Default $script:DefaultMaxExpandedFileBytes `
+    -Override $MaxExpandedFileBytesOverride -Name "MaxExpandedFileBytesOverride"
+$maxTotalExpandedBytes = Resolve-TightenedLimit -Default $script:DefaultMaxTotalExpandedBytes `
+    -Override $MaxTotalExpandedBytesOverride -Name "MaxTotalExpandedBytesOverride"
+$maxPerEntryCompressionRatio = Resolve-TightenedRatioLimit `
+    -Default $script:DefaultMaxPerEntryCompressionRatio `
+    -Override $MaxPerEntryCompressionRatioOverride -Name "MaxPerEntryCompressionRatioOverride"
+$maxAggregateCompressionRatio = Resolve-TightenedRatioLimit `
+    -Default $script:DefaultMaxAggregateCompressionRatio `
+    -Override $MaxAggregateCompressionRatioOverride -Name "MaxAggregateCompressionRatioOverride"
+
 
 $source = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 foreach ($property in @("url", "sha256", "artifact_policy", "cache_dir")) {
@@ -308,6 +558,9 @@ if ($DryRun) {
     return
 }
 
+Remove-StaleExtractionStaging -CachePath $cachePath -CacheParent $cacheParent `
+    -MaxAgeSeconds $script:StaleStagingMaxAgeSeconds -MaxRemaining $script:StaleStagingMaxRemaining
+
 if (Test-Path -LiteralPath $normalizedSource -PathType Leaf) {
     Write-Output "Vanilla source is already available: $normalizedSource"
     return
@@ -346,8 +599,16 @@ if (-not $archiveVerified) {
 
 try {
     New-Item -ItemType Directory -Path $temporaryExtract | Out-Null
-    Expand-ZipArchiveBounded -ArchivePath $archivePath -DestinationPath $temporaryExtract
+    Expand-ZipArchiveBounded -ArchivePath $archivePath -DestinationPath $temporaryExtract `
+        -MaxArchiveEntries $maxArchiveEntries `
+        -MaxExpandedFileBytes $maxExpandedFileBytes `
+        -MaxTotalExpandedBytes $maxTotalExpandedBytes `
+        -MinRatioSampleCompressedBytes $script:MinRatioSampleCompressedBytes `
+        -MaxPerEntryCompressionRatio $maxPerEntryCompressionRatio `
+        -MaxAggregateCompressionRatio $maxAggregateCompressionRatio
 
+    # VPA-209: completeness gate before publication. The staged tree must
+    # already contain the normalized source; nothing partial is ever moved.
     $directSource = Join-Path $temporaryExtract "resource_pack\blocks.json"
     if (Test-Path -LiteralPath $directSource -PathType Leaf) {
         $normalizedRoot = $temporaryExtract
@@ -363,6 +624,12 @@ try {
         }
     }
 
+    # VPA-209: publish by a same-volume atomic rename into an absent target.
+    # A failed or interrupted run discards staging above and leaves any
+    # previous published tree untouched.
+    if (Test-Path -LiteralPath $cachePath) {
+        throw "cache directory appeared during extraction: $cachePath"
+    }
     Move-Item -LiteralPath $normalizedRoot -Destination $cachePath
     if (Test-Path -LiteralPath $temporaryExtract) {
         Remove-ExtractionTree -Path $temporaryExtract

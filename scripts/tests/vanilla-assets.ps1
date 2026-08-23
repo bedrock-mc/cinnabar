@@ -103,8 +103,14 @@ function New-TestZipArchive {
         [Parameter(Mandatory = $true)]
         [string]$Path,
         [Parameter(Mandatory = $true)]
-        [object[]]$Entries
+        [object[]]$Entries,
+        [switch]$Raw
     )
+
+    if ($Raw) {
+        Write-RawTestZipArchive -Path $Path -Entries $Entries
+        return
+    }
 
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -150,6 +156,93 @@ function New-TestZipArchive {
     } finally {
         $stream.Dispose()
     }
+}
+
+# VPA-209 fixtures need ZIP entries that System.IO.Compression cannot emit
+# (a Unix-made symlink entry). This minimal stored-entry writer records real
+# CRCs so both platform extractors treat the fixture as a well-formed zip.
+$script:TestCrcTable = $null
+
+function Get-TestCrc32Table {
+    if ($null -eq $script:TestCrcTable) {
+        $table = New-Object 'uint32[]' 256
+        $poly = [uint64]3988292384   # 0xEDB88320
+        for ($i = 0; $i -lt 256; $i++) {
+            $c = [uint64]$i
+            for ($j = 0; $j -lt 8; $j++) {
+                if (($c -band [uint64]1) -ne 0) { $c = ($c -shr 1) -bxor $poly } else { $c = $c -shr 1 }
+            }
+            $table[$i] = [uint32]$c
+        }
+        $script:TestCrcTable = $table
+    }
+    return $script:TestCrcTable
+}
+
+function Get-TestCrc32 {
+    param([byte[]]$Bytes)
+    $table = Get-TestCrc32Table
+    $crc = [uint64]4294967295     # 0xFFFFFFFF
+    foreach ($b in $Bytes) {
+        $index = (($crc -bxor [uint64]$b) -band [uint64]0xFF)
+        $crc = (($crc -shr 8) -bxor [uint64]$table[$index])
+    }
+    return [uint32]($crc -bxor [uint64]4294967295)
+}
+
+function Write-RawTestZipArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Entries
+    )
+
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    $body = New-Object System.IO.MemoryStream
+    $bw = New-Object System.IO.BinaryWriter $body
+    $central = New-Object System.IO.MemoryStream
+    $cw = New-Object System.IO.BinaryWriter $central
+    $runningOffset = [int64]0
+    foreach ($spec in $Entries) {
+        $specObject = [pscustomobject]$spec
+        $nameBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$specObject.Name)
+        [byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes([string]$specObject.Content)
+        if ($null -eq $data -or $data.Length -eq 0) { $data = [byte[]]@() }
+        $crc = Get-TestCrc32 -Bytes $data
+        $madeByOs = 0
+        if ($specObject.PSObject.Properties.Name -contains "MadeByOs") { $madeByOs = [int]$specObject.MadeByOs }
+        $externalAttributes = [int64]0
+        if ($specObject.PSObject.Properties.Name -contains "ExternalAttributes") { $externalAttributes = [int64]$specObject.ExternalAttributes }
+
+        $localOffset = $runningOffset
+        $bw.Write([uint32]0x04034B50); $bw.Write([uint16]20); $bw.Write([uint16]0); $bw.Write([uint16]0)
+        $bw.Write([uint16]0); $bw.Write([uint16]0x2821)
+        $bw.Write([uint32]$crc); $bw.Write([uint32]$data.Length); $bw.Write([uint32]$data.Length)
+        $bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0)
+        $bw.Write($nameBytes); $bw.Write($data)
+
+        $cw.Write([uint32]0x02014B50)
+        $cw.Write([uint16](($madeByOs -shl 8) -bor 20)); $cw.Write([uint16]20)
+        $cw.Write([uint16]0); $cw.Write([uint16]0)
+        $cw.Write([uint16]0); $cw.Write([uint16]0x2821)
+        $cw.Write([uint32]$crc); $cw.Write([uint32]$data.Length); $cw.Write([uint32]$data.Length)
+        $cw.Write([uint16]$nameBytes.Length); $cw.Write([uint16]0); $cw.Write([uint16]0)
+        $cw.Write([uint16]0); $cw.Write([uint16]0); $cw.Write([uint32]$externalAttributes)
+        $cw.Write([uint32]$localOffset); $cw.Write($nameBytes)
+
+        $runningOffset = $localOffset + 30 + $nameBytes.Length + $data.Length
+    }
+    $cdOffset = [int64]$bw.BaseStream.Position
+    $centralBytes = $central.ToArray()
+    $bw.Write($centralBytes)
+    $bw.Write([uint32]0x06054B50); $bw.Write([uint16]0); $bw.Write([uint16]0)
+    $bw.Write([uint16]$Entries.Count); $bw.Write([uint16]$Entries.Count)
+    $bw.Write([uint32]$centralBytes.Length); $bw.Write([uint32]$cdOffset); $bw.Write([uint16]0)
+    $bw.Flush()
+    [System.IO.File]::WriteAllBytes($Path, $body.ToArray())
+    $bw.Dispose(); $cw.Dispose(); $body.Dispose(); $central.Dispose()
 }
 
 $downloadDirectory = Join-Path $repoRoot ".local\assets\downloads"
@@ -466,6 +559,336 @@ if ($LASTEXITCODE -ne 0) {
     if ((Test-Path -LiteralPath $syntheticArchivePath -PathType Leaf) -and
         (Get-TestSha256Hex -Path $syntheticArchivePath) -cne $originSha256) {
         $sandboxFailures += "PowerShell retained an archive that misses the pinned digest"
+    }
+
+    # -----------------------------------------------------------------
+    # VPA-209 bounded-extraction contracts: entry-count, expanded-byte and
+    # compression-ratio bounds, duplicate/collision rejection, link-entry
+    # rejection, transactional staging, and stale-staging reclamation. Both
+    # platform fetchers must reject identical fixtures with identical
+    # diagnostics. Tightening-only CLI overrides let tiny fixtures trip the
+    # exact production bound logic without building multi-gigabyte archives;
+    # the ratio cases below run against the REAL default constants.
+    # -----------------------------------------------------------------
+
+    $assetSandboxRoot = Join-Path $sandboxRoot ".local\assets"
+    # Matches this script's dot-form leftovers AND the PowerShell fetcher's
+    # hyphen-form runtime staging ("...extracting-<pid>-<guid>").
+    $stagingResidueFilter = "synthetic-vanilla.extracting*"
+
+    $bashDeepTools = $false
+    $bashDeepProbeScript = Join-Path $sandboxScripts "probe-bash-tools.sh"
+    Set-Content -LiteralPath $bashDeepProbeScript -Value @'
+if command -v unzip >/dev/null 2>&1; then
+    exit 0
+fi
+exit 1
+'@ -Encoding ASCII
+    $bashDeepProbeResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @($bashDeepProbeScript)
+    $bashDeepTools = ($bashDeepProbeResult.ExitCode -eq 0)
+
+    function Assert-ExtractionRejection {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Label,
+            [string[]]$PowerShellArgs = @(),
+            [string[]]$BashArgs = @(),
+            [Parameter(Mandatory = $true)]
+            [string]$Needle
+        )
+
+        $psArguments = @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $sandboxPowerShellFetcher,
+            "-AcceptEula"
+        ) + $PowerShellArgs
+        $psResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList $psArguments
+        if ($psResult.ExitCode -eq 0) {
+            $script:sandboxFailures += "$Label(PowerShell): unexpectedly succeeded"
+        } elseif (-not (Test-OutputContains -Output $psResult.Output -Needle $Needle)) {
+            $script:sandboxFailures += "$Label(PowerShell): omitted '$Needle': $($psResult.Output.Trim())"
+        }
+        if (Test-Path -LiteralPath $syntheticCache) {
+            $script:sandboxFailures += "$Label(PowerShell): published a cache after rejection"
+        }
+        $residue = @(Get-ChildItem -Force -LiteralPath $assetSandboxRoot -Directory -Filter $stagingResidueFilter -ErrorAction SilentlyContinue)
+        if ($residue.Count -ne 0) {
+            $script:sandboxFailures += "$Label(PowerShell): left extraction staging behind: $($residue.FullName -join ', ')"
+        }
+
+        if (-not $bashDeepTools) {
+            return
+        }
+        $shArgs = @($sandboxBashFetcher, "--accept-eula") + $BashArgs
+        $shResult = Invoke-NativeCapture -FilePath $bash -ArgumentList $shArgs
+        if ($shResult.ExitCode -eq 0) {
+            $script:sandboxFailures += "$Label(bash): unexpectedly succeeded"
+        } elseif (-not (Test-OutputContains -Output $shResult.Output -Needle $Needle)) {
+            $script:sandboxFailures += "$Label(bash): omitted '$Needle': $($shResult.Output.Trim())"
+        }
+        if (Test-Path -LiteralPath $syntheticCache) {
+            $script:sandboxFailures += "$Label(bash): published a cache after rejection"
+        }
+        $residue = @(Get-ChildItem -Force -LiteralPath $assetSandboxRoot -Directory -Filter $stagingResidueFilter -ErrorAction SilentlyContinue)
+        if ($residue.Count -ne 0) {
+            $script:sandboxFailures += "$Label(bash): left extraction staging behind: $($residue.FullName -join ', ')"
+        }
+    }
+
+    function Write-BoundedCaseManifest {
+        param([string]$Sha)
+        Write-TestManifest -Template $source -Path $sandboxManifest `
+            -Archive $syntheticArchiveName -CacheDirectory $syntheticCacheRelative -Sha256 $Sha
+    }
+
+    function Reset-BoundedFixture {
+        if (Test-Path -LiteralPath $syntheticArchivePath) {
+            Remove-Item -Force -LiteralPath $syntheticArchivePath
+        }
+        if (Test-Path -LiteralPath $syntheticCache) {
+            Remove-Item -Recurse -Force -LiteralPath $syntheticCache
+        }
+    }
+
+    # --- entry-count bound (tightened override trips on 3 entries) ---
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "a.txt"; Content = "123" },
+        [pscustomobject]@{ Name = "b.txt"; Content = "456" },
+        [pscustomobject]@{ Name = "c.txt"; Content = "789" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "entry-count" `
+        -PowerShellArgs @("-MaxArchiveEntriesOverride", "2") `
+        -BashArgs @("--max-archive-entries=2") `
+        -Needle "archive entry count 3 exceeds the maximum 2"
+
+    # --- per-file declared expanded bytes (tightened override) ---
+    Assert-ExtractionRejection -Label "per-file-bytes" `
+        -PowerShellArgs @("-MaxExpandedFileBytesOverride", "1") `
+        -BashArgs @("--max-expanded-file-bytes=1") `
+        -Needle "declared expanded size 3 exceeds the maximum 1 bytes"
+
+    # --- total declared expanded bytes fails fast at the first offender ---
+    Assert-ExtractionRejection -Label "total-bytes" `
+        -PowerShellArgs @("-MaxTotalExpandedBytesOverride", "2") `
+        -BashArgs @("--max-total-expanded-bytes=2") `
+        -Needle "total declared expanded size 3 exceeds the maximum 2 bytes"
+
+    # --- tightening-only guard: raising a bound is refused ---
+    if ($bashDeepTools) {
+        $raiseResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
+            $sandboxBashFetcher,
+            "--accept-eula",
+            "--max-archive-entries=99999999"
+        )
+        if ($raiseResult.ExitCode -eq 0) {
+            $sandboxFailures += "tighten-guard(bash): accepted raising a bound"
+        } elseif (-not (Test-OutputContains -Output $raiseResult.Output -Needle "overrides may only tighten bounds")) {
+            $sandboxFailures += "tighten-guard(bash): omitted tighten-only diagnostic: $($raiseResult.Output.Trim())"
+        }
+    }
+    $raisePsResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula",
+        "-MaxArchiveEntriesOverride",
+        "99999999"
+    )
+    if ($raisePsResult.ExitCode -eq 0) {
+        $sandboxFailures += "tighten-guard(PowerShell): accepted raising a bound"
+    } elseif (-not (Test-OutputContains -Output $raisePsResult.Output -Needle "overrides may only tighten bounds")) {
+        $sandboxFailures += "tighten-guard(PowerShell): omitted tighten-only diagnostic: $($raisePsResult.Output.Trim())"
+    }
+
+    # --- per-entry compression-ratio bomb against DEFAULT constants ---
+    # Deterministic content: ~51 KB of varied JSON-ish text (~6 KB deflated)
+    # plus 8 MB of one repeated character (~5 KB deflated). Expanded is far
+    # below every byte cap while the ratio exceeds the default 500 guard.
+    $ratioPrefix = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt 2048; $i++) { [void]$ratioPrefix.Append("{""key$i"": ""abcdefgh""},`r`n") }
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "bomb.bin"; Content = ($ratioPrefix.ToString() + ("A" * 8000000)) }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "per-entry-ratio-default" `
+        -Needle "exceeds the per-entry maximum 500"
+
+    # --- aggregate-only bomb against DEFAULT constants: two entries whose
+    # individual ratios stay under 500 but whose aggregate exceeds 100 ---
+    Reset-BoundedFixture
+    $midContent = $ratioPrefix.ToString() + ("A" * 1250000)
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "m1.bin"; Content = $midContent },
+        [pscustomobject]@{ Name = "m2.bin"; Content = $midContent }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "aggregate-ratio-default" `
+        -Needle "exceeds the aggregate maximum 100"
+
+    # --- unsafe entry names beyond traversal (which is covered above) ---
+    foreach ($unsafeCase in @(
+        @{ Name = "/abs.txt"; Needle = "absolute and UNC paths are not allowed" },
+        @{ Name = "resource_pack/CON"; Needle = "reserved filename component 'CON'" },
+        @{ Name = "resource_pack/a:b.txt"; Needle = "drive and alternate-stream paths are not allowed" },
+        @{ Name = "resource_pack/trail. "; Needle = "invalid filename component 'trail. '" },
+        @{ Name = "resource_pack//deep.txt"; Needle = "empty path components are not allowed" }
+    )) {
+        Reset-BoundedFixture
+        New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+            [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+            [pscustomobject]@{ Name = $unsafeCase.Name; Content = "x" }
+        )
+        Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+        Assert-ExtractionRejection -Label "unsafe[$($unsafeCase.Name)]" `
+            -Needle $unsafeCase.Needle
+    }
+
+    # --- duplicate file entries are rejected rather than last-wins ---
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}`nsecond" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "duplicate-entry" `
+        -Needle "duplicate ZIP entry path 'resource_pack/blocks.json'"
+
+    # --- file/directory path collisions are rejected on both platforms ---
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        [pscustomobject]@{ Name = "resource_pack/blocks.json/inner.txt"; Content = "{}" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "path-collision" `
+        -Needle "ZIP entry path collision at 'resource_pack/blocks.json'"
+
+    # --- symlink entries: PowerShell rejects the declared Unix mode bits
+    # outright; bash rejects whatever its extractor materializes via the
+    # post-extraction special-node scan. On Windows hosts Info-ZIP unzip
+    # stores such entries as regular files (nothing to escape with), so the
+    # bash leg asserts only that no escape occurred when extraction succeeds.
+    Reset-BoundedFixture
+    New-TestZipArchive -Raw -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        @{
+            Name = "evil"
+            Content = "../../escaped-target.txt"
+            MadeByOs = 3
+            ExternalAttributes = ([int64]0xA1FF * 65536)
+        }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    $symlinkPs = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($symlinkPs.ExitCode -eq 0) {
+        $sandboxFailures += "symlink(PowerShell): unexpectedly accepted a Unix symlink entry"
+    } elseif (-not (Test-OutputContains -Output $symlinkPs.Output -Needle "link entries are not allowed")) {
+        $sandboxFailures += "symlink(PowerShell): omitted link diagnostic: $($symlinkPs.Output.Trim())"
+    }
+    if (Test-Path -LiteralPath $syntheticCache) {
+        $sandboxFailures += "symlink(PowerShell): published a cache containing a symlink entry"
+    }
+    if ($bashDeepTools) {
+        $symlinkSh = Invoke-NativeCapture -FilePath $bash -ArgumentList @($sandboxBashFetcher, "--accept-eula")
+        $escapedTargets = @(Get-ChildItem -Force -Recurse -LiteralPath $sandboxRoot -Filter "escaped-target.txt" -ErrorAction SilentlyContinue)
+        if ($symlinkSh.ExitCode -ne 0) {
+            if (-not (Test-OutputContains -Output $symlinkSh.Output -Needle "link")) {
+                $sandboxFailures += "symlink(bash): rejected without a link diagnostic: $($symlinkSh.Output.Trim())"
+            }
+        } elseif ($escapedTargets.Count -ne 0) {
+            $sandboxFailures += "symlink(bash): symlink target escaped outside the sandbox cache"
+        }
+        # Platform note printed either way so CI logs carry the honest story.
+        if ($symlinkSh.ExitCode -eq 0) {
+            Write-Output "NOTE: this host's unzip stores zip symlinks as regular files; the bash post-extract link scan remains the enforcing guard on Linux/macOS."
+        }
+        Remove-Item -Recurse -Force -LiteralPath $syntheticCache -ErrorAction SilentlyContinue
+    }
+
+    # --- stale staging reclamation: interrupted-run leftovers older than the
+    # retention age are reclaimed at startup, fresh leftovers survive within
+    # the count bound, and the oldest beyond the bound lose. Both platforms.---
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+
+    $staleOld = Join-Path $assetSandboxRoot "synthetic-vanilla.extracting.staleold"
+    New-Item -ItemType Directory -Force -Path $staleOld | Out-Null
+    Set-Content -LiteralPath (Join-Path $staleOld "sentinel") -Value "junk"
+    [System.IO.Directory]::SetLastWriteTimeUtc($staleOld, ([DateTime]::UtcNow - [TimeSpan]::FromDays(3)))
+    $freshKeep = Join-Path $assetSandboxRoot "synthetic-vanilla.extracting.freshkeep"
+    New-Item -ItemType Directory -Force -Path $freshKeep | Out-Null
+    for ($i = 1; $i -le 6; $i++) {
+        $extra = Join-Path $assetSandboxRoot ("synthetic-vanilla.extracting.extra{0:d2}" -f $i)
+        New-Item -ItemType Directory -Force -Path $extra | Out-Null
+        [System.IO.Directory]::SetLastWriteTimeUtc($extra, ([DateTime]::UtcNow - [TimeSpan]::FromHours(2 * (7 - $i))))
+    }
+
+    $reclaimPs = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $sandboxPowerShellFetcher,
+        "-AcceptEula"
+    )
+    if ($reclaimPs.ExitCode -ne 0) {
+        $sandboxFailures += "reclaim(PowerShell): valid fetch failed: $($reclaimPs.Output.Trim())"
+    } elseif (-not (Test-OutputContains -Output $reclaimPs.Output -Needle "Reclaimed ")) {
+        $sandboxFailures += "reclaim(PowerShell): no reclaim marker emitted"
+    }
+    if (Test-Path -LiteralPath $staleOld) {
+        $sandboxFailures += "reclaim(PowerShell): stale staging survived past the retention age"
+    }
+    if (-not (Test-Path -LiteralPath $freshKeep)) {
+        $sandboxFailures += "reclaim(PowerShell): fresh staging was reclaimed despite remaining under the count bound"
+    }
+    $remainingAfterPs = @(Get-ChildItem -Force -LiteralPath $assetSandboxRoot -Directory -Filter $stagingResidueFilter)
+    if ($remainingAfterPs.Count -gt 4) {
+        $sandboxFailures += "reclaim(PowerShell): $($remainingAfterPs.Count) staging dirs exceed the keep bound of 4"
+    }
+
+    if ($bashDeepTools) {
+        if (Test-Path -LiteralPath $syntheticCache) {
+            Remove-Item -Recurse -Force -LiteralPath $syntheticCache
+        }
+        $staleOldBash = Join-Path $assetSandboxRoot "synthetic-vanilla.extracting.bashstale"
+        New-Item -ItemType Directory -Force -Path $staleOldBash | Out-Null
+        [System.IO.Directory]::SetLastWriteTimeUtc($staleOldBash, ([DateTime]::UtcNow - [TimeSpan]::FromDays(3)))
+        $freshKeepBash = Join-Path $assetSandboxRoot "synthetic-vanilla.extracting.bashfresh"
+        New-Item -ItemType Directory -Force -Path $freshKeepBash | Out-Null
+
+        $reclaimSh = Invoke-NativeCapture -FilePath $bash -ArgumentList @($sandboxBashFetcher, "--accept-eula")
+        if ($reclaimSh.ExitCode -ne 0) {
+            $sandboxFailures += "reclaim(bash): valid fetch failed: $($reclaimSh.Output.Trim())"
+        } elseif (-not (Test-OutputContains -Output $reclaimSh.Output -Needle "Reclaimed ")) {
+            $sandboxFailures += "reclaim(bash): no reclaim marker emitted"
+        }
+        if (Test-Path -LiteralPath $staleOldBash) {
+            $sandboxFailures += "reclaim(bash): stale staging survived past the retention age"
+        }
+        if (-not (Test-Path -LiteralPath $freshKeepBash)) {
+            $sandboxFailures += "reclaim(bash): fresh staging was reclaimed despite remaining under the count bound"
+        }
+    } else {
+        Write-Output "NOTE: bash deep-extraction contracts skipped on this host because unzip is unavailable in the discovered bash."
     }
 
     if ($sandboxFailures.Count -ne 0) {
