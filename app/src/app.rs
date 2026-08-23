@@ -153,6 +153,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
+        .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)

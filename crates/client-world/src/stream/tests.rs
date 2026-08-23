@@ -1095,6 +1095,8 @@ enum Action {
     Update,
 }
 
+#[path = "tests/camera_events.rs"]
+mod camera_events;
 mod cases_01;
 mod cases_02;
 mod cases_03;

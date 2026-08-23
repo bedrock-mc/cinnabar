@@ -708,6 +708,10 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced audio events commit through submit");
                 self.push_committed_audio(CommittedAudioEvent { sequence, event });
             }
+            WorldEvent::Camera(event) => {
+                let sequence = sequence.expect("sequenced camera events commit through submit");
+                self.push_committed_camera(CommittedCameraEvent { sequence, event });
+            }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
@@ -916,6 +920,13 @@ impl WorldStream {
             "audio admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_audio.push_back(event);
+    }
+    pub(super) fn push_committed_camera(&mut self, event: CommittedCameraEvent) {
+        assert!(
+            self.committed_camera.len() < COMMITTED_CAMERA_CAPACITY,
+            "camera admission invariant exceeded bounded commit-delta capacity"
+        );
+        self.committed_camera.push_back(event);
     }
 
     fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {

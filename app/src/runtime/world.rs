@@ -31,6 +31,7 @@ use client_world::{
 };
 
 use super::audio::{SequencedAudioEvent, drain_committed_audio};
+use crate::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -329,6 +330,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
+    mut server_camera: ResMut<ServerCameraInstructions>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -365,6 +367,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
     drain_committed_audio(stream, |event| {
         audio.write(event);
     });
+    drain_committed_camera(
+        stream,
+        clock.session_generation(),
+        stream.current_dimension(),
+        &mut server_camera,
+    );
     if let Some(error) = stream.take_fatal_error() {
         movement.deactivate();
         local_physics.deactivate();

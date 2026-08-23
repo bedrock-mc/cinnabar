@@ -3,6 +3,7 @@
 mod actor;
 mod audio;
 mod blob_cache;
+mod camera;
 mod codec;
 mod disconnect;
 mod interaction;
@@ -38,6 +39,12 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, MAX_CLIENT_BLOB_READY_BYTES,
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
+};
+pub use camera::{
+    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
+    CameraFovInstruction, CameraInstructionEvent, CameraSetInstruction, CameraShakeAction,
+    CameraShakeEvent, CameraShakeType, CameraSwitchEvent, CameraTargetInstruction,
+    MAX_CAMERA_EASE_IDENTIFIER_BYTES,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;

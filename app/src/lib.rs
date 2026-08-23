@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod movement;
 mod present_mode;
 pub mod semantic_controls;
+pub mod server_camera;
 pub mod settings_runtime;
 pub mod ui_runtime;
 

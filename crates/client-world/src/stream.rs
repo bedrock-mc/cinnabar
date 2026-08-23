@@ -100,6 +100,7 @@ static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -211,9 +212,9 @@ use model::{
 };
 
 pub use model::{
-    CommittedAudioEvent, CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest,
-    ForcedRemeshManifestState, PendingSubChunkRequest, PublisherViewGeometry, ViewCohort,
-    ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
+    CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedUiEvent,
+    ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, PublisherViewGeometry,
+    ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
     WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 
@@ -300,6 +301,7 @@ pub struct WorldStream {
     committed_ui: VecDeque<CommittedUiEvent>,
     local_movement_speed: Option<f64>,
     committed_audio: VecDeque<CommittedAudioEvent>,
+    committed_camera: VecDeque<CommittedCameraEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,

@@ -841,6 +841,9 @@ fn decode_world_raw_with(
             | McpePacketName::PlaySoundPacket
             | McpePacketName::StopSoundPacket
             | McpePacketName::LevelSoundEventPacket
+            | McpePacketName::CameraPacket
+            | McpePacketName::CameraShakePacket
+            | McpePacketName::CameraInstructionPacket
     ) {
         return Ok(None);
     }

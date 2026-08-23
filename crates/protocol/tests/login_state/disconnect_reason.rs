@@ -1,5 +1,10 @@
 use super::*;
 use jolyne::stream::transport::Transport;
+use jolyne::valentine::{
+    ActorUniqueId, CameraInstruction, CameraInstructionOptionsSplineInstruction,
+    CameraInstructionPacket, CameraPacket, CameraShakePacket, EnumsCameraShakeAction,
+    EnumsCameraShakeType,
+};
 use protocol::PlaySession;
 
 const EPILOGUE_ITERATION_LIMIT: usize = 32;
@@ -10,9 +15,58 @@ pub(super) enum PlayEpilogue {
     Default,
     ServerDisconnect,
     TruncatedDisconnect,
+    CameraInstructions,
+    OddCameraInstruction,
+    TruncatedCameraShake,
 }
 
 pub(super) const EPILOGUE_SENTINEL_TIME: i32 = 45_678;
+pub(super) const CAMERA_INTERLEAVED_SENTINEL_TIME: i32 = 56_789;
+
+pub(super) fn camera_instruction_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePacket> {
+    match epilogue {
+        PlayEpilogue::CameraInstructions => vec![
+            McpePacket::from(CameraInstructionPacket {
+                camera_instruction: CameraInstruction {
+                    clear: Some(true),
+                    ..Default::default()
+                },
+            }),
+            McpePacket::from(SetTimePacket {
+                time: EPILOGUE_SENTINEL_TIME,
+            }),
+            McpePacket::from(CameraShakePacket {
+                intensity: 0.25,
+                seconds: 3.0,
+                shake_type: EnumsCameraShakeType::Rotational,
+                shake_action: EnumsCameraShakeAction::Add,
+            }),
+            McpePacket::from(CameraPacket {
+                camera_id: ActorUniqueId {
+                    actor_unique_id: -11,
+                },
+                target_player_id: ActorUniqueId {
+                    actor_unique_id: -22,
+                },
+            }),
+            McpePacket::from(SetTimePacket {
+                time: CAMERA_INTERLEAVED_SENTINEL_TIME,
+            }),
+        ],
+        PlayEpilogue::OddCameraInstruction => vec![
+            McpePacket::from(CameraInstructionPacket {
+                camera_instruction: CameraInstruction {
+                    spline: Some(CameraInstructionOptionsSplineInstruction::default()),
+                    ..Default::default()
+                },
+            }),
+            McpePacket::from(SetTimePacket {
+                time: EPILOGUE_SENTINEL_TIME,
+            }),
+        ],
+        _ => Vec::new(),
+    }
+}
 
 impl ScriptTransport {
     pub(super) fn new_with_epilogue(
@@ -69,7 +123,10 @@ pub(super) fn disconnect_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePac
                 time: EPILOGUE_SENTINEL_TIME,
             }),
         ],
-        PlayEpilogue::TruncatedDisconnect => vec![],
+        PlayEpilogue::TruncatedDisconnect
+        | PlayEpilogue::CameraInstructions
+        | PlayEpilogue::OddCameraInstruction
+        | PlayEpilogue::TruncatedCameraShake => vec![],
     }
 }
 
