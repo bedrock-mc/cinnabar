@@ -39,7 +39,9 @@ impl ServerFormEntry {
 /// that unwired family and fails closed instead of fabricating a payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalFormAction {
-    /// Submit the zero-based button index of a modal or menu form.
+    /// Submit the zero-based button index of a menu form. Modal and custom
+    /// forms answer with different payload shapes that have no capture
+    /// surface yet, so this action fails closed against their kinds.
     SubmitButton(u32),
     /// Dismiss the form as a user close.
     Dismiss,
@@ -121,10 +123,10 @@ impl ServerFormStore {
                 return Err(FormRespondError::CustomElementsUnsupported);
             }
             LocalFormAction::SubmitButton(index) => match kind {
-                FormKind::Custom => {
+                FormKind::Menu => RetainedAnswer::ButtonIndex(index),
+                _ => {
                     return Err(FormRespondError::ButtonAnswerUnsupportedForKind { form_id, kind });
                 }
-                _ => RetainedAnswer::ButtonIndex(index),
             },
             LocalFormAction::Dismiss => RetainedAnswer::Dismissed,
         };
@@ -141,6 +143,14 @@ impl ServerFormStore {
 
     /// Clears every retained dialog and pending response when the stream moves
     /// to another dimension; the first observation only arms the watch.
+    ///
+    /// Bounded accepted window: the dimension is sampled once per frame from
+    /// the stream's current value rather than per packet. A form committed
+    /// into the same poll batch as a dimension switch may therefore be
+    /// admitted under the old dimension and survive into the new one until
+    /// the next observation clears it; correcting that requires cross-packet
+    /// reordering this surface deliberately does not perform, mirroring the
+    /// accepted camera-instruction identity window.
     pub fn note_stream_dimension(&mut self, dimension: i32) {
         match self.watched_dimension {
             Some(previous) if previous != dimension => self.clear(),

@@ -144,14 +144,37 @@ fn dismissal_builds_the_cancel_marker_packet_for_any_family() {
 #[test]
 fn unsupported_answers_fail_closed_without_touching_state() {
     let mut runtime = UiRuntime::new(1);
+    runtime.apply(retained(3, Unknown, 0)).unwrap();
     runtime.apply(retained(4, Custom, 1)).unwrap();
     runtime.apply(retained(5, Menu, 2)).unwrap();
+    runtime.apply(retained(6, Modal, 3)).unwrap();
 
     assert_eq!(
         runtime
             .respond_to_server_form(4, LocalFormAction::CustomElements)
             .unwrap_err(),
         FormRespondError::CustomElementsUnsupported
+    );
+    // Gophertunnel v1.57.0 modal_form_response.go: menu responses are
+    // integers, modal responses are true/false — only menu forms accept a
+    // button answer.
+    assert_eq!(
+        runtime
+            .respond_to_server_form(6, LocalFormAction::SubmitButton(0))
+            .unwrap_err(),
+        FormRespondError::ButtonAnswerUnsupportedForKind {
+            form_id: 6,
+            kind: Modal
+        }
+    );
+    assert_eq!(
+        runtime
+            .respond_to_server_form(3, LocalFormAction::SubmitButton(1))
+            .unwrap_err(),
+        FormRespondError::ButtonAnswerUnsupportedForKind {
+            form_id: 3,
+            kind: Unknown
+        }
     );
     assert_eq!(
         runtime
@@ -170,8 +193,42 @@ fn unsupported_answers_fail_closed_without_touching_state() {
     );
 
     // Nothing was answered, closed, or staged.
-    assert_eq!(runtime.server_forms().entries().count(), 2);
+    assert_eq!(runtime.server_forms().entries().count(), 4);
     assert!(!flush_form_response(&mut runtime, |_| Ok::<_, ()>(())).unwrap());
+}
+
+#[test]
+fn answering_a_closed_form_again_is_unknown_and_keeps_the_pending_answer_intact() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(retained(11, Menu, 1)).unwrap();
+    runtime
+        .respond_to_server_form(11, LocalFormAction::SubmitButton(3))
+        .unwrap();
+
+    assert_eq!(
+        runtime
+            .respond_to_server_form(11, LocalFormAction::SubmitButton(0))
+            .unwrap_err(),
+        FormRespondError::UnknownForm { form_id: 11 },
+        "the first answer closed the form"
+    );
+
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    let mut sent = None;
+    flush_form_response(&mut runtime, |packet| {
+        sent = Some(packet);
+        Ok::<_, ()>(())
+    })
+    .unwrap();
+    assert_eq!(
+        protocol::encode(&sent.unwrap(), &session).unwrap(),
+        protocol::encode(
+            &protocol::modal_form_submit_response(11, ModalFormResponseSelection::ButtonIndex(3)),
+            &session
+        )
+        .unwrap(),
+        "the rejected second attempt never displaced the staged answer"
+    );
 }
 
 #[test]

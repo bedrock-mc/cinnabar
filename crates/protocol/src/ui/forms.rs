@@ -2,11 +2,11 @@
 //!
 //! A server form arrives as one `ModalFormRequest` packet carrying a JSON
 //! document whose top-level `"type"` member selects the vanilla family
-//! (`"modal"` message dialog, `"form"` button menu, `"custom_form"` element
-//! list; the pinned gophertunnel fixture uses `"form"`). Normalization
-//! validates structure and captures only the family, the title, and the raw
-//! text — never the element model — so oversized or malformed content is a
-//! counted semantic skip instead of session state.
+//! (`"form"` is the fixture-pinned button menu; `"modal"` and `"custom_form"`
+//! are provisional spellings pending a version-matched reference).
+//! Normalization validates structure and captures only the family, the title,
+//! and the raw text — never the element model — so oversized or malformed
+//! content is a counted semantic skip instead of session state.
 
 use std::sync::Arc;
 
@@ -32,6 +32,10 @@ pub enum FormKind {
 }
 
 impl FormKind {
+    /// Only the `"form"` spelling is pinned by a gophertunnel fixture; the
+    /// `"modal"` and `"custom_form"` classifications are provisional pending
+    /// a version-matched wire reference, and anything else stays
+    /// [`FormKind::Unknown`].
     fn from_wire(type_member: &str) -> Self {
         match type_member {
             "modal" => Self::Modal,
@@ -199,16 +203,19 @@ enum MetadataMember {
     Other(IgnoredAny),
 }
 
-/// The one selection this slice wires: the zero-based button index a modal or
-/// menu form answers with. Custom-form element state has no capture surface
-/// yet, so no wrong-shaped custom payload can even be constructed.
+/// The one selection this slice wires: the zero-based integer button index a
+/// menu form answers with. Per gophertunnel v1.57.0
+/// `minecraft/protocol/packet/modal_form_response.go`, menu responses are
+/// integers while modal responses are true/false, so no wrong-shaped modal
+/// payload can even be constructed here. Custom-form element state has no
+/// capture surface yet either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalFormResponseSelection {
     ButtonIndex(u32),
 }
 
 /// Encodes the protocol-2168 submit answer: form id, response data present(1)
-/// with the bare-number button selection, cancel reason absent(0)
+/// with the bare-number menu-selection integer, cancel reason absent(0)
 /// (gophertunnel `minecraft/protocol/packet/modal_form_response.go`).
 pub fn modal_form_submit_response(
     form_id: u32,
