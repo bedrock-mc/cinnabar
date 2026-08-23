@@ -115,6 +115,7 @@ pub enum UiRuntimeError {
     InventoryQueueFull { maximum: usize },
     NonMonotonicLocalTime { previous: u64, actual: u64 },
     NonMonotonicServerTick { previous: u64, actual: u64 },
+    TimedEventRequiresLocalClock { fifo_sequence: u64 },
     ChatRejected(ChatApplyResult),
     ChatAutocomplete(ChatAutocompleteError),
     ChatAutocompleteCatalog(ChatAutocompleteCatalogError),
@@ -733,9 +734,20 @@ impl UiRuntime {
             envelope.local_millis,
             envelope.server_tick,
         )?;
-        let event_millis = envelope
-            .server_tick
-            .map_or(envelope.local_millis, |tick| tick.saturating_mul(50));
+        let timed_event = matches!(
+            envelope.event,
+            UiEvent::Text(_)
+                | UiEvent::CommandOutput(_)
+                | UiEvent::RawText(_)
+                | UiEvent::Title(_)
+                | UiEvent::Hud(_)
+        );
+        if timed_event && envelope.server_tick.is_some() {
+            return Err(UiRuntimeError::TimedEventRequiresLocalClock {
+                fifo_sequence: envelope.fifo_sequence,
+            });
+        }
+        let event_millis = envelope.local_millis;
         let outcome = match envelope.event {
             UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
             UiEvent::CommandOutput(event) => {

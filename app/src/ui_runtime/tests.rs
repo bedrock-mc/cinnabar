@@ -581,14 +581,77 @@ fn chat_focus_requests_context_and_router_releases_gameplay_actions() {
 }
 
 #[test]
-fn local_server_tick_drives_title_clock_when_present() {
+fn timed_title_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
     let mut runtime = UiRuntime::new(1);
     let mut event = envelope(1, 1, title("server clock"));
-    event.local_millis = 9_000;
     event.server_tick = Some(20);
-    runtime.apply(event).unwrap();
 
-    assert_eq!(runtime.hud().title().unwrap().started_millis, 1_000);
+    let result = runtime.apply(event);
+
+    assert_eq!(
+        result,
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+    assert!(runtime.hud().title().is_none());
+}
+
+#[test]
+fn timed_text_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
+    let mut runtime = UiRuntime::new(1);
+    let mut event = envelope(1, 1, text("server clock"));
+    event.server_tick = Some(4);
+
+    assert_eq!(
+        runtime.apply(event),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+    assert!(runtime.chat().messages().is_empty());
+}
+
+#[test]
+fn timed_toast_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
+    let mut runtime = UiRuntime::new(1);
+    let mut event = envelope(
+        1,
+        1,
+        UiEvent::Hud(HudEvent::Toast {
+            title: Arc::from("t"),
+            message: Arc::from("m"),
+        }),
+    );
+    event.server_tick = Some(7);
+
+    assert_eq!(
+        runtime.apply(event),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+}
+
+#[test]
+fn nontimed_objective_event_with_server_tick_keeps_tick_ordering_authority() {
+    let mut runtime = UiRuntime::new(1);
+    let display = |name: &'static str| {
+        UiEvent::Objective(ObjectiveEvent::Display {
+            display_slot: Arc::from("sidebar"),
+            objective_name: Arc::from(name),
+            display_name: Arc::from(name),
+            criteria_name: Arc::from("dummy"),
+            sort_order: 1,
+        })
+    };
+    let mut first = envelope(1, 1, display("kills"));
+    first.server_tick = Some(20);
+    runtime.apply(first).unwrap();
+
+    let mut stale = envelope(1, 2, display("kills"));
+    stale.server_tick = Some(19);
+    assert_eq!(
+        runtime.apply(stale),
+        Err(UiRuntimeError::NonMonotonicServerTick {
+            previous: 20,
+            actual: 19
+        })
+    );
 }
 
 #[test]
