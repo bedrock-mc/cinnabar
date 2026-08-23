@@ -516,6 +516,7 @@ func writeFile(t *testing.T, path string, contents []byte) {
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	stampPrivateACL(t, path)
 }
 
 func assertCachedToken(t *testing.T, path string, want *oauth2.Token) {
