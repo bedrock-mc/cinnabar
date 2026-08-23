@@ -89,12 +89,13 @@ pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
-    CommandOutputMessage, FormRequestEvent, GameModeEvent, GameModeUpdate, HudEvent,
+    CommandOutputMessage, FormKind, FormRequestEvent, GameModeEvent, GameModeUpdate, HudEvent,
     MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
-    MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ObjectiveEvent, PlayerStatus, RawTextEvent,
-    ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory, TextEvent, TextKind,
-    TitleAction, TitleEvent, UiEvent, UiPacketError, chat_input_packet, chat_text_packet,
+    MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ModalFormResponseSelection, ObjectiveEvent,
+    PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory,
+    TextEvent, TextKind, TitleAction, TitleEvent, UiEvent, UiPacketError, chat_input_packet,
+    chat_text_packet, modal_form_cancel_response, modal_form_submit_response,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};

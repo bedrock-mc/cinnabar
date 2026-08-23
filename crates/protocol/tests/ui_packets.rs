@@ -1,15 +1,17 @@
 use bytes::{BufMut, BytesMut};
 use protocol::{
-    BedrockSession, BossAction, BossColor, ChatAutocompleteAction, MAX_CHAT_AUTOCOMPLETE,
-    MAX_FORM_JSON_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError,
-    WorldEvent, decode_batch, into_world_event,
+    BedrockSession, BossAction, BossColor, ChatAutocompleteAction, FormKind, MAX_CHAT_AUTOCOMPLETE,
+    MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
+    ModalFormResponseSelection, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
+    modal_form_cancel_response, modal_form_submit_response,
 };
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::bedrock::version::v1_26_44::{
     ActorUniqueId, BossEventPacket, CommandOutput, CommandOutputMessage, CommandOutputPacket,
-    EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsPlayStatus,
-    EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType, LevelEventPacket, McpePacketName,
-    ModalFormRequestPacket, PlayStatusPacket, SetHealthPacket, SetScorePacket,
+    EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsModalFormCancelReason,
+    EnumsPlayStatus, EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType,
+    LevelEventPacket, McpePacketData, McpePacketName, ModalFormRequestPacket,
+    ModalFormResponsePacket, PlayStatusPacket, SetHealthPacket, SetScorePacket,
     SetScorePacketScoreInfoItem, SetTitlePacket, TextPacket, TextPacketBody,
     TextPacketPayloadMessageOnly, ToastRequestPacket, UpdateSoftEnumPacket, Vec3,
 };
@@ -60,7 +62,13 @@ fn pinned_gophertunnel_ui_fixtures_normalize_without_vendor_types() {
         UiEvent::Title(_)
     ));
     assert!(matches!(decode_ui_fixture(BOSS_FIXTURE), UiEvent::Boss(_)));
-    assert!(matches!(decode_ui_fixture(FORM_FIXTURE), UiEvent::Form(_)));
+    let UiEvent::Form(form) = decode_ui_fixture(FORM_FIXTURE) else {
+        panic!("expected form event")
+    };
+    assert_eq!(form.form_id, 91);
+    assert_eq!(form.kind, FormKind::Menu);
+    assert_eq!(form.title.as_deref(), Some("Fixture"));
+    assert_eq!(form.json.as_ref(), r#"{"type":"form","title":"Fixture"}"#);
 }
 
 #[test]
@@ -100,7 +108,12 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     assert_eq!(boss.style.color, BossColor::RebeccaPurple);
     assert_eq!(boss.style.darken_sky, None);
     assert_eq!(boss.style.create_world_fog, None);
-    assert!(matches!(ui(form).unwrap(), UiEvent::Form(_)));
+    let UiEvent::Form(form) = ui(form).unwrap() else {
+        panic!("expected form event")
+    };
+    assert_eq!(form.form_id, 91);
+    assert_eq!(form.kind, FormKind::Menu);
+    assert_eq!(form.title.as_deref(), Some("Pick"));
     assert!(matches!(
         ui(SetHealthPacket { health: 19 }).unwrap(),
         UiEvent::Hud(protocol::HudEvent::Health { health: 19 })
@@ -423,5 +436,173 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         Err(protocol::WorldPacketError::Ui(
             UiPacketError::InvalidBlockCrackPosition { field: "x", .. }
         ))
+    ));
+}
+
+fn form_event(json: &str) -> Result<protocol::FormRequestEvent, UiPacketError> {
+    let packet = ModalFormRequestPacket {
+        form_id: 3,
+        form_uijson: json.to_owned(),
+    };
+    match ui(packet) {
+        Ok(UiEvent::Form(form)) => Ok(form),
+        Ok(other) => panic!("expected form event, got {other:?}"),
+        Err(error) => Err(error),
+    }
+}
+
+#[test]
+fn server_form_families_classify_from_the_type_member() {
+    let modal = form_event(r#"{"type":"modal","title":"Yes?","content":"Pick one"}"#).unwrap();
+    assert_eq!(modal.kind, FormKind::Modal);
+    assert_eq!(modal.title.as_deref(), Some("Yes?"));
+
+    let custom = form_event(
+        r#"{"type":"custom_form","title":"Settings","content":[{"type":"toggle","text":"On"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(custom.kind, FormKind::Custom);
+
+    // A missing, non-string, or unrecognized type member keeps the raw text
+    // without inventing a family.
+    assert_eq!(
+        form_event(r#"{"title":"T"}"#).unwrap().kind,
+        FormKind::Unknown
+    );
+    assert_eq!(
+        form_event(r#"{"type":7,"title":"T"}"#).unwrap().kind,
+        FormKind::Unknown
+    );
+    assert_eq!(
+        form_event(r#"{"type":"slider_form"}"#).unwrap().kind,
+        FormKind::Unknown
+    );
+
+    // Titles may arrive as non-string rawtext components; the family and the
+    // raw text still survive with no title metadata.
+    let component_title =
+        form_event(r#"{"type":"form","title":{"rawtext":[{"text":"Hi"}]}}"#).unwrap();
+    assert_eq!(component_title.kind, FormKind::Menu);
+    assert_eq!(component_title.title, None);
+}
+
+#[test]
+fn server_form_metadata_survives_escaped_and_nested_payloads() {
+    let escaped = form_event(r#"{"type":"modal","title":"Line\nQuote\"End"}"#).unwrap();
+    assert_eq!(escaped.title.as_deref(), Some("Line\nQuote\"End"));
+
+    // Members beyond the metadata are skipped without interpretation.
+    let deep = r#"{"type":"custom_form","title":"C","elements":[{"a":[1,2,{"b":"x"}]}]}"#;
+    let event = form_event(deep).unwrap();
+    assert_eq!(event.kind, FormKind::Custom);
+}
+
+#[test]
+fn oversized_or_malformed_form_json_is_a_semantic_error_not_wire_fault() {
+    for (json, expected) in [
+        (r#"{"type":"modal""#, UiPacketError::InvalidFormJson),
+        (r#"[1,2,3]"#, UiPacketError::InvalidFormJson),
+        (r#"{} trailing"#, UiPacketError::InvalidFormJson),
+        (r#"{"type" "modal"}"#, UiPacketError::InvalidFormJson),
+    ] {
+        assert_eq!(form_event(json).unwrap_err(), expected);
+    }
+}
+
+#[test]
+fn form_json_nesting_is_bounded_before_any_parse() {
+    let mut json = String::new();
+    for _ in 0..=MAX_FORM_JSON_DEPTH {
+        json.push('[');
+    }
+    for _ in 0..=MAX_FORM_JSON_DEPTH {
+        json.push(']');
+    }
+    assert_eq!(
+        form_event(&json).unwrap_err(),
+        UiPacketError::FormJsonDepthExceeded {
+            depth: MAX_FORM_JSON_DEPTH + 1,
+            max: MAX_FORM_JSON_DEPTH,
+        }
+    );
+}
+
+#[test]
+fn oversized_form_titles_fail_the_shared_ui_text_budget() {
+    let title = "x".repeat(MAX_UI_TEXT_BYTES + 1);
+    let json = format!(r#"{{"type":"form","title":"{title}"}}"#);
+    assert_eq!(
+        form_event(&json).unwrap_err(),
+        UiPacketError::TextTooLong {
+            bytes: MAX_UI_TEXT_BYTES + 1,
+            max: MAX_UI_TEXT_BYTES,
+        }
+    );
+}
+
+#[test]
+fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
+    let session = BedrockSession { shield_item_id: 0 };
+
+    // Submitting button 2 of form 7: batch header, length, packet id 101, then
+    // id, present(1), len 1, '2', cancel absent(0).
+    let submit = modal_form_submit_response(7, ModalFormResponseSelection::ButtonIndex(2));
+    assert_eq!(
+        protocol::encode(&submit, &session).unwrap().as_ref(),
+        &[0xfe, 0x06, 101, 0x07, 0x01, 0x01, b'2', 0x00]
+    );
+    let direct = ModalFormResponsePacket {
+        form_id: 7,
+        json_response: Some("2".to_owned()),
+        form_cancel_reason: None,
+    };
+    assert_eq!(
+        protocol::encode(&submit, &session).unwrap(),
+        protocol::encode(&direct.into(), &session).unwrap()
+    );
+
+    // Dismissing form 7: id, response absent(0), cancel present(1) UserClosed(0).
+    let cancel = modal_form_cancel_response(7);
+    assert_eq!(
+        protocol::encode(&cancel, &session).unwrap().as_ref(),
+        &[0xfe, 0x05, 101, 0x07, 0x00, 0x01, 0x00]
+    );
+    let direct_cancel = ModalFormResponsePacket {
+        form_id: 7,
+        json_response: None,
+        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
+    };
+    assert_eq!(
+        protocol::encode(&cancel, &session).unwrap(),
+        protocol::encode(&direct_cancel.into(), &session).unwrap()
+    );
+
+    // Both directions round-trip through the pinned codec unchanged.
+    let mut encoded = Vec::new();
+    BedrockCodec::encode(
+        &ModalFormResponsePacket {
+            form_id: 7,
+            json_response: Some("2".to_owned()),
+            form_cancel_reason: None,
+        },
+        &mut encoded,
+    )
+    .unwrap();
+    let mut payload = BytesMut::new();
+    wire::write_var_u32(&mut payload, McpePacketName::ModalFormResponsePacket as u32);
+    payload.extend_from_slice(&encoded);
+    let mut frame = BytesMut::new();
+    frame.put_u8(0xfe);
+    wire::write_var_u32(&mut frame, payload.len() as u32);
+    frame.extend_from_slice(&payload);
+    let mut packets = decode_batch(frame.freeze(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    assert_eq!(packets.len(), 1);
+    assert!(matches!(
+        packets.pop().unwrap().data,
+        McpePacketData::ModalFormResponsePacket(ModalFormResponsePacket {
+            form_id: 7,
+            json_response: Some(response),
+            form_cancel_reason: None,
+        }) if response == "2"
     ));
 }

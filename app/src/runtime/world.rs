@@ -624,6 +624,7 @@ pub(crate) fn drive_world_stream(
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
+    ui_runtime.note_stream_dimension(stream.current_dimension());
     synchronize_biome_tints(stream, &mut biome_tints);
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
