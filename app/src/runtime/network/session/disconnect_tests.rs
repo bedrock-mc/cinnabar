@@ -64,6 +64,7 @@ async fn receive_failure_attaches_the_retained_server_disconnect() {
         message,
         decode_error_count,
         server_disconnect,
+        origin,
     }) = controls.recv().await
     else {
         panic!("receive failure must end the pump with Failed");
@@ -71,6 +72,75 @@ async fn receive_failure_attaches_the_retained_server_disconnect() {
     assert_eq!(message, "socket read failed");
     assert_eq!(decode_error_count, 3);
     assert_eq!(server_disconnect.as_ref(), Some(&kicked_disconnect()));
+    assert_eq!(origin, NetworkFailureOrigin::Receive);
+}
+
+#[tokio::test]
+async fn send_failure_reports_the_local_send_origin() {
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: None,
+            physics: None,
+            physics_reanchor: None,
+        })
+        .unwrap();
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+
+    run_network_pump(
+        FailingSendSession,
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    )
+    .await;
+
+    let events = std::iter::from_fn(|| controls.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            NetworkControlEvent::Failed {
+                origin: NetworkFailureOrigin::Send,
+                ..
+            }
+        )),
+        "an outbound write failure must never claim a remote-initiated close"
+    );
+}
+
+#[tokio::test]
+async fn receive_failure_reports_the_remote_receive_origin() {
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+
+    run_network_pump(
+        KickedInboundSession {
+            error: Some("upstream read timed out"),
+            disconnect: None,
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    )
+    .await;
+
+    assert!(matches!(
+        controls.recv().await,
+        Some(NetworkControlEvent::Failed {
+            origin: NetworkFailureOrigin::Receive,
+            ..
+        })
+    ));
 }
 
 #[tokio::test]

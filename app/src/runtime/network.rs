@@ -61,8 +61,8 @@ pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
 };
 pub(crate) use session::{
-    NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
-    session_failure_display, spawn_network,
+    NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
+    WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
@@ -528,8 +528,14 @@ pub(crate) fn receive_network_events(
                 message,
                 decode_error_count,
                 server_disconnect,
+                origin,
             } => {
                 resource_pack_admission.clear_current();
+                // Only a receive-side termination is a remote-initiated close;
+                // latch it while the ticker still reports the live session.
+                if origin == NetworkFailureOrigin::Receive {
+                    movement.note_remote_session_close();
+                }
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();

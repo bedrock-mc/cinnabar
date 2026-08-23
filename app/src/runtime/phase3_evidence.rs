@@ -798,12 +798,19 @@ impl Phase3EvidenceEmitter {
         {
             self.record_violation("terminal_source_or_packet_mismatch");
         }
-        let expected_reconciliation = if candidate_physics {
-            MovementOutboxReconciliation::Drained
+        // A remote-initiated close (RemoteClosed) is not a client-authority
+        // fault: candidate terminals may finish either fully drained or with
+        // the outbound stream healthy when the REMOTE side terminated the
+        // transport. Every other reconciliation state still violates.
+        let outbox_settled = if candidate_physics {
+            matches!(
+                outbox_reconciliation,
+                MovementOutboxReconciliation::Drained | MovementOutboxReconciliation::RemoteClosed
+            )
         } else {
-            MovementOutboxReconciliation::NotAuthoritative
+            outbox_reconciliation == MovementOutboxReconciliation::NotAuthoritative
         };
-        if pending_outbox_depth != 0 || outbox_reconciliation != expected_reconciliation {
+        if pending_outbox_depth != 0 || !outbox_settled {
             self.record_violation("terminal_outbox_not_drained");
         }
         markers.extend(self.take_violation_marker());

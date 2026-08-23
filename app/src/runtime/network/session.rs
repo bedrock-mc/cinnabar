@@ -40,6 +40,22 @@ pub struct NetworkConfig {
     pub client_blob_cache: ClientBlobCache,
 }
 
+/// Which transport leg or lifecycle stage produced a session failure.
+///
+/// Only [`NetworkFailureOrigin::Receive`] represents a remote-initiated
+/// termination of an active play session; every other origin is owned by the
+/// local process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkFailureOrigin {
+    /// The active session's inbound transport failed: the server disconnected
+    /// or the upstream read terminated mid-session.
+    Receive,
+    /// The outbound transport failed while writing a packet.
+    Send,
+    /// The session failed before the play pump started (runtime/login).
+    Startup,
+}
+
 #[derive(Debug)]
 pub enum NetworkControlEvent {
     Bootstrap {
@@ -82,6 +98,7 @@ pub enum NetworkControlEvent {
         message: String,
         decode_error_count: u64,
         server_disconnect: Option<ServerDisconnectEvent>,
+        origin: NetworkFailureOrigin,
     },
     Stopped {
         decode_error_count: u64,
@@ -506,6 +523,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
                         server_disconnect: None,
+                        origin: NetworkFailureOrigin::Startup,
                     });
                     return;
                 }
@@ -533,6 +551,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                                 message: error.to_string(),
                                 decode_error_count: 0,
                                 server_disconnect: None,
+                                origin: NetworkFailureOrigin::Startup,
                             },
                         )
                         .await;

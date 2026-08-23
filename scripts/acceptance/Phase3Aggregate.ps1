@@ -138,10 +138,17 @@ function Write-Phase3FinalAggregate {
     }
     $candidateScenario = [string]$ScenarioManifest.scenario -ceq 'CandidatePhysics'
     Assert-Integer $Terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 0
-    $expectedTerminalReconciliation = if ($candidateScenario) { 'Drained' } else { 'NotAuthoritative' }
+    # RemoteClosed records a remote-initiated close of a healthy outbound
+    # stream; it is an acceptable candidate terminal, not a client fault.
+    $expectedTerminalReconciliation = if ($candidateScenario) {
+        @('Drained', 'RemoteClosed')
+    }
+    else {
+        @('NotAuthoritative')
+    }
     if ($Terminal.outbox_reconciliation -isnot [string] -or
-        [string]$Terminal.outbox_reconciliation -cne $expectedTerminalReconciliation) {
-        throw "terminal outbox reconciliation must finish as $expectedTerminalReconciliation"
+        [string]$Terminal.outbox_reconciliation -cnotin $expectedTerminalReconciliation) {
+        throw "terminal outbox reconciliation must finish as $($expectedTerminalReconciliation -join ' or ')"
     }
     $outboxHighWater = if ($Frames.Count -eq 0) { [uint64]0 } else {
         [uint64](($Frames | Measure-Object -Property outbox_depth -Maximum).Maximum)
