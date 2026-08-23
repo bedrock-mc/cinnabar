@@ -1,6 +1,7 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
 mod event_apply;
+mod forms;
 mod gameplay_authority;
 pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
@@ -14,6 +15,11 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+
+pub use forms::{
+    FormRespondError, LocalFormAction, MAX_RETAINED_SERVER_FORMS, ServerFormEntry, ServerFormStore,
+    flush_form_response,
+};
 
 pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
@@ -182,6 +188,7 @@ pub struct UiRuntime {
     server_selected_slot: Option<u8>,
     gameplay_hud: GameplayHudState,
     inventory_ledger: PlayerInventoryLedger,
+    forms: ServerFormStore,
     inventory_pointer_gui: Option<[f32; 2]>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
@@ -250,6 +257,7 @@ impl UiRuntime {
             server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
             inventory_ledger,
+            forms: ServerFormStore::default(),
             inventory_pointer_gui: None,
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
@@ -389,6 +397,28 @@ impl UiRuntime {
 
     pub const fn inventory_ledger(&self) -> &PlayerInventoryLedger {
         &self.inventory_ledger
+    }
+
+    pub const fn server_forms(&self) -> &ServerFormStore {
+        &self.forms
+    }
+
+    /// Answers one retained server form and stages its outbound
+    /// `ModalFormResponse` for [`flush_form_response`].
+    pub fn respond_to_server_form(
+        &mut self,
+        form_id: u32,
+        action: LocalFormAction,
+    ) -> Result<(), FormRespondError> {
+        self.forms.respond(form_id, action)
+    }
+
+    pub(crate) fn server_forms_mut(&mut self) -> &mut ServerFormStore {
+        &mut self.forms
+    }
+
+    pub(crate) fn note_stream_dimension(&mut self, dimension: i32) {
+        self.forms.note_stream_dimension(dimension);
     }
 
     pub fn inventory_ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
@@ -675,6 +705,7 @@ impl UiRuntime {
         self.server_selected_slot = None;
         self.gameplay_hud.clear();
         self.inventory_ledger.begin_session(session_id);
+        self.forms.clear();
         self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
         self.last_selected_identity_change_millis = None;
@@ -811,7 +842,10 @@ impl UiRuntime {
             ),
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
-            UiEvent::Form(_) => UiApplyOutcome::IgnoredByReceiveStore,
+            UiEvent::Form(event) => {
+                self.forms.admit(event, envelope.fifo_sequence);
+                UiApplyOutcome::Applied
+            }
         };
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);

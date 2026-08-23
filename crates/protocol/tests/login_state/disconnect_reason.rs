@@ -3,7 +3,7 @@ use jolyne::stream::transport::Transport;
 use jolyne::valentine::{
     ActorUniqueId, CameraInstruction, CameraInstructionOptionsSplineInstruction,
     CameraInstructionPacket, CameraPacket, CameraShakePacket, EnumsCameraShakeAction,
-    EnumsCameraShakeType,
+    EnumsCameraShakeType, McpePacketName, ModalFormRequestPacket,
 };
 use protocol::PlaySession;
 
@@ -18,6 +18,8 @@ pub(super) enum PlayEpilogue {
     CameraInstructions,
     OddCameraInstruction,
     TruncatedCameraShake,
+    OddModalForm,
+    TruncatedModalFormRequest,
 }
 
 pub(super) const EPILOGUE_SENTINEL_TIME: i32 = 45_678;
@@ -64,7 +66,31 @@ pub(super) fn camera_instruction_epilogue_packets(epilogue: PlayEpilogue) -> Vec
                 time: EPILOGUE_SENTINEL_TIME,
             }),
         ],
+        PlayEpilogue::OddModalForm => vec![
+            McpePacket::from(ModalFormRequestPacket {
+                form_id: 5,
+                form_uijson: r#"{"type":"form","title""#.to_owned(),
+            }),
+            McpePacket::from(SetTimePacket {
+                time: EPILOGUE_SENTINEL_TIME,
+            }),
+        ],
         _ => Vec::new(),
+    }
+}
+
+/// The deliberately truncated raw packet each fatality epilogue appends, so
+/// every malformed-wire case shares one ingress path.
+pub(super) fn truncated_epilogue_wire(
+    epilogue: PlayEpilogue,
+) -> Option<(McpePacketName, &'static [u8])> {
+    match epilogue {
+        PlayEpilogue::TruncatedDisconnect => Some((McpePacketName::DisconnectPacket, &[0x00])),
+        PlayEpilogue::TruncatedCameraShake => Some((McpePacketName::CameraShakePacket, &[0x00])),
+        PlayEpilogue::TruncatedModalFormRequest => {
+            Some((McpePacketName::ModalFormRequestPacket, &[0x05]))
+        }
+        _ => None,
     }
 }
 
@@ -126,7 +152,9 @@ pub(super) fn disconnect_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePac
         PlayEpilogue::TruncatedDisconnect
         | PlayEpilogue::CameraInstructions
         | PlayEpilogue::OddCameraInstruction
-        | PlayEpilogue::TruncatedCameraShake => vec![],
+        | PlayEpilogue::TruncatedCameraShake
+        | PlayEpilogue::OddModalForm
+        | PlayEpilogue::TruncatedModalFormRequest => vec![],
     }
 }
 

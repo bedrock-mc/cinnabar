@@ -5,14 +5,20 @@ use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_44::{
     BorrowedMcpePacketData, BossEventPacket, CommandOriginDatajson, CommandOutputPacket,
     CommandRequestPacket, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
-    EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, ModalFormRequestPacket,
-    PlayStatusPacket, RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket,
-    SetScorePacket, SetScorePacketScoreInfoItem, TextPacket, TextPacketBody,
-    TextPacketPayloadAuthorAndMessage, ToastRequestPacket, UpdateSoftEnumPacket,
+    EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, PlayStatusPacket,
+    RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
+    SetScorePacketScoreInfoItem, TextPacket, TextPacketBody, TextPacketPayloadAuthorAndMessage,
+    ToastRequestPacket, UpdateSoftEnumPacket,
 };
 
+mod forms;
 mod text;
 
+pub(crate) use forms::normalize_form;
+pub use forms::{
+    FormKind, FormRequestEvent, MAX_FORM_JSON_DEPTH, ModalFormResponseSelection,
+    modal_form_cancel_response, modal_form_submit_response,
+};
 pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
 pub(crate) use text::{normalize_text, normalize_title};
 
@@ -296,12 +302,6 @@ pub struct BossEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormRequestEvent {
-    pub form_id: u32,
-    pub json: Arc<str>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatAutocompleteEvent {
     pub enum_name: Arc<str>,
     pub action: ChatAutocompleteAction,
@@ -471,6 +471,10 @@ pub enum UiPacketError {
     TooManyScores { count: usize, max: usize },
     #[error("form JSON is {bytes} bytes, exceeding the {max}-byte limit")]
     FormTooLarge { bytes: usize, max: usize },
+    #[error("server form JSON is malformed or is not a top-level object")]
+    InvalidFormJson,
+    #[error("server form JSON nests {depth} levels, exceeding the maximum depth {max}")]
+    FormJsonDepthExceeded { depth: usize, max: usize },
     #[error("autocomplete update has {count} suggestions, exceeding the {max}-suggestion limit")]
     TooManyAutocompleteSuggestions { count: usize, max: usize },
     #[error("autocomplete update retains {bytes} UTF-8 bytes, exceeding the {max}-byte limit")]
@@ -494,16 +498,6 @@ fn bounded_text(value: String) -> Result<Arc<str>, UiPacketError> {
         return Err(UiPacketError::TextTooLong {
             bytes: value.len(),
             max: MAX_UI_TEXT_BYTES,
-        });
-    }
-    Ok(Arc::from(value))
-}
-
-fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
-    if value.len() > MAX_FORM_JSON_BYTES {
-        return Err(UiPacketError::FormTooLarge {
-            bytes: value.len(),
-            max: MAX_FORM_JSON_BYTES,
         });
     }
     Ok(Arc::from(value))
@@ -742,13 +736,6 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
             darken_sky: None,
             create_world_fog: None,
         },
-    }))
-}
-
-pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, UiPacketError> {
-    Ok(UiEvent::Form(FormRequestEvent {
-        form_id: packet.form_id,
-        json: bounded_form(packet.form_uijson)?,
     }))
 }
 

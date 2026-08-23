@@ -45,8 +45,11 @@ mod camera_instructions;
 mod disconnect_reason;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
+#[path = "login_state/modal_forms.rs"]
+mod modal_forms;
 use disconnect_reason::{
     PlayEpilogue, camera_instruction_epilogue_packets, disconnect_epilogue_packets,
+    truncated_epilogue_wire,
 };
 
 const RUNTIME_ID: u64 = 0x1234_5678;
@@ -552,17 +555,8 @@ impl ServerScript {
                     traffic.extend(disconnect_epilogue_packets(self.epilogue));
                     traffic.extend(camera_instruction_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&traffic);
-                    if self.epilogue == PlayEpilogue::TruncatedDisconnect {
-                        self.enqueue_encrypted_raw_packet(
-                            McpePacketName::DisconnectPacket,
-                            &[0x00],
-                        );
-                    }
-                    if self.epilogue == PlayEpilogue::TruncatedCameraShake {
-                        self.enqueue_encrypted_raw_packet(
-                            McpePacketName::CameraShakePacket,
-                            &[0x00],
-                        );
+                    if let Some((name, body)) = truncated_epilogue_wire(self.epilogue) {
+                        self.enqueue_encrypted_raw_packet(name, body);
                     }
                 }
                 self.stage = 8;
