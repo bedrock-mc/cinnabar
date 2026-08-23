@@ -1,6 +1,6 @@
 //! Bounded, vendor-independent server camera ingress.
 //!
-//! The 2168 wire carries legacy preset switches (73), shake commands (159),
+//! The 2168 wire carries legacy switch packets (73), shake commands (159),
 //! and the modern instruction union (300). Preset-definition and aim-assist
 //! registries stay outside this surface: they are dropped before decode, so no
 //! unbounded registry payload is ever allocated.
@@ -26,8 +26,7 @@ pub enum CameraEvent {
     Shake(CameraShakeEvent),
 }
 
-/// One legacy CameraPacket: switches the target player's camera to a
-/// server-chosen camera entity or preset unique id.
+/// One legacy CameraPacket carrying two actor unique ids as named by the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CameraSwitchEvent {
     pub camera_unique_id: i64,
@@ -183,6 +182,11 @@ pub(crate) fn normalize_instruction(
                 max: MAX_CAMERA_EASE_IDENTIFIER_BYTES,
             });
         }
+    }
+    if let Some(target) = &instruction.target
+        && let Some(offset) = &target.target_center_offset
+    {
+        validate_position([offset.x, offset.y, offset.z], "target.center_offset")?;
     }
     Ok(CameraEvent::Instruction(CameraInstructionEvent {
         set,

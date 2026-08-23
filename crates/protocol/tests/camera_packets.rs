@@ -319,6 +319,16 @@ fn non_finite_camera_values_are_semantic_skips() {
             },
         }
         .into(),
+        InstructionPacket {
+            camera_instruction: CameraInstruction {
+                target: Some(CameraInstructionOptionsTargetInstruction {
+                    target_center_offset: Some(valentine_vec3(f32::INFINITY, 0.0, 0.0)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        }
+        .into(),
     ] {
         let error = into_world_event(packet, 0).expect_err("non-finite camera data must skip");
         assert!(

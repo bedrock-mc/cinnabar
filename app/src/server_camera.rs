@@ -16,7 +16,9 @@ pub const MAX_SERVER_CAMERA_INSTRUCTIONS: usize = 256;
 /// consumer reads the retained sequence and owns all application semantics.
 ///
 /// A session-generation change or a dimension change clears the retained
-/// instructions; lifetime counters survive so overflow evidence is never lost.
+/// instructions whenever that identity mismatch is next observed, including
+/// idle drains with no incoming camera traffic; lifetime counters survive so
+/// overflow evidence is never lost.
 #[derive(Debug, Default, Resource)]
 pub struct ServerCameraInstructions {
     entries: VecDeque<CommittedCameraEvent>,
@@ -27,6 +29,26 @@ pub struct ServerCameraInstructions {
 }
 
 impl ServerCameraInstructions {
+    /// Rebinds the stored `(session, dimension)` identity, clearing retained
+    /// instructions on any mismatch.
+    ///
+    /// Bounded accepted window: identity is sampled once per drain from the
+    /// caller's current world state rather than per packet. Camera events
+    /// committed into the same poll batch as a dimension switch may therefore
+    /// be admitted under the new identity instead of being cleared as
+    /// prior-dimension state; correcting that requires cross-packet
+    /// reordering this surface deliberately does not perform, and the window
+    /// closes at the next drain after the switch.
+    fn refresh_identity(&mut self, session_generation: u64, dimension: i32) {
+        if let Some(previous) = self.identity
+            && previous != (session_generation, dimension)
+        {
+            self.entries.clear();
+            self.resets = self.resets.saturating_add(1);
+        }
+        self.identity = Some((session_generation, dimension));
+    }
+
     /// Admits committed camera events under one `(session, dimension)` identity.
     ///
     /// An identity change clears the retained instructions before admitting the
@@ -39,13 +61,7 @@ impl ServerCameraInstructions {
         dimension: i32,
         events: impl IntoIterator<Item = CommittedCameraEvent>,
     ) {
-        if let Some(previous) = self.identity
-            && previous != (session_generation, dimension)
-        {
-            self.entries.clear();
-            self.resets = self.resets.saturating_add(1);
-        }
-        self.identity = Some((session_generation, dimension));
+        self.refresh_identity(session_generation, dimension);
         let mut admitted = 0_u64;
         for event in events {
             while self.entries.len() >= MAX_SERVER_CAMERA_INSTRUCTIONS {
@@ -85,7 +101,7 @@ impl ServerCameraInstructions {
         self.dropped_oldest_total
     }
 
-    /// Cumulative session/dimension identity changes observed at admission.
+    /// Cumulative session/dimension identity changes observed at drain time.
     #[must_use]
     pub const fn resets(&self) -> u64 {
         self.resets
@@ -97,7 +113,9 @@ impl ServerCameraInstructions {
     }
 }
 
-/// Moves committed camera events from the world stream into the bounded state.
+/// Moves committed camera events from the world stream into the bounded state,
+/// refreshing the stored identity on every call so an identity change clears
+/// retained instructions even when no camera batch arrived.
 pub(crate) fn drain_committed_camera(
     stream: &mut WorldStream,
     session_generation: u64,
@@ -106,9 +124,10 @@ pub(crate) fn drain_committed_camera(
 ) {
     let events = stream.take_committed_camera();
     if events.is_empty() {
-        return;
+        state.refresh_identity(session_generation, dimension);
+    } else {
+        state.admit(session_generation, dimension, events);
     }
-    state.admit(session_generation, dimension, events);
 }
 
 #[cfg(test)]
