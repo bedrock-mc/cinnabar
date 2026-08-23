@@ -266,7 +266,14 @@ pub(crate) fn refresh_hud_frame(
         };
         if let Some(stack) = stack {
             let identifier = resolve_identifier(stack);
-            *durability = item_facts::durability_fraction(stack, identifier.as_deref());
+            *durability = item_facts::cell_durability_fraction(
+                stack,
+                identifier.as_deref(),
+                runtime
+                    .inventory_ledger()
+                    .slot_overlay(slot)
+                    .map(|overlay| overlay.durability_correction),
+            );
             hotbar_icons[usize::from(slot)] = identifier
                 .as_deref()
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
@@ -303,8 +310,10 @@ pub(crate) fn refresh_hud_frame(
     });
     presentation.set_item_viewmodels(held_item_icon, offhand_icon);
     let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
-    let selected_item_name = selected_stack.and_then(|stack| {
-        resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
+    let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
+        selected_stack.and_then(|stack| {
+            resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
+        })
     });
     let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {

@@ -117,7 +117,39 @@ pub(crate) fn durability_fraction(
     stack: &NetworkItemStack,
     identifier: Option<&str>,
 ) -> Option<f32> {
-    fraction_from_damage(identifier?, item_stack_damage(stack)?)
+    durability_fraction_for_damage(identifier, item_stack_damage(stack)?)
+}
+
+/// The bar fraction for a server-corrected damage value.
+///
+/// Response corrections carry the same maximum-minus-remaining quantity as
+/// the stack's NBT `Damage` tag, so both paths share one fraction contract;
+/// an unknown identifier fails closed exactly like the derived path.
+#[must_use]
+pub(crate) fn durability_fraction_for_damage(identifier: Option<&str>, damage: u32) -> Option<f32> {
+    fraction_from_damage(identifier?, damage)
+}
+
+/// Remaining durability for one HUD cell, preferring an authoritative server
+/// durability correction over locally derived NBT damage. A negative
+/// correction is semantically odd wire data and falls back to local
+/// derivation; a zero correction keeps the bar hidden exactly like a pristine
+/// stack. Reading the wire correction as maximum-minus-remaining damage is a
+/// provisional domain pinned from the reference server implementation, not a
+/// natively measured Bedrock contract; presentation changes only after that
+/// measurement exists.
+#[must_use]
+pub(crate) fn cell_durability_fraction(
+    stack: &NetworkItemStack,
+    identifier: Option<&str>,
+    durability_correction: Option<i32>,
+) -> Option<f32> {
+    match durability_correction {
+        Some(damage) if damage >= 0 => {
+            fraction_from_damage(identifier?, u32::try_from(damage).unwrap_or(u32::MAX))
+        }
+        _ => durability_fraction(stack, identifier),
+    }
 }
 
 /// The bar fraction for a known damage value; the wire decoding itself is
@@ -230,6 +262,113 @@ mod tests {
             None
         );
         assert_eq!(durability_fraction(&NetworkItemStack::empty(), None), None);
+    }
+
+    #[test]
+    fn corrected_damage_drives_the_same_fraction_contract_as_nbt_damage() {
+        // Iron sword maximum 250: a server-corrected damage of 125 is exactly
+        // half, zero damage hides the bar, and unknown identifiers stay shut.
+        assert_eq!(
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                Some("minecraft:iron_sword"),
+                Some(125)
+            ),
+            Some(0.5)
+        );
+        assert_eq!(
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                Some("minecraft:iron_sword"),
+                Some(0)
+            ),
+            None
+        );
+        assert_eq!(
+            cell_durability_fraction(&NetworkItemStack::empty(), Some("minecraft:stick"), Some(5)),
+            None
+        );
+        assert_eq!(
+            cell_durability_fraction(&NetworkItemStack::empty(), None, Some(5)),
+            None
+        );
+        // Over-damage clamps to an empty bar instead of wrapping.
+        assert_eq!(
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                Some("minecraft:iron_sword"),
+                Some(9_999)
+            ),
+            Some(0.0)
+        );
+    }
+
+    /// Builds one stack whose retained user data carries a vanilla `Damage`
+    /// integer, exactly as the fixed little-endian wire encoding stores it.
+    fn stack_with_damage(damage: i32) -> NetworkItemStack {
+        use sha2::{Digest, Sha256};
+        use std::sync::Arc;
+
+        let mut extra = Vec::new();
+        extra.extend_from_slice(&(-1_i16).to_le_bytes());
+        extra.push(1);
+        extra.push(10);
+        extra.extend_from_slice(&0_u16.to_le_bytes());
+        extra.push(3);
+        extra.extend_from_slice(&6_u16.to_le_bytes());
+        extra.extend_from_slice(b"Damage");
+        extra.extend_from_slice(&damage.to_le_bytes());
+        extra.push(0);
+        NetworkItemStack {
+            network_id: 7,
+            metadata: 0,
+            stack_network_id: -1,
+            count: 1,
+            nbt_digest: Sha256::digest(&extra).into(),
+            block_runtime_id: 0,
+            extra_data: Arc::from(extra),
+        }
+    }
+
+    #[test]
+    fn authoritative_corrections_take_precedence_over_derived_damage() {
+        // A correction wins even when the local stack carries no readable damage.
+        let fraction = cell_durability_fraction(
+            &NetworkItemStack::empty(),
+            Some("minecraft:iron_sword"),
+            Some(125),
+        )
+        .unwrap();
+        assert!((fraction - 0.5).abs() < 0.01);
+        // Zero correction keeps the bar hidden exactly like a pristine stack.
+        assert_eq!(
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                Some("minecraft:iron_sword"),
+                Some(0)
+            ),
+            None
+        );
+        // A negative correction is semantically odd wire data: local derivation stands.
+        let damaged = stack_with_damage(125);
+        assert_eq!(
+            cell_durability_fraction(&damaged, Some("minecraft:iron_sword"), Some(-3)),
+            durability_fraction(&damaged, Some("minecraft:iron_sword"))
+        );
+        // Unknown maxima stay hidden under correction too.
+        assert_eq!(
+            cell_durability_fraction(&NetworkItemStack::empty(), Some("minecraft:stick"), Some(5)),
+            None
+        );
+        // Without a correction the existing derivation is reproduced exactly.
+        assert_eq!(
+            cell_durability_fraction(&damaged, Some("minecraft:iron_sword"), None),
+            durability_fraction(&damaged, Some("minecraft:iron_sword"))
+        );
+        assert_eq!(
+            cell_durability_fraction(&NetworkItemStack::empty(), None, Some(125)),
+            None
+        );
     }
 
     #[test]

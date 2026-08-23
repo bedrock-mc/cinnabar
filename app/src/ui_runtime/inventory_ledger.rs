@@ -4,10 +4,14 @@
 //! the two touched cells and never queues a second gesture behind an in-flight
 //! request.
 
+mod response;
+
+pub use response::StackResponseOverlay;
+
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryEvent, ItemStackResponseEvent,
-    NetworkItemStack, Packet, StackRequestAction, StackRequestContainer, StackRequestSlot,
-    StackResponseStatus, container_close_packet, item_stack_request_packet,
+    ContainerIdentity, InventoryAuthority, InventoryEvent, NetworkItemStack, Packet,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    item_stack_request_packet,
 };
 use thiserror::Error;
 
@@ -48,6 +52,7 @@ struct StorageWindow {
     identity: Option<ContainerIdentity>,
     slots: Vec<Option<NetworkItemStack>>,
     revisions: Vec<u64>,
+    overlays: Vec<Option<StackResponseOverlay>>,
     resync_required: bool,
 }
 
@@ -72,6 +77,10 @@ struct Prediction {
     destination: Cell,
     destination_stack: Option<NetworkItemStack>,
     destination_revision: u64,
+    /// The response overlay travelling with each predicted half so a moved
+    /// stack keeps its retained identity until the server restates it.
+    source_overlay: Option<StackResponseOverlay>,
+    destination_overlay: Option<StackResponseOverlay>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +122,9 @@ pub struct PlayerInventoryLedger {
     slots: [Option<NetworkItemStack>; PLAYER_INVENTORY_SLOT_COUNT],
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
+    slot_overlays: [Option<StackResponseOverlay>; PLAYER_INVENTORY_SLOT_COUNT],
     cursor: Option<NetworkItemStack>,
+    cursor_overlay: Option<StackResponseOverlay>,
     cursor_revision: u64,
     next_authority_revision: u64,
     pending: Option<PendingRequest>,
@@ -133,7 +144,9 @@ impl Default for PlayerInventoryLedger {
             slots: std::array::from_fn(|_| None),
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
+            slot_overlays: std::array::from_fn(|_| None),
             cursor: None,
+            cursor_overlay: None,
             cursor_revision: 0,
             next_authority_revision: 1,
             pending: None,
@@ -309,6 +322,8 @@ impl PlayerInventoryLedger {
         let inventory_revision = target_revision;
         let cursor_revision = self.cell_revision(Cell::Cursor);
         let storage_identity = self.storage_identity();
+        let target_overlay = self.cell_overlay(inventory_cell).cloned();
+        let cursor_overlay = self.cell_overlay(Cell::Cursor).cloned();
         let (action, prediction) = match (inventory, cursor) {
             (Some(stack), None) => {
                 let amount = u8::try_from(stack.count)
@@ -332,6 +347,8 @@ impl PlayerInventoryLedger {
                         destination: Cell::Cursor,
                         destination_stack: Some(stack),
                         destination_revision: cursor_revision,
+                        source_overlay: None,
+                        destination_overlay: target_overlay,
                     },
                 )
             }
@@ -357,6 +374,8 @@ impl PlayerInventoryLedger {
                         destination: inventory_cell,
                         destination_stack: Some(stack),
                         destination_revision: inventory_revision,
+                        source_overlay: None,
+                        destination_overlay: cursor_overlay,
                     },
                 )
             }
@@ -376,6 +395,8 @@ impl PlayerInventoryLedger {
                     destination: inventory_cell,
                     destination_stack: Some(cursor),
                     destination_revision: inventory_revision,
+                    source_overlay: target_overlay,
+                    destination_overlay: cursor_overlay,
                 },
             ),
             (None, None) => return Err(InventoryGestureError::EmptyGesture),
@@ -485,6 +506,7 @@ impl PlayerInventoryLedger {
                 if *authority != InventoryAuthority::Server {
                     self.pending = None;
                     self.cursor = None;
+                    self.cursor_overlay = None;
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
                     self.storage = None;
@@ -523,6 +545,7 @@ impl PlayerInventoryLedger {
                         .get(index)
                         .filter(|stack| !stack.is_empty())
                         .cloned();
+                    self.slot_overlays[index] = None;
                     self.known[index] = true;
                     self.slot_revisions[index] = revision;
                 }
@@ -539,6 +562,7 @@ impl PlayerInventoryLedger {
                     .first()
                     .filter(|stack| !stack.is_empty())
                     .cloned();
+                self.cursor_overlay = None;
                 self.cursor_revision = self.take_authority_revision();
                 self.cursor_resync_required = false;
                 self.cancel_pending_for_authority(CellSurface::Cursor, None);
@@ -550,6 +574,7 @@ impl PlayerInventoryLedger {
             {
                 let index = usize::from(update.identity.slot);
                 self.slots[index] = (!update.stack.is_empty()).then(|| update.stack.clone());
+                self.slot_overlays[index] = None;
                 self.known[index] = true;
                 let revision = self.take_authority_revision();
                 self.slot_revisions[index] = revision;
@@ -558,6 +583,7 @@ impl PlayerInventoryLedger {
                 if update.identity.container.slot_type == Some(59) && update.identity.slot == 0 =>
             {
                 self.cursor = (!update.stack.is_empty()).then(|| update.stack.clone());
+                self.cursor_overlay = None;
                 self.cursor_revision = self.take_authority_revision();
                 self.cursor_resync_required = false;
             }
@@ -572,91 +598,6 @@ impl PlayerInventoryLedger {
             }
             InventoryEvent::Response(event) => self.apply_response(event),
             _ => {}
-        }
-    }
-
-    fn apply_response(&mut self, event: &ItemStackResponseEvent) {
-        let Some(request_id) = self.pending_request_id() else {
-            return;
-        };
-        let Some(response) = event
-            .responses
-            .iter()
-            .find(|response| response.request_id == request_id)
-        else {
-            return;
-        };
-        let pending = self.pending.as_ref().expect("pending request exists");
-        if pending.session_generation != self.session_generation
-            || pending.storage_generation.is_some_and(|generation| {
-                self.storage.as_ref().map(|storage| storage.generation) != Some(generation)
-            })
-            || pending.storage_identity.is_some_and(|identity| {
-                self.storage.as_ref().and_then(|storage| storage.identity) != Some(identity)
-            })
-        {
-            self.pending = None;
-            return;
-        }
-        if response.status != StackResponseStatus::Accepted {
-            self.rollback_pending();
-            return;
-        }
-        if response.containers.iter().any(|container| {
-            container.container.slot_type == Some(GENERIC_STORAGE_SLOT_TYPE)
-                && self.pending_identity_mismatch(container.container)
-        }) {
-            self.require_authoritative_recovery();
-            return;
-        }
-        let prediction = &self
-            .pending
-            .as_ref()
-            .expect("the matching pending request was observed")
-            .prediction;
-        if self.cell_revision(prediction.source) != prediction.source_revision
-            || self.cell_revision(prediction.destination) != prediction.destination_revision
-        {
-            self.require_authoritative_recovery();
-            return;
-        }
-        let prediction = self
-            .pending
-            .take()
-            .expect("the matching pending request was observed")
-            .prediction;
-        self.set_cell(prediction.source, prediction.source_stack);
-        self.set_cell(prediction.destination, prediction.destination_stack);
-        self.bump_cell_revision(prediction.source);
-        self.bump_cell_revision(prediction.destination);
-        for container in response.containers.iter() {
-            for correction in container.slots.iter() {
-                let cell = match container.container.slot_type {
-                    Some(12) if usize::from(correction.slot) < PLAYER_INVENTORY_SLOT_COUNT => {
-                        Cell::Inventory(correction.slot)
-                    }
-                    Some(59) if correction.slot == 0 => Cell::Cursor,
-                    Some(GENERIC_STORAGE_SLOT_TYPE)
-                        if self.storage.as_ref().is_some_and(|storage| {
-                            usize::from(correction.slot) < storage.slots.len()
-                        }) =>
-                    {
-                        Cell::Storage(correction.slot)
-                    }
-                    _ => continue,
-                };
-                if correction.count == 0 {
-                    self.set_cell(cell, None);
-                } else if let Some(stack) = self.cell_mut(cell) {
-                    stack.count = u16::from(correction.count);
-                    if correction.item_stack_id > 0 {
-                        stack.stack_network_id = correction.item_stack_id;
-                    }
-                } else {
-                    self.mark_cell_recovery(cell);
-                }
-                self.bump_cell_revision(cell);
-            }
         }
     }
 
@@ -709,6 +650,7 @@ impl PlayerInventoryLedger {
     }
 
     fn set_cell(&mut self, cell: Cell, stack: Option<NetworkItemStack>) {
+        self.clear_cell_overlay(cell);
         match cell {
             Cell::Inventory(slot) => self.slots[usize::from(slot)] = stack,
             Cell::Storage(slot) => {
@@ -795,6 +737,7 @@ impl PlayerInventoryLedger {
             identity: None,
             slots: Vec::new(),
             revisions: Vec::new(),
+            overlays: Vec::new(),
             resync_required: false,
         });
     }
@@ -828,6 +771,7 @@ impl PlayerInventoryLedger {
             .map(|stack| (!stack.is_empty()).then(|| stack.clone()))
             .collect();
         storage.revisions = vec![revision; slots.len()];
+        storage.overlays = vec![None; slots.len()];
         storage.resync_required = false;
         self.cancel_pending_for_authority(CellSurface::Storage, Some(generation));
     }
@@ -850,6 +794,7 @@ impl PlayerInventoryLedger {
         let storage = self.storage.as_mut().expect("storage remains active");
         storage.slots[usize::from(slot)] = (!stack.is_empty()).then(|| stack.clone());
         storage.revisions[usize::from(slot)] = revision;
+        storage.overlays[usize::from(slot)] = None;
     }
 
     fn pending_identity_mismatch(&self, identity: ContainerIdentity) -> bool {
@@ -933,6 +878,7 @@ impl PlayerInventoryLedger {
     }
 
     fn mark_cell_recovery(&mut self, cell: Cell) {
+        self.clear_cell_overlay(cell);
         match cell_surface(cell) {
             CellSurface::Player => self.player_resync_required = true,
             CellSurface::Cursor => self.cursor_resync_required = true,
