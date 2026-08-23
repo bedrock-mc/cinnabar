@@ -39,11 +39,15 @@ use valentine::protocol::wire;
 
 type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 
+#[path = "login_state/camera_instructions.rs"]
+mod camera_instructions;
 #[path = "login_state/disconnect_reason.rs"]
 mod disconnect_reason;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
-use disconnect_reason::{PlayEpilogue, disconnect_epilogue_packets};
+use disconnect_reason::{
+    PlayEpilogue, camera_instruction_epilogue_packets, disconnect_epilogue_packets,
+};
 
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
@@ -546,10 +550,17 @@ impl ServerScript {
                         McpePacket::from(SetTimePacket { time: 34_567 }),
                     ];
                     traffic.extend(disconnect_epilogue_packets(self.epilogue));
+                    traffic.extend(camera_instruction_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&traffic);
                     if self.epilogue == PlayEpilogue::TruncatedDisconnect {
                         self.enqueue_encrypted_raw_packet(
                             McpePacketName::DisconnectPacket,
+                            &[0x00],
+                        );
+                    }
+                    if self.epilogue == PlayEpilogue::TruncatedCameraShake {
+                        self.enqueue_encrypted_raw_packet(
+                            McpePacketName::CameraShakePacket,
                             &[0x00],
                         );
                     }

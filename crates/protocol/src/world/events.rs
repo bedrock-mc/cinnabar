@@ -10,7 +10,7 @@ use valentine::bedrock::version::v1_26_44::EnumsPlayerPositionModeComponentPosit
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
-    EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
+    CameraEvent, EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
 };
 
 use super::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
@@ -334,6 +334,7 @@ pub enum WorldEvent {
     DaylightCycle(DaylightCycleUpdateEvent),
     Weather(WeatherUpdateEvent),
     Audio(AudioEvent),
+    Camera(CameraEvent),
     Actor(ActorEvent),
     ActorEffect(ActorEffectEvent),
     ActorLink(ActorLinkEvent),

@@ -186,6 +186,7 @@ impl WorldStream {
             committed_ui: VecDeque::new(),
             local_movement_speed: None,
             committed_audio: VecDeque::new(),
+            committed_camera: VecDeque::new(),
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),
@@ -233,7 +234,8 @@ impl WorldStream {
             .committed_controls
             .len()
             .saturating_add(self.committed_ui.len())
-            .saturating_add(self.committed_audio.len());
+            .saturating_add(self.committed_audio.len())
+            .saturating_add(self.committed_camera.len());
         if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits) {
             return Err(WorldStreamError::AdmissionFull {
                 sequence,
@@ -318,7 +320,8 @@ impl WorldStream {
             .committed_controls
             .len()
             .saturating_add(self.committed_ui.len())
-            .saturating_add(self.committed_audio.len());
+            .saturating_add(self.committed_audio.len())
+            .saturating_add(self.committed_camera.len());
         if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits)
             || (heavy && self.heavy_sequences.len() >= MAX_ADMITTED_HEAVY_EVENTS)
         {
@@ -433,7 +436,8 @@ impl WorldStream {
                     .len()
                     .saturating_add(self.committed_controls.len())
                     .saturating_add(self.committed_ui.len())
-                    .saturating_add(self.committed_audio.len()),
+                    .saturating_add(self.committed_audio.len())
+                    .saturating_add(self.committed_camera.len()),
             )
             .min(MAX_ADMITTED_HEAVY_EVENTS.saturating_sub(self.heavy_sequences.len()))
             .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.len()))

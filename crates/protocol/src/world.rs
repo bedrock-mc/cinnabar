@@ -242,6 +242,19 @@ pub enum WorldPacketError {
     #[error("MovePlayer {field} is non-finite")]
     NonFiniteMovePlayerField { field: &'static str },
 
+    #[error("camera {field} is non-finite")]
+    NonFiniteCameraField { field: &'static str },
+
+    #[error("camera {field} has {bytes} UTF-8 bytes, exceeding {max}")]
+    CameraIdentifierTooLong {
+        field: &'static str,
+        bytes: usize,
+        max: usize,
+    },
+
+    #[error("camera spline instructions are recognized but not normalized")]
+    UnsupportedCameraSpline,
+
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
 
@@ -439,6 +452,15 @@ pub fn into_world_event(
         McpePacketData::LevelSoundEventPacket(packet) => {
             WorldEvent::Audio(normalize_level_sound(*packet)?)
         }
+        McpePacketData::CameraPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_switch(packet))
+        }
+        McpePacketData::CameraShakePacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_shake(*packet)?)
+        }
+        McpePacketData::CameraInstructionPacket(packet) => WorldEvent::Camera(
+            crate::camera::normalize_instruction(packet.camera_instruction)?,
+        ),
         McpePacketData::BiomeDefinitionListPacket(packet) => {
             // 1.26.40 renames the packet's two collections and splits each
             // entry into a `key` (the string-table index) plus a `value`
