@@ -27,6 +27,13 @@ func protectCacheFile(string) error {
 	return nil
 }
 
+// stampCachePrivacy applies the owner-only mode to a quarantined cache so the
+// moved-aside bytes stop carrying the group/world access that caused the
+// rejection.
+func stampCachePrivacy(path string) error {
+	return os.Chmod(path, 0o600)
+}
+
 // checkUnixCacheOwnership enforces owner-only access: no group or other
 // permission bits may be set, and the file must belong to the effective user
 // running this process. Ownership that cannot be verified fails closed rather

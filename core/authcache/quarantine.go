@@ -15,7 +15,11 @@ const invalidCacheSuffix = ".invalid"
 // quarantineCacheFile renames a rejected cache to a sibling with the
 // .invalid suffix so its bytes survive for inspection while the session
 // proceeds exactly as if no cache existed. An earlier quarantine is replaced;
-// the original file is never deleted.
+// the original file is never deleted. The moved-aside sibling is restamped
+// private on a best-effort basis so the rejected bytes stop carrying the
+// group/world access or ambient grants that provoked the rejection; a stamp
+// failure is tolerated because the session already treats the cache as
+// absent and startup must not fail over retained diagnostic bytes.
 func quarantineCacheFile(path string) (string, error) {
 	target := path + invalidCacheSuffix
 	if _, err := os.Lstat(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -24,6 +28,7 @@ func quarantineCacheFile(path string) (string, error) {
 	if err := os.Rename(path, target); err != nil {
 		return "", err
 	}
+	_ = stampCachePrivacy(target)
 	return target, nil
 }
 

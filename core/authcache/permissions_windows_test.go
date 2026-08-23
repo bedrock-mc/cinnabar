@@ -8,12 +8,38 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 // A foreign-owned file cannot be produced without elevated privileges
-// (SeRestorePrivilege or SeTakeOwnershipPrivilege), so owner rejection is
-// exercised only through the typed policy on other platforms; this file
-// proves the trustee allowlist against real ACLs available unprivileged.
+// (SeRestorePrivilege or SeTakeOwnershipPrivilege), so a real foreign-owned
+// cache is not available to an unprivileged test. The owner rejection is
+// instead exercised through descriptors constructed directly from SDDL, which
+// needs no rights at all; the remaining tests prove the trustee allowlist
+// against real ACLs available unprivileged.
+
+func TestVerifyCacheDescriptorRejectsForeignOwnerWithTrustedDACL(t *testing.T) {
+	// AU (Authenticated Users) sits outside the trustee allowlist while every
+	// ACE in the DACL is trusted, so the only possible rejection source is the
+	// owner check.
+	descriptor, err := windows.SecurityDescriptorFromString(
+		"O:AUD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)")
+	if err != nil {
+		t.Fatalf("SecurityDescriptorFromString() error = %v", err)
+	}
+	assertUnsafePermissionsCode(t, verifyCacheDescriptor(descriptor), "foreign_owner")
+}
+
+func TestVerifyCacheDescriptorRejectsBroadAceUnderTrustedOwner(t *testing.T) {
+	// LocalSystem owns this descriptor, so ownership passes and the lone
+	// Everyone (WD) allow ACE must be what trips the broad_acl rejection.
+	descriptor, err := windows.SecurityDescriptorFromString("O:SYD:P(A;;FA;;;WD)")
+	if err != nil {
+		t.Fatalf("SecurityDescriptorFromString() error = %v", err)
+	}
+	assertUnsafePermissionsCode(t, verifyCacheDescriptor(descriptor), "broad_acl")
+}
 
 func TestCheckCacheSecurityByPathAcceptsProtectedTrustedACL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "microsoft-token.json")

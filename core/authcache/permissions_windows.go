@@ -13,7 +13,9 @@ import (
 // checkCacheSecurityByPath rejects a cache file whose security descriptor
 // grants access to any principal beyond the owner, SYSTEM, and Administrators,
 // or whose owner is not one of those trusted principals, before its contents
-// are read.
+// are read. The group SID is requested alongside owner and DACL so both
+// retrieval sites fetch identical descriptor sections, even though the policy
+// itself judges only the owner and the ACE trustees.
 func checkCacheSecurityByPath(path string, _ fs.FileInfo) error {
 	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.GROUP_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
@@ -25,7 +27,8 @@ func checkCacheSecurityByPath(path string, _ fs.FileInfo) error {
 
 // checkOpenedCacheFileSecurity re-checks the same contract against the open
 // handle so descriptor changes between the path read and the open are still
-// caught without another TOCTOU window.
+// caught without another TOCTOU window. The fs.FileInfo parameter exists only
+// for cross-platform signature parity and is deliberately unused here.
 func checkOpenedCacheFileSecurity(file *os.File, _ fs.FileInfo) error {
 	descriptor, err := windows.GetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.GROUP_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
@@ -120,6 +123,13 @@ func protectCacheFile(path string) error {
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, dacl, nil)
+}
+
+// stampCachePrivacy replaces a quarantined cache's ambient grants with the
+// protected trusted-cache ACL so the moved-aside bytes stop carrying whatever
+// broad access caused the rejection.
+func stampCachePrivacy(path string) error {
+	return protectCacheFile(path)
 }
 
 func sidInTrusted(sid *windows.SID, trusted []*windows.SID) bool {

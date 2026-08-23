@@ -70,6 +70,10 @@ func TestSourceQuarantinesUnprivateCacheAndReauthenticates(t *testing.T) {
 
 	quarantinePath := path + invalidCacheSuffix
 	assertFileContents(t, quarantinePath, originalBytes)
+	// The quarantined sibling is stamped private after the move: it must
+	// satisfy this package's own private-file contract instead of preserving
+	// the group/world access or ambient grant that provoked the rejection.
+	assertQuarantinePrivateBySecurityCheck(t, quarantinePath)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		t.Fatal("replacement cache was never written")
 	} else if err != nil {
@@ -253,5 +257,19 @@ func assertCacheAcceptedBySecurityCheck(t *testing.T, path string) {
 	}
 	if err := checkCacheSecurityByPath(path, info); err != nil {
 		t.Fatalf("checkCacheSecurityByPath(%q) error = %v, want acceptance", path, err)
+	}
+}
+
+// assertQuarantinePrivateBySecurityCheck proves the .invalid sibling passes
+// the same private-file contract enforced against live caches after
+// quarantineCacheFile restamps it.
+func assertQuarantinePrivateBySecurityCheck(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCacheSecurityByPath(path, info); err != nil {
+		t.Fatalf("quarantined cache %q failed the private-file contract: %v", path, err)
 	}
 }
