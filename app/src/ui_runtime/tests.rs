@@ -655,6 +655,50 @@ fn nontimed_objective_event_with_server_tick_keeps_tick_ordering_authority() {
 }
 
 #[test]
+fn timed_command_output_and_raw_text_events_reject_server_ticks() {
+    let mut runtime = UiRuntime::new(1);
+    let mut output = envelope(
+        1,
+        1,
+        UiEvent::CommandOutput(CommandOutputEvent {
+            output_type: Arc::from(""),
+            success_count: 1,
+            messages: Arc::from([]),
+            data: None,
+        }),
+    );
+    output.local_millis = 10;
+    output.server_tick = Some(2);
+    assert_eq!(
+        runtime.apply(output),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+
+    let mut raw = envelope(
+        1,
+        2,
+        literal_raw_text(TextKind::Chat, "{\"rawtext\":[{\"text\":\"hi\"}]}"),
+    );
+    raw.server_tick = Some(3);
+    assert_eq!(
+        runtime.apply(raw),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 2 })
+    );
+}
+
+#[test]
+fn rejected_timed_event_leaves_fifo_and_server_tick_state_unadvanced() {
+    let mut runtime = UiRuntime::new(1);
+    let mut rejected = envelope(1, 5, title("rejected"));
+    rejected.server_tick = Some(9);
+    assert!(runtime.apply(rejected).is_err());
+    assert_eq!(runtime.estimated_server_tick(1_000_000), None);
+
+    let earlier = envelope(1, 4, title("still fresh"));
+    runtime.apply(earlier).unwrap();
+}
+
+#[test]
 fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
     let mut runtime = UiRuntime::new(4);
     let event = BlockCrackEvent {

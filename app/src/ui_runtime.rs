@@ -63,6 +63,9 @@ pub struct SequencedUiEvent {
     pub session_id: u64,
     pub fifo_sequence: u64,
     pub local_millis: u64,
+    /// Ordering metadata only. Timed HUD state stamps exclusively from
+    /// `local_millis`; a populated tick on a timed family is rejected by
+    /// `apply` instead of being converted, so the two clocks can never mix.
     pub server_tick: Option<u64>,
     pub event: UiEvent,
 }
