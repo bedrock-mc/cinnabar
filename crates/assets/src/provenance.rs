@@ -11,8 +11,9 @@ use sha2::{Digest, Sha256};
 /// SHA-256 of a tracked source manifest with CRLF line endings canonicalized
 /// to LF, matching the compiler-side carrier identity regardless of checkout
 /// `autocrlf`. A lone CR or bare LF disables canonicalization and hashes the
-/// bytes verbatim; compilers refuse such manifests outright, so no valid
-/// carrier can carry that identity and any mismatch fails closed.
+/// bytes verbatim; such a checkout hashes differently from its canonical LF
+/// form, so a carrier built from it fails startup validation against the
+/// canonical pin and the mismatch fails closed.
 #[must_use]
 pub fn canonical_source_manifest_sha256(source: &[u8]) -> [u8; 32] {
     if !source.contains(&b'\r') {

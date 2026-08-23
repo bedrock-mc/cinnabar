@@ -181,6 +181,25 @@ fn mcbeas07_rejects_legacy_magic_and_incomplete_or_tampered_provenance() {
     };
     assert!(error.to_string().contains("SHA-256 mismatch"), "{error}");
 
+    // A correctly sealed blob whose identity section was never bound still
+    // decodes to the typed incomplete-provenance error, so library consumers
+    // without startup pinning cannot trust it either.
+    let mut unbound_identity = legacy.clone();
+    unbound_identity[64..192].fill(0);
+    let payload_end = unbound_identity.len() - 32;
+    let reseal: [u8; 32] = Sha256::digest(&unbound_identity[..payload_end]).into();
+    unbound_identity[payload_end..].copy_from_slice(&reseal);
+    let error = match assets::RuntimeAssets::decode(&unbound_identity) {
+        Err(error) => error,
+        Ok(_) => panic!("decoded a blob with an absent identity"),
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("compiled asset provenance is incomplete"),
+        "{error}"
+    );
+
     // Encode refuses incomplete identity outright, so an all-zero identity
     // section can never be serialized in the first place.
     let mut unbound = valid_assets();
