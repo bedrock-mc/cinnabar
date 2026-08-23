@@ -29,7 +29,10 @@ use std::{
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
-use crate::{install_layout::InstallLayout, ui_runtime::presentation::IconRef};
+use crate::{
+    install_layout::InstallLayout, session_cleanup::SessionDirectoryGuard,
+    ui_runtime::presentation::IconRef,
+};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -241,6 +244,10 @@ pub(crate) struct MenuRuntime {
     auth_attempted: bool,
     auth_restart_requested: bool,
     layout: InstallLayout,
+    /// Identity-checked owner of this session's runtime directory; bound
+    /// once a connect attempt provisions it and released on disconnect,
+    /// session failure, exit, or drop.
+    session_directory: Option<SessionDirectoryGuard>,
 }
 
 #[derive(Debug)]
@@ -306,6 +313,7 @@ impl MenuRuntime {
             auth_attempted: false,
             auth_restart_requested: false,
             layout,
+            session_directory: None,
         }
     }
 
@@ -432,6 +440,18 @@ impl MenuRuntime {
     pub(crate) fn next_session_generation(&mut self) -> u64 {
         self.session_generation = self.session_generation.saturating_add(1).max(1);
         self.session_generation
+    }
+
+    /// Takes ownership of the bound session directory, releasing any
+    /// previous binding first so at most one session directory is live.
+    pub(crate) fn bind_session_directory(&mut self, directory: SessionDirectoryGuard) {
+        self.session_directory = Some(directory);
+    }
+
+    /// Releases the session runtime directory now (after the core has been
+    /// stopped); a no-op when nothing is bound.
+    pub(crate) fn release_session_directory(&mut self) {
+        self.session_directory = None;
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {

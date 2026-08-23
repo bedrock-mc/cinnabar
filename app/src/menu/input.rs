@@ -1,5 +1,3 @@
-use std::fs;
-
 use bevy::{
     input::{
         ButtonState,
@@ -15,7 +13,10 @@ use bevy::{
 };
 use ui::UiPoint;
 
-use crate::{runtime::network::NetworkHandle, ui_runtime::presentation::UiPresentationRuntime};
+use crate::{
+    runtime::network::NetworkHandle, session_cleanup::SessionDirectoryGuard,
+    ui_runtime::presentation::UiPresentationRuntime,
+};
 
 use super::{CoreProcessGuard, MenuRuntime, MenuScreen, spawn_core_for_address, wait_for_core};
 
@@ -143,25 +144,34 @@ pub(crate) fn drive_menu_connection(
         let socket_dir = menu
             .layout
             .connect_socket_dir(std::process::id(), generation);
-        if let Err(error) = fs::create_dir_all(&socket_dir)
-            .and_then(|_| {
-                spawn_core_for_address(
-                    &menu.layout,
-                    &socket_dir,
-                    &address,
-                    pending.auth_cache.as_deref(),
-                )
-                .map_err(std::io::Error::other)
-            })
-            .and_then(|child| {
-                guard.replace(child);
-                wait_for_core(&socket_dir).map_err(std::io::Error::other)
-            })
-        {
+        // The guard owns the directory across every teardown path below;
+        // an identity conflict fails this connect loudly instead of
+        // reusing another session's directory.
+        let session_directory = match SessionDirectoryGuard::bind(socket_dir.clone()) {
+            Ok(directory) => directory,
+            Err(error) => {
+                menu.message = Some(format!("Could not start {address}: {error}"));
+                menu.connecting = false;
+                return;
+            }
+        };
+        if let Err(error) = spawn_core_for_address(
+            &menu.layout,
+            &socket_dir,
+            &address,
+            pending.auth_cache.as_deref(),
+        )
+        .map_err(std::io::Error::other)
+        .and_then(|child| {
+            guard.replace(child);
+            wait_for_core(&socket_dir).map_err(std::io::Error::other)
+        }) {
+            drop(session_directory);
             menu.message = Some(format!("Could not start {address}: {error}"));
             menu.connecting = false;
             return;
         }
+        menu.bind_session_directory(session_directory);
         network.shutdown();
         match crate::runtime::network::spawn_network(crate::runtime::network::NetworkConfig {
             session_generation: generation,
@@ -187,6 +197,9 @@ pub(crate) fn drive_menu_connection(
     if menu.take_disconnect_request() {
         network.shutdown();
         guard.stop();
+        // The core is gone, so its endpoint artifact is no longer open and
+        // the identity-checked removal can proceed.
+        menu.release_session_directory();
         let generation = menu.next_session_generation();
         resource_packs.begin_generation(generation);
         runtime.begin_session(generation);
@@ -198,6 +211,7 @@ pub(crate) fn drive_menu_connection(
     if menu.take_exit_request() {
         network.shutdown();
         guard.stop();
+        menu.release_session_directory();
         exits.write(AppExit::Success);
     }
 }
@@ -223,6 +237,7 @@ pub(crate) fn recover_menu_session_failure(
     }
     network.shutdown();
     guard.stop();
+    menu.release_session_directory();
     let generation = menu.next_session_generation();
     resource_packs.begin_generation(generation);
     runtime.begin_session(generation);

@@ -172,6 +172,12 @@ impl InstallLayout {
             .join(format!("catalog-{process_id}.json"))
     }
 
+    /// Root holding per-session runtime directories and endpoint artifacts.
+    #[must_use]
+    pub fn transient_runtime_root(&self) -> &Path {
+        &self.transient_runtime_root
+    }
+
     #[must_use]
     pub fn direct_socket_dir(&self, process_id: u32) -> PathBuf {
         self.transient_runtime_root

@@ -89,6 +89,7 @@ use crate::{
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
         synchronize_semantic_input_authority,
     },
+    session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, flush_chat_network, flush_inventory_network,
@@ -361,6 +362,9 @@ fn render_plugin() -> RenderPlugin {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
+    // Reclaim leftovers of crashed earlier sessions before this process
+    // binds anything new; failures are logged and never fatal.
+    reclaim_stale_session_directories(&layout);
     let connection_requested = args.connection_requested();
     let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
         layout.direct_socket_dir(std::process::id())
@@ -370,13 +374,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         resolve_socket_dir(&args.socket_dir)
     };
     let mut core_process = CoreProcessGuard::default();
-    if let Some(address) = args.address.as_deref() {
-        fs::create_dir_all(&socket_dir).with_context(|| {
+    // Bound before the app is built: the explicit `drop(app)` below stops
+    // the core first, then this holder removes the runtime directory at
+    // scope exit. It also covers early asset failures through ordinary
+    // unwinding.
+    let _direct_session_directory = match args.address.as_deref() {
+        Some(_) => ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
             format!(
-                "create direct-connect socket directory {}",
+                "prepare direct-connect session directory {}",
                 socket_dir.display()
             )
-        })?;
+        })?,
+        None => ScopedSessionDirectory::none(),
+    };
+    if let Some(address) = args.address.as_deref() {
         let child = spawn_core_for_address(&layout, &socket_dir, address, None)
             .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);

@@ -11,6 +11,7 @@ pub mod movement;
 mod present_mode;
 pub mod semantic_controls;
 pub mod server_camera;
+mod session_cleanup;
 pub mod settings_runtime;
 pub mod ui_runtime;
 
