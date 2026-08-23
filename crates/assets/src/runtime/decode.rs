@@ -21,17 +21,21 @@ use crate::{
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
-        MATERIAL_BYTES, MAX_VISUALS, PAGE_BYTES, QUAD_BYTES, TEMPLATE_BYTES, VISUAL_BYTES,
+        MANIFEST_SHA_OFFSET, MATERIAL_BYTES, MAX_VISUALS, OFFSETS_OFFSET, PAGE_BYTES, QUAD_BYTES,
+        REGISTRY_SHA_OFFSETS, TEMPLATE_BYTES, VISUAL_BYTES,
     },
     compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::model_quad_flags_are_valid,
+    provenance::BlobProvenance,
 };
 use std::sync::atomic::AtomicU64;
 
 impl RuntimeAssets {
-    /// Validates the complete `MCBEAS06` envelope and every cross-reference before allocating tables.
+    /// Validates the complete `MCBEAS07` envelope, its embedded source
+    /// provenance, and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
+        let provenance = decode_provenance(bytes)?;
         header.validate_layout(bytes)?;
         let sections = header.sections(bytes);
         validate_hash(bytes, header.offsets[12])?;
@@ -54,9 +58,31 @@ impl RuntimeAssets {
             animation_frames: decode_frames(sections[6])?,
             texture_pages: decode_pages(sections[8], &page_meta)?,
             biomes,
+            provenance,
             missing: AtomicU64::new(0),
         })
     }
+}
+
+/// Reads and validates the fixed-size embedded source identity region. The
+/// trailing envelope hash already proves these bytes were not tampered with;
+/// this rejects absent (all-zero) or otherwise incomplete identities.
+fn decode_provenance(bytes: &[u8]) -> Result<BlobProvenance, AssetError> {
+    let read = |offset: usize| -> [u8; 32] {
+        bytes[offset..offset + 32]
+            .try_into()
+            .expect("fixed identity slice within the validated header")
+    };
+    let provenance = BlobProvenance {
+        source_manifest_sha256: read(MANIFEST_SHA_OFFSET),
+        block_registry_sha256: read(REGISTRY_SHA_OFFSETS[0]),
+        light_registry_sha256: read(REGISTRY_SHA_OFFSETS[1]),
+        biome_registry_sha256: read(REGISTRY_SHA_OFFSETS[2]),
+    };
+    if !provenance.is_complete() {
+        return Err(invalid("compiled asset provenance is incomplete"));
+    }
+    Ok(provenance)
 }
 
 struct Header {
@@ -68,19 +94,16 @@ struct Header {
 impl Header {
     fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEAS06 blob"));
+            return Err(invalid("truncated MCBEAS07 blob"));
         }
         if bytes[..8] != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS06 magic"));
+            return Err(invalid("invalid MCBEAS07 magic"));
         }
         if u32_at(bytes, 8) != BLOB_VERSION
             || u32_at(bytes, 12) != TILE_SIZE
             || u32_at(bytes, 16) != MIP_COUNT
         {
-            return Err(invalid("unsupported MCBEAS06 header"));
-        }
-        if bytes[64..96] != [0; 32] {
-            return Err(invalid("header reserved bytes are non-zero"));
+            return Err(invalid("unsupported MCBEAS07 header"));
         }
         if u32_at(bytes, 52) != TINT_MAP_COUNT as u32 || u32_at(bytes, 56) != TINT_MAP_SIZE {
             return Err(invalid("invalid tint-map dimensions"));
@@ -88,7 +111,7 @@ impl Header {
         let counts = [20, 24, 28, 32, 36, 40, 44, 48].map(|offset| u32_at(bytes, offset) as usize);
         let mut offsets = [0usize; 13];
         for (index, value) in offsets.iter_mut().enumerate() {
-            *value = usize::try_from(u64_at(bytes, 96 + index * 8))
+            *value = usize::try_from(u64_at(bytes, OFFSETS_OFFSET + index * 8))
                 .map_err(|_| invalid("section offset exceeds platform"))?;
         }
         Ok(Self {

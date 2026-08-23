@@ -19,7 +19,8 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
             "$(wildcard crates/asset-compiler/src/*/*/*.rs)"
         ),
         concat!(
-            "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) ",
+            "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) ",
+            "$(VANILLA_SOURCE_MANIFEST) $(BLOCK_REGISTRY) ",
             "$(LIGHT_REGISTRY) $(BIOME_REGISTRY)"
         ),
         "assets: $(ASSET_BLOB)",

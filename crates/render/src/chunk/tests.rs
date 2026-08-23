@@ -86,6 +86,12 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: assets::BlobProvenance {
+                source_manifest_sha256: [0xA5; 32],
+                block_registry_sha256: [0x5A; 32],
+                light_registry_sha256: [0x33; 32],
+                biome_registry_sha256: [0x3C; 32],
+            },
         };
         let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
         RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")

@@ -24,9 +24,16 @@ use crate::{
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS06";
-pub const BLOB_VERSION: u32 = 6;
-pub(crate) const HEADER_BYTES: usize = 200;
+pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS07";
+pub const BLOB_VERSION: u32 = 7;
+pub(crate) const HEADER_BYTES: usize = 296;
+/// Header offset of the embedded source-manifest SHA-256 identity.
+pub(crate) const MANIFEST_SHA_OFFSET: usize = 64;
+/// Header offsets of the embedded block/light/biome registry SHA-256
+/// identities, in the exact order the compiler consumed the inputs.
+pub(crate) const REGISTRY_SHA_OFFSETS: [usize; 3] = [96, 128, 160];
+/// Header offset where the canonical section-offset table begins.
+pub(crate) const OFFSETS_OFFSET: usize = 192;
 pub(crate) const HASH_BYTES: usize = 32;
 pub(crate) const VISUAL_BYTES: usize = 44;
 pub(crate) const HASH_ENTRY_BYTES: usize = 8;
@@ -39,7 +46,8 @@ pub(crate) const PAGE_BYTES: usize = 64;
 pub(crate) const BIOME_RULE_BYTES: usize = 36;
 pub(crate) const MAX_VISUALS: usize = 65_536;
 
-/// Serializes canonical, bounded `MCBEAS06` compiler output with a trailing SHA-256.
+/// Serializes canonical, bounded `MCBEAS07` compiler output with embedded
+/// source provenance and a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     validate_compiled(compiled)?;
     let sizes = [
@@ -113,7 +121,12 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     ] {
         push_u32(&mut bytes, value);
     }
-    bytes.extend_from_slice(&[0; 32]);
+    debug_assert_eq!(bytes.len(), MANIFEST_SHA_OFFSET);
+    bytes.extend_from_slice(&compiled.provenance.source_manifest_sha256);
+    bytes.extend_from_slice(&compiled.provenance.block_registry_sha256);
+    bytes.extend_from_slice(&compiled.provenance.light_registry_sha256);
+    bytes.extend_from_slice(&compiled.provenance.biome_registry_sha256);
+    debug_assert_eq!(bytes.len(), OFFSETS_OFFSET);
     for offset in offsets {
         push_offset(&mut bytes, offset, "section offset")?;
     }
@@ -223,6 +236,9 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
 }
 
 fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
+    if !compiled.provenance.is_complete() {
+        return Err(invalid("compiled asset provenance is incomplete"));
+    }
     validate_biome_assets(&compiled.biomes)?;
     bounded("visual", compiled.visuals.len(), MAX_VISUALS)?;
     if compiled.light_properties.len() != compiled.visuals.len() {

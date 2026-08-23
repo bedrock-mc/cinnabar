@@ -18,6 +18,9 @@ use crate::metrics::AssetMetrics;
 
 mod font_fallback;
 use font_fallback::diagnostic_font_assets;
+mod world_provenance;
+pub(crate) use world_provenance::pinned_block_registry_bytes;
+pub use world_provenance::pinned_world_provenance;
 
 pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
 pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
@@ -38,6 +41,7 @@ pub const FETCH_COMMAND: &str =
 pub const COMPILE_COMMAND: &str = concat!(
     "cargo run -p asset-compiler --bin assetc -- compile ",
     "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
+    "--source-manifest assets/vanilla-source.json ",
     "--registry crates/assets/data/block-registry-v1001.bin ",
     "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
     "--biome-registry crates/assets/data/biome-registry-v1001.bin ",
@@ -334,6 +338,27 @@ pub enum AssetStartupError {
         "required entity asset carrier at {path} has stale provenance (expected source manifest SHA-256 {expected}, found {actual})\nrebuild local entity assets with: {rebuild_command}"
     )]
     EntityAssetsProvenance {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "compiled asset carrier at {path} has stale provenance ({component}: expected SHA-256 {expected}, found {actual})\nrebuild stale local assets with: {rebuild_command}"
+    )]
+    WorldAssetsProvenance {
+        path: PathBuf,
+        component: &'static str,
+        expected: String,
+        actual: String,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "required atmosphere asset carrier at {path} has stale provenance (expected source manifest SHA-256 {expected}, found {actual})\nrebuild local atmosphere assets with: {rebuild_command}"
+    )]
+    AtmosphereAssetsProvenance {
         path: PathBuf,
         expected: String,
         actual: String,
@@ -667,6 +692,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
                 rebuild_command: COMPILE_COMMAND,
             })?,
         );
+    world_provenance::verify_world_carrier(&selection.path, &runtime)?;
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
     let atmosphere = load_atmosphere_assets(&selection.path)?;
     let entities = load_entity_assets(&selection.path)?;
@@ -838,28 +864,11 @@ pub(crate) fn shell_quote_path(path: &Path) -> String {
 }
 
 /// SHA-256 of the manifest with line endings canonicalized to LF, matching
-/// the compiler-side identity regardless of checkout autocrlf.
+/// the compiler-side identity regardless of checkout autocrlf. One shared
+/// implementation lives in the `assets` crate and serves both sides.
+#[must_use]
 pub fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
-    let source = source.as_bytes();
-    if !source.contains(&b'\r') {
-        return Sha256::digest(source).into();
-    }
-    let mut canonical = Vec::with_capacity(source.len());
-    let mut index = 0;
-    while index < source.len() {
-        match source[index] {
-            b'\r' if source.get(index + 1) == Some(&b'\n') => {
-                canonical.push(b'\n');
-                index += 2;
-            }
-            b'\r' | b'\n' => return Sha256::digest(source).into(),
-            byte => {
-                canonical.push(byte);
-                index += 1;
-            }
-        }
-    }
-    Sha256::digest(canonical).into()
+    assets::canonical_source_manifest_sha256(source.as_bytes())
 }
 
 fn load_atmosphere_assets(
@@ -909,6 +918,7 @@ fn load_atmosphere_assets(
             rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
         }
     })?);
+    world_provenance::verify_atmosphere_carrier(&path, &runtime)?;
     Ok(LoadedAtmosphereAssets {
         runtime,
         identity,
@@ -967,26 +977,5 @@ fn runtime_metrics(
         missing_mapping_count: runtime.missing_count(),
         diagnostic_quad_count: 0,
         diagnostic_attribution: Default::default(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::canonical_source_manifest_sha256;
-
-    #[test]
-    fn canonical_source_manifest_hash_is_line_ending_invariant() {
-        assert_eq!(
-            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\r\n}\r\n"),
-            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
-        );
-    }
-
-    #[test]
-    fn mixed_source_manifest_line_endings_do_not_match_the_canonical_pin() {
-        assert_ne!(
-            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\n}\r\n"),
-            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
-        );
     }
 }

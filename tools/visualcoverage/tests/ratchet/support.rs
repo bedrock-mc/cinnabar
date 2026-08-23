@@ -116,6 +116,12 @@ pub(super) fn blob_with_visuals(records: &[RegistryRecord], visuals: &[BlockVisu
             }]
             .into_boxed_slice(),
         },
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     encode_blob(&compiled).expect("encode fixture").into_vec()
 }
@@ -359,6 +365,12 @@ pub(super) fn strict_blob(
                 downfall_bits: 0,
             }]
             .into_boxed_slice(),
+        },
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
         },
     };
     encode_blob(&compiled)

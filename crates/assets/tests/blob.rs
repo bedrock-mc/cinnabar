@@ -1,17 +1,26 @@
 use std::fs;
 
 use assets::{
-    AssetError, BLOB_MAGIC, BLOB_VERSION, BlockFlags, BlockVisual, CompiledAssets,
+    AssetError, BLOB_MAGIC, BLOB_VERSION, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT,
     Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, VisualSupport, encode_blob, write_blob_atomic,
 };
 use sha2::{Digest, Sha256};
 
+/// Complete synthetic identity for self-round-tripping fixtures. These bytes
+/// never match a real pinned source expectation.
+const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
+    source_manifest_sha256: [0xA5; 32],
+    block_registry_sha256: [0x5A; 32],
+    light_registry_sha256: [0x33; 32],
+    biome_registry_sha256: [0x3C; 32],
+};
+
 #[test]
-fn mcbeas06_exact_bytes() {
-    assert_eq!(&BLOB_MAGIC, b"MCBEAS06");
-    assert_eq!(BLOB_VERSION, 6);
+fn mcbeas07_exact_bytes() {
+    assert_eq!(&BLOB_MAGIC, b"MCBEAS07");
+    assert_eq!(BLOB_VERSION, 7);
     let texture = assets::TextureRef::new(1, 17).expect("bounded texture ref");
     assert_eq!(texture.raw(), 0x8000_0011);
 
@@ -92,12 +101,12 @@ fn mcbeas06_exact_bytes() {
     ]
     .into_boxed_slice();
 
-    let bytes = encode_blob(&fixture).expect("encode every MCBEAS06 table");
-    assert_eq!(bytes.len(), 1_576_176);
+    let bytes = encode_blob(&fixture).expect("encode every MCBEAS07 table");
+    assert_eq!(bytes.len(), 1_576_272);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "bae821140b52da84c6cdfc2f4b2c618208cae0faa42595de0fdc277af534b101",
-        "the complete every-table fixture is the byte-exact MCBEAS06 golden"
+        "d88e956031e09c441e58889c0f768b9f87c4e10104e22dde0c28493d955826ad",
+        "the complete every-table fixture is the byte-exact MCBEAS07 golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
     assert_eq!(read_u32(&bytes, 28), 2);
@@ -106,14 +115,14 @@ fn mcbeas06_exact_bytes() {
     assert_eq!(read_u32(&bytes, 40), 1);
     assert_eq!(read_u32(&bytes, 44), 2);
     assert_eq!(read_u32(&bytes, 48), 2);
-    let visuals = read_u64(&bytes, 96) as usize;
+    let visuals = read_u64(&bytes, 192) as usize;
     assert_eq!(bytes[visuals + 27], 0xf0);
     assert_eq!(bytes[visuals + 44 + 27], 0x0c);
-    let materials = read_u64(&bytes, 112) as usize;
-    let templates = read_u64(&bytes, 120) as usize;
-    let quads = read_u64(&bytes, 128) as usize;
-    let animations = read_u64(&bytes, 136) as usize;
-    let frames = read_u64(&bytes, 144) as usize;
+    let materials = read_u64(&bytes, 208) as usize;
+    let templates = read_u64(&bytes, 216) as usize;
+    let quads = read_u64(&bytes, 224) as usize;
+    let animations = read_u64(&bytes, 232) as usize;
+    let frames = read_u64(&bytes, 240) as usize;
     assert_eq!(
         &bytes[visuals + 44..visuals + 68],
         &[
@@ -135,6 +144,54 @@ fn mcbeas06_exact_bytes() {
     let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode exact fixture");
     assert_eq!(runtime.model_quads(), fixture.model_quads.as_ref());
     assert_eq!(runtime.animations(), fixture.animations.as_ref());
+    assert_eq!(runtime.provenance(), &FIXTURE_PROVENANCE);
+}
+
+#[test]
+fn mcbeas07_rejects_legacy_magic_and_incomplete_or_tampered_provenance() {
+    // A structurally complete pre-bump blob is rejected by its magic before
+    // any table is trusted.
+    let legacy = encode_blob(&valid_assets())
+        .expect("encode current schema")
+        .into_vec();
+    let mut old_schema = legacy.clone();
+    old_schema[..8].copy_from_slice(b"MCBEAS06");
+    let error = match assets::RuntimeAssets::decode(&old_schema) {
+        Err(error) => error,
+        Ok(_) => panic!("decoded a legacy MCBEAS06 blob"),
+    };
+    assert!(
+        error.to_string().contains("invalid MCBEAS07 magic"),
+        "{error}"
+    );
+
+    // An identity section of the wrong length cannot exist inside a valid
+    // envelope: truncating into the identity region breaks the header minimum
+    // and re-lengthening shifts the trailing hash.
+    let mut truncated = legacy.clone();
+    truncated.truncate(160);
+    assert!(assets::RuntimeAssets::decode(&truncated).is_err());
+
+    // Tampered identity bytes are caught by the trailing envelope hash.
+    let mut tampered = legacy.clone();
+    tampered[64] ^= 0xff;
+    let error = match assets::RuntimeAssets::decode(&tampered) {
+        Err(error) => error,
+        Ok(_) => panic!("decoded a blob with tampered identity bytes"),
+    };
+    assert!(error.to_string().contains("SHA-256 mismatch"), "{error}");
+
+    // Encode refuses incomplete identity outright, so an all-zero identity
+    // section can never be serialized in the first place.
+    let mut unbound = valid_assets();
+    unbound.provenance = BlobProvenance::ZEROED;
+    let error = encode_blob(&unbound).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("compiled asset provenance is incomplete"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -146,7 +203,7 @@ fn mcbeas04_rejects_overlapping_pages() {
     ]
     .into_boxed_slice();
     let mut bytes = encode_blob(&compiled).expect("encode two pages").into_vec();
-    let pages_offset = u64::from_le_bytes(bytes[152..160].try_into().unwrap()) as usize;
+    let pages_offset = u64::from_le_bytes(bytes[248..256].try_into().unwrap()) as usize;
     let first_payload = u64::from_le_bytes(
         bytes[pages_offset + 16..pages_offset + 24]
             .try_into()
@@ -154,7 +211,7 @@ fn mcbeas04_rejects_overlapping_pages() {
     );
     bytes[pages_offset + 64 + 16..pages_offset + 64 + 24]
         .copy_from_slice(&first_payload.to_le_bytes());
-    let payload_length = u64::from_le_bytes(bytes[192..200].try_into().unwrap()) as usize;
+    let payload_length = u64::from_le_bytes(bytes[288..296].try_into().unwrap()) as usize;
     let digest = Sha256::digest(&bytes[..payload_length]);
     bytes[payload_length..].copy_from_slice(&digest);
     assert!(assets::RuntimeAssets::decode(&bytes).is_err());
@@ -461,7 +518,7 @@ fn mcbeas04_accepts_only_canonical_referenced_connected_template_groups() {
     }
 }
 
-const HEADER_BYTES: usize = 200;
+const HEADER_BYTES: usize = 296;
 
 fn texture_array(layers: u32) -> TextureArray {
     let mips = [16_u32, 8, 4, 2, 1]
@@ -503,6 +560,7 @@ fn valid_assets() -> CompiledAssets {
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(texture_array(1))].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: FIXTURE_PROVENANCE,
     }
 }
 
@@ -674,17 +732,20 @@ fn blob_has_checked_little_endian_sections_and_trailing_sha256() {
     assert_eq!(read_u32(&bytes, 52), 8, "tint-map count");
     assert_eq!(read_u32(&bytes, 56), 256, "tint-map size");
     assert_eq!(read_u32(&bytes, 60), 0, "biome-rule count");
-    assert_eq!(&bytes[64..96], &[0; 32]);
+    assert_eq!(&bytes[64..96], &FIXTURE_PROVENANCE.source_manifest_sha256);
+    assert_eq!(&bytes[96..128], &FIXTURE_PROVENANCE.block_registry_sha256);
+    assert_eq!(&bytes[128..160], &FIXTURE_PROVENANCE.light_registry_sha256);
+    assert_eq!(&bytes[160..192], &FIXTURE_PROVENANCE.biome_registry_sha256);
 
-    let visuals_offset = read_u64(&bytes, 96) as usize;
-    let hashes_offset = read_u64(&bytes, 104) as usize;
-    let materials_offset = read_u64(&bytes, 112) as usize;
-    let pages_offset = read_u64(&bytes, 152) as usize;
-    let textures_offset = read_u64(&bytes, 160) as usize;
-    let tint_maps_offset = read_u64(&bytes, 168) as usize;
-    let biome_rules_offset = read_u64(&bytes, 176) as usize;
-    let biome_names_offset = read_u64(&bytes, 184) as usize;
-    let payload_length = read_u64(&bytes, 192) as usize;
+    let visuals_offset = read_u64(&bytes, 192) as usize;
+    let hashes_offset = read_u64(&bytes, 200) as usize;
+    let materials_offset = read_u64(&bytes, 208) as usize;
+    let pages_offset = read_u64(&bytes, 248) as usize;
+    let textures_offset = read_u64(&bytes, 256) as usize;
+    let tint_maps_offset = read_u64(&bytes, 264) as usize;
+    let biome_rules_offset = read_u64(&bytes, 272) as usize;
+    let biome_names_offset = read_u64(&bytes, 280) as usize;
+    let payload_length = read_u64(&bytes, 288) as usize;
     assert_eq!(visuals_offset, HEADER_BYTES);
     assert_eq!(hashes_offset, visuals_offset + 44);
     assert_eq!(materials_offset, hashes_offset + 8);

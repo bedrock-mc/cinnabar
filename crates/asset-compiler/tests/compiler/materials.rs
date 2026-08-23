@@ -105,6 +105,7 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     let registry = directory.path().join("registry.bin");
     let light_registry = directory.path().join("light-registry.bin");
     let biome_registry = directory.path().join("biome-registry.bin");
+    let source_manifest = directory.path().join("vanilla-source.json");
     let output_blob = directory.path().join("vanilla-v1001.mcbea");
     let registry_fixture = registry_bytes(&records);
     fs::write(&registry, &registry_fixture).expect("write registry fixture");
@@ -115,10 +116,13 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     .expect("write light registry fixture");
     fs::write(&biome_registry, biome_registry_bytes(0, "minecraft:plains"))
         .expect("write biome registry fixture");
+    fs::write(&source_manifest, br#"{"schema":1}"#).expect("write source manifest fixture");
     write_biome_fixture(&resource_pack);
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["compile", "--pack"])
         .arg(&resource_pack)
+        .arg("--source-manifest")
+        .arg(&source_manifest)
         .arg("--registry")
         .arg(&registry)
         .arg("--light-registry")
@@ -140,6 +144,44 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
             "compiled 4 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
             output_blob.display()
         )
+    );
+
+    // The compiled carrier must bind exactly the consumed inputs so startup
+    // provenance validation can reject stale or foreign blobs.
+    let bytes = fs::read(&output_blob).expect("read compiled blob");
+    let runtime = RuntimeAssets::decode(&bytes).expect("decode compiled blob");
+    let expected = BlobProvenance {
+        source_manifest_sha256: canonical_source_manifest_sha256(br#"{"schema":1}"#),
+        block_registry_sha256: Sha256::digest(&registry_fixture).into(),
+        light_registry_sha256: Sha256::digest(
+            light_registry_bytes(&registry_fixture, records.len()).as_slice(),
+        )
+        .into(),
+        biome_registry_sha256: Sha256::digest(biome_registry_bytes(0, "minecraft:plains")).into(),
+    };
+    assert_eq!(runtime.provenance(), &expected);
+
+    // Recompiling the same inputs is byte-deterministic including identity.
+    let repeat = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["compile", "--pack"])
+        .arg(&resource_pack)
+        .arg("--source-manifest")
+        .arg(&source_manifest)
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--light-registry")
+        .arg(&light_registry)
+        .arg("--biome-registry")
+        .arg(&biome_registry)
+        .arg("--out")
+        .arg(directory.path().join("repeat.mcbea"))
+        .output()
+        .expect("rerun assetc compile");
+    assert!(repeat.status.success());
+    assert_eq!(
+        fs::read(directory.path().join("repeat.mcbea")).expect("read repeated blob"),
+        bytes,
+        "identical inputs must produce byte-identical carriers"
     );
 }
 

@@ -108,6 +108,12 @@ fn light_test_assets() -> RuntimeAssets {
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
 }

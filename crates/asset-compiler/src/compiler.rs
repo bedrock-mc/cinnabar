@@ -84,6 +84,18 @@ use visuals::{
 
 const MAX_VISUALS: usize = 65_536;
 
+/// Complete placeholder identity embedded by library-level compilation. The
+/// `assetc compile` command overwrites this with the exact canonical manifest
+/// and registry input hashes before encoding; decode rejects incomplete
+/// identity and startup rejects carriers still carrying these bytes, so the
+/// placeholder can never reach gameplay or claim a real source pin.
+const UNBOUND_PROVENANCE: assets::BlobProvenance = assets::BlobProvenance {
+    source_manifest_sha256: [0xA5; 32],
+    block_registry_sha256: [0x5A; 32],
+    light_registry_sha256: [0xC3; 32],
+    biome_registry_sha256: [0x3C; 32],
+};
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Descriptor {
     path: Box<str>,
@@ -404,6 +416,7 @@ fn compile_pack_inner(
         animation_frames,
         texture_pages,
         biomes,
+        provenance: UNBOUND_PROVENANCE,
     })
 }
 

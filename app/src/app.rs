@@ -448,7 +448,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 "prepare validated runtime entity geometry for actor rendering: {error:?}"
             )
         })?;
-    let collision_breg = include_bytes!("../../crates/assets/data/block-registry-v1001.bin");
+    let collision_breg = crate::asset_startup::pinned_block_registry_bytes();
     let collision_records = assets::read_registry(collision_breg)
         .context("decode checked-in protocol-1001 collision registry")?;
     let collision_preg =

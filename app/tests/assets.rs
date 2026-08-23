@@ -10,7 +10,7 @@ use std::{
 };
 
 use ::assets::{
-    AtmosphereRole, AtmosphereTexture, BlockFlags, BlockVisual, CompiledAssets,
+    AtmosphereRole, AtmosphereTexture, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
     CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
     EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, Material, ModelQuad,
     ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip,
@@ -24,8 +24,8 @@ use bedrock_client::asset_startup::{
     FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
     LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
     atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
-    font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
-    select_asset_path_in_context,
+    font_asset_path, load_runtime_assets, local_font_asset_path, pinned_world_provenance,
+    select_asset_path, select_asset_path_in_context,
 };
 use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
@@ -44,6 +44,15 @@ fn temporary_directory(label: &str) -> PathBuf {
     fs::create_dir_all(&path).unwrap();
     path
 }
+
+/// Complete synthetic identity for blobs that are decoded directly and never
+/// startup-validated. These bytes never match a real pinned expectation.
+const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
+    source_manifest_sha256: [0xA5; 32],
+    block_registry_sha256: [0x5A; 32],
+    light_registry_sha256: [0x33; 32],
+    biome_registry_sha256: [0x3C; 32],
+};
 
 fn synthetic_blob() -> Box<[u8]> {
     let mips = [16_u32, 8, 4, 2, 1]
@@ -93,11 +102,19 @@ fn synthetic_blob() -> Box<[u8]> {
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 2, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: *pinned_world_provenance(),
     })
     .unwrap()
 }
 
 fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
+    synthetic_atmosphere_blob_with_manifest(seed, canonical_vanilla_source_manifest_sha256())
+}
+
+fn synthetic_atmosphere_blob_with_manifest(
+    seed: u8,
+    source_manifest_sha256: [u8; 32],
+) -> Box<[u8]> {
     let textures = [
         (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
         (
@@ -131,7 +148,7 @@ fn synthetic_atmosphere_blob(seed: u8) -> Box<[u8]> {
     .collect::<Vec<_>>()
     .into_boxed_slice();
     encode_atmosphere_blob(&CompiledAtmosphereAssets {
-        source_manifest_sha256: [0x77; 32],
+        source_manifest_sha256,
         textures,
         biome_profiles: Box::new([]),
         fog_profiles: Box::new([]),
@@ -355,6 +372,7 @@ fn runtime_with_block_identity(
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: FIXTURE_PROVENANCE,
     })
     .unwrap();
     ::assets::RuntimeAssets::decode(&blob).unwrap()
@@ -948,6 +966,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         concat!(
             "cargo run -p asset-compiler --bin assetc -- compile ",
             "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
+            "--source-manifest assets/vanilla-source.json ",
             "--registry crates/assets/data/block-registry-v1001.bin ",
             "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
             "--biome-registry crates/assets/data/biome-registry-v1001.bin ",
@@ -1195,6 +1214,7 @@ fn startup_log_uses_the_font_selection_summary_instead_of_claiming_diagnostic_is
 }
 
 include!("assets/make_targets.rs");
+include!("assets/provenance_tests.rs");
 
 #[test]
 fn app_composition_layout_remains_split_by_runtime_and_acceptance_owner() {
