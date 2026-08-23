@@ -188,13 +188,18 @@ impl UiRuntime {
         }
     }
 
-    /// The authoritative custom display name an accepted stack response
-    /// retained for the selected hotbar cell, when nonempty. Presentation
-    /// prefers it over the localized identifier fallback.
+    /// The authoritative custom display name the selected hotbar cell
+    /// presents, following the same predicted stack authority as
+    /// [`Self::selected_stack_snapshot`]: during a pending gesture the
+    /// travelling overlay of the predicted half serves beside the predicted
+    /// stack. Presentation prefers it over the localized identifier
+    /// fallback.
     pub(crate) fn selected_stack_custom_name(&self) -> Option<Arc<str>> {
         let slot = self.selected_hotbar_slot()?;
-        let overlay = self.inventory_ledger.slot_overlay(slot)?;
-        (!overlay.custom_name.is_empty()).then(|| Arc::clone(&overlay.custom_name))
+        self.inventory_ledger
+            .presented_slot_overlay(slot)?
+            .custom_name
+            .clone()
     }
 
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {

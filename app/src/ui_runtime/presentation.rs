@@ -58,6 +58,8 @@ use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, hud_position, rect};
+#[cfg(test)]
+pub(crate) use publish::refresh_hud_frame;
 pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
 use retained_hud::{
     BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,

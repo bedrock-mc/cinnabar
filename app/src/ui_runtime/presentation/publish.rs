@@ -266,13 +266,19 @@ pub(crate) fn refresh_hud_frame(
         };
         if let Some(stack) = stack {
             let identifier = resolve_identifier(stack);
+            // The selected cell presents the predicted stack, so its
+            // durability follows the travelling predicted overlay; every
+            // other cell presents the committed mirror with the committed
+            // overlay.
+            let overlay = if selected_slot == Some(slot) {
+                runtime.inventory_ledger().presented_slot_overlay(slot)
+            } else {
+                runtime.inventory_ledger().slot_overlay(slot)
+            };
             *durability = item_facts::cell_durability_fraction(
                 stack,
                 identifier.as_deref(),
-                runtime
-                    .inventory_ledger()
-                    .slot_overlay(slot)
-                    .map(|overlay| overlay.durability_correction),
+                overlay.and_then(|overlay| overlay.durability_correction),
             );
             hotbar_icons[usize::from(slot)] = identifier
                 .as_deref()
