@@ -56,11 +56,18 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	}
 
 	cached, err := load(config.Path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
-		}
+	switch {
+	case err == nil:
+	case errors.Is(err, fs.ErrNotExist):
 		return acquire(ctx, config.Path, writer, request, refresh)
+	case errors.Is(err, errUnsafePermissions):
+		if _, quarantineErr := quarantineCacheFile(config.Path); quarantineErr != nil {
+			return nil, fmt.Errorf("quarantine Microsoft auth cache: %w", quarantineErr)
+		}
+		notifyQuarantinedCache(writer, config.Path, err)
+		return acquire(ctx, config.Path, writer, request, refresh)
+	default:
+		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
 	}
 
 	source := refresh(cached, writer)
@@ -146,6 +153,9 @@ func load(path string) (*oauth2.Token, error) {
 	if err := checkRegular(pathInfo); err != nil {
 		return nil, err
 	}
+	if err := checkCacheSecurityByPath(path, pathInfo); err != nil {
+		return nil, err
+	}
 	if pathInfo.Size() > maxCacheSize {
 		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
 	}
@@ -175,6 +185,9 @@ func load(path string) (*oauth2.Token, error) {
 	}
 	if !os.SameFile(pathInfo, openInfo) {
 		return nil, errors.New("auth cache changed while opening")
+	}
+	if err := checkOpenedCacheFileSecurity(file, openInfo); err != nil {
+		return nil, err
 	}
 	if err := parents.revalidate(); err != nil {
 		return nil, err
@@ -282,6 +295,11 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 		return err
 	}
 	tempPath := filepath.Join(dir, tempName)
+	// Restrict the temporary cache to trusted principals before any token
+	// bytes are written so the published file never inherits ambient grants.
+	if err := protectCacheFile(tempPath); err != nil {
+		return err
+	}
 	tempInfo, err := file.Stat()
 	if err != nil {
 		_ = file.Close()

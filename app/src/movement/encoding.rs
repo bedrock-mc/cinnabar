@@ -2,12 +2,15 @@ use protocol::PlayerInputFlags;
 
 use super::PhysicsMovementSample;
 
-/// Raw jump button state used to derive raw-carrier edges between ticks.
+/// Previous-tick input lanes used to derive per-family edges between ticks.
 ///
-/// Only the physical-button families (`JumpDown`, the raw pressed/released/
-/// current carriers, and the press announcement) read this tracker. Processed
-/// families derive from each sample's [`ProcessedMovementState`] instead, so a
-/// button release cannot end a simulated state that is still in progress.
+/// Only the physical-button jump families (`JumpDown`, the raw pressed/
+/// released/current carriers, and the press announcement) track the raw
+/// button. The sneak and sprint lanes intentionally track each previous
+/// sample's *processed* states — exactly what [`input_flags`] compares
+/// against — so a future pose-gated rule that narrows processed state while
+/// the raw button stays held cannot re-emit stop edges every tick. Today no
+/// such rule exists, so these bytes are unchanged.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
     jumping: bool,
@@ -19,8 +22,8 @@ impl From<&PhysicsMovementSample> for HeldInput {
     fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
             jumping: sample.jumping,
-            sneaking: sample.sneaking,
-            sprinting: sample.sprinting,
+            sneaking: sample.processed.sneaking,
+            sprinting: sample.processed.sprinting,
         }
     }
 }

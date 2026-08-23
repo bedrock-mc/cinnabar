@@ -55,12 +55,21 @@ func TestFirstTimeSequencePersistsWithoutLeakingTokens(t *testing.T) {
 
 func TestCachedSequenceDoesNotRequestDeviceCode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token.json")
-	contents, _ := json.Marshal(validToken("cached-access", "cached-refresh"))
-	if err := os.WriteFile(path, append(contents, '\n'), 0o600); err != nil {
+	// Seed the cache through the real persistence path so the fixture matches
+	// what this program actually publishes, including its private-file
+	// contract.
+	_, err := authcache.Source(context.Background(), authcache.Config{
+		Path: path,
+		Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+			return validToken("cached-access", "cached-refresh"), nil
+		},
+		Refresh: staticRefresh,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	err := Run(context.Background(), Config{
+	err = Run(context.Background(), Config{
 		Path: path, Writer: &output,
 		DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
 			t.Fatal("cached flow requested a device code")

@@ -559,6 +559,15 @@ impl LocalPhysicsController {
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
+            // The simulator clears a retained post-jump cooldown whenever the
+            // button is not held and then consumes requests only while
+            // grounded with that cooldown expired (`jump_pressed` +
+            // pre-tick ground contact + zero effective delay). Capture the
+            // same pre-tick facts so the initiation fold below claims exactly
+            // the requests the simulator can consume: a fresh press edge
+            // arriving inside the cooldown is refused by the simulator and
+            // must not assert an initiation here.
+            let jump_cooldown_cleared = !input.jumping || state.jump_delay == 0;
             let jump_repeated = input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
@@ -588,13 +597,14 @@ impl LocalPhysicsController {
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
                     // The simulator can only consume a jump request from the
-                    // ground (its own grounded gate), so initiation is the
-                    // consumed request on a tick that started grounded. The
-                    // arc then rides the airborne window until the simulator
+                    // ground with its post-jump cooldown expired, so
+                    // initiation is the consumed request on a tick that
+                    // started grounded and clear of the cooldown. The arc
+                    // then rides the airborne window until the simulator
                     // reports ground contact again.
                     let processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
-                        input.jump_pressed && grounded_before_tick,
+                        input.jump_pressed && grounded_before_tick && jump_cooldown_cleared,
                         state.on_ground,
                         input.sneaking,
                         input.sprinting,
@@ -800,20 +810,24 @@ impl LocalPhysicsController {
         // like velocity is rebuilt: input facts (initiation) stay as recorded,
         // simulated outcomes (grounded state) come from the fresh replay, and
         // the window entering the replayed range follows the server-corrected
-        // anchor — an initiation there keeps it open, a reported ground contact
-        // closes it, and otherwise the previously carried arc continues. A
-        // correction therefore cannot invent an arc that was never simulated,
-        // and a real airborne continuation survives the rewind.
+        // anchor. A server-reported ground contact at that anchor outranks a
+        // retained initiation: the correction just contradicted this client's
+        // takeoff prediction, and seeding the arc open there would assert
+        // `Jumping` through ticks the server says are grounded. Otherwise an
+        // initiation at the anchor keeps the window open and a previously
+        // carried arc continues, so a correction cannot invent an arc that was
+        // never simulated while a real airborne continuation survives the
+        // rewind.
         let mut jump_arc = {
             let corrected_sample = self
                 .sample_history
                 .iter()
                 .find(|sample| sample.tick == tick)
                 .expect("retained correction sample was checked");
-            if corrected_sample.processed.jump_initiated {
-                true
-            } else if on_ground {
+            if on_ground {
                 false
+            } else if corrected_sample.processed.jump_initiated {
+                true
             } else {
                 corrected_sample.processed.jump_arc_active
             }
