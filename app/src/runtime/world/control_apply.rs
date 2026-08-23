@@ -50,7 +50,11 @@ pub(crate) fn apply_committed_control(
             );
             // The wire proves server-authoritative rotation for every
             // admitted correction shape; non-finite values were already
-            // rejected upstream and are guarded again defensively.
+            // rejected upstream and are guarded again defensively. Applying it
+            // mid-look can briefly yank the camera toward the server's lagged
+            // angles (the same exposure the MovePlayer path already has); this
+            // provisional policy stays until live observation proves whether
+            // correction-heavy servers need a bounded rotation-blend window.
             if correction.yaw.is_finite() && correction.pitch.is_finite() {
                 view.set_rotation(bedrock_camera_rotation(correction.yaw, correction.pitch));
             }

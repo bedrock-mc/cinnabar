@@ -18,6 +18,7 @@ use super::{
     LocalPhysicsController, MovementOutboxReconciliation, MovementSource, MovementTicker,
     OUTBOX_CAPACITY, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample,
     PhysicsSampleContext, flush_player_auth_inputs, reconcile_candidate_physics_correction,
+    reconcile_committed_correction,
 };
 use protocol::PlayerInputMode;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
@@ -462,4 +463,67 @@ fn a_correction_snap_re_engages_the_settle_window() {
         .enqueue_completed_physics(settled_sample(resume_tick + 19, [8.2, 71.620_01, 9.0]))
         .unwrap();
     assert_eq!(recorded_sends(&mut ticker, 32), vec![resume_tick + 19]);
+}
+
+#[test]
+fn a_confirming_correction_leaves_the_settle_gate_disengaged() {
+    const SETTLED_RUN: u64 = 20;
+
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(250),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 5);
+
+    // An exactly-agreeing correction confirms without mutating prediction or
+    // engaging a fresh settle window: the in-progress settled run survives,
+    // so lifting needs only the remaining fifteen samples instead of twenty.
+    let initial_run = frame.samples.len() as u64;
+    let mut ticker = physics_ticker(7, 100);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    assert_eq!(recorded_sends(&mut ticker, 16), Vec::<u64>::new());
+
+    let position = physics.network_position().unwrap();
+    let (tick, on_ground) = {
+        let state = physics.state().unwrap();
+        (state.tick, state.on_ground)
+    };
+    assert_eq!(
+        reconcile_committed_correction(
+            &mut ticker,
+            &mut physics,
+            position,
+            tick,
+            on_ground,
+            &VersionedFloor(1),
+        ),
+        Ok(None)
+    );
+
+    let resume_tick = ticker.next_tick();
+    for offset in 0..(SETTLED_RUN - initial_run - 1) {
+        ticker
+            .enqueue_completed_physics(settled_sample(
+                resume_tick + offset,
+                [position[0] + 0.1, position[1], position[2]],
+            ))
+            .unwrap();
+    }
+    assert_eq!(recorded_sends(&mut ticker, 32), Vec::<u64>::new());
+    ticker
+        .enqueue_completed_physics(settled_sample(
+            resume_tick + SETTLED_RUN - initial_run - 1,
+            [position[0] + 0.1, position[1], position[2]],
+        ))
+        .unwrap();
+    assert_eq!(
+        recorded_sends(&mut ticker, 32),
+        vec![resume_tick + SETTLED_RUN - initial_run - 1]
+    );
 }

@@ -652,6 +652,71 @@ fn knockback_overlays_evolve_identically_through_a_confirming_correction() {
 }
 
 #[test]
+fn a_teleport_shaped_correction_clears_queued_knockback_overlays() {
+    let world = VersionedWall(1);
+    let build_twin = |world: &VersionedWall| {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+        let frame = physics.advance_with_context(
+            Duration::from_millis(100),
+            forward_physics_input(),
+            PhysicsSampleContext::default(),
+            world,
+        );
+        let ticker = ticker_with_samples(frame.samples.iter().cloned());
+        (physics, ticker)
+    };
+    let (mut overlaid, mut overlaid_ticker) = build_twin(&world);
+    let (mut plain, mut plain_ticker) = build_twin(&world);
+    // Pending for the next tick when no correction intervenes.
+    overlaid.queue_server_motion([0.5, 6.0, 0.125]);
+
+    let mut distant = overlaid.network_position().unwrap();
+    distant[2] += CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS + 1.0;
+    let tick = overlaid.state().unwrap().tick;
+    assert_eq!(
+        overlaid.correction_shape(distant, false),
+        CorrectionShape::TeleportSnap
+    );
+    reconcile_committed_correction(
+        &mut overlaid_ticker,
+        &mut overlaid,
+        distant,
+        tick,
+        false,
+        &world,
+    )
+    .unwrap()
+    .expect("teleport-shaped corrections apply");
+    reconcile_committed_correction(&mut plain_ticker, &mut plain, distant, tick, false, &world)
+        .unwrap()
+        .expect("the overlay-free twin snaps identically");
+
+    let overlaid_frame = overlaid.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let plain_frame = plain.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+
+    assert_eq!(
+        overlaid.state(),
+        plain.state(),
+        "the snap must clear the queued impulse exactly as if it never existed"
+    );
+    assert_eq!(
+        overlaid_frame.samples.last().map(|sample| sample.velocity),
+        plain_frame.samples.last().map(|sample| sample.velocity)
+    );
+}
+
+#[test]
 fn nearby_corrections_replay_and_distant_ones_snap_like_the_teleport_anchor_path() {
     let world = VersionedWall(1);
     let mut physics = LocalPhysicsController::default();

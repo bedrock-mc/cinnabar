@@ -58,8 +58,9 @@ impl LocalPhysicsController {
     pub fn correction_shape(&self, network_position: [f32; 3], on_ground: bool) -> CorrectionShape {
         if !network_position.into_iter().all(f32::is_finite) {
             // Position resolution bounds non-finite input upstream, so this is
-            // pure defense: an unresolvable anchor follows the teleport path,
-            // whose hard reanchor already fails closed on non-finite data.
+            // pure defense: an unresolvable anchor is rejected by the
+            // controller's InvalidAnchor guard before any shape-specific path
+            // runs, leaving prediction state untouched.
             return CorrectionShape::TeleportSnap;
         }
         let Some(state) = self.state() else {

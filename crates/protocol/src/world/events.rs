@@ -312,7 +312,10 @@ impl From<valentine::bedrock::version::v1_26_44::EnumsRewindType> for MovementCo
 /// is a pitch/yaw pair only; the packet carries no head-yaw field. `position`
 /// keeps its raw value including non-finite sentinels because downstream
 /// resolution owns that documented recovery policy, while `delta` and the
-/// rotation are validated finite before this event exists.
+/// rotation are validated finite before this event exists. The wire's optional
+/// `vehicle_angular_velocity` is decoded and deliberately dropped here because
+/// vehicle-subject records are not admitted downstream yet; riding rewind will
+/// need to retain it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerMovementCorrectionEvent {
     pub position: [f32; 3],
