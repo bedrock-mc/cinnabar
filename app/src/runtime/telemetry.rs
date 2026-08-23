@@ -49,6 +49,7 @@ use crate::{
     },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext, flush_player_auth_inputs,
+        pending_trace_line, write_trace_line,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -345,7 +346,20 @@ pub(crate) fn send_player_auth_inputs(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet| network.send_physics_packet(identity, packet),
+        |identity, packet| {
+            // Opt-in diagnostic trace of the exact outbound movement stream.
+            // The line is formatted before the send attempt and written only
+            // after the transport accepted the packet, so retried samples are
+            // traced exactly once, at their successful hand-off.
+            let trace_line = pending_trace_line(identity.session_generation, &packet);
+            let sent = network.send_physics_packet(identity, packet);
+            if sent.is_ok()
+                && let Some(line) = trace_line
+            {
+                write_trace_line(&line);
+            }
+            sent
+        },
     );
     match result {
         Ok(_) => {}

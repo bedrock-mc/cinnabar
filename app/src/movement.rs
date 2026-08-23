@@ -14,6 +14,7 @@ mod evidence;
 mod physics;
 mod runtime_system;
 mod speed_authority;
+mod trace;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
 pub(crate) use effects::LocalMovementEffectTimeline;
 use encoding::{input_flags, normalize_move_vector};
@@ -29,6 +30,7 @@ pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
 use tokio::sync::watch;
+pub(crate) use trace::{pending_trace_line, write_trace_line};
 
 pub const OUTBOX_CAPACITY: usize = 32;
 

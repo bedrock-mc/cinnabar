@@ -6,6 +6,10 @@ use valentine::bedrock::version::v1_26_44::{
     EnumsPlayerAuthInputPacketPayloadInputData, PlayerAuthInputPacket, PlayerInputTick, Vec2, Vec3,
 };
 
+mod trace;
+
+pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
+
 use crate::Packet;
 
 /// Input flags exposed to the app without leaking the generated Valentine packet API.
@@ -165,92 +169,108 @@ pub fn player_auth_input(
     .into())
 }
 
+use EnumsPlayerAuthInputPacketPayloadInputData as Item;
+
+/// One pinned input flag: its generated wire variant paired with the exact
+/// diagnostic name used by [`player_auth_input_trace_sample`]. Row `n` is bit
+/// `n`; each generated variant's ordinal equals its row, so keeping the name
+/// beside the variant in one table is what keeps trace names from drifting
+/// away from the encoder's spelling.
+type InputFlagItem = EnumsPlayerAuthInputPacketPayloadInputData;
+
+const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
+    (Item::Ascend, "Ascend"),
+    (Item::Descend, "Descend"),
+    (Item::NorthJump, "NorthJump"),
+    (Item::JumpDown, "JumpDown"),
+    (Item::SprintDown, "SprintDown"),
+    (Item::ChangeHeight, "ChangeHeight"),
+    (Item::Jumping, "Jumping"),
+    (Item::AutoJumpingInWater, "AutoJumpingInWater"),
+    (Item::Sneaking, "Sneaking"),
+    (Item::SneakDown, "SneakDown"),
+    (Item::Up, "Up"),
+    (Item::Down, "Down"),
+    (Item::Left, "Left"),
+    (Item::Right, "Right"),
+    (Item::UpLeft, "UpLeft"),
+    (Item::UpRight, "UpRight"),
+    (Item::WantUp, "WantUp"),
+    (Item::WantDown, "WantDown"),
+    (Item::WantDownSlow, "WantDownSlow"),
+    (Item::WantUpSlow, "WantUpSlow"),
+    (Item::Sprinting, "Sprinting"),
+    (Item::AscendBlock, "AscendBlock"),
+    (Item::DescendBlock, "DescendBlock"),
+    (Item::SneakToggleDown, "SneakToggleDown"),
+    (Item::PersistSneak, "PersistSneak"),
+    (Item::StartSprinting, "StartSprinting"),
+    (Item::StopSprinting, "StopSprinting"),
+    (Item::StartSneaking, "StartSneaking"),
+    (Item::StopSneaking, "StopSneaking"),
+    (Item::StartSwimming, "StartSwimming"),
+    (Item::StopSwimming, "StopSwimming"),
+    (Item::StartJumping, "StartJumping"),
+    (Item::StartGliding, "StartGliding"),
+    (Item::StopGliding, "StopGliding"),
+    (Item::PerformItemInteraction, "PerformItemInteraction"),
+    (Item::PerformBlockActions, "PerformBlockActions"),
+    (Item::PerformItemStackRequest, "PerformItemStackRequest"),
+    (Item::HandledTeleport, "HandledTeleport"),
+    (Item::Emoting, "Emoting"),
+    (Item::MissedSwing, "MissedSwing"),
+    (Item::StartCrawling, "StartCrawling"),
+    (Item::StopCrawling, "StopCrawling"),
+    (Item::StartFlying, "StartFlying"),
+    (Item::StopFlying, "StopFlying"),
+    (Item::ClientAckServerData, "ClientAckServerData"),
+    (
+        Item::IsInClientPredictedVehicle,
+        "IsInClientPredictedVehicle",
+    ),
+    (Item::PaddlingLeft, "PaddlingLeft"),
+    (Item::PaddlingRight, "PaddlingRight"),
+    (Item::BlockBreakingDelayEnabled, "BlockBreakingDelayEnabled"),
+    (Item::HorizontalCollision, "HorizontalCollision"),
+    (Item::VerticalCollision, "VerticalCollision"),
+    (Item::DownLeft, "DownLeft"),
+    (Item::DownRight, "DownRight"),
+    (Item::StartUsingItem, "StartUsingItem"),
+    (
+        Item::IsCameraRelativeMovementEnabled,
+        "IsCameraRelativeMovementEnabled",
+    ),
+    (
+        Item::IsRotControlledByMoveDirection,
+        "IsRotControlledByMoveDirection",
+    ),
+    (Item::StartSpinAttack, "StartSpinAttack"),
+    (Item::StopSpinAttack, "StopSpinAttack"),
+    (Item::IsHotbarOnlyTouch, "IsHotbarOnlyTouch"),
+    (Item::JumpReleasedRaw, "JumpReleasedRaw"),
+    (Item::JumpPressedRaw, "JumpPressedRaw"),
+    (Item::JumpCurrentRaw, "JumpCurrentRaw"),
+    (Item::SneakReleasedRaw, "SneakReleasedRaw"),
+    (Item::SneakPressedRaw, "SneakPressedRaw"),
+    (Item::SneakCurrentRaw, "SneakCurrentRaw"),
+    (Item::InternalUpdate, "InternalUpdate"),
+];
+
 /// Expands the bitset the app owns into the flag list 1.26.40 puts on the wire.
 ///
 /// The input flags stopped being a bitset and became a length-prefixed list of
 /// the flag IDs that are set (gophertunnel's `protocol.InputFlagList`). Each
 /// generated variant's ordinal is exactly the bit position the protocol-1001
-/// bitset used, so bit `n` maps to the variant declared `n`th and the app-facing
-/// `PlayerInputFlags` constants keep their meaning unchanged.
+/// bitset used, so bit `n` maps to the table row declared `n`th and the
+/// app-facing [`PlayerInputFlags`] constants keep their meaning unchanged.
 fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPayloadInputData> {
-    use EnumsPlayerAuthInputPacketPayloadInputData as Item;
-
-    const ITEMS: [Item; 66] = [
-        Item::Ascend,
-        Item::Descend,
-        Item::NorthJump,
-        Item::JumpDown,
-        Item::SprintDown,
-        Item::ChangeHeight,
-        Item::Jumping,
-        Item::AutoJumpingInWater,
-        Item::Sneaking,
-        Item::SneakDown,
-        Item::Up,
-        Item::Down,
-        Item::Left,
-        Item::Right,
-        Item::UpLeft,
-        Item::UpRight,
-        Item::WantUp,
-        Item::WantDown,
-        Item::WantDownSlow,
-        Item::WantUpSlow,
-        Item::Sprinting,
-        Item::AscendBlock,
-        Item::DescendBlock,
-        Item::SneakToggleDown,
-        Item::PersistSneak,
-        Item::StartSprinting,
-        Item::StopSprinting,
-        Item::StartSneaking,
-        Item::StopSneaking,
-        Item::StartSwimming,
-        Item::StopSwimming,
-        Item::StartJumping,
-        Item::StartGliding,
-        Item::StopGliding,
-        Item::PerformItemInteraction,
-        Item::PerformBlockActions,
-        Item::PerformItemStackRequest,
-        Item::HandledTeleport,
-        Item::Emoting,
-        Item::MissedSwing,
-        Item::StartCrawling,
-        Item::StopCrawling,
-        Item::StartFlying,
-        Item::StopFlying,
-        Item::ClientAckServerData,
-        Item::IsInClientPredictedVehicle,
-        Item::PaddlingLeft,
-        Item::PaddlingRight,
-        Item::BlockBreakingDelayEnabled,
-        Item::HorizontalCollision,
-        Item::VerticalCollision,
-        Item::DownLeft,
-        Item::DownRight,
-        Item::StartUsingItem,
-        Item::IsCameraRelativeMovementEnabled,
-        Item::IsRotControlledByMoveDirection,
-        Item::StartSpinAttack,
-        Item::StopSpinAttack,
-        Item::IsHotbarOnlyTouch,
-        Item::JumpReleasedRaw,
-        Item::JumpPressedRaw,
-        Item::JumpCurrentRaw,
-        Item::SneakReleasedRaw,
-        Item::SneakPressedRaw,
-        Item::SneakCurrentRaw,
-        Item::InternalUpdate,
-    ];
-
     let bits = flags.bits();
     (0..u64::BITS)
         .filter(|bit| bits & (1u64 << bit) != 0)
         .map(|bit| {
-            ITEMS
+            INPUT_FLAG_ITEMS
                 .get(bit as usize)
-                .cloned()
+                .map(|(item, _name)| *item)
                 .unwrap_or(Item::Unknown(bit as i32))
         })
         .collect()
