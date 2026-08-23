@@ -617,8 +617,8 @@ Assert-Integer $terminal.free_camera_packet_count 'terminal.free_camera_packet_c
 Assert-Integer $terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 32
 if ($terminal.outbox_reconciliation -isnot [string] -or
     [string]$terminal.outbox_reconciliation -cnotin @(
-        'Drained', 'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored',
-        'NotAuthoritative'
+        'Drained', 'RemoteClosed', 'SocketPending', 'BudgetDeferred', 'TransportRestored',
+        'FullRestored', 'NotAuthoritative'
     )) {
     throw 'terminal outbox_reconciliation is unsupported'
 }
@@ -627,7 +627,7 @@ if ($candidateScenario) {
         [uint64]$terminal.physics_packet_count -eq 0 -or
         [uint64]$terminal.free_camera_packet_count -ne 0 -or
         [uint64]$terminal.pending_outbox_depth -ne 0 -or
-        [string]$terminal.outbox_reconciliation -cne 'Drained') {
+        [string]$terminal.outbox_reconciliation -cnotin @('Drained', 'RemoteClosed')) {
         throw 'CandidatePhysics terminal does not prove Physics packet production'
     }
 }

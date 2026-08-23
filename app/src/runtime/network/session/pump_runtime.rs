@@ -220,6 +220,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                     message: error.to_string(),
                                     decode_error_count: session.decode_error_count(),
                                     server_disconnect,
+                                    origin: NetworkFailureOrigin::Send,
                                 },
                             )
                             .await;
@@ -266,6 +267,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                         message: error.to_string(),
                         decode_error_count: session.decode_error_count(),
                         server_disconnect,
+                        origin: NetworkFailureOrigin::Receive,
                     },
                 )
                 .await;

@@ -17,13 +17,14 @@ use protocol::{
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent, NetworkHandle,
-    NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession, PacketSendError,
-    ReadinessIngressCounter, SequencedWorldEvent, WORLD_EVENT_CAPACITY, WorldIngress,
-    bounded_counter_log_due, run_network_pump, send_control_event_or_cancel, send_event_or_cancel,
-    send_final_blob_cache_telemetry, send_world_event_or_cancel, session_failure_display,
-    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
-    wait_for_send_or_cancel, wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent,
+    NetworkFailureOrigin, NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer,
+    NetworkSession, PacketSendError, ReadinessIngressCounter, SequencedWorldEvent,
+    WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due, run_network_pump,
+    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
+    send_world_event_or_cancel, session_failure_display, start_game_inventory_authority,
+    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
 };
 
 #[path = "disconnect_tests.rs"]
@@ -907,6 +908,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             message: "failure".to_owned(),
             decode_error_count: 7,
             server_disconnect: None,
+            origin: NetworkFailureOrigin::Startup,
         },
         NetworkControlEvent::Stopped {
             decode_error_count: 8,
@@ -946,6 +948,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             message,
             decode_error_count: 7,
             server_disconnect: None,
+            ..
         }) if message == "failure"
     ));
     assert!(matches!(

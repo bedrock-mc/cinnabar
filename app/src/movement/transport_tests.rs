@@ -445,3 +445,220 @@ fn catch_up_evidence_cursor_does_not_repeat_restored_full_retry_ticks() {
     );
     assert!(ticker.take_tick_evidence().is_empty());
 }
+
+#[test]
+fn reconciliation_as_str_covers_every_variant() {
+    let expected = [
+        (
+            MovementOutboxReconciliation::NotAuthoritative,
+            "NotAuthoritative",
+        ),
+        (MovementOutboxReconciliation::Drained, "Drained"),
+        (MovementOutboxReconciliation::SocketPending, "SocketPending"),
+        (
+            MovementOutboxReconciliation::BudgetDeferred,
+            "BudgetDeferred",
+        ),
+        (
+            MovementOutboxReconciliation::TransportRestored,
+            "TransportRestored",
+        ),
+        (MovementOutboxReconciliation::FullRestored, "FullRestored"),
+        (MovementOutboxReconciliation::RemoteClosed, "RemoteClosed"),
+    ];
+    for (reconciliation, name) in expected {
+        assert_eq!(reconciliation.as_str(), name);
+    }
+}
+
+#[test]
+fn remote_close_latches_terminal_classification_across_teardown_and_flush() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    // The receive-side failure is observed while the authoritative session is
+    // still live, exactly as the network pump delivers it.
+    ticker.note_remote_session_close();
+    ticker.deactivate();
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::RemoteClosed
+    );
+
+    // The deactivated unauthorized flush path must not clobber the
+    // remote-close classification before terminal evidence observes it.
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        None,
+        |_identity, _packet| -> Result<(), &str> { Ok(()) },
+    )
+    .unwrap();
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::RemoteClosed
+    );
+}
+
+#[test]
+fn remote_closed_candidate_terminal_emits_no_outbox_violation() {
+    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+        "0123456789abcdef0123456789abcdef01234567",
+        crate::args::Phase3Target::Bds,
+        7,
+        [0x11; 32],
+        [0x22; 32],
+        true,
+    )
+    .unwrap();
+    let mut emitter = crate::runtime::phase3_evidence::Phase3EvidenceEmitter::default();
+    let markers = emitter.observe_terminal(
+        identity,
+        MovementSource::Physics,
+        3,
+        0,
+        0,
+        MovementOutboxReconciliation::RemoteClosed,
+    );
+    assert_eq!(markers.len(), 2);
+    assert!(
+        !markers
+            .iter()
+            .any(|marker| marker.contains("terminal_outbox_not_drained"))
+    );
+    assert!(
+        !markers
+            .iter()
+            .any(|marker| marker.starts_with("RUST_MCBE_PHASE3_VIOLATION="))
+    );
+    assert!(
+        markers
+            .iter()
+            .any(|marker| marker.contains("\"outbox_reconciliation\":\"RemoteClosed\""))
+    );
+}
+
+#[test]
+fn local_stop_with_undrained_authoritative_state_still_violates() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker.testing_lift_spawn_settle_gate();
+    ticker
+        .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
+        .unwrap();
+    assert_eq!(
+        ticker.pending_count(),
+        1,
+        "the fixture must hold undrained authoritative work when the local stop arrives"
+    );
+
+    // A local stop tears the ticker down without a remote-close origin.
+    ticker.deactivate();
+
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative,
+        "a locally stopped candidate session must not claim a remote close"
+    );
+    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+        "0123456789abcdef0123456789abcdef01234567",
+        crate::args::Phase3Target::Bds,
+        7,
+        [0x11; 32],
+        [0x22; 32],
+        true,
+    )
+    .unwrap();
+    let mut emitter = crate::runtime::phase3_evidence::Phase3EvidenceEmitter::default();
+    let markers = emitter.observe_terminal(
+        identity,
+        MovementSource::Physics,
+        0,
+        0,
+        0,
+        MovementOutboxReconciliation::NotAuthoritative,
+    );
+    assert!(
+        markers
+            .iter()
+            .any(|marker| marker.contains("terminal_outbox_not_drained"))
+    );
+}
+
+#[test]
+fn remote_close_is_refused_for_free_camera_faulted_and_pre_session_tickers() {
+    // FreeCamera sessions never latch.
+    let mut free_camera = MovementTicker::default();
+    free_camera.reset(7, 40, [0.0; 3]);
+    free_camera.note_remote_session_close();
+    assert_eq!(
+        free_camera.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative
+    );
+
+    // An authority-faulted session already lost its physics source and must
+    // keep its client-authority fault classification.
+    let mut faulted = MovementTicker::default();
+    faulted.reset(7, 40, [0.0; 3]);
+    faulted.set_source(MovementSource::Physics);
+    faulted.record_physics_fault(PhysicsAuthorityFault::Unauthorized);
+    faulted.note_remote_session_close();
+    assert_ne!(faulted.source(), MovementSource::Physics);
+    assert_eq!(
+        faulted.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative
+    );
+
+    // A pre-session ticker never latches either.
+    let mut pre_session = MovementTicker::default();
+    pre_session.note_remote_session_close();
+    assert_eq!(
+        pre_session.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative
+    );
+}
+
+#[test]
+fn remote_close_classification_does_not_survive_a_new_session_reset() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.note_remote_session_close();
+    ticker.reset(8, 40, [0.0; 3]);
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::NotAuthoritative,
+        "the replacement session must start from the default reconciliation"
+    );
+}
+
+#[test]
+fn free_camera_remote_closed_reconciliation_still_fails_the_terminal_gate() {
+    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+        "0123456789abcdef0123456789abcdef01234567",
+        crate::args::Phase3Target::Bds,
+        7,
+        [0x11; 32],
+        [0x22; 32],
+        false,
+    )
+    .unwrap();
+    let mut emitter = crate::runtime::phase3_evidence::Phase3EvidenceEmitter::default();
+    let markers = emitter.observe_terminal(
+        identity,
+        MovementSource::FreeCamera,
+        0,
+        0,
+        0,
+        MovementOutboxReconciliation::RemoteClosed,
+    );
+    assert!(
+        markers
+            .iter()
+            .any(|marker| marker.contains("terminal_outbox_not_drained")),
+        "a FreeCamera terminal presenting RemoteClosed reconciliation must stay a violation"
+    );
+}

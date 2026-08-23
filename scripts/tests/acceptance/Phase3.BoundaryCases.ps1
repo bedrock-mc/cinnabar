@@ -40,9 +40,10 @@ It 'accepts a candidate verdict without a touch witness' {
     $touch[0].deferral_reason | Should Match 'Owner decision'
 }
 
-It 'keeps every non-Drained candidate terminal forbidden' {
+It 'keeps every candidate terminal except Drained and RemoteClosed forbidden' {
     foreach ($terminalState in @(
-        'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored'
+        'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored',
+        'NotAuthoritative'
     )) {
         $script:Terminals[0].outbox_reconciliation = $terminalState
         (Invoke-Validator (Write-MarkerLog "terminal-$terminalState.log")).ExitCode |

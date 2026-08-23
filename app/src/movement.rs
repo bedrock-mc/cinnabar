@@ -58,6 +58,12 @@ pub(crate) enum MovementOutboxReconciliation {
     BudgetDeferred,
     TransportRestored,
     FullRestored,
+    /// The outbound stream was healthy when the REMOTE side terminated the
+    /// transport mid-session. This is a terminal classification only: it is
+    /// latched from a receive-side session failure and survives teardown so
+    /// terminal evidence can distinguish a remote-initiated close from a
+    /// client-authority fault.
+    RemoteClosed,
 }
 
 impl MovementOutboxReconciliation {
@@ -69,6 +75,7 @@ impl MovementOutboxReconciliation {
             Self::BudgetDeferred => "BudgetDeferred",
             Self::TransportRestored => "TransportRestored",
             Self::FullRestored => "FullRestored",
+            Self::RemoteClosed => "RemoteClosed",
         }
     }
 }
@@ -149,6 +156,7 @@ pub struct MovementTicker {
     sent_free_camera_packet_count: u64,
     sent_physics_packet_count: u64,
     outbox_reconciliation: MovementOutboxReconciliation,
+    remote_closed: bool,
     pending_fault: Option<PhysicsAuthorityFaultRecord>,
     next_admission_id: u64,
     reanchor_epoch: u64,
@@ -182,6 +190,7 @@ impl MovementTicker {
             sent_free_camera_packet_count: 0,
             sent_physics_packet_count: 0,
             outbox_reconciliation: MovementOutboxReconciliation::NotAuthoritative,
+            remote_closed: false,
             pending_fault: None,
             next_admission_id: 0,
             reanchor_epoch: 0,
@@ -212,6 +221,7 @@ impl MovementTicker {
         self.sent_free_camera_packet_count = 0;
         self.sent_physics_packet_count = 0;
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
+        self.remote_closed = false;
         self.pending_fault = None;
         self.next_admission_id = 0;
         self.terminal_drain = false;
@@ -231,6 +241,23 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
         self.tx_gate.disengage();
+    }
+
+    /// Latches a remote-initiated close of an active, authorized physics
+    /// session: [`Self::outbox_reconciliation`] then reports
+    /// [`MovementOutboxReconciliation::RemoteClosed`] through teardown and the
+    /// deactivated flush path until the next session reset.
+    ///
+    /// Local shutdowns, send-side failures, pre-session tickers, authority
+    /// faults (which already demote the source), and FreeCamera sessions never
+    /// latch this classification.
+    pub(crate) fn note_remote_session_close(&mut self) {
+        if self.session_active
+            && matches!(self.source, MovementSource::Physics)
+            && self.pending_fault.is_none()
+        {
+            self.remote_closed = true;
+        }
     }
 
     /// Selects the source allowed to drive outbound movement.
@@ -719,7 +746,11 @@ impl MovementTicker {
 
     #[must_use]
     pub(crate) const fn outbox_reconciliation(&self) -> MovementOutboxReconciliation {
-        self.outbox_reconciliation
+        if self.remote_closed {
+            MovementOutboxReconciliation::RemoteClosed
+        } else {
+            self.outbox_reconciliation
+        }
     }
 
     pub(crate) fn note_full_restore(&mut self) {

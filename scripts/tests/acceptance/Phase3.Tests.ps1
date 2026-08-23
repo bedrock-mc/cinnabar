@@ -718,6 +718,15 @@ Describe 'Phase 3 production marker evidence validation' {
         $result.Output | Should Not Match 'terminal outbox_reconciliation is unsupported'
     }
 
+    It 'accepts a RemoteClosed candidate terminal as a remote-initiated close, not a violation' {
+        $script:Terminals[0].outbox_reconciliation = 'RemoteClosed'
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-remote-closed.log')
+        $result.ExitCode | Should Be 0
+        $result.Output | Should Match 'PHASE3_EVIDENCE_VALID target=Bds'
+        $aggregate = Get-Content -Raw -LiteralPath $result.Aggregate | ConvertFrom-Json
+        $aggregate.evidence.terminal_outbox_reconciliation | Should Be 'RemoteClosed'
+    }
+
     It 'rejects a nonzero app process exit as the only changed condition' {
         $script:RunMetadata.app_exit_code = 9
         (Invoke-Validator (Write-MarkerLog 'process-app-exit.log')).ExitCode | Should Not Be 0
