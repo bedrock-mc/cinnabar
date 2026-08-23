@@ -548,6 +548,7 @@ impl UiPresentationRuntime {
                 content_height,
                 scoreboard,
                 opacity,
+                self.hud_textures.as_ref(),
             )?;
         }
 

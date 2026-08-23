@@ -3,13 +3,16 @@ use std::{
     sync::Arc,
 };
 
-use assets::RuntimeFontCatalog;
+use assets::{HudTextureRole, RuntimeFontCatalog};
 use ui::{
-    DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache, TextShadow, UiNode, UiNodeId,
-    UiVisual,
+    DisplaySlot, ScoreOwner, ScoreRenderType, ScoreboardStore, TextLayoutCache, TextShadow, UiNode,
+    UiNodeId, UiVisual,
 };
 
-use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
+use super::{
+    HudSprite, HudTexturePages, TextMetrics, UiPresentationError, UiPresentationRuntime,
+    bounded_visible_text, rect,
+};
 
 // Exact classic-profile contracts from the hash-pinned official sample ui/scoreboards.json.
 pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
@@ -23,6 +26,12 @@ pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
+/// Provisional hearts-row placeholder cap: one ten-heart row, the Java
+/// sidebar's single-row capacity, pending a version-matched native witness
+/// for hearts-style criteria. Overflowing scores present only this bound.
+pub(super) const MAX_PRESENTED_SCOREBOARD_HEARTS: u8 = 10;
+/// Vanilla hearts advance eight GUI pixels per heart with one-pixel overlap.
+const SCOREBOARD_HEART_ADVANCE: f32 = 8.0;
 const NAMEPLATE_LINE_HEIGHT: f32 = 9.0;
 const NAMEPLATE_VERTICAL_GAP: f32 = 1.0;
 const NAMEPLATE_HORIZONTAL_PADDING: f32 = 2.0;
@@ -57,9 +66,15 @@ impl ScoreboardPresentationScope {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum PresentedScoreValue {
+    Text(Arc<str>),
+    Hearts { full_hearts: u8, half_heart: bool },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PresentedScoreboardRow {
     pub(super) label: Arc<str>,
-    pub(super) score: String,
+    pub(super) value: PresentedScoreValue,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,6 +237,36 @@ impl ScoreboardOwnerNameAuthority {
     }
 }
 
+/// Converts one authoritative score into its presented value under the
+/// objective's render type. Hearts values are a bounded provisional
+/// placeholder — the score reads as half-hearts capped to one ten-heart row —
+/// because no in-repo authority fixes the native hearts-style presentation.
+fn presented_score_value(render_type: ScoreRenderType, score: i32) -> PresentedScoreValue {
+    match render_type {
+        ScoreRenderType::Integer => PresentedScoreValue::Text(Arc::from(score.to_string())),
+        ScoreRenderType::Hearts => {
+            let halves = score.clamp(0, i32::from(MAX_PRESENTED_SCOREBOARD_HEARTS) * 2);
+            PresentedScoreValue::Hearts {
+                full_hearts: (halves / 2) as u8,
+                half_heart: halves % 2 == 1,
+            }
+        }
+    }
+}
+
+/// Bounded fallback for protocol owners no name authority can answer
+/// (unloaded players, XUID-keyed scores): their raw retained numeric identity
+/// stays visible instead of the row disappearing. Provisional until an exact
+/// owner-name authority covers those owners.
+fn fallback_owner_label(owner: &ScoreOwner) -> Arc<str> {
+    match owner {
+        ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => {
+            Arc::from(unique_id.to_string())
+        }
+        ScoreOwner::FakePlayer(_) | ScoreOwner::None => Arc::from(""),
+    }
+}
+
 pub(super) fn project_scoreboard_for_scope(
     store: &ScoreboardStore,
     scope: ScoreboardPresentationScope,
@@ -239,14 +284,13 @@ pub(super) fn project_scoreboard_for_scope(
         .filter_map(|row| {
             let label = match &row.owner {
                 ScoreOwner::FakePlayer(label) => Arc::clone(label),
-                ScoreOwner::Player(_) | ScoreOwner::Entity(_) => {
-                    resolve_protocol_owner(&row.owner)?
-                }
+                ScoreOwner::Player(_) | ScoreOwner::Entity(_) => resolve_protocol_owner(&row.owner)
+                    .unwrap_or_else(|| fallback_owner_label(&row.owner)),
                 ScoreOwner::None => return None,
             };
             Some(PresentedScoreboardRow {
                 label,
-                score: row.score.to_string(),
+                value: presented_score_value(projection.render_type, row.score),
             })
         })
         .collect();
@@ -309,9 +353,81 @@ pub(super) fn project_below_name_scores(
 
 struct PreparedScoreboardRow {
     label: Arc<ui::TextLayout>,
-    score: Arc<ui::TextLayout>,
     label_width: f32,
-    score_width: f32,
+    cell: PreparedScoreCell,
+}
+
+enum PreparedScoreCell {
+    Text {
+        layout: Arc<ui::TextLayout>,
+        width: f32,
+    },
+    Hearts {
+        texture_page: u16,
+        sprites: Vec<HudSprite>,
+        width: f32,
+    },
+}
+
+impl PreparedScoreCell {
+    fn width(&self) -> f32 {
+        match self {
+            Self::Text { width, .. } | Self::Hearts { width, .. } => *width,
+        }
+    }
+}
+
+fn prepare_score_cell(
+    layouts: &mut TextLayoutCache,
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    value: &PresentedScoreValue,
+    hud_textures: Option<&HudTexturePages>,
+) -> Result<PreparedScoreCell, UiPresentationError> {
+    match value {
+        PresentedScoreValue::Text(text) => {
+            let layout = layouts
+                .layout(metrics.request(
+                    bounded_visible_text(text),
+                    (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
+                    font,
+                ))
+                .map_err(UiPresentationError::Text)?;
+            let width = layout.size_64()[0] as f32 / 64.0;
+            Ok(PreparedScoreCell::Text { layout, width })
+        }
+        PresentedScoreValue::Hearts {
+            full_hearts,
+            half_heart,
+        } => {
+            let Some(textures) = hud_textures else {
+                return Ok(PreparedScoreCell::Hearts {
+                    texture_page: 0,
+                    sprites: Vec::new(),
+                    width: 0.0,
+                });
+            };
+            let full = textures.sprite(HudTextureRole::HeartFull);
+            let half = textures.sprite(HudTextureRole::HeartHalf);
+            let mut sprites =
+                Vec::with_capacity(usize::from(*full_hearts) + usize::from(*half_heart));
+            sprites.extend((0..*full_hearts).map(|_| full));
+            if *half_heart {
+                sprites.push(half);
+            }
+            let width = if sprites.is_empty() {
+                0.0
+            } else {
+                SCOREBOARD_HEART_ADVANCE * (sprites.len() - 1) as f32
+                    + f32::from(sprites[0].size[0])
+            };
+            Ok(PreparedScoreCell::Hearts {
+                texture_page: textures.page,
+                sprites,
+                width,
+            })
+        }
+    }
 }
 
 /// Tab player-list overlay: every known player-list username on its own
@@ -500,6 +616,7 @@ pub(super) fn append_scoreboard_nodes(
     viewport_height: f32,
     scoreboard: &PresentedScoreboard,
     opacity: ScoreboardOpacityAuthority,
+    hud_textures: Option<&HudTexturePages>,
 ) -> Result<(), UiPresentationError> {
     let title = layouts
         .layout(metrics.request(
@@ -519,18 +636,14 @@ pub(super) fn append_scoreboard_nodes(
                 font,
             ))
             .map_err(UiPresentationError::Text)?;
-        let score = layouts
-            .layout(metrics.request(&row.score, (SCOREBOARD_TITLE_WIDTH * 64.0) as u32, font))
-            .map_err(UiPresentationError::Text)?;
+        let cell = prepare_score_cell(layouts, font, metrics, &row.value, hud_textures)?;
         let label_width = label.size_64()[0] as f32 / 64.0;
-        let score_width = score.size_64()[0] as f32 / 64.0;
         content_width =
-            content_width.max(label_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
+            content_width.max(label_width + SCOREBOARD_HORIZONTAL_PADDING + cell.width());
         rows.push(PreparedScoreboardRow {
             label,
-            score,
             label_width,
-            score_width,
+            cell,
         });
     }
     let width = content_width + SCOREBOARD_MAIN_HORIZONTAL_EXPANSION;
@@ -585,20 +698,47 @@ pub(super) fn append_scoreboard_nodes(
             [255; 4],
             metrics.shadow(),
         )?;
-        append_clipped_text_node(
-            nodes,
-            next_id,
-            [left + 2.0, row_top, right - 2.0, row_bottom],
-            [
-                right - 2.0 - row.score_width,
-                row_top,
-                right - 2.0,
-                row_bottom,
-            ],
-            row.score,
-            [255, 0, 0, 255],
-            metrics.shadow(),
-        )?;
+        match row.cell {
+            PreparedScoreCell::Text { layout, width } => {
+                append_clipped_text_node(
+                    nodes,
+                    next_id,
+                    [left + 2.0, row_top, right - 2.0, row_bottom],
+                    [right - 2.0 - width, row_top, right - 2.0, row_bottom],
+                    layout,
+                    [255, 0, 0, 255],
+                    metrics.shadow(),
+                )?;
+            }
+            PreparedScoreCell::Hearts {
+                texture_page,
+                sprites,
+                width,
+            } => {
+                let mut heart_left = right - 2.0 - width;
+                for sprite in sprites {
+                    let top_offset = (SCOREBOARD_TEXT_HEIGHT - f32::from(sprite.size[1])) * 0.5;
+                    nodes.push(
+                        UiNode::new(
+                            take_node_id(next_id),
+                            None,
+                            rect(
+                                heart_left,
+                                row_top + top_offset,
+                                heart_left + f32::from(sprite.size[0]),
+                                row_top + top_offset + f32::from(sprite.size[1]),
+                            )?,
+                        )
+                        .with_visual(UiVisual::Sprite {
+                            texture_page,
+                            uv: sprite.uv,
+                            color: [255; 4],
+                        }),
+                    );
+                    heart_left += SCOREBOARD_HEART_ADVANCE;
+                }
+            }
+        }
     }
     Ok(())
 }

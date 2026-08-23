@@ -4,15 +4,24 @@ use ui::{
     BossAction, BossBarEvent, BossBarStore, BossColor, BossOverlay, BossStyle, DisplaySlot,
     MAX_BOSS_BARS, MAX_OBJECTIVES, MAX_RETAINED_UI_TEXT_FIELD_BYTES,
     MAX_SCOREBOARD_RETAINED_TEXT_BYTES, MAX_SCORES, RetainedUiApply, RetainedUiSequenceError,
-    ScoreAction, ScoreEntry, ScoreOwner, ScoreboardEvent, ScoreboardStore,
+    ScoreAction, ScoreEntry, ScoreOwner, ScoreRenderType, ScoreboardEvent, ScoreboardStore,
 };
 
 fn display(slot: &str, objective: &str, sort_order: i32) -> ScoreboardEvent {
+    display_with_criteria(slot, objective, "dummy", sort_order)
+}
+
+fn display_with_criteria(
+    slot: &str,
+    objective: &str,
+    criteria: &str,
+    sort_order: i32,
+) -> ScoreboardEvent {
     ScoreboardEvent::DisplayObjective {
         display_slot: Arc::from(slot),
         objective_name: Arc::from(objective),
         display_name: Arc::from(format!("{objective} title")),
-        criteria_name: Arc::from("dummy"),
+        criteria_name: Arc::from(criteria),
         sort_order,
     }
 }
@@ -125,6 +134,75 @@ fn unsupported_orders_are_retained_without_an_invented_projection() {
     assert_eq!(store.objective_count(), 1);
     assert!(store.below_name().is_none());
     assert_eq!(store.diagnostics().unsupported_sort_orders, 1);
+}
+
+#[test]
+fn criteria_render_types_classify_into_explicit_presentation_intents() {
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("health"),
+        ScoreRenderType::Hearts
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("hearts"),
+        ScoreRenderType::Hearts
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("dummy"),
+        ScoreRenderType::Integer
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("totalKillCount"),
+        ScoreRenderType::Integer
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name(""),
+        ScoreRenderType::Integer
+    );
+
+    let mut store = ScoreboardStore::default();
+    store
+        .apply(1, display_with_criteria("sidebar", "hp", "health", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
+    );
+
+    store
+        .apply(2, display_with_criteria("sidebar", "hp", "hearts", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
+    );
+
+    store
+        .apply(3, display_with_criteria("sidebar", "hp", "dummy", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Integer
+    );
+
+    // The classification rides the objective record, so scores applied under a
+    // hearts objective keep presenting through that objective's own intent.
+    store
+        .apply(
+            4,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([score(
+                    "hp",
+                    1,
+                    13,
+                    ScoreOwner::FakePlayer(Arc::from("Alex")),
+                )]),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Integer
+    );
 }
 
 #[test]

@@ -33,7 +33,7 @@ pub use scoreboard::{
     BossOverlay, BossStyle, DisplaySlot, MAX_BOSS_BARS, MAX_BOSS_PLAYER_MEMBERSHIPS,
     MAX_BOSS_RETAINED_TEXT_BYTES, MAX_OBJECTIVES, MAX_RETAINED_UI_TEXT_FIELD_BYTES,
     MAX_SCOREBOARD_RETAINED_TEXT_BYTES, MAX_SCORES, RetainedUiApply, RetainedUiSequenceError,
-    ScoreAction, ScoreEntry, ScoreIdentity, ScoreOwner, ScoreRow, ScoreSortOrder,
+    ScoreAction, ScoreEntry, ScoreIdentity, ScoreOwner, ScoreRenderType, ScoreRow, ScoreSortOrder,
     ScoreboardDiagnostics, ScoreboardEvent, ScoreboardProjection, ScoreboardStore,
 };
 pub use settings::{CURRENT_SETTINGS_SCHEMA, GameplaySettings, UserSettings, VideoSettings};

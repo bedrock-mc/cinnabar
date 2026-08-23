@@ -49,6 +49,28 @@ pub enum ScoreSortOrder {
     Unsupported(i32),
 }
 
+/// How a displayed objective's scores present, classified from the wire's
+/// criteria/render-type name. Bedrock carries no separate render-type field,
+/// so this classification is explicitly provisional pending native evidence:
+/// the known health-style criteria select a bounded hearts presentation and
+/// every other name keeps integer text.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ScoreRenderType {
+    #[default]
+    Integer,
+    Hearts,
+}
+
+impl ScoreRenderType {
+    #[must_use]
+    pub fn from_criteria_name(criteria_name: &str) -> Self {
+        match criteria_name {
+            "hearts" | "health" => Self::Hearts,
+            _ => Self::Integer,
+        }
+    }
+}
+
 impl From<i32> for ScoreSortOrder {
     fn from(value: i32) -> Self {
         match value {
@@ -140,6 +162,7 @@ pub struct ScoreboardProjection {
     pub display_name: Arc<str>,
     pub criteria_name: Arc<str>,
     pub sort_order: ScoreSortOrder,
+    pub render_type: ScoreRenderType,
     pub rows: Vec<ScoreRow>,
 }
 
@@ -162,6 +185,7 @@ struct ObjectiveState {
     display_name: Arc<str>,
     criteria_name: Arc<str>,
     sort_order: ScoreSortOrder,
+    render_type: ScoreRenderType,
     scores: BTreeMap<i64, StoredScore>,
 }
 
@@ -391,6 +415,7 @@ impl ScoreboardStore {
             display_name: Arc::clone(&objective.display_name),
             criteria_name: Arc::clone(&objective.criteria_name),
             sort_order: objective.sort_order,
+            render_type: objective.render_type,
             rows,
         })
     }
@@ -422,6 +447,7 @@ impl ScoreboardStore {
             return RetainedUiApply::Ignored;
         };
         let sort_order = ScoreSortOrder::from(raw_sort_order);
+        let render_type = ScoreRenderType::from_criteria_name(&criteria_name);
         let old_bytes = self.objectives.get(&objective_name).map_or(0, |objective| {
             objective.display_name.len() + objective.criteria_name.len()
         });
@@ -454,6 +480,7 @@ impl ScoreboardStore {
                 objective.display_name = display_name;
                 objective.criteria_name = criteria_name;
                 objective.sort_order = sort_order;
+                objective.render_type = render_type;
             }
             None => {
                 self.objectives.insert(
@@ -462,6 +489,7 @@ impl ScoreboardStore {
                         display_name,
                         criteria_name,
                         sort_order,
+                        render_type,
                         scores: BTreeMap::new(),
                     },
                 );
