@@ -11,9 +11,10 @@ use asset_compiler::{
     compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob,
-    encode_entity_blob, read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
+    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES,
+    encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
+    read_light_registry, read_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -41,7 +42,7 @@ const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(
     about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nDormant sound-definition lookup:\n  assetc audio-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeaud --report <IGNORED_DIR>/audio-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
+    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nDormant sound-definition lookup:\n  assetc audio-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeaud --report <IGNORED_DIR>/audio-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -166,6 +167,9 @@ enum Command {
         /// Root containing blocks.json and the textures directory.
         #[arg(long)]
         pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
         /// BREG1003 registry exported by tools/registrygen.
         #[arg(long)]
         registry: PathBuf,
@@ -374,11 +378,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Compile {
             pack,
+            source_manifest,
             registry,
             light_registry,
             biome_registry,
             out,
         } => {
+            let manifest_bytes = read_bounded_with_limit(
+                &source_manifest,
+                MAX_SOURCE_MANIFEST_BYTES,
+                "source manifest",
+            )?;
+            serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+                AssetError::Json {
+                    path: source_manifest.clone(),
+                    source,
+                }
+            })?;
             let registry_bytes = read_bounded(&registry)?;
             let records = read_registry(&registry_bytes)?;
             let light_registry_bytes = read_bounded(&light_registry)?;
@@ -390,13 +406,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .parent()
                 .ok_or("resource-pack path has no parent for behavior_pack")?
                 .join("behavior_pack");
-            let compiled = compile_pack_with_biomes(
+            let mut compiled = compile_pack_with_biomes(
                 &pack,
                 &behavior_pack,
                 &records,
                 &biome_records,
                 &light_properties,
             )?;
+            compiled.provenance = BlobProvenance {
+                source_manifest_sha256: assets::canonical_source_manifest_sha256(&manifest_bytes),
+                block_registry_sha256: Sha256::digest(&registry_bytes).into(),
+                light_registry_sha256: Sha256::digest(&light_registry_bytes).into(),
+                biome_registry_sha256: Sha256::digest(&biome_registry_bytes).into(),
+            };
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
             let cutout_materials = compiled
@@ -494,7 +516,7 @@ fn compile_font_assets_command(
                 source,
             }
         })?;
-    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
+    let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
     let compiled = compile_fonts(pack)?;
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
@@ -548,7 +570,7 @@ fn compile_outline_font_assets_command(
         .and_then(serde_json::Value::as_str)
         .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .ok_or("font source manifest has invalid font_sha256")?;
-    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
+    let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
     let font_bytes = read_bounded_with_limit(
         font,
         usize::try_from(MAX_FONT_SOURCE_BYTES).expect("font source bound fits usize"),
@@ -580,28 +602,6 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
         .and_then(serde_json::Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| format!("font rasterization field '{field}' is invalid").into())
-}
-
-fn canonical_source_manifest_sha256(source: &[u8]) -> [u8; 32] {
-    if !source.contains(&b'\r') {
-        return Sha256::digest(source).into();
-    }
-    let mut canonical = Vec::with_capacity(source.len());
-    let mut index = 0;
-    while index < source.len() {
-        match source[index] {
-            b'\r' if source.get(index + 1) == Some(&b'\n') => {
-                canonical.push(b'\n');
-                index += 2;
-            }
-            b'\r' | b'\n' => return Sha256::digest(source).into(),
-            byte => {
-                canonical.push(byte);
-                index += 1;
-            }
-        }
-    }
-    Sha256::digest(canonical).into()
 }
 
 fn write_compiled_font_assets(

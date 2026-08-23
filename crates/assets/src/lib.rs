@@ -16,6 +16,7 @@ mod lang;
 mod light_registry;
 mod model;
 mod physics_registry;
+mod provenance;
 mod registry;
 mod runtime;
 mod texture;
@@ -115,6 +116,7 @@ pub use model::{
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,
 };
+pub use provenance::{BlobProvenance, canonical_source_manifest_sha256};
 pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,

@@ -350,6 +350,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(textures)].into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: assets::BlobProvenance { source_manifest_sha256: [0xA5; 32], block_registry_sha256: [0x5A; 32], light_registry_sha256: [0x33; 32], biome_registry_sha256: [0x3C; 32] },
         };
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")

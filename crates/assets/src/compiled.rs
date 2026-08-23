@@ -1,7 +1,7 @@
 use crate::{
     Animation, BlockFlags, CompiledBiomeAssets, ContributorRole, LightProperties, ModelQuad,
     ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TexturePage, TextureRef, VisualKind,
-    VisualSupport,
+    VisualSupport, provenance::BlobProvenance,
 };
 
 /// Bedrock block-face order, matching the packed renderer's face discriminants.
@@ -162,4 +162,7 @@ pub struct CompiledAssets {
     pub animation_frames: Box<[TextureRef]>,
     pub texture_pages: Box<[TexturePage]>,
     pub biomes: CompiledBiomeAssets,
+    /// Exact source identities bound into the blob header. Encode rejects
+    /// incomplete identity, so serialized output always names its inputs.
+    pub provenance: BlobProvenance,
 }

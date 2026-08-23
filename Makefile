@@ -65,7 +65,7 @@ PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$
 PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -coverage "$(abspath $(BLOCK_COVERAGE_MANIFEST))"
 BIOME_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -biome-out "$(abspath $(BIOME_REGISTRY))" -biome-coverage "$(abspath $(BIOME_COVERAGE_MANIFEST))"
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
-WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
+WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
 FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
@@ -162,7 +162,7 @@ $(BIOME_REGISTRY): $(REGISTRYGEN_INPUTS) $(BIOME_COVERAGE_MANIFEST)
 $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)
 	$(VANILLA_ASSET_FETCH)
 
-$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
+$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BIOME_REGISTRY)
 	$(WORLD_ASSET_COMPILE)
 
 $(ATMOSPHERE_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(CLOUDS_OVERRIDE_PREREQUISITE)

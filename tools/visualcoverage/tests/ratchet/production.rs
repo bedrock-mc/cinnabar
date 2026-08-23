@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS06 blob"]
+#[ignore = "requires CINNABAR_REAL_PACK pointing at the ignored pinned MCBEAS07 blob"]
 fn production_ratchet_separates_zero_diagnostics_from_provisional_fallbacks() {
     let assets_path = std::env::var_os("CINNABAR_REAL_PACK")
         .map(std::path::PathBuf::from)

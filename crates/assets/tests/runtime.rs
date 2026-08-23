@@ -1,36 +1,46 @@
 use std::mem::size_of_val;
 
 use assets::{
-    AssetError, BLOB_VERSION, BiomeRule, BlockFace, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS, MAX_MODEL_QUADS,
-    MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray, TextureMip, TexturePage,
-    TextureRef, TintSource, VisualKind, VisualSupport, encode_blob,
+    AssetError, BLOB_VERSION, BiomeRule, BlobProvenance, BlockFace, BlockFlags, BlockVisual,
+    CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties,
+    MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
+    MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray,
+    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport, encode_blob,
 };
 use sha2::{Digest, Sha256};
 
+/// Complete synthetic identity for self-round-tripping fixtures. These bytes
+/// never match a real pinned source expectation.
+const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
+    source_manifest_sha256: [0x11; 32],
+    block_registry_sha256: [0x22; 32],
+    light_registry_sha256: [0x33; 32],
+    biome_registry_sha256: [0x44; 32],
+};
+
 #[test]
-fn runtime_decodes_mcbeas06_tables() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS06");
+fn runtime_decodes_mcbeas07_tables() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS07");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
     assert!(runtime.animation_frames().is_empty());
     assert_eq!(runtime.texture_pages().len(), 1);
+    assert_eq!(runtime.provenance(), &FIXTURE_PROVENANCE);
 }
 
-const HEADER_BYTES: usize = 200;
+const HEADER_BYTES: usize = 296;
 const HASH_BYTES: usize = 32;
 const VERSION_OFFSET: usize = 8;
 const VISUAL_COUNT_OFFSET: usize = 20;
 const HASH_COUNT_OFFSET: usize = 24;
 const MATERIAL_COUNT_OFFSET: usize = 28;
 const PAGE_COUNT_OFFSET: usize = 48;
-const VISUALS_OFFSET_OFFSET: usize = 96;
-const HASHES_OFFSET_OFFSET: usize = 104;
-const MATERIALS_OFFSET_OFFSET: usize = 112;
-const PAYLOAD_LENGTH_OFFSET: usize = 192;
+const VISUALS_OFFSET_OFFSET: usize = 192;
+const HASHES_OFFSET_OFFSET: usize = 200;
+const MATERIALS_OFFSET_OFFSET: usize = 208;
+const PAYLOAD_LENGTH_OFFSET: usize = 288;
 
 fn texture_array(layers: u32) -> TextureArray {
     let mips = [16_u32, 8, 4, 2, 1]
@@ -114,12 +124,13 @@ fn compiled_assets() -> CompiledAssets {
             }]
             .into_boxed_slice(),
         },
+        provenance: FIXTURE_PROVENANCE,
     }
 }
 
 #[test]
 fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS05");
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS07");
     assert_eq!(
         runtime
             .resolve(NetworkIdMode::Sequential, 1)
@@ -369,7 +380,7 @@ fn compound_blob() -> Vec<u8> {
 
 #[test]
 fn runtime_decodes_checked_contributor_role_with_new_tables() {
-    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS05 fixture");
+    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS07 fixture");
     let block = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert_eq!(
         block.contributor_role(),
@@ -556,7 +567,7 @@ fn decode_rejects_non_monotonic_or_out_of_range_references() {
 #[test]
 fn decode_rejects_mip_length_mismatches_and_allocation_limits() {
     let mut wrong_texture_length = valid_blob();
-    let pages_offset = read_u64(&wrong_texture_length, 152) as usize;
+    let pages_offset = read_u64(&wrong_texture_length, 248) as usize;
     let texture_length = read_u64(&wrong_texture_length, pages_offset + 24);
     write_u64(
         &mut wrong_texture_length,
@@ -586,19 +597,19 @@ fn decode_rejects_mip_length_mismatches_and_allocation_limits() {
 #[test]
 fn decode_rejects_page_payload_hash_reserved_bits_and_noncanonical_ranges() {
     let mut bad_page_hash = valid_blob();
-    let pages_offset = read_u64(&bad_page_hash, 152) as usize;
+    let pages_offset = read_u64(&bad_page_hash, 248) as usize;
     bad_page_hash[pages_offset + 32] ^= 1;
     reseal(&mut bad_page_hash);
     assert_rejected(&bad_page_hash, "page payload hash mismatch");
 
     let mut bad_page_reserved = valid_blob();
-    let pages_offset = read_u64(&bad_page_reserved, 152) as usize;
+    let pages_offset = read_u64(&bad_page_reserved, 248) as usize;
     write_u32(&mut bad_page_reserved, pages_offset + 12, 1);
     reseal(&mut bad_page_reserved);
     assert_rejected(&bad_page_reserved, "page descriptor reserved bits");
 
     let mut bad_page_offset = valid_blob();
-    let pages_offset = read_u64(&bad_page_offset, 152) as usize;
+    let pages_offset = read_u64(&bad_page_offset, 248) as usize;
     let texture_offset = read_u64(&bad_page_offset, pages_offset + 16);
     write_u64(&mut bad_page_offset, pages_offset + 16, texture_offset + 1);
     reseal(&mut bad_page_offset);
@@ -631,10 +642,10 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     };
     let blob = rich_blob();
     let visuals = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
-    let templates = read_u64(&blob, 120) as usize;
-    let quads = read_u64(&blob, 128) as usize;
-    let animations = read_u64(&blob, 136) as usize;
-    let frames = read_u64(&blob, 144) as usize;
+    let templates = read_u64(&blob, 216) as usize;
+    let quads = read_u64(&blob, 224) as usize;
+    let animations = read_u64(&blob, 232) as usize;
+    let frames = read_u64(&blob, 240) as usize;
 
     mutate_byte(visuals + 44 + 25, 99, "unknown visual kind");
     mutate_byte(visuals + 44 + 26, 99, "unknown contributor role");
@@ -709,9 +720,9 @@ fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
             && runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0
     }));
 
-    let templates = read_u64(&canonical, 120) as usize;
+    let templates = read_u64(&canonical, 216) as usize;
     let materials = read_u64(&canonical, MATERIALS_OFFSET_OFFSET) as usize;
-    let quads = read_u64(&canonical, 128) as usize;
+    let quads = read_u64(&canonical, 224) as usize;
 
     let mut opaque = canonical.clone();
     write_u32(&mut opaque, materials + 12 + 4, 0);
@@ -769,7 +780,7 @@ fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
     let mut wrong_count = encode_blob(&split)
         .expect("encode otherwise-valid split template fixture")
         .into_vec();
-    let split_templates = read_u64(&wrong_count, 120) as usize;
+    let split_templates = read_u64(&wrong_count, 216) as usize;
     write_u32(
         &mut wrong_count,
         split_templates + 8,
@@ -813,7 +824,7 @@ fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classe
     let mut mixed = encode_blob(&mixed_compiled)
         .expect("encode blend template with unused cutout material")
         .into_vec();
-    let mixed_quads = read_u64(&mixed, 128) as usize;
+    let mixed_quads = read_u64(&mixed, 224) as usize;
     write_u32(&mut mixed, mixed_quads + 5 * 48 + 40, 2);
     reseal(&mut mixed);
     assert_rejected(&mixed, "mixed blend/cutout transparent cube");
@@ -822,7 +833,7 @@ fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classe
 #[test]
 fn decode_rejects_kelp_flag_on_noncanonical_template_shape() {
     let mut blob = rich_blob();
-    let templates = read_u64(&blob, 120) as usize;
+    let templates = read_u64(&blob, 216) as usize;
     write_u32(&mut blob, templates + 8, assets::MODEL_TEMPLATE_FLAG_KELP);
     reseal(&mut blob);
     assert_rejected(&blob, "one-quad kelp template");
@@ -856,7 +867,7 @@ fn decode_rejects_malformed_stair_template_groups() {
     let mut blob = encode_blob(&compiled)
         .expect("encode canonical stair group")
         .into_vec();
-    let templates = read_u64(&blob, 120) as usize;
+    let templates = read_u64(&blob, 216) as usize;
     write_u32(&mut blob, templates + 4 * 12 + 8, 0);
     reseal(&mut blob);
     assert_rejected(&blob, "malformed stair group at runtime boundary");
@@ -866,8 +877,8 @@ fn decode_rejects_malformed_stair_template_groups() {
 fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
     let canonical = compound_blob();
     RuntimeAssets::decode(&canonical).expect("decode canonical compound pair");
-    let templates = read_u64(&canonical, 120) as usize;
-    let visuals = read_u64(&canonical, 96) as usize;
+    let templates = read_u64(&canonical, 216) as usize;
+    let visuals = read_u64(&canonical, 192) as usize;
 
     for axis in [
         assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
@@ -961,7 +972,7 @@ fn decode_rejects_malformed_connected_template_groups() {
     let mut unreferenced_blob = encode_blob(&unreferenced)
         .expect("encode unreferenced plain template")
         .into_vec();
-    let unreferenced_templates = read_u64(&unreferenced_blob, 120) as usize;
+    let unreferenced_templates = read_u64(&unreferenced_blob, 216) as usize;
     write_u32(
         &mut unreferenced_blob,
         unreferenced_templates + 8,
@@ -1008,7 +1019,7 @@ fn decode_rejects_malformed_connected_template_groups() {
     let mut blob = encode_blob(&compiled)
         .expect("encode canonical pane group")
         .into_vec();
-    let templates = read_u64(&blob, 120) as usize;
+    let templates = read_u64(&blob, 216) as usize;
     let mut mixed = blob.clone();
     for index in 0..16 {
         write_u32(

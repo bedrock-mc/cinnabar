@@ -2,11 +2,12 @@ use std::{ffi::OsString, fs};
 
 use assets::{
     AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    canonical_source_manifest_sha256,
 };
 use clap::Parser;
 use sha2::{Digest, Sha256};
 
-use super::{Cli, Command, canonical_source_manifest_sha256, compile_atmosphere_command};
+use super::{Cli, Command, compile_atmosphere_command};
 
 #[test]
 fn outline_manifest_identity_is_portable_across_checkout_line_endings() {

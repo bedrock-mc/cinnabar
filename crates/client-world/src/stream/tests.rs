@@ -401,6 +401,12 @@ fn non_default_air_runtime_assets() -> RuntimeAssets {
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     RuntimeAssets::decode(
         &encode_blob(&compiled)
@@ -509,6 +515,12 @@ fn camera_medium_assets() -> RuntimeAssets {
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
 }
@@ -645,6 +657,12 @@ fn block_entity_visual_assets() -> RuntimeAssets {
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
 }
@@ -887,6 +905,12 @@ fn cave_test_assets() -> RuntimeAssets {
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
     };
     let blob = encode_blob(&compiled).expect("encode cave-connectivity test assets");
     RuntimeAssets::decode(&blob).expect("decode cave-connectivity test assets")
