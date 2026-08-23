@@ -6,8 +6,8 @@ use super::{
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,
     PhysicsAuthorityGate, PhysicsCollisionRegistries, PhysicsCorrectionMode,
     PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    PhysicsTickEvidenceContext, flush_player_auth_inputs, physics_movement_input,
-    reconcile_candidate_physics_correction,
+    PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
+    physics_movement_input, reconcile_candidate_physics_correction,
 };
 use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry};
 use protocol::{PlayerInputFlags, PlayerInputMode};
@@ -78,6 +78,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         horizontal_collision: false,
         vertical_collision: false,
         jump_repeated: false,
+        processed: ProcessedMovementState::default(),
         world_identity: fixture_world_identity(1),
     }
 }

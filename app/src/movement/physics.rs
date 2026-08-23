@@ -10,6 +10,8 @@ use sim::{
 };
 use thiserror::Error;
 
+use super::state::ProcessedMovementState;
+
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
 const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
@@ -258,6 +260,10 @@ pub struct PhysicsMovementSample {
     pub horizontal_collision: bool,
     pub vertical_collision: bool,
     pub jump_repeated: bool,
+    /// Processed movement states this tick (VPA-011): what the simulator
+    /// acted on, as opposed to which buttons are held. The outbound
+    /// `PlayerAuthInput` processed flag families derive from this snapshot.
+    pub processed: ProcessedMovementState,
     pub world_identity: WorldCollisionIdentity,
 }
 
@@ -338,6 +344,9 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    /// Open processed-jump-arc fold state carried across ticks. Reset with the
+    /// rest of prediction state; rebuilt across correction replays.
+    processed_jump_arc_active: bool,
     dropped_tick_count: u64,
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
@@ -356,6 +365,7 @@ impl Default for LocalPhysicsController {
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
@@ -376,6 +386,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
@@ -455,6 +466,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
@@ -575,6 +587,19 @@ impl LocalPhysicsController {
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
+                    // The simulator can only consume a jump request from the
+                    // ground (its own grounded gate), so initiation is the
+                    // consumed request on a tick that started grounded. The
+                    // arc then rides the airborne window until the simulator
+                    // reports ground contact again.
+                    let processed = ProcessedMovementState::next(
+                        self.processed_jump_arc_active,
+                        input.jump_pressed && grounded_before_tick,
+                        state.on_ground,
+                        input.sneaking,
+                        input.sprinting,
+                    );
+                    self.processed_jump_arc_active = processed.jump_arc_active;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
                         position: [
@@ -603,6 +628,7 @@ impl LocalPhysicsController {
                         horizontal_collision: result.collisions.x || result.collisions.z,
                         vertical_collision: result.collisions.y,
                         jump_repeated,
+                        processed,
                         world_identity,
                     });
                     if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
@@ -770,6 +796,28 @@ impl LocalPhysicsController {
         if replayed_ticks.len() != replay.replayed_ticks {
             return Err(PhysicsCorrectionError::ReplayFailed);
         }
+        // Rebuilds the processed jump arc across the replayed range exactly
+        // like velocity is rebuilt: input facts (initiation) stay as recorded,
+        // simulated outcomes (grounded state) come from the fresh replay, and
+        // the window entering the replayed range follows the server-corrected
+        // anchor — an initiation there keeps it open, a reported ground contact
+        // closes it, and otherwise the previously carried arc continues. A
+        // correction therefore cannot invent an arc that was never simulated,
+        // and a real airborne continuation survives the rewind.
+        let mut jump_arc = {
+            let corrected_sample = self
+                .sample_history
+                .iter()
+                .find(|sample| sample.tick == tick)
+                .expect("retained correction sample was checked");
+            if corrected_sample.processed.jump_initiated {
+                true
+            } else if on_ground {
+                false
+            } else {
+                corrected_sample.processed.jump_arc_active
+            }
+        };
         let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
         for result in replayed_ticks {
             let Some(retained) = self
@@ -794,8 +842,13 @@ impl LocalPhysicsController {
             ];
             retained.horizontal_collision = result.collisions.x || result.collisions.z;
             retained.vertical_collision = result.collisions.y;
+            retained.grounded_after_tick = result.on_ground;
+            retained.processed.jump_arc_active =
+                retained.processed.jump_initiated || (!result.on_ground && jump_arc);
+            jump_arc = retained.processed.jump_arc_active;
             replayed_samples.push(retained.clone());
         }
+        self.processed_jump_arc_active = jump_arc;
         let corrected_world_identity = {
             let corrected_sample = self
                 .sample_history

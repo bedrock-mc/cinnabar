@@ -17,8 +17,8 @@ use super::integration_tests::{VersionedFloor, evidence_context, forward_physics
 use super::{
     LocalPhysicsController, MovementOutboxReconciliation, MovementSource, MovementTicker,
     OUTBOX_CAPACITY, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample,
-    PhysicsSampleContext, flush_player_auth_inputs, reconcile_candidate_physics_correction,
-    reconcile_committed_correction,
+    PhysicsSampleContext, ProcessedMovementState, flush_player_auth_inputs,
+    reconcile_candidate_physics_correction, reconcile_committed_correction,
 };
 use protocol::PlayerInputMode;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
@@ -58,6 +58,7 @@ pub(super) fn settled_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSa
         horizontal_collision: false,
         vertical_collision: false,
         jump_repeated: false,
+        processed: ProcessedMovementState::default(),
         world_identity: fixture_world_identity(),
     }
 }
