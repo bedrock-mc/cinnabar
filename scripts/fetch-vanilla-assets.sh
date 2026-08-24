@@ -588,6 +588,20 @@ validate_archive_bounds() {
             fatal "archive aggregate compression ratio $total_declared_expanded:$total_declared_compressed exceeds the aggregate maximum $effective_max_aggregate_ratio"
         fi
     fi
+
+    # Release the listing workspace before returning: failure paths above exit
+    # through the trap while the variable is still set, but this success return
+    # is the last point where clearing alone would strand the directory, so
+    # removal happens here and no temporary tree outlives validation.
+    case "$listing_work" in
+        */cinnabar-zipcheck.*)
+            rm -rf -- "$listing_work"
+            listing_work=''
+            ;;
+        *)
+            printf 'refusing to clean unexpected listing workspace: %s\n' "$listing_work" >&2
+            ;;
+    esac
 }
 
 audit_extracted_tree() {
@@ -692,7 +706,6 @@ if [[ "$archive_verified" != true ]]; then
 fi
 
 validate_archive_bounds "$archive_path"
-listing_work=''
 
 mkdir -- "$temporary_extract"
 unzip -q "$archive_path" -d "$temporary_extract"
@@ -718,6 +731,16 @@ else
     fi
 fi
 
+# VPA-209: publish by a same-volume atomic rename into an absent target.
+# The startup absence check raced this whole window; under a concurrent
+# writer creating the target during extraction, POSIX `mv dir target`
+# moves staging INTO the existing directory and corrupts the published
+# layout. Recheck absence immediately before the move, mirroring the
+# PowerShell extractor's pre-publication guard.
+if [[ -e "$cache_path" ]]; then
+    printf 'cache directory appeared during extraction: %s\n' "$cache_path" >&2
+    exit 1
+fi
 mv -- "$normalized_root" "$cache_path"
 if [[ "$normalized_root" != "$temporary_extract" ]]; then
     rmdir -- "$temporary_extract"
