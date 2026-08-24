@@ -11,6 +11,10 @@ pub const MAX_BLOCK_VISUALS: usize = 65_536;
 const MAX_ITEM_DISPLAY_SCALAR: f32 = 1_048_576.0;
 
 /// Immutable identity for one normalized item stack.
+///
+/// Two stacks share an identity only when every retained wire fact matches,
+/// including the exact block runtime identity the stack carried: stacks that
+/// differ only there are distinct items and never dedupe or validate as one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemStackIdentity {
     pub network_id: i32,
@@ -18,6 +22,12 @@ pub struct ItemStackIdentity {
     pub stack_network_id: i32,
     pub count: u16,
     pub nbt_digest: [u8; 32],
+    /// Exact block runtime identity the wire stack retained.
+    ///
+    /// The full wire-representable `i32` range is preserved verbatim so
+    /// equality and hashing stay lossless; unknown values remain bounded
+    /// fixed-width data and are never resolved through item or file names.
+    pub block_runtime_id: i32,
 }
 
 impl ItemStackIdentity {
@@ -47,6 +57,7 @@ impl ItemStackIdentity {
             stack_network_id: -1,
             count: 0,
             nbt_digest: [0; 32],
+            block_runtime_id: 0,
         }
     }
 }
@@ -245,6 +256,15 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemVisualRoute {
     Compiled(ItemVisualId),
+    /// Explicit fail-visible marker for a stack whose wire descriptor
+    /// retained block runtime identity but which resolved to no compiled
+    /// block-item geometry. Presentation must not silently draw such a stack
+    /// through a flat sprite route; the retained id is carried verbatim and
+    /// is never mapped through names or filenames. The dedicated block-item
+    /// renderer remains separate work.
+    RetainedBlock {
+        block_runtime_id: i32,
+    },
     BlockItem(BlockVisualId),
     EmptyHand,
     Missing,

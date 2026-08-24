@@ -24,6 +24,7 @@ fn nonempty_identity(metadata: u32) -> ItemStackIdentity {
         stack_network_id: -1,
         count: 3,
         nbt_digest: [0x5a; 32],
+        block_runtime_id: 0,
     }
 }
 
@@ -71,6 +72,7 @@ fn empty_identity_has_one_exact_canonical_value() {
             stack_network_id: -1,
             count: 0,
             nbt_digest: [0; 32],
+            block_runtime_id: 0,
         }
     );
     assert!(empty.is_empty());
@@ -84,9 +86,14 @@ fn zero_count_validation_canonicalizes_the_complete_identity() {
         stack_network_id: 812,
         count: 0,
         nbt_digest: [0xff; 32],
+        // A retained block identity on a zero-count stack is dropped with the
+        // rest of the canonical empty value.
+        block_runtime_id: 77,
     };
 
-    assert_eq!(noncanonical.validate().unwrap(), ItemStackIdentity::empty());
+    let validated = noncanonical.validate().unwrap();
+    assert_eq!(validated, ItemStackIdentity::empty());
+    assert_eq!(validated.block_runtime_id, 0);
 }
 
 #[test]
@@ -108,6 +115,50 @@ fn metadata_remains_lossless_across_the_full_u32_range() {
         let identity = nonempty_identity(metadata);
         assert_eq!(identity.validate().unwrap().metadata, metadata);
     }
+}
+
+#[test]
+fn retained_block_runtime_identity_is_bound_into_equality_and_hash() {
+    let base = nonempty_identity(0);
+    let mut differing_block = base;
+    differing_block.block_runtime_id = 5;
+
+    // Two stacks that differ only in their retained block runtime identity
+    // must never collapse into one canonical identity.
+    assert_ne!(base, differing_block);
+
+    let mut distinct = std::collections::HashSet::new();
+    assert!(distinct.insert(base));
+    assert!(distinct.insert(differing_block));
+    assert_eq!(distinct.len(), 2);
+}
+
+#[test]
+fn block_runtime_identity_is_lossless_across_the_full_wire_range() {
+    for block_runtime_id in [i32::MIN, -1, 0, 1, 92, i32::MAX] {
+        let identity = ItemStackIdentity {
+            block_runtime_id,
+            ..nonempty_identity(4)
+        };
+        let validated = identity.validate().unwrap();
+        assert_eq!(validated, identity);
+        assert_eq!(validated.block_runtime_id, block_runtime_id);
+    }
+}
+
+#[test]
+fn ordinary_non_block_items_keep_the_previous_identity_contract() {
+    let legacy_shape = ItemStackIdentity {
+        network_id: 42,
+        metadata: 7,
+        stack_network_id: -1,
+        count: 3,
+        nbt_digest: [0x5a; 32],
+        block_runtime_id: 0,
+    };
+    assert_eq!(legacy_shape, nonempty_identity(7));
+    assert_eq!(legacy_shape.validate(), Ok(legacy_shape));
+    assert!(!legacy_shape.is_empty());
 }
 
 #[test]
