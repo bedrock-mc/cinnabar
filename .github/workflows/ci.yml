@@ -151,6 +151,20 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: bash scripts/tests/acceptance_test.sh
+      # The Windows job above exercises the vanilla-asset fetchers through
+      # Windows PowerShell 5.1, where its bash deep legs are conditionally
+      # skipped because hosted Git Bash usually lacks unzip. Run the same
+      # hermetic fixture suite where real Info-ZIP unzip exists so the
+      # production bash extractor's bounded-extraction contracts (including
+      # pre-extraction link-entry rejection) are exercised in CI.
+      - name: Test hermetic vanilla asset acquisition on Linux (bash extractor bounds)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) {
+            sudo apt-get update
+            sudo apt-get install --yes unzip
+          }
+          ./scripts/tests/vanilla-assets.ps1
       - run: go test ./core/...
       - run: go vet ./core/...
       - name: Test and vet protocol registry tools
@@ -180,6 +194,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+      - name: Test hermetic vanilla asset acquisition on macOS (bash extractor bounds)
+        shell: pwsh
+        run: ./scripts/tests/vanilla-assets.ps1
       - name: Acquire and compile protocol-1001 physics assets through Make
         run: make physics-assets
       - name: Verify the generated runtime carrier

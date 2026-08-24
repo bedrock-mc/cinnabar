@@ -233,6 +233,7 @@ impl ItemStateStore {
             stack_network_id: stack.stack_network_id,
             count: stack.count,
             nbt_digest: stack.nbt_digest,
+            block_runtime_id: stack.block_runtime_id,
         };
         let identity = if identity.count == 0 {
             ItemStackIdentity::empty()
@@ -256,11 +257,14 @@ impl ItemStateStore {
             .registry
             .get(&identity.network_id)
             .map(|record| Arc::clone(&record.identifier));
-        let visual = identifier
-            .as_deref()
-            .map_or(ItemVisualRoute::Missing, |identifier| {
-                self.resolve_visual(identifier, identity.metadata)
-            });
+        let visual = classify_retained_block(
+            identifier
+                .as_deref()
+                .map_or(ItemVisualRoute::Missing, |identifier| {
+                    self.resolve_visual(identifier, identity.metadata)
+                }),
+            identity.block_runtime_id,
+        );
         CanonicalItemStack {
             identity,
             identifier,
@@ -319,6 +323,19 @@ fn built_in_registry() -> BTreeMap<i32, CanonicalItemRegistryRecord> {
         .iter()
         .map(|entry| (entry.network_id, registry_record(entry)))
         .collect()
+}
+
+/// Routes a stack that retained block runtime identity onto the explicit
+/// block-item marker, keeping compiled block-item geometry authoritative and
+/// leaving stacks without a retained identity exactly as resolved.
+///
+/// Classification reads only wire-retained fields; it never infers geometry,
+/// textures, or identity from item or file names.
+fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> ItemVisualRoute {
+    if block_runtime_id == 0 || matches!(route, ItemVisualRoute::BlockItem(_)) {
+        return route;
+    }
+    ItemVisualRoute::RetainedBlock { block_runtime_id }
 }
 
 fn registry_record(entry: &ItemRegistryEntry) -> CanonicalItemRegistryRecord {

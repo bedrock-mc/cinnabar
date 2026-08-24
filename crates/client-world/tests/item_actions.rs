@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use assets::{
-    CompiledEntityAssets, EntityAnimationClip, EntityAnimationLoop, EntityAssetKind,
+    BlockVisualId, CompiledEntityAssets, EntityAnimationClip, EntityAnimationLoop, EntityAssetKind,
     EntityAssetSource, EntityAssetSymbol, EntityGeometryScalar, ItemActionPhase,
     ItemDisplayTransform, ItemTextureReference, ItemVisualAlias, ItemVisualDefinition,
     ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute, RuntimeAssets,
@@ -15,7 +15,7 @@ use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorHandedness, ActorKind, ActorMoveEvent,
     ActorPositionOrigin, ActorRemoveEvent, ActorSpawnEvent, ChangeDimensionEvent, EquipmentEvent,
     ItemActorEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
-    WorldBootstrap, WorldEvent,
+    WorldBootstrap, WorldEvent, select_hotbar_slot_packet,
 };
 use sha2::{Digest, Sha256};
 
@@ -24,6 +24,10 @@ use sha2::{Digest, Sha256};
 // its custom item entries, so small fixture IDs are not necessarily unknown.
 const CUSTOM_ITEM_ID: i32 = 1_900_000_001;
 const PENDING_ITEM_ID: i32 = 1_900_000_002;
+const BLOCK_WITNESS_ITEM_ID: i32 = 1_900_000_003;
+// Outbound wire builders reject ids beyond the i16 descriptor range, so the
+// selected-slot encoding witness uses this bounded synthetic id.
+const WIRE_ENCODING_ITEM_ID: i32 = 25_000;
 
 fn item_assets() -> Arc<RuntimeEntityAssets> {
     let compiled = CompiledEntityAssets {
@@ -92,22 +96,37 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
         rig_geometries: Box::new([]),
         rig_animations: Box::new([]),
         rig_controllers: Box::new([]),
-        item_visuals: vec![ItemVisualDefinition {
-            key: ItemVisualKey {
-                identifier: "minecraft:apple".into(),
-                metadata: 0,
-            },
-            source: 2,
-            route: ItemVisualDefinitionRoute::Sprite {
-                texture: ItemTextureReference {
-                    source: 3,
-                    variant: 0,
+        item_visuals: vec![
+            ItemVisualDefinition {
+                key: ItemVisualKey {
+                    identifier: "minecraft:apple".into(),
+                    metadata: 0,
                 },
+                source: 2,
+                route: ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: 3,
+                        variant: 0,
+                    },
+                },
+                first_person: ItemDisplayTransform::identity(),
+                third_person: ItemDisplayTransform::identity(),
+                dropped: ItemDisplayTransform::identity(),
             },
-            first_person: ItemDisplayTransform::identity(),
-            third_person: ItemDisplayTransform::identity(),
-            dropped: ItemDisplayTransform::identity(),
-        }]
+            ItemVisualDefinition {
+                key: ItemVisualKey {
+                    identifier: "minecraft:block_witness".into(),
+                    metadata: 0,
+                },
+                source: 2,
+                route: ItemVisualDefinitionRoute::BlockItem {
+                    block_visual: BlockVisualId(0),
+                },
+                first_person: ItemDisplayTransform::identity(),
+                third_person: ItemDisplayTransform::identity(),
+                dropped: ItemDisplayTransform::identity(),
+            },
+        ]
         .into_boxed_slice(),
         item_visual_aliases: vec![ItemVisualAlias {
             key: ItemVisualKey {
@@ -141,13 +160,22 @@ fn stream() -> WorldStream {
 }
 
 fn stack(network_id: i32, count: u16, extra: &[u8]) -> NetworkItemStack {
+    stack_with_block(network_id, count, extra, 0)
+}
+
+fn stack_with_block(
+    network_id: i32,
+    count: u16,
+    extra: &[u8],
+    block_runtime_id: i32,
+) -> NetworkItemStack {
     NetworkItemStack {
         network_id,
         metadata: 0,
         stack_network_id: if count == 0 { -1 } else { 91 },
         count,
         nbt_digest: Sha256::digest(extra).into(),
-        block_runtime_id: 0,
+        block_runtime_id,
         extra_data: Arc::from(extra),
     }
 }
@@ -334,6 +362,167 @@ fn latest_registry_re_resolves_live_equipment_without_changing_identity() {
         ItemVisualRoute::Compiled(ItemVisualId(0))
     );
     assert_eq!(replaced.event, original.event);
+}
+
+#[test]
+fn stacks_equal_except_retained_block_identity_canonicalize_distinctly() {
+    let mut stream = stream();
+    stream
+        .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
+        .unwrap();
+
+    let plain = stack(CUSTOM_ITEM_ID, 1, b"same");
+    let mut blocked = plain.clone();
+    blocked.block_runtime_id = 180;
+
+    // The two wire stacks differ only in their retained block runtime
+    // identity; canonical identity must keep them apart instead of silently
+    // collapsing them.
+    let plain_canonical = stream.canonical_item_stack(&plain).unwrap();
+    let blocked_canonical = stream.canonical_item_stack(&blocked).unwrap();
+    assert_ne!(plain_canonical, blocked_canonical);
+    assert_ne!(plain_canonical.identity, blocked_canonical.identity);
+    assert_eq!(plain_canonical.identity.block_runtime_id, 0);
+    assert_eq!(blocked_canonical.identity.block_runtime_id, 180);
+
+    stream.submit(2, spawn(42, -42, plain)).unwrap();
+    let plain_snapshot = stream.actor_equipment(42).unwrap().clone();
+    stream
+        .submit(3, equipment(42, blocked, Some(ActorHandedness::Right)))
+        .unwrap();
+    let blocked_snapshot = stream.actor_equipment(42).unwrap();
+    assert_ne!(blocked_snapshot.item.identity, plain_snapshot.item.identity);
+    assert_eq!(blocked_snapshot.item.identity.block_runtime_id, 180);
+}
+
+#[test]
+fn selected_slot_wire_encoding_distinguishes_retained_block_identity() {
+    let plain = stack(WIRE_ENCODING_ITEM_ID, 1, b"same");
+    let mut blocked = plain.clone();
+    blocked.block_runtime_id = 180;
+
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    let plain_packet = select_hotbar_slot_packet(42, 0, &plain).unwrap();
+    let blocked_packet = select_hotbar_slot_packet(42, 0, &blocked).unwrap();
+    let plain_bytes = protocol::encode(&plain_packet, &session).unwrap();
+    let blocked_bytes = protocol::encode(&blocked_packet, &session).unwrap();
+
+    // The outbound selected-slot wire carries the exact retained block
+    // identity, so the two stacks never encode to the same bytes.
+    assert_ne!(plain_bytes, blocked_bytes);
+
+    let rebuilt = select_hotbar_slot_packet(42, 0, &plain).unwrap();
+    assert_eq!(protocol::encode(&rebuilt, &session).unwrap(), plain_bytes);
+}
+
+#[test]
+fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution() {
+    let mut stream = stream();
+    stream
+        .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
+        .unwrap();
+    stream
+        .submit(
+            2,
+            spawn(42, -42, stack_with_block(CUSTOM_ITEM_ID, 1, b"same", 180)),
+        )
+        .unwrap();
+
+    // The sprite-resolving identifier does not launder the retained block
+    // identity: the route carries an explicit fail-visible block marker.
+    let held = stream.actor_equipment(42).unwrap().clone();
+    assert_eq!(held.item.identifier.as_deref(), Some("minecraft:red_apple"));
+    assert_eq!(
+        held.item.visual,
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 180
+        }
+    );
+
+    // Registry re-resolution rebuilds presentation from the stored identity
+    // and preserves the retained block identity end to end.
+    stream
+        .submit(3, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
+        .unwrap();
+    let re_resolved = stream.actor_equipment(42).unwrap();
+    assert_eq!(re_resolved.item.identity, held.item.identity);
+    assert_eq!(
+        re_resolved.item.identifier.as_deref(),
+        Some("minecraft:apple")
+    );
+    assert_eq!(
+        re_resolved.item.visual,
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 180
+        }
+    );
+
+    // The identical stack without retained block identity keeps the exact
+    // prior compiled sprite route.
+    stream
+        .submit(
+            4,
+            equipment(
+                42,
+                stack(CUSTOM_ITEM_ID, 1, b"same"),
+                Some(ActorHandedness::Right),
+            ),
+        )
+        .unwrap();
+    let sprite_item = stream.actor_equipment(42).unwrap();
+    assert_eq!(sprite_item.item.identity.block_runtime_id, 0);
+    assert_eq!(
+        sprite_item.item.visual,
+        ItemVisualRoute::Compiled(ItemVisualId(0))
+    );
+}
+
+#[test]
+fn unresolved_identifiers_with_retained_block_identity_stay_fail_visible() {
+    let mut stream = stream();
+    stream
+        .submit(
+            1,
+            spawn(42, -42, stack_with_block(PENDING_ITEM_ID, 1, b"a", 300)),
+        )
+        .unwrap();
+
+    let item = &stream.actor_equipment(42).unwrap().item;
+    assert_eq!(item.identifier, None);
+    assert_eq!(
+        item.visual,
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 300
+        }
+    );
+}
+
+#[test]
+fn compiled_block_item_routes_stay_authoritative_over_retained_identity() {
+    let mut stream = stream();
+    stream
+        .submit(
+            1,
+            registry(BLOCK_WITNESS_ITEM_ID, "minecraft:block_witness"),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            spawn(
+                42,
+                -42,
+                stack_with_block(BLOCK_WITNESS_ITEM_ID, 1, b"same", 44),
+            ),
+        )
+        .unwrap();
+
+    // A compiled block-item route remains the explicit block-item path even
+    // when the wire also retained a block runtime identity; the retained id
+    // stays bound into the canonical identity either way.
+    let item = &stream.actor_equipment(42).unwrap().item;
+    assert_eq!(item.visual, ItemVisualRoute::BlockItem(BlockVisualId(0)));
+    assert_eq!(item.identity.block_runtime_id, 44);
 }
 
 #[test]
