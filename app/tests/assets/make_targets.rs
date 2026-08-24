@@ -312,6 +312,43 @@ fn make_builds_the_pinned_localization_carrier_for_default_launch() {
 }
 
 #[test]
+fn make_builds_the_pinned_sound_definition_carrier_for_default_launch() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let makefile = fs::read_to_string(root.join("Makefile"))
+        .unwrap()
+        .replace("\r\n", "\n");
+
+    for contract in [
+        "AUDIO_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeaud",
+        "AUDIO_ASSET_REPORT ?= .local/assets/compiled/audio-assets.json",
+        concat!(
+            "AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ",
+            "audio-assets --pack \"$(PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
+            "--out \"$(AUDIO_ASSET_BLOB)\" --report \"$(AUDIO_ASSET_REPORT)\""
+        ),
+        "audio-assets: $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)",
+        "$(AUDIO_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)",
+        "$(AUDIO_ASSET_REPORT): $(AUDIO_ASSET_BLOB)",
+    ] {
+        assert!(
+            makefile.contains(contract),
+            "missing sound-definition Makefile contract: {contract}"
+        );
+    }
+    let assets = makefile
+        .lines()
+        .find(|line| line.starts_with("assets:"))
+        .unwrap();
+    assert!(assets.contains("$(AUDIO_ASSET_BLOB)"));
+    assert!(assets.contains("$(AUDIO_ASSET_REPORT)"));
+    let phony = makefile
+        .lines()
+        .find(|line| line.starts_with(".PHONY:"))
+        .unwrap();
+    assert!(phony.split_whitespace().any(|word| word == "audio-assets"));
+}
+
+#[test]
 fn make_vanilla_pack_sentinel_reacquires_only_when_missing() {
     let make_available = match Command::new("make").arg("--version").output() {
         Ok(output) if output.status.success() => true,
@@ -390,6 +427,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let lang_report = temporary.join("lang.json");
     let icon = temporary.join("icon.mcbeico");
     let icon_report = temporary.join("icon.json");
+    let audio = temporary.join("audio.mcbeaud");
+    let audio_report = temporary.join("audio.json");
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
@@ -418,6 +457,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("LANG_ASSET_REPORT={}", make_path(&lang_report)),
         format!("ICON_ASSET_BLOB={}", make_path(&icon)),
         format!("ICON_ASSET_REPORT={}", make_path(&icon_report)),
+        format!("AUDIO_ASSET_BLOB={}", make_path(&audio)),
+        format!("AUDIO_ASSET_REPORT={}", make_path(&audio_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
         producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
@@ -441,6 +482,12 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "icon",
             &log,
             &[&icon, &icon_report],
+        ),
+        producer_assignment(
+            "AUDIO_ASSET_COMPILE",
+            "audio",
+            &log,
+            &[&audio, &audio_report],
         ),
         format!(
             "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
@@ -481,6 +528,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "hud",
             "lang",
             "icon",
+            "audio",
             "physics",
             "launch",
         ]

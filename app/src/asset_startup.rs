@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsString,
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -22,8 +21,6 @@ mod world_provenance;
 pub(crate) use world_provenance::pinned_block_registry_bytes;
 pub use world_provenance::pinned_world_provenance;
 
-pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
-pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
@@ -36,6 +33,8 @@ pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
 pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
 pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
+pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
+pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
@@ -57,19 +56,6 @@ const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssetPathSource {
-    CommandLine,
-    Environment,
-    Default,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetSelection {
-    pub path: PathBuf,
-    pub source: AssetPathSource,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadedAssetKind {
@@ -106,10 +92,27 @@ pub struct LoadedFontAssets {
     diagnostic: bool,
 }
 
+mod audio_carrier;
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
+mod path_selection;
 
+/// Environment override consumed through [`path_selection`]; kept beside the
+/// other identity anchors so the registered marker's declared consumer stays
+/// this module.
+pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
+
+pub use path_selection::{
+    AssetPathSource, AssetSelection, DEFAULT_ASSET_PATH, select_asset_path,
+    select_asset_path_from_environment, select_asset_path_in_context,
+    select_asset_path_with_default,
+};
+
+pub use audio_carrier::{
+    LoadedAudioAssets, audio_asset_path, audio_assets_missing_notice, audio_assets_rebuild_command,
+    load_audio_assets,
+};
 pub use hud_carrier::{
     LoadedHudAssets, hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command,
     load_hud_assets, require_hud_assets,
@@ -487,6 +490,49 @@ pub enum AssetStartupError {
     },
 
     #[error(
+        "could not read local sound-definition carrier at {path}: {source}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local sound-definition carrier at {path} exceeds the {max_bytes}-byte startup limit
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local sound-definition carrier at {path}: {source}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<assets::AudioCatalogError>,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local sound-definition carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error(
         "could not read required item-icon carrier at {path}: {source}
 rebuild item-icon assets with: {rebuild_command}"
     )]
@@ -541,78 +587,6 @@ rebuild item-icon assets with: {rebuild_command}"
 struct VanillaSource {
     tag: String,
     sha256: String,
-}
-
-#[must_use]
-pub fn select_asset_path(
-    command_line: Option<&Path>,
-    environment: Option<OsString>,
-) -> AssetSelection {
-    select_asset_path_with_default(command_line, environment, Path::new(DEFAULT_ASSET_PATH))
-}
-
-#[must_use]
-pub fn select_asset_path_with_default(
-    command_line: Option<&Path>,
-    environment: Option<OsString>,
-    default_path: &Path,
-) -> AssetSelection {
-    if let Some(path) = command_line {
-        return AssetSelection {
-            path: path.to_owned(),
-            source: AssetPathSource::CommandLine,
-        };
-    }
-    if let Some(path) = environment.filter(|path| !path.is_empty()) {
-        return AssetSelection {
-            path: PathBuf::from(path),
-            source: AssetPathSource::Environment,
-        };
-    }
-    AssetSelection {
-        path: default_path.to_owned(),
-        source: AssetPathSource::Default,
-    }
-}
-
-#[must_use]
-pub fn select_asset_path_in_context(
-    command_line: Option<&Path>,
-    environment: Option<OsString>,
-    current_directory: &Path,
-    executable: &Path,
-) -> AssetSelection {
-    let mut selection = select_asset_path(command_line, environment);
-    if selection.source != AssetPathSource::Default || selection.path.is_absolute() {
-        return selection;
-    }
-    if current_directory.join(&selection.path).is_file() {
-        return selection;
-    }
-    let Some(project_root) = executable
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-    else {
-        return selection;
-    };
-    let executable_relative = project_root.join(&selection.path);
-    if executable_relative.is_file() {
-        selection.path = executable_relative;
-    }
-    selection
-}
-
-#[must_use]
-pub fn select_asset_path_from_environment(
-    command_line: Option<&Path>,
-    default_path: &Path,
-) -> AssetSelection {
-    select_asset_path_with_default(
-        command_line,
-        std::env::var_os(ASSET_PATH_ENVIRONMENT),
-        default_path,
-    )
 }
 
 #[must_use]

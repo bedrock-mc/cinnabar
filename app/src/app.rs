@@ -156,6 +156,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
+        .init_resource::<crate::session_audio::SessionAudio>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)
@@ -195,6 +196,13 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             reconcile_world_stream_before_physics
                 .after(receive_network_events)
                 .before(ClientFrameSet::Physics),
+        )
+        // The session-audio reader consumes exactly what the world-stream
+        // writer above produced, so it must order after that writer.
+        .add_systems(
+            Update,
+            crate::session_audio::drain_sequenced_audio_into_session
+                .after(reconcile_world_stream_before_physics),
         )
         .add_systems(
             Update,
@@ -462,6 +470,30 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
+    // The sound-definition catalog binds optionally (VPA-017): absence falls
+    // back to a bounded empty catalog with this one-time notice, while a
+    // present-but-invalid carrier fails startup closed above through the
+    // typed error naming the exact path and rebuild command.
+    let audio_catalog = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path)
+    {
+        Ok(Some(loaded)) => {
+            eprintln!("{}", loaded.startup_summary());
+            Some(loaded.into_runtime())
+        }
+        Ok(None) => {
+            eprintln!(
+                "{}",
+                crate::asset_startup::audio_assets_missing_notice(
+                    &crate::asset_startup::audio_asset_path(&loaded_assets.selected_path)
+                )
+            );
+            None
+        }
+        Err(error) => {
+            return Err(anyhow::Error::new(error))
+                .context("load optional pinned sound-definition carrier");
+        }
+    };
     let font_runtime = loaded_assets.fonts.into_runtime();
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
@@ -616,6 +648,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.display_name.clone(),
             layout,
         ))
+        .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())
         .insert_resource(LocalMovementSpeedAuthority::default())
