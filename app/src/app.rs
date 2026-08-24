@@ -349,6 +349,36 @@ pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Back
     }
 }
 
+/// Binds the identity-checked session-directory owner for direct starts.
+///
+/// Only app-derived directories carry the `direct-<pid>` naming grammar the
+/// guard enforces. A flag-provided `--socket-dir` belongs to the operator
+/// (documented custom layouts predate the ownership guard) and its leaf may
+/// violate that grammar, so binding it would abort startup with
+/// `InvalidName`; such sessions own no runtime directory and leave the
+/// provided directory exactly as supplied, after preserving the historical
+/// side effect that it exists. Teardown order is unchanged: the core child
+/// is stopped by the explicit `drop(app)` below before any app-owned state
+/// is released, and an unowned directory is never removed.
+fn bind_direct_session_directory(
+    args: &args::ClientArgs,
+    socket_dir: std::path::PathBuf,
+) -> Result<ScopedSessionDirectory> {
+    if args.address.is_some() && !args.socket_dir_explicit {
+        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
+            format!(
+                "prepare direct-connect session directory {}",
+                socket_dir.display()
+            )
+        });
+    }
+    if args.address.is_some() {
+        fs::create_dir_all(&socket_dir)
+            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
+    }
+    Ok(ScopedSessionDirectory::none())
+}
+
 fn render_plugin() -> RenderPlugin {
     let mut settings = WgpuSettings::default();
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
@@ -378,15 +408,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // the core first, then this holder removes the runtime directory at
     // scope exit. It also covers early asset failures through ordinary
     // unwinding.
-    let _direct_session_directory = match args.address.as_deref() {
-        Some(_) => ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
-            format!(
-                "prepare direct-connect session directory {}",
-                socket_dir.display()
-            )
-        })?,
-        None => ScopedSessionDirectory::none(),
-    };
+    let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
     if let Some(address) = args.address.as_deref() {
         let child = spawn_core_for_address(&layout, &socket_dir, address, None)
             .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
@@ -723,6 +745,82 @@ mod preg_startup_tests {
         assert!(message.contains("read required protocol-1001 physics registry"));
         assert!(message.contains("make physics-assets"));
         assert!(message.contains("make client"));
+    }
+}
+
+#[cfg(test)]
+mod direct_session_directory_tests {
+    use super::*;
+    use crate::args::ParseOutcome;
+
+    fn run_args(arguments: &[&str]) -> args::ClientArgs {
+        match args::ClientArgs::parse_from(arguments.to_vec()) {
+            Ok(ParseOutcome::Run(parsed)) => *parsed,
+            outcome => panic!("expected run arguments, got {outcome:?}"),
+        }
+    }
+
+    fn temporary_root(label: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock must be after the Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("rust-mcbe-{label}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn explicit_non_grammar_socket_dir_starts_without_a_guard() {
+        // Base behavior: documented custom socket directories are accepted
+        // even though their leaf violates the session-directory grammar.
+        let root = temporary_root("explicit-sock-dir");
+        let custom = root.join("custom.sock");
+        let parsed = run_args(&[
+            "client",
+            "--address",
+            "127.0.0.1:19132",
+            "--socket-dir",
+            custom.to_str().expect("temp path is UTF-8"),
+        ]);
+        assert!(parsed.socket_dir_explicit);
+
+        let holder = bind_direct_session_directory(&parsed, resolve_socket_dir(&parsed.socket_dir))
+            .expect("an explicit non-grammar socket directory must start cleanly");
+        assert!(
+            custom.is_dir(),
+            "the historical side effect of ensuring the directory exists stays"
+        );
+        let owned_entries = fs::read_dir(&custom)
+            .expect("read prepared socket directory")
+            .count();
+        assert_eq!(
+            owned_entries, 0,
+            "unguarded operator directories never receive an ownership marker"
+        );
+        drop(holder);
+        assert!(
+            custom.is_dir(),
+            "teardown leaves an unowned operator directory untouched"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn derived_default_directory_still_binds_the_guard() {
+        let root = temporary_root("derived-sock-dir");
+        fs::create_dir_all(&root).expect("create temp root");
+        let parsed = run_args(&["client", "--address", "127.0.0.1:19132"]);
+        assert!(!parsed.socket_dir_explicit);
+        let socket_dir = root.join("direct-123");
+
+        let holder = bind_direct_session_directory(&parsed, socket_dir.clone())
+            .expect("app-derived directories keep exclusive ownership");
+        assert!(socket_dir.is_dir(), "binding prepares the owned directory");
+        drop(holder);
+        assert!(
+            !socket_dir.exists(),
+            "default-path ownership and teardown are unchanged"
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }
 

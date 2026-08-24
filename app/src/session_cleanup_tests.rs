@@ -531,3 +531,54 @@ fn menu_runtime_binding_replaces_releases_and_drops_cleanly() {
     );
     let _ = fs::remove_dir_all(root.path().join(".local"));
 }
+
+#[test]
+fn reclamation_never_follows_a_seeded_link_shaped_session_name() {
+    // A grammar-named entry that is really a symlink or Windows junction is
+    // never classified as a reclaimable session directory, even when its
+    // target carries a provably stale foreign marker that would otherwise
+    // qualify for removal.
+    let root = TempRoot::new("link-shaped-session");
+    // The link target deliberately carries no session-like name so the only
+    // counted entry in this root is the seeded link itself.
+    let target = root.join("junction-target");
+    fs::create_dir_all(&target).expect("seed link target");
+    write_marker(
+        &target,
+        "9".repeat(32).trim(),
+        999_999,
+        "connect",
+        1,
+        FAKE_NOW - 2 * DAY_SECS,
+    );
+    let link = root.join("connect-91-1");
+
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .status()
+            .expect("spawn mklink for the junction witness");
+        assert!(status.success(), "junction creation must succeed");
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&target, &link).expect("seed session-name symlink");
+
+    let report = reclaim_stale_entries(root.path(), &policy_at(real_now_unix(), 8));
+
+    assert_eq!(
+        report.reclaimed_directories, 0,
+        "reclamation must never delete through a link"
+    );
+    // Two unrelated entries: the plain target directory (no session-like
+    // name) plus the seeded link itself, whose reparse-point file type
+    // fails the real-directory gate before its marker is ever read.
+    assert_eq!(report.skipped_unrelated, 2);
+    assert!(
+        fs::symlink_metadata(&link).is_ok(),
+        "the seeded link itself stays untouched"
+    );
+    assert!(target.is_dir(), "the linked target stays untouched");
+}
