@@ -49,7 +49,6 @@ pub use camera::{
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
-pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     click_block_packet, destroy_block_packet, use_actor_packet,
@@ -87,6 +86,7 @@ pub use raw_text::{
     RawTextResolver, ResolvedRawText, parse_raw_text,
 };
 pub use socket_transport::{SocketTransport, bridge_endpoint_path};
+pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,

@@ -48,7 +48,7 @@ mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
 use disconnect_reason::{
-    PlayEpilogue, camera_instruction_epilogue_packets, boundary_epilogue_packets,
+    PlayEpilogue, boundary_epilogue_packets, camera_instruction_epilogue_packets,
     truncated_epilogue_wire,
 };
 

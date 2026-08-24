@@ -16,8 +16,8 @@ use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent,
-    WorldEvent, into_world_event,
+    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent, WorldEvent,
+    into_world_event,
 };
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;

@@ -48,7 +48,11 @@ impl ServerTransferEvent {
         let McpePacketData::TransferPacket(packet) = data else {
             return Ok(None);
         };
-        Self::from_wire_fields(&packet.server_address, packet.server_port, packet.reload_world)
+        Self::from_wire_fields(
+            &packet.server_address,
+            packet.server_port,
+            packet.reload_world,
+        )
     }
 
     fn from_wire_fields(
@@ -63,10 +67,7 @@ impl ServerTransferEvent {
         if host.len() > MAX_TRANSFER_HOST_BYTES {
             return Err(ServerTransferRejection::HostTooLong { bytes: host.len() });
         }
-        if host
-            .chars()
-            .any(|character| is_forbidden_host_character(character))
-        {
+        if host.chars().any(is_forbidden_host_character) {
             return Err(ServerTransferRejection::InvalidHostCharacter);
         }
         if port == 0 {
@@ -105,9 +106,10 @@ mod tests {
 
     #[test]
     fn normalization_retains_a_bounded_target() {
-        let event = ServerTransferEvent::from_packet_data(&transfer_data("play.example.net", 19133))
-            .expect("well-formed target")
-            .expect("transfer packet normalizes");
+        let event =
+            ServerTransferEvent::from_packet_data(&transfer_data("play.example.net", 19133))
+                .expect("well-formed target")
+                .expect("transfer packet normalizes");
         assert_eq!(event.host, "play.example.net");
         assert_eq!(event.port, 19133);
         assert!(!event.reload_world);
@@ -130,9 +132,10 @@ mod tests {
 
     #[test]
     fn normalization_ignores_non_transfer_packets() {
-        let other = McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_44::SetTimePacket {
-            time: 7,
-        });
+        let other =
+            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_44::SetTimePacket {
+                time: 7,
+            });
         assert_eq!(
             ServerTransferEvent::from_packet_data(&other).expect("non-transfer normalizes"),
             None
@@ -171,10 +174,7 @@ mod tests {
     #[test]
     fn control_characters_are_semantic_rejections() {
         assert_eq!(
-            ServerTransferEvent::from_packet_data(&transfer_data(
-                "play.exam\x07ple.net",
-                19133
-            )),
+            ServerTransferEvent::from_packet_data(&transfer_data("play.exam\x07ple.net", 19133)),
             Err(ServerTransferRejection::InvalidHostCharacter)
         );
         assert_eq!(
