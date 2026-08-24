@@ -230,3 +230,125 @@ function Write-RawTestZipArchive {
     [System.IO.File]::WriteAllBytes($Path, $body.ToArray())
     $bw.Dispose(); $cw.Dispose(); $body.Dispose(); $central.Dispose()
 }
+
+# VPA-209 publish-race witness for the bash extractor's pre-publication
+# absence recheck. A concurrent writer creating the cache target between
+# extraction and publication must fail the run closed instead of letting
+# POSIX `mv dir target` move staging INTO the live directory and corrupting
+# the published layout. Injection is deterministic: a PATH-shimmed unzip
+# delegates to the real Info-ZIP binary, then creates the publication target
+# immediately after extraction returns, inside the fetcher's pre-move window.
+# The caller owns fixture construction and manifest pinning; this helper
+# writes the shell harness, drives the fetcher, and returns failure strings.
+function Test-PublishRaceInjection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BashPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ShimRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$FetcherPath,
+        [Parameter(Mandatory = $true)]
+        [string]$CacheDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$AssetRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$StagingResidueFilter
+    )
+
+    $failures = @()
+    New-Item -ItemType Directory -Force -Path $ShimRoot | Out-Null
+    # Generated shell fixtures are written byte-exactly with LF endings:
+    # POSIX bash parses CR bytes as ordinary characters on every CI host,
+    # so Set-Content's platform newline must not touch these bodies.
+    $raceLauncherBody = @(
+        '#!/usr/bin/env bash'
+        '# Publish-race harness launcher: resolves the real unzip before'
+        '# shims shadow it, prepends the shim directory to PATH so every'
+        '# fetcher unzip call lands in the racing shim, then runs the real'
+        '# fetcher with the accepted-EULA flag.'
+        'set -u'
+        'here="$(cd -- "$(dirname -- "$0")" && pwd)"'
+        'real_unzip="$(command -v unzip)" || exit 127'
+        'export CINNABAR_TEST_REAL_UNZIP="$real_unzip"'
+        'export PATH="$here:$PATH"'
+        'if [ "$#" -lt 1 ]; then'
+        '    exit 64'
+        'fi'
+        'fetcher="$1"'
+        'shift'
+        'exec bash "$fetcher" --accept-eula "$@"'
+    ) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $ShimRoot "run-fetcher-with-race.sh"), $raceLauncherBody + "`n")
+    $racingUnzipBody = @(
+        '#!/usr/bin/env bash'
+        '# Racing unzip shim: delegates every invocation to the real'
+        '# binary, then -- only for an extraction run (-d <staging>) --'
+        '# simulates the concurrent writer that creates the publication'
+        '# target during extraction, before the fetcher publishes.'
+        'set -u'
+        'real="${CINNABAR_TEST_REAL_UNZIP:-}"'
+        'if [ -z "$real" ]; then'
+        '    echo "racing unzip shim: real unzip path unavailable" >&2'
+        '    exit 69'
+        'fi'
+        'staging=""'
+        'prev=""'
+        'for arg in "$@"; do'
+        '    if [ "$prev" = "-d" ]; then'
+        '        staging="$arg"'
+        '    fi'
+        '    prev="$arg"'
+        'done'
+        '"$real" "$@" || exit $?'
+        'if [ -n "$staging" ]; then'
+        '    cache_dir="${staging%.extracting.*}"'
+        '    if [ "$cache_dir" != "$staging" ] && mkdir -p -- "$cache_dir/resource_pack"; then'
+        '        printf ''%s\n'' ''{"injected": true}'' > "$cache_dir/resource_pack/blocks.json"'
+        '        printf ''%s\n'' ''concurrent writer created the target during extraction'' > "$cache_dir/injected-sentinel.txt"'
+        '    fi'
+        'fi'
+        'exit 0'
+    ) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $ShimRoot "unzip"), $racingUnzipBody + "`n")
+    $raceChmodTargets = @(
+        (Join-Path $ShimRoot "run-fetcher-with-race.sh"),
+        (Join-Path $ShimRoot "unzip")
+    ) | ForEach-Object { "'" + $_.Replace('\', '/') + "'" }
+    $raceChmod = Invoke-NativeCapture -FilePath $BashPath -ArgumentList @(
+        "-c",
+        "chmod +x $($raceChmodTargets -join ' ')"
+    )
+    if ($raceChmod.ExitCode -ne 0) {
+        throw "publish-race harness could not mark its shell fixtures executable: $($raceChmod.Output.Trim())"
+    }
+
+    $raceResult = Invoke-NativeCapture -FilePath $BashPath -ArgumentList @(
+        (Join-Path $ShimRoot "run-fetcher-with-race.sh").Replace('\', '/'),
+        $FetcherPath.Replace('\', '/')
+    )
+    if ($raceResult.ExitCode -eq 0) {
+        $failures += "publish-race(bash): unexpectedly succeeded while the cache target appeared during extraction"
+    }
+    if (-not (Test-OutputContains -Output $raceResult.Output -Needle "cache directory appeared during extraction")) {
+        $failures += "publish-race(bash): omitted the appeared-during-extraction diagnostic: $($raceResult.Output.Trim())"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $CacheDirectory "injected-sentinel.txt") -PathType Leaf)) {
+        $failures += "publish-race(bash): the concurrently created cache directory did not survive intact"
+    }
+    $injectedBlocks = Join-Path $CacheDirectory "resource_pack\blocks.json"
+    if ((Test-Path -LiteralPath $injectedBlocks -PathType Leaf) -and
+        -not ((Get-Content -Raw -LiteralPath $injectedBlocks).Contains("injected"))) {
+        $failures += "publish-race(bash): overwrote the concurrently created cache contents"
+    }
+    $movedIntoCache = @(Get-ChildItem -Force -LiteralPath $CacheDirectory -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "synthetic-vanilla*" })
+    if ($movedIntoCache.Count -ne 0) {
+        $failures += "publish-race(bash): staged extraction was moved INTO the live cache directory: $($movedIntoCache.FullName -join ', ')"
+    }
+    $raceResidue = @(Get-ChildItem -Force -LiteralPath $AssetRoot -Directory -Filter $StagingResidueFilter -ErrorAction SilentlyContinue)
+    if ($raceResidue.Count -ne 0) {
+        $failures += "publish-race(bash): left extraction staging behind: $($raceResidue.FullName -join ', ')"
+    }
+    return $failures
+}
