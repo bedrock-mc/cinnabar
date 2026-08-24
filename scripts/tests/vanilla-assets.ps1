@@ -76,6 +76,9 @@ if (-not $sandboxRoot.StartsWith($sandboxPrefix, [System.StringComparison]::Ordi
     throw "refusing unsafe fetcher test sandbox: $sandboxRoot"
 }
 
+# Serves the synthetic download origin for the hermetic fetch fixtures.
+$originServerJob = $null
+
 try {
     $sandboxScripts = Join-Path $sandboxRoot "scripts"
     $sandboxAssets = Join-Path $sandboxRoot "assets"
@@ -96,11 +99,20 @@ param(
     [switch]$DryRun
 )
 $ErrorActionPreference = "Stop"
-Import-Module Microsoft.PowerShell.Utility
-Remove-Item -LiteralPath Function:\Get-FileHash -Force
-$PSModuleAutoLoadingPreference = "None"
-if ($null -ne (Get-Command Get-FileHash -ErrorAction SilentlyContinue)) {
-    throw "test precondition failed: Get-FileHash is still available"
+# Windows PowerShell 5.1 exports Get-FileHash as an auto-loadable script
+# function while PowerShell 7+ ships it as a compiled cmdlet that no session
+# can remove uniformly. A shadowing function fails loudly on either host —
+# functions outrank cmdlets during command resolution, so every possible
+# Get-FileHash call inside the fetcher throws — proving the fetcher hashes
+# pinned digests through its own .NET primitives. Session module state is
+# left untouched: newer hosts resolve their base cmdlets through automatic
+# module loading and must keep it enabled.
+function Get-FileHash {
+    throw "test precondition violated: the fetcher must hash without Get-FileHash"
+}
+if ((Get-Command Get-FileHash -ErrorAction SilentlyContinue).CommandType -ne
+        [System.Management.Automation.CommandTypes]::Function) {
+    throw "test precondition failed: the Get-FileHash shadow is not in effect"
 }
 try {
     & $Fetcher -AcceptEula:$AcceptEula -DryRun:$DryRun
@@ -259,8 +271,14 @@ if ($LASTEXITCODE -ne 0) {
     }
 
     # Pinned SHA-256 verification must fail closed without depending on the
-    # Microsoft.PowerShell.Utility script module auto-loading Get-FileHash. A
-    # file:// source keeps the download path hermetic and small.
+    # Microsoft.PowerShell.Utility script module auto-loading Get-FileHash.
+    # The download origin is served over a loopback HTTP stub instead of a
+    # file:// URL: Windows PowerShell 5.1 downloads file:// through
+    # WebRequest, while PowerShell 7+ (the host the Linux/macOS CI lanes
+    # run under) refuses that scheme outright. A raw TCP listener needs no
+    # platform URL reservations, stays fully hermetic (fixtures only, no
+    # external network), and exercises the same http download path every
+    # host uses for the real pinned source.
     if (Test-Path -LiteralPath $syntheticCache) {
         Remove-Item -Recurse -Force -LiteralPath $syntheticCache
     }
@@ -268,11 +286,66 @@ if ($LASTEXITCODE -ne 0) {
         Remove-Item -Force -LiteralPath $syntheticArchivePath
     }
     $originArchive = Join-Path $sandboxRoot "origin\pinned-source.zip"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $originArchive) | Out-Null
     New-TestZipArchive -Path $originArchive -Entries @(
         [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
         [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
     )
-    $originUrl = ([System.Uri]$originArchive).AbsoluteUri
+    $originPortFile = Join-Path $sandboxRoot "origin-port.txt"
+    if (Test-Path -LiteralPath $originPortFile) {
+        Remove-Item -Force -LiteralPath $originPortFile
+    }
+    $originServerJob = Start-Job -ScriptBlock {
+        param([string]$ArchivePath, [string]$PortFile)
+        $listener = [System.Net.Sockets.TcpListener]::new(
+            [System.Net.IPAddress]::Loopback,
+            0
+        )
+        $listener.Start()
+        try {
+            [System.IO.File]::WriteAllText(
+                $PortFile,
+                [string](([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
+            )
+            while ($true) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = [System.IO.StreamReader]::new($stream)
+                    $requestLine = $reader.ReadLine()
+                    while (-not [string]::IsNullOrEmpty($reader.ReadLine())) { }
+                    if ($null -ne $requestLine -and $requestLine.StartsWith("GET ")) {
+                        $body = [System.IO.File]::ReadAllBytes($ArchivePath)
+                        $header = "HTTP/1.0 200 OK`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
+                        $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($header)
+                        $stream.Write($headerBytes, 0, $headerBytes.Length)
+                        $stream.Write($body, 0, $body.Length)
+                    } else {
+                        $notFound = [System.Text.Encoding]::ASCII.GetBytes(
+                            "HTTP/1.0 404 Not Found`r`nContent-Length: 0`r`n`r`n"
+                        )
+                        $stream.Write($notFound, 0, $notFound.Length)
+                    }
+                } finally {
+                    $client.Dispose()
+                }
+            }
+        } catch {
+            # The harness stops this job between fixtures; accept-loop aborts land here.
+        } finally {
+            $listener.Stop()
+        }
+    } -ArgumentList $originArchive, $originPortFile
+
+    $originReadyDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $originPortFile) -and [DateTime]::UtcNow -lt $originReadyDeadline) {
+        Start-Sleep -Milliseconds 50
+    }
+    if (-not (Test-Path -LiteralPath $originPortFile)) {
+        throw "the loopback origin server did not report its port"
+    }
+    $originPort = [int](Get-Content -Raw -LiteralPath $originPortFile)
+    $originUrl = "http://127.0.0.1:$originPort/pinned-source.zip"
     $originSha256 = Get-TestSha256Hex -Path $originArchive
     $wrongSha256 = "0" * 64
 
@@ -658,6 +731,10 @@ exit 1
         throw "fetcher safety contract failures:`n$($sandboxFailures -join "`n")"
     }
 } finally {
+    if ($null -ne $originServerJob) {
+        Stop-Job -Job $originServerJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $originServerJob -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $sandboxRoot) {
         Remove-Item -Recurse -Force -LiteralPath $sandboxRoot
     }
