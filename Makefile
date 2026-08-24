@@ -99,7 +99,7 @@ help:
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
-	@echo make audio-assets    - Compile the dormant pinned sound-definition lookup catalog
+	@echo make audio-assets    - Compile the pinned sound-definition lookup catalog
 	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client

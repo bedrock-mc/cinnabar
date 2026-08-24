@@ -268,7 +268,10 @@ Current implementation state:
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
-  an app same-frame delivery seam, but there is no sound-definition resolver or audible runtime.
+  an app same-frame delivery seam; a bounded session-owned outcome queue resolves named plays through the
+  optional compiled sound-definition catalog into finite-checked playback records (stops catalog-free,
+  level events transport-only) but there is still no audible runtime, mixer, listener math, category
+  settings, pack routing, or session-reset owner.
   Local worlds remain absent.
 - Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
   path derivation have landed. A fallible installed/developer layout owner and unsigned local-only
