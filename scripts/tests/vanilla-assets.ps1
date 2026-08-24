@@ -542,11 +542,13 @@ exit 1
     Assert-ExtractionRejection -Label "path-collision" `
         -Needle "ZIP entry path collision at 'resource_pack/blocks.json'"
 
-    # --- symlink entries: PowerShell rejects the declared Unix mode bits
-    # outright; bash rejects whatever its extractor materializes via the
-    # post-extraction special-node scan. On Windows hosts Info-ZIP unzip
-    # stores such entries as regular files (nothing to escape with), so the
-    # bash leg asserts only that no escape occurred when extraction succeeds.
+    # --- link entries: both fetchers reject declared Unix link modes from
+    # central-directory metadata BEFORE anything is written, so neither
+    # extractor ever gets the chance to materialize a link or write through
+    # one. The leaf-link fixture keeps its original single-entry shape; the
+    # directory-symlink fixture adds child members whose only extraction
+    # route would be THROUGH the rejected link, proving those children are
+    # never written outside staging on either platform.
     Reset-BoundedFixture
     New-TestZipArchive -Raw -Path $syntheticArchivePath -Entries @(
         [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
@@ -558,37 +560,27 @@ exit 1
         }
     )
     Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
-    $symlinkPs = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        $sandboxPowerShellFetcher,
-        "-AcceptEula"
+    Assert-ExtractionRejection -Label "leaf-symlink" `
+        -Needle "link entries are not allowed"
+
+    Reset-BoundedFixture
+    New-Item -ItemType Directory -Force -Path (Join-Path $sandboxRoot "escaped-dir") | Out-Null
+    New-TestZipArchive -Raw -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        @{
+            Name = "evil"
+            Content = "../../../escaped-dir"
+            MadeByOs = 3
+            ExternalAttributes = ([int64]0xA1FF * 65536)
+        },
+        [pscustomobject]@{ Name = "evil/escaped-child.txt"; Content = "must never pass through a directory symlink" }
     )
-    if ($symlinkPs.ExitCode -eq 0) {
-        $sandboxFailures += "symlink(PowerShell): unexpectedly accepted a Unix symlink entry"
-    } elseif (-not (Test-OutputContains -Output $symlinkPs.Output -Needle "link entries are not allowed")) {
-        $sandboxFailures += "symlink(PowerShell): omitted link diagnostic: $($symlinkPs.Output.Trim())"
-    }
-    if (Test-Path -LiteralPath $syntheticCache) {
-        $sandboxFailures += "symlink(PowerShell): published a cache containing a symlink entry"
-    }
-    if ($bashDeepTools) {
-        $symlinkSh = Invoke-NativeCapture -FilePath $bash -ArgumentList @($sandboxBashFetcher, "--accept-eula")
-        $escapedTargets = @(Get-ChildItem -Force -Recurse -LiteralPath $sandboxRoot -Filter "escaped-target.txt" -ErrorAction SilentlyContinue)
-        if ($symlinkSh.ExitCode -ne 0) {
-            if (-not (Test-OutputContains -Output $symlinkSh.Output -Needle "link")) {
-                $sandboxFailures += "symlink(bash): rejected without a link diagnostic: $($symlinkSh.Output.Trim())"
-            }
-        } elseif ($escapedTargets.Count -ne 0) {
-            $sandboxFailures += "symlink(bash): symlink target escaped outside the sandbox cache"
-        }
-        # Platform note printed either way so CI logs carry the honest story.
-        if ($symlinkSh.ExitCode -eq 0) {
-            Write-Output "NOTE: this host's unzip stores zip symlinks as regular files; the bash post-extract link scan remains the enforcing guard on Linux/macOS."
-        }
-        Remove-Item -Recurse -Force -LiteralPath $syntheticCache -ErrorAction SilentlyContinue
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "directory-symlink-child" `
+        -Needle "link entries are not allowed"
+    $escapedChildren = @(Get-ChildItem -Force -Recurse -LiteralPath $sandboxRoot -Filter "escaped-child.txt" -ErrorAction SilentlyContinue)
+    if ($escapedChildren.Count -ne 0) {
+        $sandboxFailures += "directory-symlink-child: children were written through the link outside staging: $($escapedChildren.FullName -join ', ')"
     }
 
     # --- stale staging reclamation: interrupted-run leftovers older than the

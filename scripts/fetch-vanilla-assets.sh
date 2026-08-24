@@ -460,6 +460,43 @@ parse_and_check_listing() {
         ' "$verbose_file"
 }
 
+reject_link_entries() {
+    # VPA-209: reject symlink entries from central-directory metadata BEFORE
+    # anything is extracted. Info-ZIP unzip restores Unix symlinks on
+    # Linux/macOS, so extracting first and auditing afterwards lets children
+    # of a directory symlink be written through the link outside staging
+    # while staging itself stays audit-clean. This mirrors the PowerShell
+    # extractor's S_IFLNK check against each entry's external attributes so
+    # both platforms reject identical entries before any byte is written;
+    # the post-extraction special-node scan remains defense-in-depth.
+    #
+    # Detection keys on the zipinfo long-listing mode column: every
+    # Unix-made entry begins with an ls-style type character, and only
+    # symlinks render with a leading "l" (regular files "-", directories
+    # "d"). Framing lines ("Archive:", "Zip file size:", the trailing
+    # files/bytes summary) never begin with an l-token followed by a
+    # made-by version, so they cannot false-positive.
+    local archive="$1"
+    unzip -Zl "$archive" > "$listing_work/zlist" 2>/dev/null ||
+        fatal "archive listing unavailable: $archive"
+    if [[ ! -s "$listing_work/zlist" ]]; then
+        fatal 'archive listing could not be parsed consistently'
+    fi
+    LC_ALL=C awk '
+        /^[ \t]*l[^ \t]*[ \t]+[0-9]+\.[0-9]+[ \t]/ {
+            name = $0
+            # Recover the raw entry name: everything after the date/time
+            # columns. Seconds are optional across zipinfo builds.
+            if (match($0, /[ \t][0-9][0-9]-[A-Za-z][A-Za-z][A-Za-z]-[0-9][0-9]([0-9][0-9])?[ \t]+[0-9][0-9]:[0-9][0-9](:[0-9][0-9])?[ \t]+/)) {
+                name = substr($0, RSTART + RLENGTH)
+            }
+            sub(/^[ \t]+/, "", name)
+            printf "unsafe ZIP entry \047%s\047: link entries are not allowed\n", name > "/dev/stderr"
+            exit 3
+        }
+        ' "$listing_work/zlist" || fatal 'unsafe ZIP link entries rejected before extraction'
+}
+
 validate_archive_bounds() {
     # VPA-209: pre-extraction validation of the verified archive: entry count,
     # NUL-free names, strict central-directory bounds, per-entry name safety,
@@ -512,6 +549,12 @@ validate_archive_bounds() {
     total_declared_expanded="$(printf '%s' "$totals_line" | cut -f2)"
     total_declared_compressed="$(printf '%s' "$totals_line" | cut -f3)"
 
+    # Link entries are rejected before per-entry name validation so a
+    # directory symlink followed by child members fails with the link
+    # diagnostic rather than the derived path collision, matching the
+    # PowerShell extractor's per-entry rejection order for this class.
+    reject_link_entries "$archive"
+
     : > "$listing_work/kinds"
     local decl_len decl_comp raw_name
     while IFS=$'\t' read -r decl_len decl_comp raw_name; do
@@ -549,9 +592,13 @@ validate_archive_bounds() {
 
 audit_extracted_tree() {
     # VPA-209: defense-in-depth after extraction, before publication.
-    # Reject link/special nodes (Info-ZIP restores symlinks from Unix-made
-    # archives on Linux/macOS), then re-audit ACTUAL file counts and byte
-    # totals against the same bounds in case headers lied.
+    # Symlink entries are already rejected from the central directory before
+    # extraction (see reject_link_entries): children of a directory symlink
+    # would be written through the link outside staging during extraction,
+    # where no later audit could observe them. This scan still rejects any
+    # OTHER special node the extractor may materialize on Unix hosts, then
+    # re-audits ACTUAL file counts and byte totals against the same bounds
+    # in case headers lied.
     local node rel sz
     while IFS= read -r -d '' node; do
         rel="${node#"$temporary_extract"/}"
