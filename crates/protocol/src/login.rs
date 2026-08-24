@@ -16,7 +16,8 @@ use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, WorldEvent, into_world_event,
+    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent,
+    WorldEvent, into_world_event,
 };
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
@@ -88,10 +89,12 @@ pub struct PlaySession<T: Transport = SocketTransport> {
     stream: BedrockStream<Play, Client, T>,
     decode_errors: u64,
     world_skips: u64,
+    transfer_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
     pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
     server_disconnect: Option<ServerDisconnectEvent>,
+    server_transfer: Option<ServerTransferEvent>,
 }
 
 struct PendingBlobCacheDelivery {
@@ -191,10 +194,12 @@ impl<T: Transport> PlaySession<T> {
             stream,
             decode_errors: 0,
             world_skips: 0,
+            transfer_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_delivery: None,
             server_disconnect: None,
+            server_transfer: None,
         }
     }
 
@@ -209,9 +214,33 @@ impl<T: Transport> PlaySession<T> {
         }
     }
 
-    /// Decodes one session-boundary packet, retains any disconnect reason it
-    /// carries, and resets the cache for the immediate boundary. Malformed
-    /// wire stays fatal.
+    /// Takes the most recent normalized server-directed transfer target.
+    ///
+    /// Like the retained disconnect reason this is one-shot: the play pump
+    /// consumes it once to classify the session as transferred.
+    pub fn take_server_transfer(&mut self) -> Option<ServerTransferEvent> {
+        self.server_transfer.take()
+    }
+
+    /// Count of well-formed transfer packets whose target was unusable.
+    ///
+    /// These are counted semantic skips, not failures: the wire decoded
+    /// completely and the session survives.
+    pub fn transfer_skip_count(&self) -> u64 {
+        self.transfer_skips
+    }
+
+    fn retain_server_transfer(&mut self, packet: &Packet) {
+        match ServerTransferEvent::from_packet_data(&packet.data) {
+            Ok(Some(event)) => self.server_transfer = Some(event),
+            Ok(None) => {}
+            Err(_) => self.transfer_skips = self.transfer_skips.saturating_add(1),
+        }
+    }
+
+    /// Decodes one session-boundary packet, retains any disconnect reason or
+    /// transfer target it carries, and resets the cache for the immediate
+    /// boundary. Malformed wire stays fatal.
     async fn absorb_boundary_packet(
         &mut self,
         raw: RawPacket,
@@ -222,6 +251,7 @@ impl<T: Transport> PlaySession<T> {
             Err(error) => return Err(self.fail_session(error)),
         };
         self.retain_server_disconnect(&packet);
+        self.retain_server_transfer(&packet);
         if let Some(resolver) = self.blob_cache.as_mut() {
             reset_cache_for_immediate_boundary(resolver, name)?;
         }

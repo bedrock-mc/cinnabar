@@ -48,7 +48,7 @@ mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
 use disconnect_reason::{
-    PlayEpilogue, camera_instruction_epilogue_packets, disconnect_epilogue_packets,
+    PlayEpilogue, camera_instruction_epilogue_packets, boundary_epilogue_packets,
     truncated_epilogue_wire,
 };
 
@@ -502,7 +502,7 @@ impl ServerScript {
                                 McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
                                 McpePacket::from(SetTimePacket { time: 34_567 }),
                             ];
-                            traffic.extend(disconnect_epilogue_packets(self.epilogue));
+                            traffic.extend(boundary_epilogue_packets(self.epilogue));
                             self.enqueue_encrypted(&traffic);
                         }
                         CachePlayScript::TruncatedMissResponse => {
@@ -552,7 +552,7 @@ impl ServerScript {
                         }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
                     ];
-                    traffic.extend(disconnect_epilogue_packets(self.epilogue));
+                    traffic.extend(boundary_epilogue_packets(self.epilogue));
                     traffic.extend(camera_instruction_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&traffic);
                     if let Some((name, body)) = truncated_epilogue_wire(self.epilogue) {
@@ -625,7 +625,7 @@ impl ServerScript {
                     ) {
                         response.push(McpePacket::from(SetTimePacket { time: 45_678 }));
                     }
-                    response.extend(disconnect_epilogue_packets(self.epilogue));
+                    response.extend(boundary_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&response);
                     self.stage = 9;
                     return;

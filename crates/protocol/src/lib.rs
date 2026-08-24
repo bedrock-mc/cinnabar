@@ -14,6 +14,7 @@ mod movement;
 mod packet;
 mod raw_text;
 mod socket_transport;
+mod transfer;
 mod ui;
 mod world;
 
@@ -48,6 +49,7 @@ pub use camera::{
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
+pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     click_block_packet, destroy_block_packet, use_actor_packet,
