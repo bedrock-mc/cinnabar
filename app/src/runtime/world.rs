@@ -79,6 +79,14 @@ pub(crate) struct WorldStreamFramePoll {
     pub(crate) cohort: Option<ViewCohortStatus>,
 }
 
+/// A latched, bounded server-directed transfer target awaiting the launcher's
+/// replacement handoff. `None` once consumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransferNotice {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+}
+
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
@@ -86,6 +94,7 @@ pub(crate) struct ClientWorld {
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
+    pub(crate) transfer_notice: Option<TransferNotice>,
     pub(crate) network_decode_errors: u64,
     pub(crate) reported_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
@@ -217,6 +226,7 @@ impl ClientWorld {
             entity_assets: None,
             pending_surface_spawn: None,
             fatal_error: None,
+            transfer_notice: None,
             network_decode_errors: 0,
             reported_decode_errors: 0,
             client_blob_cache_enabled: false,

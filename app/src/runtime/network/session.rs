@@ -56,6 +56,13 @@ pub enum NetworkFailureOrigin {
     Startup,
 }
 
+/// The bounded server-directed transfer target carried by terminal events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionTransferTarget {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+}
+
 #[derive(Debug)]
 pub enum NetworkControlEvent {
     Bootstrap {
@@ -99,6 +106,16 @@ pub enum NetworkControlEvent {
         decode_error_count: u64,
         server_disconnect: Option<ServerDisconnectEvent>,
         origin: NetworkFailureOrigin,
+    },
+    /// The server directed the client to a new target, ending this session.
+    ///
+    /// Like [`NetworkControlEvent::Failed`] this is terminal: the pump stops
+    /// after emitting it and no `Stopped` record follows. The wire's
+    /// `reload_world` hint is recorded in the pump's durable transferred
+    /// marker; it does not change the app-side handoff.
+    Transferred {
+        target: SessionTransferTarget,
+        decode_error_count: u64,
     },
     Stopped {
         decode_error_count: u64,
@@ -658,6 +675,10 @@ trait NetworkSession: Send {
         None
     }
 
+    fn take_server_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        None
+    }
+
     fn blob_cache_enabled(&self) -> bool {
         false
     }
@@ -711,6 +732,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
         protocol::PlaySession::take_server_disconnect(self)
+    }
+
+    fn take_server_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        protocol::PlaySession::take_server_transfer(self)
     }
 
     fn blob_cache_enabled(&self) -> bool {
@@ -885,6 +910,18 @@ fn emit_network_pump_terminal_marker(
     let _ = stdout.flush();
 }
 
+/// Emits the durable transferred-session record so live evidence attributes
+/// the session end to the server's transfer instead of a transport failure.
+fn emit_network_pump_transfer_marker(
+    target: &SessionTransferTarget,
+    reload_world: bool,
+    decode_errors: u64,
+) {
+    let mut stdout = std::io::stdout().lock();
+    write_network_pump_transfer_marker(&mut stdout, target, reload_world, decode_errors);
+    let _ = stdout.flush();
+}
+
 fn write_network_pump_terminal_marker(
     writer: &mut impl Write,
     stage: &'static str,
@@ -906,6 +943,22 @@ fn write_network_pump_terminal_marker(
             "filtered_message": disconnect.filtered_message,
         });
     }
+    let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
+}
+
+fn write_network_pump_transfer_marker(
+    writer: &mut impl Write,
+    target: &SessionTransferTarget,
+    reload_world: bool,
+    decode_errors: u64,
+) {
+    let marker = serde_json::json!({
+        "schema": "rust-mcbe-network-pump-terminal-v1",
+        "outcome": "transferred",
+        "target": { "host": target.host, "port": target.port },
+        "reload_world": reload_world,
+        "decode_error_count": decode_errors,
+    });
     let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
 }
 

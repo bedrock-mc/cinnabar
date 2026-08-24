@@ -546,6 +546,30 @@ pub(crate) fn receive_network_events(
                 client_world.network_decode_errors = decode_error_count;
                 record_fatal_error(&mut client_world.fatal_error, failure);
             }
+            NetworkControlEvent::Transferred {
+                target,
+                decode_error_count,
+            } => {
+                resource_pack_admission.clear_current();
+                // The client chose to end this session, so this is not a
+                // remote-initiated transport failure and must not latch the
+                // remote-close movement classification.
+                movement.deactivate();
+                local_physics.deactivate();
+                avatar.clear();
+                frame.reset(LocalPlayerFrameReset::Session);
+                interaction.invalidate();
+                client_world.network_decode_errors = decode_error_count;
+                info!(
+                    host = target.host,
+                    port = target.port,
+                    "server transferred the session"
+                );
+                client_world.transfer_notice = Some(crate::runtime::world::TransferNotice {
+                    host: target.host,
+                    port: target.port,
+                });
+            }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 resource_pack_admission.clear_current();
                 movement.deactivate();
@@ -749,44 +773,6 @@ pub(crate) fn receive_network_events(
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
         }
     }
-}
-
-pub(crate) fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
-    [position[0].floor() as i32, position[2].floor() as i32]
-}
-
-pub(crate) fn drain_network_controls<T>(
-    receiver: &mut tokio::sync::mpsc::Receiver<T>,
-    budget: usize,
-) -> Vec<T> {
-    drain_network_ingress(receiver, budget)
-}
-
-pub(crate) fn drain_world_ingress_until_barrier(
-    receiver: &mut tokio::sync::mpsc::Receiver<session::WorldIngress>,
-    budget: usize,
-) -> Vec<session::WorldIngress> {
-    let mut drained = Vec::with_capacity(budget);
-    for _ in 0..budget {
-        let Ok(ingress) = receiver.try_recv() else {
-            break;
-        };
-        let is_barrier = matches!(ingress, session::WorldIngress::FastTransferBarrier { .. });
-        drained.push(ingress);
-        if is_barrier {
-            break;
-        }
-    }
-    drained
-}
-
-pub(crate) fn drain_network_ingress<T>(
-    receiver: &mut tokio::sync::mpsc::Receiver<T>,
-    budget: usize,
-) -> Vec<T> {
-    std::iter::from_fn(|| receiver.try_recv().ok())
-        .take(budget)
-        .collect()
 }
 
 #[cfg(test)]
@@ -996,5 +982,12 @@ pub(crate) fn publish_actor_render_frame(
         rejects: frame.rig.rejects,
     });
 }
+mod drain;
 mod resource_packs;
 pub(crate) mod session;
+
+#[cfg(test)]
+pub(crate) use drain::drain_network_ingress;
+pub(crate) use drain::{
+    acceptance_surface_anchor, drain_network_controls, drain_world_ingress_until_barrier,
+};

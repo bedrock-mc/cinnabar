@@ -50,7 +50,8 @@ use crate::{
     },
     menu::{
         CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
-        recover_menu_session_failure, spawn_core_for_address, wait_for_core,
+        follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
+        wait_for_core,
     },
     metrics::MetricsCollector,
     movement::{
@@ -259,10 +260,12 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
     // The launcher gets first refusal on a fatal session error, so a failed
     // join returns to the menu instead of ending the process. This has to sit
     // after the failure is recorded (network drain) and before both systems
-    // that act on it.
+    // that act on it. The transfer follower runs first so a server-directed
+    // move is classified as a replacement handoff, not a failure.
     .add_systems(
         Update,
-        recover_menu_session_failure
+        (follow_server_transfer, recover_menu_session_failure)
+            .chain()
             .after(receive_network_events)
             .before(exit_on_fatal_runtime_error)
             .before(finish_acceptance_run),

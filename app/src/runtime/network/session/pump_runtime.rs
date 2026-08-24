@@ -50,6 +50,40 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
         last_blob_cache_stats = Some(stats);
     }
 
+    async fn end_pump_with_transfer<S: NetworkSession>(
+        session: &S,
+        pending: Option<WorldIngress>,
+        transfer: protocol::ServerTransferEvent,
+        world_event_tx: &mpsc::Sender<WorldIngress>,
+        control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+        shutdown_rx: &mut watch::Receiver<bool>,
+    ) {
+        if let Some(pending) = pending
+            && !send_event_or_cancel(world_event_tx, shutdown_rx, pending).await
+        {
+            return;
+        }
+        send_final_blob_cache_telemetry(session, control_event_tx).await;
+        let target = SessionTransferTarget {
+            host: transfer.host,
+            port: transfer.port,
+        };
+        emit_network_pump_transfer_marker(
+            &target,
+            transfer.reload_world,
+            session.decode_error_count(),
+        );
+        let _ = send_control_event_or_cancel(
+            control_event_tx,
+            shutdown_rx,
+            NetworkControlEvent::Transferred {
+                target,
+                decode_error_count: session.decode_error_count(),
+            },
+        )
+        .await;
+    }
+
     loop {
         match wait_for_network_work_or_cancel(
             wait_for_world_side_work(
@@ -193,6 +227,18 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
+                            if let Some(transfer) = session.take_server_transfer() {
+                                end_pump_with_transfer(
+                                    &session,
+                                    pending_world_event.take(),
+                                    transfer,
+                                    &world_event_tx,
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                )
+                                .await;
+                                return;
+                            }
                             let server_disconnect = session.take_server_disconnect();
                             if let Some(chat) = chat {
                                 let _ = send_control_event_or_cancel(
@@ -231,11 +277,22 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                 None => break,
             },
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Ok(permit))) => {
-                permit.send(
-                    pending_world_event
-                        .take()
-                        .expect("world capacity is reserved only for a pending event"),
-                );
+                let pending = pending_world_event
+                    .take()
+                    .expect("world capacity is reserved only for a pending event");
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        Some(pending),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
+                permit.send(pending);
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
@@ -250,8 +307,32 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     &readiness_ingress,
                     *event,
                 ));
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        pending_world_event.take(),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        pending_world_event.take(),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
                 let server_disconnect = session.take_server_disconnect();
                 emit_network_pump_terminal_marker(
                     "receive",

@@ -16,7 +16,9 @@ use auth::{AuthState, AuthSupervisor};
 
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
-pub(crate) use input::{drive_menu_connection, drive_menu_input, recover_menu_session_failure};
+pub(crate) use input::{
+    drive_menu_connection, drive_menu_input, follow_server_transfer, recover_menu_session_failure,
+};
 use servers::{load_servers, save_servers};
 
 use std::{
@@ -36,6 +38,24 @@ use crate::{
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+
+/// Bounded number of consecutive automatic transfer-follow hops.
+///
+/// Mirrors the Go core's pre-login transfer-follower limit so a malicious or
+/// misconfigured transfer loop ends in a visible menu state instead of
+/// reconnecting forever. User-initiated joins always start a fresh chain.
+pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
+
+/// Renders a validated transfer host and port as a dialable address.
+///
+/// IPv6 literals are bracketed the way the Go core's dialer expects.
+pub(crate) fn format_transfer_address(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuScreen {
@@ -232,6 +252,8 @@ pub(crate) struct MenuRuntime {
     disconnect_requested: bool,
     exit_requested: bool,
     session_generation: u64,
+    /// Automatic transfer-follow hops remaining in the current chain.
+    transfer_hops_remaining: u32,
     featured: Vec<MenuServerCard>,
     gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
@@ -301,6 +323,7 @@ impl MenuRuntime {
             disconnect_requested: false,
             exit_requested: false,
             session_generation: 1,
+            transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             featured: Vec::new(),
             gatherings: Vec::new(),
             realms: Vec::new(),
@@ -319,6 +342,10 @@ impl MenuRuntime {
 
     pub(crate) fn is_visible(&self) -> bool {
         self.visible
+    }
+
+    pub(crate) fn is_launcher(&self) -> bool {
+        self.launcher
     }
 
     pub(crate) fn is_connecting(&self) -> bool {
@@ -808,6 +835,8 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        // A user-initiated join always starts a fresh transfer chain.
+        self.begin_fresh_transfer_chain();
         self.stop_catalog();
         let auth_cache = account::validated_auth_cache(
             &self.layout,
@@ -819,6 +848,46 @@ impl MenuRuntime {
             auth_cache,
         });
         self.mark_connecting();
+    }
+
+    /// Starts a fresh bounded transfer-follow chain for a user join.
+    pub(crate) fn begin_fresh_transfer_chain(&mut self) {
+        self.transfer_hops_remaining = MAX_TRANSFER_CHAIN_HOPS;
+    }
+
+    /// Consumes one hop of the bounded automatic transfer-follow chain.
+    ///
+    /// Returns `false` when the chain is exhausted; the caller must surface
+    /// the explicit cannot-follow state instead of reconnecting again.
+    pub(crate) fn consume_transfer_chain_hop(&mut self) -> bool {
+        if self.transfer_hops_remaining == 0 {
+            return false;
+        }
+        self.transfer_hops_remaining -= 1;
+        true
+    }
+
+    /// Prepares the replacement-handoff target for a server-directed
+    /// transfer without staging a user connect.
+    ///
+    /// Well-formedness only, exactly like the protocol boundary: no host
+    /// allowlist exists because vanilla servers legitimately transfer across
+    /// unrelated hosts. Returns `None` for an unusable target.
+    pub(crate) fn transfer_handoff_target(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Option<(String, Option<PathBuf>)> {
+        let trimmed = host.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let address = format_transfer_address(trimmed, port);
+        let auth_cache = account::validated_auth_cache(
+            &self.layout,
+            self.auth_process.as_ref().map(AuthSupervisor::state),
+        );
+        Some((address, auth_cache))
     }
 }
 

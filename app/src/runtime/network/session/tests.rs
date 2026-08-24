@@ -20,11 +20,12 @@ use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent,
     NetworkFailureOrigin, NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer,
     NetworkSession, PacketSendError, ReadinessIngressCounter, SequencedWorldEvent,
-    WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due, run_network_pump,
-    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
-    send_world_event_or_cancel, session_failure_display, start_game_inventory_authority,
-    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
-    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due,
+    run_network_pump, send_control_event_or_cancel, send_event_or_cancel,
+    send_final_blob_cache_telemetry, send_world_event_or_cancel, session_failure_display,
+    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
+    wait_for_send_or_cancel, wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    write_network_pump_transfer_marker,
 };
 
 #[path = "disconnect_tests.rs"]
@@ -33,6 +34,8 @@ mod disconnect_tests;
 mod physics_send_tests;
 #[path = "routing_tests.rs"]
 mod routing_tests;
+#[path = "transfer_tests.rs"]
+mod transfer_tests;
 
 #[test]
 fn readiness_ingress_counter_excludes_transport_only_events() {
