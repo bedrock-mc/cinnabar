@@ -812,6 +812,91 @@ fn starved_publication_tokens_still_dispatch_when_nothing_is_in_flight() {
 }
 
 #[test]
+fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    // Six dispatchable resident meshes exceed the floor, so the exact-count
+    // assertion below discriminates the floor's value: the single-job witness
+    // above passes for any nonzero or unbounded floor.
+    let keys = (0..6)
+        .map(|x| SubChunkKey::new(0, x, -4, 0))
+        .collect::<Vec<_>>();
+    for key in &keys {
+        stream
+            .store
+            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .unwrap();
+        stream.resident.insert(*key);
+    }
+    stream.mark_light_changed_sources(keys.iter().copied());
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
+    for key in &keys {
+        stream.mark_dirty_exact(*key, Instant::now());
+    }
+    assert_eq!(stream.pending_mesh.len(), 6);
+    assert!(stream.in_flight.is_empty());
+
+    // Exhaust the frame publication window exactly like the single-job
+    // witness above: the starved floor is the only remaining admission
+    // route through the real poll path.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
+
+    let report = stream.poll([0.0; 3], 32);
+    assert_eq!(report.mesh_jobs_dispatched, 4);
+    assert_eq!(
+        stream.in_flight.len(),
+        4,
+        "exactly the floored budget must enter the worker window"
+    );
+}
+
+#[test]
+fn starved_mesh_dispatch_floor_never_invents_work_with_an_empty_pending_queue() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    // Same exhausted publication window as the floor witness, but with no
+    // pending mesh work anywhere: starvation must not fabricate dispatches.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
+
+    let report = stream.poll([0.0; 3], 32);
+    assert_eq!(report.mesh_jobs_dispatched, 0);
+    assert!(stream.in_flight.is_empty());
+    assert!(stream.take_mesh_changes().is_empty());
+}
+
+#[test]
 fn negative_absolute_updates_use_euclidean_chunk_coordinates() {
     let event = BlockUpdateEvent {
         dimension: 2,
