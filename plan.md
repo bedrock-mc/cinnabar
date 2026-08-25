@@ -82,8 +82,12 @@ acknowledgement, unanswered latency probes, and the catch-up overflow that perma
 the outbound input stream mid-session. Five bounded tranches landed on `dev/ox-alpha`:
 `e304b9af` gates processed sprint on forward movement input for both simulator and encoder;
 `39076d8e` ingests local-player knockback as tick-keyed prediction overlays that survive
-correction replay; `e219f0e3` answers server `NetworkStackLatency` probes with an exact-timestamp
-echo; `60977327` adds the authenticated Venity live target across launcher, validators, app args,
+correction replay; `e219f0e3` answers server `NetworkStackLatency` probes (its exact-timestamp
+echo was superseded on 2026-08-25 by a provisional `×1,000,000` scaling after four authenticated
+sessions on one target proved its anti-cheat normalizes echoed ids before matching and tears down
+unresponsive clients; see the vanilla-parity-audit NSL row — prior exact-echo live evidence no
+longer describes current bytes until BDS/LBSG re-runs land);
+`60977327` adds the authenticated Venity live target across launcher, validators, app args,
 and all 93 Pester contracts; `aaccc94c` stops revoking movement authority over catch-up overflow,
 keeping retained samples contiguous so the 20 Hz stream stays reconcilable. Each tranche has
 regression coverage plus green focused suites, strict Clippy/formatting, and architecture checks.
