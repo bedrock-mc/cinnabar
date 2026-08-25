@@ -248,9 +248,13 @@ Current implementation state:
   API does not expose the server digest, so same-identity, same-size replacement is not
   cryptographically distinguished. Every app-managed core launch supplies one stable
   layout-owned cache path while leaving secure creation, leasing, and the default quota under Go
-  ownership. A separate opt-in
-  read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
-  and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
+   ownership. The core now also exposes an explicit opt-in `-upstream-client-cache`
+   capability (default off, byte-identical wire when unset) that flips the outbound upstream
+   `ClientCacheStatus` enabled byte through an observe-then-flip dialer hook, and both production
+   app spawn paths enable it exactly when the Rust session owns its process-lifetime verified
+   blob cache; live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
+   read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
+   and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
   pack-content semantic validation and parsing, archive extraction, application,
   resource-pack-driven UI, and app presentation of status remain absent; no server pack is yet
   usable by the renderer.
