@@ -28,6 +28,17 @@ type Config struct {
 	Upstream    string
 	TokenSource oauth2.TokenSource
 	Logger      *slog.Logger
+	// UpstreamClientCache opts the core into advertising client blob-cache
+	// capability toward the real Bedrock server: during the upstream login
+	// the outbound ClientCacheStatus byte is rewritten to enabled, so the
+	// server may stream blob-referencing cached chunks through the relay.
+	// Operators must enable it only together with a downstream client that
+	// owns a verified blob cache and advertises cache support downstream —
+	// the app passes this option exactly then. Enabled without such a client,
+	// cached chunks reach a downstream session that skips them. The default
+	// false keeps today's exact upstream wire bytes; there is no runtime
+	// downstream-capability negotiation in either mode.
+	UpstreamClientCache bool
 	// ResourcePackCache is an optional process-owned cache. Serve never closes it.
 	ResourcePackCache minecraft.ResourcePackCache
 	// ResourcePackAdmission receives one secret-safe final snapshot per upstream
@@ -71,6 +82,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
+	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AllowUnknownPackets:    true,
@@ -390,7 +402,7 @@ func newUpstreamDialerWithCacheTelemetry(
 	tokenSource oauth2.TokenSource,
 	cacheTelemetry *cacheBoundaryTelemetry,
 ) minecraft.Dialer {
-	return newUpstreamDialerForAdmission(downstream, tokenSource, cacheTelemetry, nil, nil)
+	return newUpstreamDialerForAdmission(downstream, tokenSource, cacheTelemetry, nil, nil, false)
 }
 
 func newUpstreamDialerForAdmission(
@@ -399,23 +411,31 @@ func newUpstreamDialerForAdmission(
 	cacheTelemetry *cacheBoundaryTelemetry,
 	resourcePackCache minecraft.ResourcePackCache,
 	packAdmission *resourcePackAdmissionTelemetry,
+	enableUpstreamClientCache bool,
 ) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:           downstream.ClientData(),
 		DownloadResourcePack: acceptResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
-		// ClientCacheStatus is sent after the Listener preparation hook, so the
-		// downstream capability is not available at this boundary. Keep the
-		// upstream cache disabled until a later, explicit capability seam exists.
+		// The Dialer field itself stays false in every configuration:
+		// gophertunnel copies it into conn.cacheEnabled, which on this pinned
+		// module gates only the outbound ClientCacheStatus byte written after
+		// upstream LoginSuccess. The explicit UpstreamClientCache option
+		// flips that wire byte inside PacketFunc below instead of setting the
+		// field, because the upstream login completes inside the Listener
+		// preparation hook before the downstream ClientCacheStatus arrives.
 		EnableClientCache: false,
 		ErrorLog:          secretSafeResourcePackLogger(),
 		Protocol:          downstream.Proto(),
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
-	if cacheTelemetry != nil || packAdmission != nil {
+	if enableUpstreamClientCache || cacheTelemetry != nil || packAdmission != nil {
 		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
+			if enableUpstreamClientCache && header.PacketID == packet.IDClientCacheStatus && len(payload) > 0 {
+				flipUpstreamClientCacheStatus(payload)
+			}
 			if cacheTelemetry != nil {
 				cacheTelemetry.observeUpstreamPacket(header, payload, source, destination)
 			}

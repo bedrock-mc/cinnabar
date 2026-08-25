@@ -126,6 +126,31 @@ func TestResourcePackCacheFlagsAreOptInAndBounded(t *testing.T) {
 	}
 }
 
+// TestUpstreamClientCacheIsOptInAndReachesServe pins the default-off core
+// flag and proves the parsed option reaches proxy.Serve configuration.
+func TestUpstreamClientCacheIsOptInAndReachesServe(t *testing.T) {
+	disabled, err := parseFlags(nil, io.Discard)
+	if err != nil || disabled.upstreamClientCache {
+		t.Fatalf("disabled upstream cache options = %#v, %v", disabled, err)
+	}
+	err = run(
+		context.Background(),
+		[]string{"-socket-dir", "run", "-upstream", "localhost:19132", "-upstream-client-cache"},
+		io.Discard,
+		io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if !cfg.UpstreamClientCache {
+				t.Fatal("serve received UpstreamClientCache=false with -upstream-client-cache set")
+			}
+			return errors.New("stop after config check")
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "stop after config check") {
+		t.Fatalf("run() error = %v, want deterministic stop after config check", err)
+	}
+}
+
 func TestControlStatusIsOptInAndOwnedByCoreRun(t *testing.T) {
 	disabled, err := parseFlags(nil, io.Discard)
 	if err != nil || disabled.controlStatus {

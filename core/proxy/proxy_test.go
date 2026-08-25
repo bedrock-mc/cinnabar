@@ -35,10 +35,46 @@ type dialerTestDownstream struct {
 func (d dialerTestDownstream) IdentityData() login.IdentityData { return d.identity }
 func (d dialerTestDownstream) ClientData() login.ClientData     { return d.client }
 func (d dialerTestDownstream) Proto() minecraft.Protocol        { return d.protocol }
-func TestNewUpstreamDialerDefersClientCacheCapability(t *testing.T) {
+
+// TestNewUpstreamDialerDefaultsUpstreamClientCacheOff is the updated ratchet
+// for the explicit UpstreamClientCache option: the gophertunnel Dialer field
+// itself stays false even under the opt-in (the capability is wire-level in
+// PacketFunc), and a dialer built without the option must leave today's
+// outbound ClientCacheStatus byte untouched.
+func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
+	optedIn := newUpstreamDialerForAdmission(
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
+		nil,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+	if optedIn.EnableClientCache {
+		t.Fatal("EnableClientCache = true under the opt-in; the capability must stay wire-level in PacketFunc")
+	}
+	if optedIn.PacketFunc == nil {
+		t.Fatal("opt-in dialer installed no ClientCacheStatus flip observer")
+	}
+
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
 	if dialer.EnableClientCache {
 		t.Fatal("EnableClientCache = true before downstream ClientCacheStatus is available")
+	}
+	observed := new(cacheBoundaryTelemetry)
+	witness := newUpstreamDialerWithCacheTelemetry(
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
+		nil,
+		observed,
+	)
+	payload := []byte{0}
+	witness.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
+	if payload[0] != 0 {
+		t.Fatalf("default dialer rewrote outbound ClientCacheStatus byte to %d", payload[0])
+	}
+	snapshot := observed.snapshot()
+	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
+		t.Fatalf("default dialer snapshot = %#v, want seen enabled=false", snapshot)
 	}
 }
 
@@ -118,7 +154,11 @@ func TestCacheBoundaryObserverRecordsUpstreamStatusWithoutRetainingOrMutatingPay
 	}
 }
 
-func TestCacheBoundaryObserverSeesActualUpstreamLoginStatus(t *testing.T) {
+// TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus is the
+// scripted-network ratchet for the default: without the opt-in, the fake
+// upstream server observes Enabled=false exactly as before this option
+// existed.
+func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T) {
 	telemetry := new(cacheBoundaryTelemetry)
 	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
 		decoder := packet.NewDecoder(conn)
@@ -186,6 +226,129 @@ func TestCacheBoundaryObserverSeesActualUpstreamLoginStatus(t *testing.T) {
 	snapshot := telemetry.snapshot()
 	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
 		t.Fatalf("actual upstream cache status snapshot = %#v, want seen enabled=false", snapshot)
+	}
+}
+
+// TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn drives the
+// same scripted login with UpstreamClientCache enabled and requires the fake
+// upstream server to observe the flipped ClientCacheStatus byte on the wire,
+// plus honest effective-value telemetry.
+func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testing.T) {
+	telemetry := new(cacheBoundaryTelemetry)
+	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
+		decoder := packet.NewDecoder(conn)
+		encoder := packet.NewEncoder(conn)
+		if _, err := decoder.Decode(); err != nil {
+			return fmt.Errorf("read RequestNetworkSettings: %w", err)
+		}
+		if err := encodeCacheStatusScriptedPackets(encoder, &packet.NetworkSettings{
+			CompressionThreshold: math.MaxUint16,
+			CompressionAlgorithm: packet.CompressionAlgorithmFlate,
+		}); err != nil {
+			return fmt.Errorf("write NetworkSettings: %w", err)
+		}
+		decoder.EnableCompression(packet.FlateCompression, math.MaxInt)
+		encoder.EnableCompression(packet.FlateCompression, math.MaxUint16)
+		if _, err := decoder.Decode(); err != nil {
+			return fmt.Errorf("read Login: %w", err)
+		}
+		if err := encodeCacheStatusScriptedPackets(
+			encoder,
+			&packet.PlayStatus{Status: packet.PlayStatusLoginSuccess},
+		); err != nil {
+			return fmt.Errorf("write login success: %w", err)
+		}
+		batch, err := decoder.Decode()
+		if err != nil {
+			return fmt.Errorf("read ClientCacheStatus: %w", err)
+		}
+		if len(batch) != 1 {
+			return fmt.Errorf("login response packet count = %d, want 1", len(batch))
+		}
+		buffer := bytes.NewBuffer(batch[0])
+		header := new(packet.Header)
+		if err := header.Read(buffer); err != nil {
+			return fmt.Errorf("read ClientCacheStatus header: %w", err)
+		}
+		if header.PacketID != packet.IDClientCacheStatus {
+			return fmt.Errorf("login response packet ID = %d, want %d", header.PacketID, packet.IDClientCacheStatus)
+		}
+		status := new(packet.ClientCacheStatus)
+		status.Marshal(minecraft.DefaultProtocol.NewReader(buffer, 0, true))
+		if !status.Enabled {
+			return errors.New("opt-in upstream ClientCacheStatus did not reach the scripted server enabled")
+		}
+		return nil
+	})
+	dialer := newUpstreamDialerForAdmission(
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
+		nil,
+		telemetry,
+		nil,
+		nil,
+		true,
+	)
+	dialer.FlushRate = -1
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := dialer.DialContextNetwork(ctx, network, "cache-boundary.invalid:19132")
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if err == nil {
+		t.Fatal("scripted server closed before full login but dial succeeded")
+	}
+	if scriptErr := <-network.done; scriptErr != nil {
+		t.Fatalf("scripted enabled cache status server: %v (dial error: %v)", scriptErr, err)
+	}
+	snapshot := telemetry.snapshot()
+	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
+		t.Fatalf("opt-in upstream cache status snapshot = %#v, want seen enabled=true", snapshot)
+	}
+}
+
+// TestUpstreamClientCacheFlipTouchesOnlyCacheStatusPackets proves the flip is
+// scoped to the exact ClientCacheStatus payload byte: unrelated packet IDs and
+// trailing payload bytes pass through unmutated, the flip works without any
+// cache-boundary telemetry configured, and a read-path-style clone handed to
+// the callback is the only slice affected (gophertunnel clones inbound
+// payloads before this callback, so an unexpected inbound copy stays inert).
+func TestUpstreamClientCacheFlipTouchesOnlyCacheStatusPackets(t *testing.T) {
+	flipper := newUpstreamDialerForAdmission(
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
+		nil,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+	if flipper.PacketFunc == nil {
+		t.Fatal("opt-in dialer installed no packet observer")
+	}
+	unrelated := []byte{0xde, 0xad, 0xbe, 0xef}
+	flipper.PacketFunc(packet.Header{PacketID: packet.IDText}, unrelated, nil, nil)
+	if !bytes.Equal(unrelated, []byte{0xde, 0xad, 0xbe, 0xef}) {
+		t.Fatalf("unrelated packet payload mutated to %#x", unrelated)
+	}
+
+	cacheStatus := []byte{0, 0xff, 0xee}
+	flipper.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, cacheStatus, nil, nil)
+	if cacheStatus[0] != 1 || cacheStatus[1] != 0xff || cacheStatus[2] != 0xee {
+		t.Fatalf("cache status payload = %#x, want only the first byte flipped", cacheStatus)
+	}
+
+	unmetered := newUpstreamDialerForAdmission(
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
+		nil,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+	payload := []byte{0}
+	unmetered.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
+	if payload[0] != 1 {
+		t.Fatalf("dialer without cache telemetry left outbound status byte %d", payload[0])
 	}
 }
 

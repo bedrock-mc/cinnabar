@@ -255,6 +255,7 @@ type preparedSlot struct {
 type preparedConnections struct {
 	tokenSource                 oauth2.TokenSource
 	logger                      *slog.Logger
+	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
@@ -388,7 +389,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if connections.resourcePackCache != nil {
 		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission)
+	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission, connections.upstreamClientCache)
 	if target.xbl != nil {
 		dialer.XBLClient = target.xbl
 	}

@@ -114,6 +114,16 @@ impl ClientBlobCacheOwner {
     pub(crate) fn cache(&self) -> protocol::ClientBlobCache {
         self.0.clone()
     }
+
+    /// Whether cores spawned for sessions backed by this owner may advertise
+    /// upstream client-cache capability (`-upstream-client-cache`). True
+    /// because every session receives [`Self::cache`] and answers
+    /// LoginSuccess with cache-enabled status downstream, and the two
+    /// advertisements must stay coupled; a future cache-less flow must report
+    /// `false` here so the core keeps its default-disabled wire bytes.
+    pub(crate) fn enables_upstream_client_cache(&self) -> bool {
+        true
+    }
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -415,14 +425,24 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         resolve_socket_dir(&args.socket_dir)
     };
     let mut core_process = CoreProcessGuard::default();
+    // Owned before any core spawn so the direct-connect path below derives
+    // the upstream client-cache advertisement from the same cache it later
+    // hands to the network session.
+    let client_blob_cache = ClientBlobCacheOwner::default();
     // Bound before the app is built: the explicit `drop(app)` below stops
     // the core first, then this holder removes the runtime directory at
     // scope exit. It also covers early asset failures through ordinary
     // unwinding.
     let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
     if let Some(address) = args.address.as_deref() {
-        let child = spawn_core_for_address(&layout, &socket_dir, address, None)
-            .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
+        let child = spawn_core_for_address(
+            &layout,
+            &socket_dir,
+            address,
+            None,
+            client_blob_cache.enables_upstream_client_cache(),
+        )
+        .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
         wait_for_core(&socket_dir)
             .with_context(|| format!("wait for Go core endpoint for {address}"))?;
@@ -543,7 +563,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
-    let client_blob_cache = ClientBlobCacheOwner::default();
     let network = if connection_requested {
         spawn_network(NetworkConfig {
             session_generation: 1,

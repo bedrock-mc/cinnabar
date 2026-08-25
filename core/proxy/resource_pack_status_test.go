@@ -61,7 +61,7 @@ func TestObservedResourcePackCacheCountsHitMissAndSanitizesErrors(t *testing.T) 
 func TestUpstreamDialerReceivesOnlyResourcePackCacheInterface(t *testing.T) {
 	backend := &scriptedResourcePackCache{}
 	dialer := newUpstreamDialerForAdmission(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil, nil, backend, nil,
+		dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil, nil, backend, nil, false,
 	)
 	if dialer.ResourcePackCache != backend {
 		t.Fatal("dialer did not preserve the process-owned cache interface")

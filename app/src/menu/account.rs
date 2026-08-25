@@ -286,6 +286,7 @@ mod tests {
             Path::new("run with spaces"),
             "example.test:19132",
             None,
+            false,
         );
         let offline_args = offline.get_args().map(OsString::from).collect::<Vec<_>>();
         assert_eq!(
@@ -318,6 +319,7 @@ mod tests {
             Path::new("run with spaces"),
             "example.test:19132",
             Some(Path::new("validated token.json")),
+            false,
         );
         let authenticated_args = authenticated
             .get_args()
@@ -334,6 +336,36 @@ mod tests {
                 layout.resource_pack_cache_dir().into_os_string(),
                 OsString::from("-auth-cache"),
                 OsString::from("validated token.json"),
+            ]
+        );
+    }
+
+    // The upstream client-cache advertisement is opt-in per spawn: the exact
+    // `-upstream-client-cache` argument appears only when the caller proves
+    // blob-cache ownership, and it rides after the pack cache directory so a
+    // default spawn keeps today's byte-exact core arguments.
+    #[test]
+    fn core_child_args_advertise_upstream_client_cache_only_when_enabled() {
+        let layout = launch_layout_with_spaces();
+        let enabled = core_command_for_address(
+            &layout,
+            Path::new("bedrock-core"),
+            Path::new("run with spaces"),
+            "example.test:19132",
+            None,
+            true,
+        );
+        let enabled_args = enabled.get_args().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            enabled_args,
+            [
+                OsString::from("-socket-dir"),
+                OsString::from("run with spaces"),
+                OsString::from("-upstream"),
+                OsString::from("example.test:19132"),
+                OsString::from("-resource-pack-cache-dir"),
+                layout.resource_pack_cache_dir().into_os_string(),
+                OsString::from("-upstream-client-cache"),
             ]
         );
     }

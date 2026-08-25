@@ -87,6 +87,7 @@ pub(crate) fn spawn_core_for_address(
     socket_dir: &Path,
     address: &str,
     auth_cache: Option<&Path>,
+    enable_upstream_client_cache: bool,
 ) -> Result<Child> {
     let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
@@ -95,8 +96,14 @@ pub(crate) fn spawn_core_for_address(
         )
     })?;
     clear_stale_bridge_endpoint(socket_dir)?;
-    let mut command =
-        core_command_for_address(layout, &executable, socket_dir, address, auth_cache);
+    let mut command = core_command_for_address(
+        layout,
+        &executable,
+        socket_dir,
+        address,
+        auth_cache,
+        enable_upstream_client_cache,
+    );
     let child = command
         .spawn()
         .with_context(|| format!("spawn {} for {address}", executable.display()))?;
@@ -109,6 +116,7 @@ pub(super) fn core_command_for_address(
     socket_dir: &Path,
     address: &str,
     auth_cache: Option<&Path>,
+    enable_upstream_client_cache: bool,
 ) -> Command {
     let mut command = Command::new(executable);
     command
@@ -121,6 +129,12 @@ pub(super) fn core_command_for_address(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // Passed only when the spawning session provably owns the verified blob
+    // cache whose resolver advertises cache support downstream: the core's
+    // upstream advertisement must never lead the downstream one.
+    if enable_upstream_client_cache {
+        command.arg("-upstream-client-cache");
+    }
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
     }

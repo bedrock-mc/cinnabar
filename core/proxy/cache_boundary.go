@@ -88,6 +88,18 @@ func (telemetry *cacheBoundaryTelemetry) report(logger *slog.Logger) {
 	)
 }
 
+// flipUpstreamClientCacheStatus rewrites the single enabled byte of an
+// outbound upstream ClientCacheStatus payload so the real Bedrock server
+// streams blob-referencing cached chunks. On the pinned gophertunnel module
+// the write path hands the PacketFunc callback the live encode buffer and
+// copies it afterwards, so writing payload[0] changes the wire byte; the
+// read path passes bytes.Clone, so an unexpected inbound copy stays inert.
+// Callers must flip before telemetry observation so PHASE2_CACHE_BOUNDARY
+// records the effective value.
+func flipUpstreamClientCacheStatus(payload []byte) {
+	payload[0] = 1
+}
+
 func atomicSaturatingIncrement(counter *atomic.Uint64) {
 	for {
 		current := counter.Load()

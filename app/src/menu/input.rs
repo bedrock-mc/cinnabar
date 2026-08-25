@@ -63,14 +63,22 @@ fn attempt_connect(
             return;
         }
     };
-    if let Err(error) =
-        spawn_core_for_address(&menu.layout, &socket_dir, &address, auth_cache.as_deref())
-            .map_err(std::io::Error::other)
-            .and_then(|child| {
-                guard.replace(child);
-                wait_for_core(&socket_dir).map_err(std::io::Error::other)
-            })
-    {
+    if let Err(error) = spawn_core_for_address(
+        &menu.layout,
+        &socket_dir,
+        &address,
+        auth_cache.as_deref(),
+        // Advertise upstream cache capability exactly because this same
+        // connect hands the verified blob cache to the new network
+        // session below; that ownership is what makes the client answer
+        // LoginSuccess with cache-enabled status downstream.
+        client_blob_cache.enables_upstream_client_cache(),
+    )
+    .map_err(std::io::Error::other)
+    .and_then(|child| {
+        guard.replace(child);
+        wait_for_core(&socket_dir).map_err(std::io::Error::other)
+    }) {
         drop(session_directory);
         menu.message = Some(format!("Could not start {address}: {error}"));
         menu.connecting = false;

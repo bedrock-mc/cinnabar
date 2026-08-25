@@ -56,6 +56,7 @@ type options struct {
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
 	controlStatus             bool
+	upstreamClientCache       bool
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -70,6 +71,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
+	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -188,11 +190,12 @@ func runWithResourcePackCacheFactory(
 		resourcePackAdmissionUpdate = statusStore.Observe
 	}
 	serveErr := serve(ctx, proxy.Config{
-		SocketDir:         opts.socketDir,
-		Upstream:          opts.upstream,
-		TokenSource:       tokenSource,
-		Logger:            logger,
-		ResourcePackCache: resourcePackCache,
+		SocketDir:           opts.socketDir,
+		Upstream:            opts.upstream,
+		TokenSource:         tokenSource,
+		Logger:              logger,
+		UpstreamClientCache: opts.upstreamClientCache,
+		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			logger.Info("RESOURCE_PACK_ADMISSION",
 				"attempt_id", snapshot.AttemptID,
