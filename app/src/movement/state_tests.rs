@@ -16,6 +16,7 @@ use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, Vec3, WorldQueryE
 
 use super::integration_tests::VersionedFloor;
 use super::settle_tests::settled_sample;
+use super::state::ReplayJumpArcFold;
 use super::{
     LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
     PhysicsMovementSample, ProcessedMovementState, physics_movement_input,
@@ -163,8 +164,12 @@ fn requests_that_cannot_take_off_never_claim_a_jump_arc() {
     let free_fall = ProcessedMovementState::next(false, false, false, false, false);
     assert!(!free_fall.jump_arc_active);
 
-    // A wall-blocked attempt may consume its initiation tick, but the next
-    // grounded report closes the arc again instead of sticking open.
+    // A wall-blocked attempt may consume its initiation tick, and the fold
+    // closes the arc on the next grounded report instead of sticking open.
+    // This pins the fold rule only: no end-to-end witness drives
+    // `Simulator::tick` to report an initiation and grounded-after contact on
+    // one tick (an attempted takeoff leaves the tick airborne), so the fold
+    // inputs below stay synthetic by construction.
     let blocked_attempt = ProcessedMovementState::next(false, true, true, false, false);
     assert!(blocked_attempt.jump_arc_active);
     let settled = ProcessedMovementState::next(true, false, true, false, false);
@@ -777,6 +782,162 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
             snapshot.tick
         );
     }
+}
+
+#[test]
+fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
+    let mut harness = flag_harness();
+    let _ = step_retained(&mut harness, MovementInput::default());
+    let (_, takeoff) = step_retained(&mut harness, jump_input(true));
+    assert!(takeoff.processed.jump_initiated);
+    for _ in 0..3 {
+        let (_, sample) = step_retained(&mut harness, jump_input(false));
+        assert!(!sample.grounded_after_tick);
+    }
+
+    // The server contradicts this client's prediction one tick BEFORE the
+    // recorded initiation: it reports the player already airborne there at an
+    // elevated position. The replayed timeline therefore starts falling and
+    // can never consume the recorded takeoff edge, so no replayed tick may
+    // assert Jumping from that stale initiation record.
+    let anchor = [0.0, takeoff.position[1] + 6.0, 0.0];
+    reconcile_candidate_physics_correction(
+        &mut harness.ticker,
+        &mut harness.physics,
+        anchor,
+        takeoff.tick - 1,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .expect("the upstream correction is retained and replays");
+
+    let replayed = harness.ticker.pending_snapshots();
+    assert!(
+        replayed
+            .iter()
+            .all(|snapshot| snapshot.tick >= takeoff.tick),
+        "queued work up to the corrected anchor is dropped"
+    );
+    assert!(
+        replayed.len() >= 4,
+        "the witness requires the whole post-anchor window, got {}",
+        replayed.len()
+    );
+    for snapshot in &replayed {
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+            0,
+            "tick {} asserted Jumping from an initiation the replayed timeline never consumed",
+            snapshot.tick
+        );
+    }
+    // The rebuilt timeline genuinely falls from the elevated anchor.
+    for pair in replayed.windows(2) {
+        assert!(
+            pair[1].position[1] < pair[0].position[1],
+            "tick {} did not descend across the replayed fall",
+            pair[1].tick
+        );
+    }
+}
+
+#[test]
+fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
+    let mut harness = {
+        let mut physics = LocalPhysicsController::default();
+        // Spawn mid-air: a plain fall records no jump cooldown anywhere.
+        physics.reanchor_network_position([0.0, 12.620_01, 0.0], 100, false);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(1, 100, [0.0, 12.620_01, 0.0]);
+        ticker.set_source(MovementSource::Physics);
+        // Correction witnesses reconcile retained ranges directly; dedicated
+        // gate coverage lives in `settle_tests`.
+        ticker.testing_lift_spawn_settle_gate();
+        Harness { physics, ticker }
+    };
+    let _ = step_retained(&mut harness, MovementInput::default());
+    let (_, anchor_sample) = step_retained(&mut harness, MovementInput::default());
+    let (_, tap) = step_retained(&mut harness, jump_input(true));
+    assert!(
+        !tap.grounded_before_tick && !tap.processed.jump_initiated,
+        "premise: the witnessed press was recorded mid-air"
+    );
+    let _ = step_retained(&mut harness, jump_input(false));
+    let _ = step_retained(&mut harness, MovementInput::default());
+
+    // The server reports ground contact back at the earlier fall tick while
+    // the tap's press edge survives in the retained inputs, so the replayed
+    // timeline can genuinely consume that press from the corrected ground.
+    reconcile_candidate_physics_correction(
+        &mut harness.ticker,
+        &mut harness.physics,
+        anchor_sample.position,
+        anchor_sample.tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .expect("the early-grounding correction is retained and replays");
+
+    // The rebuilt initiations must ride the arc onto the wire instead of
+    // being silenced by the stale mid-air record.
+    let replayed = harness.ticker.pending_snapshots();
+    assert_eq!(
+        replayed.first().map(|snapshot| snapshot.tick),
+        Some(tap.tick),
+        "the replayed remainder starts at the recorded tap"
+    );
+    assert!(
+        replayed[0].position[1] > anchor_sample.position[1],
+        "the replayed tap must leave the corrected ground upward"
+    );
+    for snapshot in &replayed {
+        assert_ne!(
+            snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+            0,
+            "tick {} silenced a jump the replayed timeline really consumed",
+            snapshot.tick
+        );
+    }
+}
+
+#[test]
+fn the_replay_jump_fold_matches_the_simulator_consumption_rule() {
+    let input = |jumping: bool, pressed: bool| MovementInput {
+        jumping,
+        jump_pressed: pressed,
+        ..MovementInput::default()
+    };
+
+    // A grounded, cooldown-cleared anchor consumes the retained press.
+    let mut fresh = ReplayJumpArcFold::seed(true, 0, false, false);
+    assert_eq!(fresh.step(&input(true, true), false), (true, true));
+    // The simulator's post-jump cooldown then refuses repeats even while the
+    // button stays held, and landing closes the carried arc.
+    assert_eq!(fresh.step(&input(true, false), false), (false, true));
+    assert_eq!(fresh.step(&input(true, true), false), (false, true));
+    assert_eq!(fresh.step(&input(true, false), true), (false, false));
+
+    // A short tap latches its press edge across zero-tick frames; the
+    // simulator consumes such an edge from ground even when the button reads
+    // released on the tick itself, so the fold must too.
+    let mut latched = ReplayJumpArcFold::seed(true, 5, false, false);
+    assert_eq!(latched.step(&input(false, true), false), (true, true));
+
+    // A held press inside the seeded cooldown initiates nothing.
+    let mut cooling = ReplayJumpArcFold::seed(true, sim::JUMP_DELAY_TICKS, false, false);
+    assert_eq!(cooling.step(&input(true, true), true), (false, false));
+
+    // An airborne anchor carries the recorded arc forward until grounding.
+    let mut carried = ReplayJumpArcFold::seed(false, 3, false, true);
+    assert_eq!(carried.step(&input(false, false), false), (false, true));
+    assert_eq!(carried.step(&input(false, false), true), (false, false));
+
+    // A server-reported ground contact at the anchor outranks a retained
+    // initiation instead of asserting Jumping through corrected-ground ticks.
+    let mut outranked = ReplayJumpArcFold::seed(true, 3, true, true);
+    assert_eq!(outranked.step(&input(false, false), false), (false, false));
 }
 
 #[test]

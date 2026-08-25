@@ -16,8 +16,9 @@ pub use conformance::{
 pub use math::Vec3;
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
-    AxisCollisions, MAX_BLOCK_SAMPLES_PER_TICK, MovementEffects, MovementEnvironment,
-    MovementInput, PlayerState, SimulationError, Simulator, TICKS_PER_SECOND, TickResult,
+    AxisCollisions, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK, MovementEffects,
+    MovementEnvironment, MovementInput, PlayerState, SimulationError, Simulator, TICKS_PER_SECOND,
+    TickResult,
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,

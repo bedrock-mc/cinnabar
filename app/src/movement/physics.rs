@@ -10,7 +10,7 @@ use sim::{
 };
 use thiserror::Error;
 
-use super::state::ProcessedMovementState;
+use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
@@ -790,6 +790,9 @@ impl LocalPhysicsController {
         }
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
+        // The replay starts from this exact anchor state; capture its cooldown
+        // before consumption so the initiation fold seeds identically.
+        let anchor_jump_delay = corrected.jump_delay;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_traced_with_overlays(
@@ -806,31 +809,28 @@ impl LocalPhysicsController {
         if replayed_ticks.len() != replay.replayed_ticks {
             return Err(PhysicsCorrectionError::ReplayFailed);
         }
-        // Rebuilds the processed jump arc across the replayed range exactly
-        // like velocity is rebuilt: input facts (initiation) stay as recorded,
-        // simulated outcomes (grounded state) come from the fresh replay, and
-        // the window entering the replayed range follows the server-corrected
-        // anchor. A server-reported ground contact at that anchor outranks a
-        // retained initiation: the correction just contradicted this client's
-        // takeoff prediction, and seeding the arc open there would assert
-        // `Jumping` through ticks the server says are grounded. Otherwise an
-        // initiation at the anchor keeps the window open and a previously
-        // carried arc continues, so a correction cannot invent an arc that was
-        // never simulated while a real airborne continuation survives the
-        // rewind.
-        let mut jump_arc = {
+        // Rebuilds the processed jump state across the replayed range exactly
+        // like velocity is rebuilt: initiations are facts of the replayed
+        // timeline (the same retained request edges re-fed from the corrected
+        // anchor), so [`ReplayJumpArcFold`] recomputes them with the
+        // simulator's own consumption rule instead of trusting records a
+        // contradicted prediction may have left stale in either direction.
+        // The entering window follows that anchor: a server-reported ground
+        // contact outranks a retained initiation (the correction just
+        // contradicted this client's takeoff), while an airborne anchor keeps
+        // the recorded arc as the un-replayed continuation of earlier ticks.
+        let mut jump_fold = {
             let corrected_sample = self
                 .sample_history
                 .iter()
                 .find(|sample| sample.tick == tick)
                 .expect("retained correction sample was checked");
-            if on_ground {
-                false
-            } else if corrected_sample.processed.jump_initiated {
-                true
-            } else {
-                corrected_sample.processed.jump_arc_active
-            }
+            ReplayJumpArcFold::seed(
+                on_ground,
+                anchor_jump_delay,
+                corrected_sample.processed.jump_initiated,
+                corrected_sample.processed.jump_arc_active,
+            )
         };
         let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
         for result in replayed_ticks {
@@ -857,12 +857,17 @@ impl LocalPhysicsController {
             retained.horizontal_collision = result.collisions.x || result.collisions.z;
             retained.vertical_collision = result.collisions.y;
             retained.grounded_after_tick = result.on_ground;
-            retained.processed.jump_arc_active =
-                retained.processed.jump_initiated || (!result.on_ground && jump_arc);
-            jump_arc = retained.processed.jump_arc_active;
+            // The replay fed this input verbatim, mirroring the simulator's
+            // own per-tick consumption.
+            let Some(frame_input) = self.history.input_at(result.tick) else {
+                return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
+            };
+            let (initiated, arc_active) = jump_fold.step(frame_input, result.on_ground);
+            retained.processed.jump_initiated = initiated;
+            retained.processed.jump_arc_active = arc_active;
             replayed_samples.push(retained.clone());
         }
-        self.processed_jump_arc_active = jump_arc;
+        self.processed_jump_arc_active = jump_fold.arc_active();
         let corrected_world_identity = {
             let corrected_sample = self
                 .sample_history

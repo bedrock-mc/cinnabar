@@ -867,9 +867,9 @@ impl MovementTicker {
                             PlayerInputFlags::VERTICAL_COLLISION,
                             replayed.vertical_collision,
                         )
-                        // The processed jump arc is simulated state: a correction
-                        // rebuilds it on the wire like the collision hints, so an
-                        // early server-reported landing cannot carry a phantom arc.
+                        // Rebuilt simulated state: the arc plus collision hints. Raw-button
+                        // evidence and pre-correction contact records intentionally keep
+                        // their recorded values (the replay inputs are byte-identical).
                         .with_mask(
                             PlayerInputFlags::JUMPING,
                             replayed.processed.jump_arc_active,

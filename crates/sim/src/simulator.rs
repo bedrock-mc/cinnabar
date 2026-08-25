@@ -34,7 +34,10 @@ const SNEAK_INPUT_MULTIPLIER: f64 = 0.3;
 const CONSUMABLE_INPUT_MULTIPLIER: f64 = 0.1225;
 const INPUT_IMPULSE_MULTIPLIER: f64 = 0.98;
 const SPRINT_JUMP_IMPULSE: f64 = 0.2;
-const JUMP_DELAY_TICKS: u8 = 10;
+/// Simulator post-jump cooldown length in ticks. A consumed request sets
+/// this and each subsequent tick decrements it; prediction replays rebuild
+/// initiations against the same gate, so it is part of the public contract.
+pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;

@@ -94,6 +94,19 @@ impl PredictionHistory {
             .map(|frame| &frame.state)
     }
 
+    /// Returns the exact input recorded for one retained tick's prediction.
+    ///
+    /// Correction replays re-feed these inputs verbatim, so callers rebuilding
+    /// derived per-tick facts can read the same request edges the replayed
+    /// simulation acted on without retaining a second copy.
+    #[must_use]
+    pub fn input_at(&self, tick: u64) -> Option<&MovementInput> {
+        self.frames
+            .iter()
+            .find(|frame| frame.state.tick == tick)
+            .map(|frame| &frame.input)
+    }
+
     /// Predicts and records one tick. Simulation failure leaves both state and
     /// history unchanged.
     pub fn predict(
