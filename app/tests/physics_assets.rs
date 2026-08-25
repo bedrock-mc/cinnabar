@@ -77,7 +77,17 @@ fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
         fs::write(prerequisite, b"fixture").unwrap();
     }
     fs::write(&physics, b"corrupt but newer\n").unwrap();
-    let repaired = b"repaired\n";
+    // The synthetic repair truncates the registry to zero bytes: `cd .`
+    // prints nothing on every recipe shell GNU make can pick (`sh`, or the
+    // cmd.exe fallback used when no `sh.exe` is reachable), so the
+    // redirection produces the identical empty file everywhere. Writing
+    // content through `echo` instead was environment-dependent: `sh` emits
+    // `repaired\n` while cmd.exe emits `repaired  \r\n`, so the pinned
+    // digest matched only on hosts whose recipe shell was `sh`. The empty
+    // repair still cannot launder a non-repair: the corrupt fixture is
+    // nonempty, so until the recipe truncates the file the real digest
+    // check below rejects it and make fails loudly.
+    let repaired = b"";
     fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(repaired))).unwrap();
     let old = SystemTime::now() - Duration::from_secs(120);
     for prerequisite in prerequisites.iter().chain([&expected_sha]) {
@@ -88,8 +98,14 @@ fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
             .set_modified(old)
             .unwrap();
     }
+    // `cd .` is silent under both `sh` and cmd.exe, and the redirection
+    // truncates the registry at recipe-execution time — after the first
+    // digest check has already failed — so the repair-once semantics stay
+    // witnessed. The `echo` log keeps shell-dependent trailing whitespace,
+    // which `.lines().count()` tolerates (same precedent as
+    // app/tests/assets/make_targets.rs).
     let compile = format!(
-        "echo invocation >> \"{}\" && echo repaired > \"{}\"",
+        "echo invocation >> \"{}\" && cd . > \"{}\"",
         make_path(&invocation_log),
         make_path(&physics)
     );
@@ -123,6 +139,10 @@ fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
             expected_invocations
         );
     }
+    assert!(
+        fs::read(&physics).unwrap().is_empty(),
+        "the repair must produce exactly the truncated bytes covered by the pinned digest"
+    );
     fs::remove_dir_all(temporary).unwrap();
 }
 
