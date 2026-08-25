@@ -29,7 +29,24 @@
 //! claim. Unloaded chunks and unknown runtime IDs keep today's existing
 //! transient-blocked behavior exactly: a probe that cannot see collision
 //! data stays pending and the ordinary tick path reproduces the error.
+//!
+//! Failure-evidence markers (`RUST_MCBE_ANCHOR_PROBE` family): each failed
+//! probe attempt may additionally render ONE bounded single-line stdout
+//! marker naming the sealing colliders, plus one `phase:"degraded"` marker
+//! when that attempt spends the per-epoch budget. Emission is opt-in via
+//! the registered environment literal [`crate::acceptance::markers::
+//! ANCHOR_PROBE`] with value exactly `1`; any other value, or unset, keeps
+//! every decision and allocation byte-identical to the un-gated build.
+//! Formatting lives in the pure [`super::anchor_probe_evidence`] module;
+//! during an embedded hold nothing is ever emitted because this state
+//! machine short-circuits before any evidence path.
 
+use std::ffi::OsStr;
+use std::sync::OnceLock;
+
+use super::anchor_probe_evidence as evidence;
+use super::trace::write_trace_line;
+use crate::acceptance::markers;
 use sim::{Aabb, CollisionWorld, Vec3};
 
 /// PROVISIONAL maximum number of iterative minimal-translation applications
@@ -63,7 +80,29 @@ pub(super) enum BeforeTick {
 
 enum AnchorResolution {
     Cleared(Vec3),
-    Unresolvable,
+    /// The colliders the failed query already fetched, so evidence can name
+    /// the sealing geometry without a second world query.
+    Unresolvable {
+        colliders: Vec<Aabb>,
+    },
+}
+
+/// The exact value of [`markers::ANCHOR_PROBE`] that enables failure-evidence
+/// markers; every other value, or an unset variable, keeps today's exact
+/// behavior with no formatting or allocation.
+const EVIDENCE_ENABLED_VALUE: &str = "1";
+
+/// Pure enablement rule for one environment-variable observation.
+fn enabled_for_env_value(value: Option<&OsStr>) -> bool {
+    value == Some(OsStr::new(EVIDENCE_ENABLED_VALUE))
+}
+
+/// Whether this process emits anchor-probe failure evidence. Evaluated at
+/// most once; repeated state constructions read the cached result.
+fn evidence_enabled_from_env() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED
+        .get_or_init(|| enabled_for_env_value(std::env::var_os(markers::ANCHOR_PROBE).as_deref()))
 }
 
 /// One bounded depenetration probe of an anchored feet origin.
@@ -90,7 +129,9 @@ fn probe_anchor(
             ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
         ) {
             Some(clear_feet) => AnchorResolution::Cleared(clear_feet),
-            None => AnchorResolution::Unresolvable,
+            None => AnchorResolution::Unresolvable {
+                colliders: colliders.value,
+            },
         },
     )
 }
@@ -101,14 +142,16 @@ pub(super) struct AnchorProbeState {
     pending: bool,
     failed_probes: u32,
     holding: bool,
+    evidence_enabled: bool,
 }
 
 impl AnchorProbeState {
-    pub(super) const fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             pending: false,
             failed_probes: 0,
             holding: false,
+            evidence_enabled: evidence_enabled_from_env(),
         }
     }
 
@@ -150,10 +193,24 @@ impl AnchorProbeState {
                 self.pending = false;
                 BeforeTick::Adjust(clear_feet)
             }
-            Ok(AnchorResolution::Unresolvable) => {
+            Ok(AnchorResolution::Unresolvable { colliders }) => {
                 self.pending = false;
                 self.failed_probes = self.failed_probes.saturating_add(1);
-                if self.failed_probes >= EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH {
+                let epoch_spent = self.failed_probes >= EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH;
+                // Bounded, purely additive evidence: when disabled this
+                // returns an empty vector before formatting anything, so
+                // decisions and allocations are byte-identical either way.
+                for line in evidence::failure_marker_lines(
+                    self.evidence_enabled,
+                    feet,
+                    &colliders,
+                    ANCHOR_PROBE_MAX_ITERATIONS,
+                    ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+                    epoch_spent,
+                ) {
+                    write_trace_line(&line);
+                }
+                if epoch_spent {
                     // Bounded degrade: stop probing this epoch and fall back
                     // to today's fail-open streaming behavior so a server
                     // that keeps snapping the player into geometry cannot
@@ -172,5 +229,15 @@ impl AnchorProbeState {
     pub(super) fn release_after_cap(&mut self) {
         self.holding = false;
         self.pending = self.failed_probes < EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH;
+    }
+
+    #[cfg(test)]
+    pub(super) const fn failed_probes(&self) -> u32 {
+        self.failed_probes
+    }
+
+    #[cfg(test)]
+    pub(super) fn testing_set_evidence_enabled(&mut self, enabled: bool) {
+        self.evidence_enabled = enabled;
     }
 }

@@ -6,6 +6,7 @@ use protocol::PlayerInputMode;
 use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags};
 
 mod anchor_probe;
+mod anchor_probe_evidence;
 mod authority;
 mod collision_registries;
 mod correction_shape;

@@ -6,6 +6,7 @@ use render::{VisibilityKeyDelta, VisibilityKeyDigest};
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 
 pub(crate) const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
+pub(crate) const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
 pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
@@ -60,6 +61,7 @@ pub(crate) enum MarkerContract {
 #[cfg(test)]
 pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
+    (ANCHOR_PROBE, MarkerContract::EnvironmentVariable),
     (ASSETS, MarkerContract::EnvironmentVariable),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
@@ -241,7 +243,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 34);
+        assert_eq!(names.len(), 35);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

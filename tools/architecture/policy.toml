@@ -288,6 +288,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/movement/teleport_ack.rs"
 
 [[markers]]
+literal = "RUST_MCBE_ANCHOR_PROBE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/movement/anchor_probe.rs"
+
+[[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
