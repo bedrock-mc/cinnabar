@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use protocol::{ItemStackResponseEvent, StackResponseSlot, StackResponseStatus};
 
-use super::{Cell, GENERIC_STORAGE_SLOT_TYPE, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
+use super::{Cell, GENERIC_STORAGE_SLOT_TYPE, PlayerInventoryLedger};
 
 /// Authoritative presentation facts an accepted server correction attached
 /// to one inventory cell: custom display names plus the exact durability
@@ -144,19 +144,14 @@ impl PlayerInventoryLedger {
         self.bump_cell_revision(prediction.destination);
         for container in response.containers.iter() {
             for correction in container.slots.iter() {
-                let cell = match container.container.slot_type {
-                    Some(12) if usize::from(correction.slot) < PLAYER_INVENTORY_SLOT_COUNT => {
-                        Cell::Inventory(correction.slot)
-                    }
-                    Some(59) if correction.slot == 0 => Cell::Cursor,
-                    Some(GENERIC_STORAGE_SLOT_TYPE)
-                        if self.storage.as_ref().is_some_and(|storage| {
-                            usize::from(correction.slot) < storage.slots.len()
-                        }) =>
-                    {
-                        Cell::Storage(correction.slot)
-                    }
-                    _ => continue,
+                // Corrections address cells through the same canonical
+                // projection as ingress, bounded by each surface's exact
+                // retention; identities outside it are counted skips.
+                let Some(cell) =
+                    self.retained_response_cell(&container.container, u16::from(correction.slot))
+                else {
+                    self.note_unrouted_container();
+                    continue;
                 };
                 if correction.count == 0 {
                     self.set_cell(cell, None);

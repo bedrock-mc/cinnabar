@@ -4,26 +4,25 @@
 //! the two touched cells and never queues a second gesture behind an in-flight
 //! request.
 
+mod admission;
 mod helpers;
 mod response;
 
 pub use response::StackResponseOverlay;
 
-use helpers::{
-    cell_surface, request_slot, storage_slot_identity_matches, valid_raw_window_id,
-    valid_storage_window_id,
-};
+use helpers::{cell_surface, request_slot, valid_raw_window_id};
 
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryEvent, NetworkItemStack, Packet,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
-    item_stack_request_packet,
+    ContainerIdentity, InventoryAuthority, NetworkItemStack, Packet, StackRequestAction,
+    StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
 };
 use thiserror::Error;
 
 pub const PLAYER_INVENTORY_SLOT_COUNT: usize = 36;
 pub const INVENTORY_REQUEST_TIMEOUT_MILLIS: u64 = 1_500;
-pub const GENERIC_STORAGE_SLOT_TYPE: u8 = 7;
+/// The decoded generic-storage container name
+/// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
+pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
@@ -144,6 +143,12 @@ pub struct PlayerInventoryLedger {
     pending_close: Option<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
+    /// Well-formed authoritative inventory traffic whose container identity
+    /// did not resolve onto a retained canonical ledger cell: unknown
+    /// container codes, unreviewed surfaces (armor, offhand), or indices
+    /// outside every mapped surface. Typed counted leniency — these events
+    /// mutate nothing and never end the session.
+    skipped_unknown_containers: u64,
 }
 
 impl Default for PlayerInventoryLedger {
@@ -166,6 +171,7 @@ impl Default for PlayerInventoryLedger {
             pending_close: None,
             player_resync_required: false,
             cursor_resync_required: false,
+            skipped_unknown_containers: 0,
         }
     }
 }
@@ -271,6 +277,14 @@ impl PlayerInventoryLedger {
                 .storage
                 .as_ref()
                 .is_some_and(|storage| storage.resync_required)
+    }
+
+    /// How many well-formed authoritative events resolved onto no retained
+    /// canonical cell and were skipped as typed counted leniency. See
+    /// [`admission`].
+    #[must_use]
+    pub const fn skipped_unknown_containers(&self) -> u64 {
+        self.skipped_unknown_containers
     }
 
     pub fn begin_click(&mut self, slot: u8) -> Result<i32, InventoryGestureError> {
@@ -508,108 +522,6 @@ impl PlayerInventoryLedger {
         }
     }
 
-    pub fn apply(&mut self, event: &InventoryEvent) {
-        match event {
-            InventoryEvent::Authority(authority) => {
-                self.authority = Some(*authority);
-                if *authority != InventoryAuthority::Server {
-                    self.pending = None;
-                    self.cursor = None;
-                    self.cursor_overlay = None;
-                    self.player_resync_required = false;
-                    self.cursor_resync_required = false;
-                    self.storage = None;
-                    self.pending_close = None;
-                }
-            }
-            InventoryEvent::Open(open) => self.apply_open(*open),
-            InventoryEvent::Close(close) => {
-                if self.pending_close.is_some_and(|pending| {
-                    close.container.window_id == Some(pending.window_id)
-                        && close.window_type == pending.window_type
-                }) {
-                    self.pending_close = None;
-                }
-                if self.storage.as_ref().is_some_and(|storage| {
-                    close.container.window_id == Some(storage.window_id)
-                        && close.window_type == GENERIC_STORAGE_WINDOW_TYPE
-                }) {
-                    self.close_storage(false);
-                }
-            }
-            InventoryEvent::Content(content)
-                if content.container.slot_type == Some(GENERIC_STORAGE_SLOT_TYPE) =>
-            {
-                self.apply_storage_content(content.container, &content.slots);
-            }
-            InventoryEvent::Content(content)
-                if content.container.window_id == Some(0)
-                    && content.container.slot_type != Some(59) =>
-            {
-                let complete = content.slots.len() == PLAYER_INVENTORY_SLOT_COUNT;
-                let revision = self.take_authority_revision();
-                for index in 0..content.slots.len().min(PLAYER_INVENTORY_SLOT_COUNT) {
-                    self.slots[index] = content
-                        .slots
-                        .get(index)
-                        .filter(|stack| !stack.is_empty())
-                        .cloned();
-                    self.slot_overlays[index] = None;
-                    self.known[index] = true;
-                    self.slot_revisions[index] = revision;
-                }
-                if complete {
-                    self.player_resync_required = false;
-                    self.cancel_pending_for_authority(CellSurface::Player, None);
-                }
-            }
-            InventoryEvent::Content(content)
-                if content.container.slot_type == Some(59) && content.slots.len() == 1 =>
-            {
-                self.cursor = content
-                    .slots
-                    .first()
-                    .filter(|stack| !stack.is_empty())
-                    .cloned();
-                self.cursor_overlay = None;
-                self.cursor_revision = self.take_authority_revision();
-                self.cursor_resync_required = false;
-                self.cancel_pending_for_authority(CellSurface::Cursor, None);
-            }
-            InventoryEvent::Slot(update)
-                if update.identity.container.window_id == Some(0)
-                    && update.identity.container.slot_type != Some(59)
-                    && usize::from(update.identity.slot) < PLAYER_INVENTORY_SLOT_COUNT =>
-            {
-                let index = usize::from(update.identity.slot);
-                self.slots[index] = (!update.stack.is_empty()).then(|| update.stack.clone());
-                self.slot_overlays[index] = None;
-                self.known[index] = true;
-                let revision = self.take_authority_revision();
-                self.slot_revisions[index] = revision;
-            }
-            InventoryEvent::Slot(update)
-                if update.identity.container.slot_type == Some(59) && update.identity.slot == 0 =>
-            {
-                self.cursor = (!update.stack.is_empty()).then(|| update.stack.clone());
-                self.cursor_overlay = None;
-                self.cursor_revision = self.take_authority_revision();
-                self.cursor_resync_required = false;
-            }
-            InventoryEvent::Slot(update)
-                if self.storage_slot_identity_matches(update.identity.container) =>
-            {
-                self.apply_storage_slot(
-                    update.identity.container,
-                    update.identity.slot,
-                    &update.stack,
-                );
-            }
-            InventoryEvent::Response(event) => self.apply_response(event),
-            _ => {}
-        }
-    }
-
     fn rollback_pending(&mut self) {
         self.pending = None;
         self.finish_closing();
@@ -728,111 +640,6 @@ impl PlayerInventoryLedger {
         revision
     }
 
-    fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.storage_generation.is_some())
-        {
-            if self.pending_state() == Some(InventoryPendingState::AwaitingResponse) {
-                self.require_authoritative_recovery();
-            } else {
-                self.rollback_pending();
-            }
-        }
-        let Some(window_id) = open.container.window_id else {
-            return;
-        };
-        if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
-            self.queue_close(window_id, open.window_type);
-            self.storage = None;
-            return;
-        }
-        if self.pending_close.is_some_and(|close| {
-            close.window_id == window_id && close.window_type == open.window_type
-        }) {
-            self.pending_close = None;
-        }
-        let generation = self.next_open_generation;
-        self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
-        self.storage = Some(StorageWindow {
-            window_id,
-            generation,
-            identity: None,
-            slots: Vec::new(),
-            revisions: Vec::new(),
-            overlays: Vec::new(),
-            resync_required: false,
-            closing: false,
-        });
-    }
-
-    fn apply_storage_content(&mut self, identity: ContainerIdentity, slots: &[NetworkItemStack]) {
-        let valid_len = matches!(
-            slots.len(),
-            SMALL_STORAGE_SLOT_COUNT | LARGE_STORAGE_SLOT_COUNT
-        );
-        let Some(storage) = self.storage.as_ref() else {
-            return;
-        };
-        let window_id = storage.window_id;
-        let generation = storage.generation;
-        if identity.window_id != Some(window_id) {
-            return;
-        }
-        if storage.identity.is_some_and(|current| current != identity) {
-            return;
-        }
-        if !valid_len {
-            self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE);
-            self.close_storage(false);
-            return;
-        }
-        let revision = self.take_authority_revision();
-        let storage = self.storage.as_mut().expect("storage remains active");
-        storage.identity = Some(identity);
-        storage.slots = slots
-            .iter()
-            .map(|stack| (!stack.is_empty()).then(|| stack.clone()))
-            .collect();
-        storage.revisions = vec![revision; slots.len()];
-        storage.overlays = vec![None; slots.len()];
-        storage.resync_required = false;
-        self.cancel_pending_for_authority(CellSurface::Storage, Some(generation));
-    }
-
-    fn apply_storage_slot(
-        &mut self,
-        identity: ContainerIdentity,
-        slot: u16,
-        stack: &NetworkItemStack,
-    ) {
-        let Some(storage) = self.storage.as_ref() else {
-            return;
-        };
-        if !storage_slot_identity_matches(storage, identity)
-            || usize::from(slot) >= storage.slots.len()
-        {
-            return;
-        }
-        let revision = self.take_authority_revision();
-        let storage = self.storage.as_mut().expect("storage remains active");
-        storage.slots[usize::from(slot)] = (!stack.is_empty()).then(|| stack.clone());
-        storage.revisions[usize::from(slot)] = revision;
-        storage.overlays[usize::from(slot)] = None;
-    }
-
-    fn pending_identity_mismatch(&self, identity: ContainerIdentity) -> bool {
-        self.pending
-            .as_ref()
-            .and_then(|pending| pending.storage_identity)
-            .is_none_or(|expected| {
-                identity.window_id.is_some()
-                    || expected.slot_type != identity.slot_type
-                    || expected.dynamic_id != identity.dynamic_id
-            })
-    }
-
     pub fn request_storage_close(&mut self) {
         let Some(storage) = self.storage.as_ref() else {
             return;
@@ -906,12 +713,6 @@ impl PlayerInventoryLedger {
                 window_type,
             });
         }
-    }
-
-    fn storage_slot_identity_matches(&self, identity: ContainerIdentity) -> bool {
-        self.storage
-            .as_ref()
-            .is_some_and(|storage| storage_slot_identity_matches(storage, identity))
     }
 
     fn cancel_pending_for_authority(
