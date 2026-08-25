@@ -1,4 +1,7 @@
-use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input};
+use protocol::{
+    BedrockSession, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch,
+    encode, player_auth_input,
+};
 use valentine::bedrock::version::v1_26_44::{
     EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
     EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
@@ -180,6 +183,60 @@ fn device_class_move_carriers_survive_encoding_distinctly() {
     assert_eq!(
         (input.raw_move_vector.x, input.raw_move_vector.y),
         (-1.0, 1.0)
+    );
+}
+
+#[test]
+fn handled_teleport_flag_serializes_in_ascending_list_position() {
+    let mut input = snapshot();
+    input.flags =
+        PlayerInputFlags::UP | PlayerInputFlags::SPRINTING | PlayerInputFlags::HANDLED_TELEPORT;
+
+    let packet = player_auth_input(input).expect("valid flags");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    // Row 37 of the encoder table is HandledTeleport, so bit 37 must emit in
+    // ascending list position between Sprinting (20) and the higher bits.
+    assert_eq!(
+        input.input_data,
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Up,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
+        ])
+    );
+}
+
+#[test]
+fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let mut baseline = snapshot();
+    baseline.flags = PlayerInputFlags::JUMPING;
+    let mut flagged = baseline;
+    flagged.flags |= PlayerInputFlags::HANDLED_TELEPORT;
+
+    let baseline_len = encode(&player_auth_input(baseline).unwrap(), &session)
+        .expect("encode baseline")
+        .len();
+    let encoded = encode(&player_auth_input(flagged).unwrap(), &session).expect("encode flagged");
+    assert_eq!(
+        encoded.len() - baseline_len,
+        1,
+        "one more set flag must add exactly its one-byte zigzag varint ordinal"
+    );
+
+    let mut decoded = decode_batch(encoded, &session).expect("decode flagged batch");
+    assert_eq!(decoded.len(), 1);
+    let McpePacketData::PlayerAuthInputPacket(input) = decoded.pop().unwrap().data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
+            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
+        ])
     );
 }
 

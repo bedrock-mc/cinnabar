@@ -6,7 +6,20 @@
 //! while the provisional spawn-settle gate suppresses transmission, drained
 //! and withheld instead.
 
-use protocol::{Packet, player_auth_input};
+use protocol::{Packet, PlayerAuthInputError, player_auth_input};
+
+/// Failure taxonomy of one bounded outbound movement flush.
+///
+/// Extracted verbatim from the movement root module to respect the per-file
+/// architecture line policy; the public path
+/// (`crate::movement::MovementSendError`) is unchanged.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MovementSendError<E> {
+    Encode(PlayerAuthInputError),
+    Transport(E),
+    RestoreOverflow,
+    MissingEvidenceContext,
+}
 
 /// Terminal reconciliation classification of the outbound physics stream.
 ///
@@ -46,8 +59,7 @@ impl MovementOutboxReconciliation {
 }
 
 use super::{
-    MovementSendError, MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity,
-    PhysicsTickEvidenceContext,
+    MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity, PhysicsTickEvidenceContext,
 };
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
@@ -89,9 +101,14 @@ pub(crate) fn flush_player_auth_inputs<E>(
             ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             break;
         }
-        let Some(sample) = ticker.pop_pending() else {
+        let Some(mut sample) = ticker.pop_pending() else {
             break;
         };
+        // Opt-in HandledTeleport acknowledgement: the flag is applied at
+        // flush time on the popped record, so retries restore it with the bit
+        // intact, and pending state is consumed only after the transport
+        // accepts the packet. See the `teleport_ack` module.
+        let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
         let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
         let identity = ticker.next_send_identity(&sample);
         ticker.note_command_admitted(
@@ -108,6 +125,9 @@ pub(crate) fn flush_player_auth_inputs<E>(
                 .map_err(|_| MovementSendError::RestoreOverflow)?;
             ticker.outbox_reconciliation = MovementOutboxReconciliation::TransportRestored;
             return Err(MovementSendError::Transport(error));
+        }
+        if carried_teleport_ack {
+            ticker.consume_pending_teleport_ack();
         }
         sent += 1;
     }

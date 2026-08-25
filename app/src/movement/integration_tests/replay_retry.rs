@@ -629,6 +629,106 @@ fn app_respawn_snap_publishes_its_epoch_from_the_authority_event() {
         ticker.reanchor_epoch(),
         "the respawn snap event must publish its new epoch without an outer call site"
     );
+    assert_ne!(*reanchor.borrow(), 0);
+}
+
+/// Drives the respawn snap flow end to end and renders the captured
+/// PlayerAuthInput through the exact `rust-mcbe-pai-trace-v1` formatter.
+/// `teleport_ack` forces the opt-in state the startup environment read would
+/// install, so both gated states stay deterministic in-process.
+fn respawn_flow_first_transmission_trace(
+    teleport_ack: bool,
+) -> Option<String> {
+    let mut ticker = MovementTicker::default();
+    ticker.testing_set_teleport_ack(teleport_ack);
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+
+    let mut physics = LocalPhysicsController::default();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [8.0, 71.620_01, 9.0],
+        0,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    if teleport_ack {
+        ticker.note_server_teleport(crate::movement::ServerTeleportKind::Respawn);
+    }
+    // The teleport-style snap anchors a fresh provisional spawn-settle window
+    // by design; this fixture lifts it because the byte-level trace assertion
+    // here is orthogonal to settling.
+    ticker.testing_lift_spawn_settle_gate();
+
+    // The snap's before-advance anchor discards the first frame's elapsed
+    // time by design; the second advance produces the first real tick.
+    let warmup = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(warmup.samples.is_empty());
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 1);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let mut packets = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |_identity, packet| {
+            packets.push(packet);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(packets.len(), 1);
+
+    crate::movement::trace::trace_line_if(true, 7, &packets[0])
+}
+
+#[test]
+fn respawn_marked_first_transmission_renders_handled_teleport_in_the_pai_trace() {
+    let line = respawn_flow_first_transmission_trace(true).expect("enabled trace formats");
+    assert!(!line.contains('\n'), "trace lines must stay single-line");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&line).expect("trace output must be valid JSON");
+    assert_eq!(parsed["schema"], "rust-mcbe-pai-trace-v1");
+    assert!(
+        parsed["flags"]
+            .as_array()
+            .expect("flags array")
+            .iter()
+            .any(|name| name == "HandledTeleport"),
+        "the first resumed transmission must render HandledTeleport: {line}"
+    );
+}
+
+#[test]
+fn respawn_flow_without_the_opt_in_never_renders_handled_teleport() {
+    let line = respawn_flow_first_transmission_trace(false).expect("enabled trace formats");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&line).expect("trace output must be valid JSON");
+    assert_eq!(parsed["schema"], "rust-mcbe-pai-trace-v1");
+    assert!(
+        !parsed["flags"]
+            .as_array()
+            .expect("flags array")
+            .iter()
+            .any(|name| name == "HandledTeleport"),
+        "default-off must stay byte-identical to the un-gated stream: {line}"
+    );
 }
 
 #[test]

@@ -53,7 +53,7 @@ use crate::{
     },
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
+        MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode, ServerTeleportKind,
         reconcile_candidate_physics_correction, reconcile_committed_correction,
     },
     runtime::{
@@ -446,10 +446,15 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         correction.on_ground,
                         &world,
                     ) {
-                        Ok(Some(outcome)) => phase3_evidence.note_correction(
-                            outcome,
-                            position_distance(previous, resolved.position),
-                        ),
+                        Ok(Some(outcome)) => {
+                            phase3_evidence.note_correction(
+                                outcome,
+                                position_distance(previous, resolved.position),
+                            );
+                            // Opt-in HandledTeleport acknowledgement dispatch
+                            // (see the movement `teleport_ack` module).
+                            movement.note_committed_correction_outcome(outcome);
+                        }
                         Ok(None) => {}
                         Err(fault) => warn!(
                             ?fault,
@@ -473,6 +478,14 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 ..
             } => {
                 let tick = correction.source_tick;
+                // Opt-in HandledTeleport acknowledgement: only the event's
+                // explicit teleported flag is a server teleport; unmarked
+                // local MovePlayers stay counter-only.
+                if correction.teleported {
+                    movement.note_server_teleport(ServerTeleportKind::MovePlayer);
+                } else {
+                    movement.note_unmarked_local_move_player();
+                }
                 if movement.physics_is_authorized() {
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
@@ -507,6 +520,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 LocalPlayerFrameReset::Correction
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                // Not a server teleport for HandledTeleport acknowledgement:
+                // drop any armed assertion instead of leaking it across the
+                // boundary.
+                movement.clear_pending_teleport_ack();
                 movement_speed
                     .replace_dimension(clock.session_generation(), stream.current_dimension());
                 phase3_evidence.note_event(Phase3EvidenceEventKind::Dimension);

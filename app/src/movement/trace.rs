@@ -40,7 +40,17 @@ pub(crate) fn pending_trace_line(session_generation: u64, packet: &Packet) -> Op
     trace_line_if(movement_trace_enabled(), session_generation, packet)
 }
 
-fn trace_line_if(enabled: bool, session_generation: u64, packet: &Packet) -> Option<String> {
+/// Formats the trace line for one packet when tracing is enabled.
+///
+/// Returns `None` without touching the packet whenever the gate is closed,
+/// and for any packet that is not a PlayerAuthInput. `pub(crate)` so the
+/// gated teleport-ack integration witnesses can render the exact flag array
+/// of an already-captured packet.
+pub(crate) fn trace_line_if(
+    enabled: bool,
+    session_generation: u64,
+    packet: &Packet,
+) -> Option<String> {
     if !enabled {
         return None;
     }

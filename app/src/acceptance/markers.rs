@@ -35,6 +35,7 @@ pub(crate) const SHUTDOWN_COMPLETED: &str = "RUST_MCBE_SHUTDOWN_COMPLETED";
 pub(crate) const SHUTDOWN_WATCHDOG_ARMED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED";
 pub(crate) const SHUTDOWN_WATCHDOG_FIRED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED";
 pub(crate) const TARGET_MUTATION_ARMED: &str = "RUST_MCBE_TARGET_MUTATION_ARMED";
+pub(crate) const TELEPORT_ACK: &str = "RUST_MCBE_TELEPORT_ACK";
 pub(crate) const TELEPORT_COHORT: &str = "RUST_MCBE_TELEPORT_COHORT";
 pub(crate) const TELEPORT_GLOBAL_STAGE_DIAGNOSTIC: &str =
     "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC";
@@ -92,6 +93,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
         MarkerContract::LogOnlyDiagnostic,
     ),
     (TARGET_MUTATION_ARMED, MarkerContract::ParsedEvidence),
+    (TELEPORT_ACK, MarkerContract::EnvironmentVariable),
     (TELEPORT_COHORT, MarkerContract::LogOnlyDiagnostic),
     (
         TELEPORT_GLOBAL_STAGE_DIAGNOSTIC,
@@ -239,7 +241,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 33);
+        assert_eq!(names.len(), 34);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

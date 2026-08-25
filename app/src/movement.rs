@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use bevy::prelude::Resource;
 #[cfg(test)]
 use protocol::PlayerInputMode;
-use protocol::{PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags};
+use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags};
 
 mod anchor_probe;
 mod authority;
@@ -18,8 +18,10 @@ mod runtime_system;
 mod settle;
 mod speed_authority;
 mod state;
+mod teleport_ack;
 mod trace;
-pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
+pub(crate) use authority::PhysicsSendIdentity;
+pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::PhysicsCollisionRegistries;
 pub(crate) use correction_shape::reconcile_committed_correction;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
@@ -27,6 +29,7 @@ pub(crate) use effects::LocalMovementEffectTimeline;
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
+pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
 pub(crate) use outbox::{MovementOutboxReconciliation, flush_player_auth_inputs};
 use physics::PhysicsCorrectionConfirmation;
@@ -39,6 +42,7 @@ pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
 pub use state::ProcessedMovementState;
+pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
 pub(crate) use trace::{pending_trace_line, write_trace_line};
 
@@ -52,30 +56,6 @@ pub enum MovementSource {
     #[default]
     FreeCamera,
     Physics,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum MovementSendError<E> {
-    Encode(PlayerAuthInputError),
-    Transport(E),
-    RestoreOverflow,
-    MissingEvidenceContext,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PhysicsSendIdentity {
-    pub(crate) session_generation: u64,
-    pub(crate) tick: u64,
-    pub(crate) admission_id: u64,
-    pub(crate) reanchor_epoch: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PhysicsAuthorityFaultRecord {
-    pub session_generation: u64,
-    pub fault: PhysicsAuthorityFault,
-    pub next_tick: u64,
-    pub pending_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,6 +116,11 @@ pub struct MovementTicker {
     reanchor_epoch: u64,
     terminal_drain: bool,
     tx_gate: settle::SpawnSettleGate,
+    teleport_ack_enabled: bool,
+    pending_teleport_ack: Option<teleport_ack::TeleportAckPending>,
+    teleport_acks_expired: u64,
+    replayed_corrections_observed: u64,
+    unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
 }
 
@@ -170,6 +155,11 @@ impl MovementTicker {
             reanchor_epoch: 0,
             terminal_drain: false,
             tx_gate: settle::SpawnSettleGate::default(),
+            teleport_ack_enabled: teleport_ack::enabled_from_env(),
+            pending_teleport_ack: None,
+            teleport_acks_expired: 0,
+            replayed_corrections_observed: 0,
+            unmarked_move_players_observed: 0,
             epoch_publisher,
         }
     }
@@ -199,6 +189,7 @@ impl MovementTicker {
         self.pending_fault = None;
         self.next_admission_id = 0;
         self.terminal_drain = false;
+        self.pending_teleport_ack = None;
         // A StartGame bootstrap anchors a fresh provisional spawn-settle
         // episode (see `settle`): transmission waits for the bounded stable
         // window or its fail-open cap.
@@ -214,6 +205,7 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
+        self.pending_teleport_ack = None;
         self.tx_gate.disengage();
     }
 
@@ -253,6 +245,9 @@ impl MovementTicker {
             MovementSource::Physics => MovementOutboxReconciliation::Drained,
             MovementSource::FreeCamera => MovementOutboxReconciliation::NotAuthoritative,
         };
+        if matches!(source, MovementSource::FreeCamera) {
+            self.clear_pending_teleport_ack();
+        }
         self.terminal_drain = false;
     }
 
@@ -311,6 +306,7 @@ impl MovementTicker {
             // without replaying suppressed ticks.
             self.outbox.clear();
         }
+        self.observe_admitted_tick_for_teleport_ack();
         let snapshot = self.snapshot(&completed);
         let jump_started = snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits() != 0
             || completed.jump_repeated;
@@ -358,6 +354,7 @@ impl MovementTicker {
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
+        self.pending_teleport_ack = None;
         self.tx_gate.disengage();
     }
 
@@ -995,3 +992,5 @@ mod integration_tests;
 mod settle_tests;
 #[cfg(test)]
 mod state_tests;
+#[cfg(test)]
+mod teleport_ack_tests;

@@ -35,6 +35,10 @@ impl PlayerInputFlags {
     pub const START_SNEAKING: Self = Self(1 << 27);
     pub const STOP_SNEAKING: Self = Self(1 << 28);
     pub const START_JUMPING: Self = Self(1 << 31);
+    /// Wire ordinal 37 of the input-data list (`HandledTeleport`). The app
+    /// asserts this flag on the first transmitted sample after a qualifying
+    /// server teleport; see the movement `teleport_ack` module.
+    pub const HANDLED_TELEPORT: Self = Self(1 << 37);
     pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
     pub const VERTICAL_COLLISION: Self = Self(1 << 50);
     pub const DOWN_LEFT: Self = Self(1 << 51);
