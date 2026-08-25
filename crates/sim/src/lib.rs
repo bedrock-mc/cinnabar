@@ -7,7 +7,7 @@ mod prediction;
 mod simulator;
 mod world;
 
-pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH};
+pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH, depenetrate_player};
 pub use conformance::{
     ConformanceError, LegacyTickResult, LegacyTraceRecord, ScenarioAudit, ScenarioEvidence,
     ScenarioScript, ScenarioStep, ScenarioWorld, TraceRecord, audit_scenario_trace_jsonl,

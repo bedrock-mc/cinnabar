@@ -5,7 +5,9 @@ use bevy::prelude::Resource;
 use protocol::PlayerInputMode;
 use protocol::{PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags};
 
+mod anchor_probe;
 mod authority;
+mod collision_registries;
 mod correction_shape;
 mod effects;
 mod encoding;
@@ -18,6 +20,7 @@ mod speed_authority;
 mod state;
 mod trace;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
+pub use collision_registries::PhysicsCollisionRegistries;
 pub(crate) use correction_shape::reconcile_committed_correction;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
 pub(crate) use effects::LocalMovementEffectTimeline;
@@ -25,12 +28,12 @@ use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 pub use outbox::OUTBOX_CAPACITY;
-pub(crate) use outbox::flush_player_auth_inputs;
+pub(crate) use outbox::{MovementOutboxReconciliation, flush_player_auth_inputs};
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCollisionRegistries, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
-    PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
+    physics_movement_input,
 };
 pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
@@ -49,38 +52,6 @@ pub enum MovementSource {
     #[default]
     FreeCamera,
     Physics,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum MovementOutboxReconciliation {
-    #[default]
-    NotAuthoritative,
-    Drained,
-    SocketPending,
-    BudgetDeferred,
-    TransportRestored,
-    FullRestored,
-    /// The outbound stream was healthy when the REMOTE side terminated the
-    /// transport mid-session. This is a terminal classification only: it is
-    /// latched from any receive-side session failure, including server-initiated
-    /// kicks, so it means "not an outbox-drain fault", never client exoneration;
-    /// the normalized disconnect reason remains the authority for why the
-    /// server hung up.
-    RemoteClosed,
-}
-
-impl MovementOutboxReconciliation {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotAuthoritative => "NotAuthoritative",
-            Self::Drained => "Drained",
-            Self::SocketPending => "SocketPending",
-            Self::BudgetDeferred => "BudgetDeferred",
-            Self::TransportRestored => "TransportRestored",
-            Self::FullRestored => "FullRestored",
-            Self::RemoteClosed => "RemoteClosed",
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -603,6 +574,31 @@ impl MovementTicker {
         self.refresh_outbox_reconciliation();
     }
 
+    /// Freezes outbound movement after an unresolvable embedded spawn anchor.
+    ///
+    /// The physics controller stops simulating (so no samples exist to admit)
+    /// and this gate holds transmission until a server correction, MovePlayer,
+    /// respawn, or StartGame snap re-anchors and re-probes, or the unchanged
+    /// provisional cap fails the hold open. Provisional recovery policy; see
+    /// the `anchor_probe` module.
+    pub(crate) fn note_embedded_anchor(&mut self) {
+        self.tx_gate.enter_embedded_hold();
+    }
+
+    /// Reports fixed ticks consumed inside the frozen embedded-anchor hold.
+    ///
+    /// Returns whether the unchanged provisional cap failed the hold open;
+    /// the caller must then release the controller to retry its bounded
+    /// probe budget or degrade for the rest of this re-anchor epoch.
+    pub(crate) fn observe_embedded_anchor_hold(&mut self, held_ticks: u64) -> bool {
+        self.tx_gate.observe_embedded_hold(held_ticks)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn holding_embedded_anchor(&self) -> bool {
+        self.tx_gate.holding_embedded()
+    }
+
     pub(crate) fn begin_terminal_drain(&mut self) {
         if self.physics_is_authorized() {
             self.terminal_drain = true;
@@ -987,6 +983,8 @@ pub fn reconcile_candidate_physics_correction(
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod anchor_probe_tests;
 #[cfg(test)]
 mod correction_tests;
 #[cfg(test)]

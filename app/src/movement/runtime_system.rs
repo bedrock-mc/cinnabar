@@ -119,6 +119,16 @@ pub(crate) fn advance_local_physics(
         physics.deactivate();
         return;
     }
+    // Provisional embedded-anchor recovery (see `anchor_probe`): an
+    // unresolvable embedment freezes advancement and transmission until a
+    // server anchor re-probes, bounded by the settle gate's unchanged cap.
+    if frame.embedded_anchor_hold_engaged {
+        movement_ticker.note_embedded_anchor();
+    } else if frame.embedded_hold_ticks != 0
+        && movement_ticker.observe_embedded_anchor_hold(frame.embedded_hold_ticks)
+    {
+        physics.release_embedded_anchor_hold();
+    }
     for sample in frame.samples {
         if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
             debug!(?fault, "local Physics movement authority failed closed");

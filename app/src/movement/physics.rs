@@ -1,18 +1,16 @@
 use std::{collections::VecDeque, time::Duration};
 
-use assets::{NetworkIdMode, RegistryRecord};
 use bevy::prelude::Resource;
 use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode, STANDING_PLAYER_EYE_HEIGHT};
 use sim::{
-    Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
-    MovementInput, PlayerState, PredictionHistory, RegistryError, SimulationError, Simulator,
+    CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
     TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
 };
 use thiserror::Error;
 
+use super::anchor_probe::BeforeTick;
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
-const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
 const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 
@@ -81,147 +79,6 @@ pub fn physics_movement_input(
         movement_speed: None,
         effects: sim::MovementEffects::default(),
     }
-}
-
-/// Runtime-ID collision registries for both Bedrock palette identity modes.
-///
-/// The two maps are intentionally distinct: a 32-bit network hash may have
-/// the same numeric value as an unrelated sequential ID.
-#[derive(Resource, Debug)]
-pub struct PhysicsCollisionRegistries {
-    sequential: CollisionRegistry,
-    hashed: CollisionRegistry,
-    available_record_count: usize,
-    sequential_count: usize,
-    hashed_count: usize,
-    preg_sha256: [u8; 32],
-    breg_sha256: [u8; 32],
-}
-
-#[derive(Debug, Error)]
-pub enum PhysicsCollisionRegistryError {
-    #[error(transparent)]
-    Asset(#[from] assets::AssetError),
-    #[error(transparent)]
-    Registry(#[from] RegistryError),
-}
-
-impl PhysicsCollisionRegistries {
-    pub fn from_assets(
-        breg_bytes: &[u8],
-        records: &[RegistryRecord],
-        preg_bytes: &[u8],
-    ) -> Result<Self, PhysicsCollisionRegistryError> {
-        let physics = assets::read_physics_registry(preg_bytes, breg_bytes, records)?;
-        let sequential_identity = CollisionRegistryIdentity {
-            protocol: 1001,
-            id_space: CollisionIdSpace::Sequential,
-            preg_sha256: physics.sha256(),
-        };
-        let hashed_identity = CollisionRegistryIdentity {
-            id_space: CollisionIdSpace::Hashed,
-            ..sequential_identity
-        };
-        let mut sequential = CollisionRegistry::with_identity(sequential_identity);
-        let mut hashed = CollisionRegistry::with_identity(hashed_identity);
-        for record in records {
-            let fact = physics
-                .by_sequential_id(record.sequential_id)
-                .expect("strict PREG decoder covers every supplied BREG record");
-            let boxes = fact
-                .boxes
-                .iter()
-                .copied()
-                .map(collision_box_to_aabb)
-                .collect::<Vec<_>>();
-            let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
-                registry.register_primitives(
-                    runtime_id,
-                    boxes,
-                    f64::from(fact.friction_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.horizontal_speed_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.vertical_speed_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.fluid_height_q1e8) * COLLISION_COORDINATE_SCALE,
-                    fact.flags.bits(),
-                    fact.surface_response as u8,
-                )
-            };
-            register(&mut sequential, record.sequential_id, boxes.clone())?;
-            register(&mut hashed, record.network_hash, boxes)?;
-            if record.name.as_ref() == "minecraft:air" {
-                sequential.set_air_runtime_id(record.sequential_id);
-                hashed.set_air_runtime_id(record.network_hash);
-            }
-        }
-        let available_record_count = physics.len();
-        let preg_sha256 = physics.sha256();
-        let breg_sha256 = physics.breg_sha256();
-        Ok(Self {
-            sequential,
-            hashed,
-            available_record_count,
-            sequential_count: physics.len(),
-            hashed_count: physics.len(),
-            preg_sha256,
-            breg_sha256,
-        })
-    }
-
-    #[must_use]
-    pub const fn registry(&self, mode: NetworkIdMode) -> &CollisionRegistry {
-        match mode {
-            NetworkIdMode::Sequential => &self.sequential,
-            NetworkIdMode::Hashed => &self.hashed,
-        }
-    }
-
-    #[must_use]
-    pub const fn registered_count(&self, mode: NetworkIdMode) -> usize {
-        match mode {
-            NetworkIdMode::Sequential => self.sequential_count,
-            NetworkIdMode::Hashed => self.hashed_count,
-        }
-    }
-
-    #[must_use]
-    pub const fn available_record_count(&self) -> usize {
-        self.available_record_count
-    }
-
-    #[must_use]
-    pub fn is_complete(&self) -> bool {
-        self.available_record_count != 0
-            && self.sequential_count == self.available_record_count
-            && self.hashed_count == self.available_record_count
-            && self.preg_sha256 != [0; 32]
-            && self.breg_sha256 != [0; 32]
-    }
-
-    #[must_use]
-    pub const fn preg_sha256(&self) -> [u8; 32] {
-        self.preg_sha256
-    }
-
-    #[must_use]
-    pub const fn breg_sha256(&self) -> [u8; 32] {
-        self.breg_sha256
-    }
-}
-
-fn collision_box_to_aabb(collision: assets::CollisionBox) -> Aabb {
-    let coordinate = |value: i32| f64::from(value) * COLLISION_COORDINATE_SCALE;
-    Aabb::new(
-        Vec3::new(
-            coordinate(collision.min_x),
-            coordinate(collision.min_y),
-            coordinate(collision.min_z),
-        ),
-        Vec3::new(
-            coordinate(collision.max_x),
-            coordinate(collision.max_y),
-            coordinate(collision.max_z),
-        ),
-    )
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -319,6 +176,13 @@ pub struct LocalPhysicsFrame {
     pub blocked_tick_index: Option<usize>,
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
+    /// The bounded spawn-anchor probe found unresolvable embedment and froze
+    /// simulation advancement this frame (provisional recovery policy; see
+    /// `anchor_probe`).
+    pub embedded_anchor_hold_engaged: bool,
+    /// Fixed ticks consumed while frozen inside an embedded-anchor hold,
+    /// reported toward the settle gate's unchanged fail-open cap.
+    pub embedded_hold_ticks: u64,
 }
 
 /// Bounded number of retained server motion overlays.
@@ -351,6 +215,10 @@ pub struct LocalPhysicsController {
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
     server_motions: VecDeque<sim::MotionOverlay>,
+    /// Bounded spawn-anchor depenetration state (provisional recovery
+    /// policy): the pending probe, per-epoch failure budget, and any frozen
+    /// embedded-anchor hold.
+    anchor_state: super::anchor_probe::AnchorProbeState,
 }
 
 impl Default for LocalPhysicsController {
@@ -370,6 +238,7 @@ impl Default for LocalPhysicsController {
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
+            anchor_state: super::anchor_probe::AnchorProbeState::new(),
         }
     }
 }
@@ -390,6 +259,7 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.anchor_state.reset();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -471,6 +341,10 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        // Every hard anchor starts a fresh bounded probe epoch: the new
+        // position is probed before its first simulated tick, and any prior
+        // failure budget or frozen embedded-anchor hold is replaced.
+        self.anchor_state.note_hard_anchor();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -540,6 +414,13 @@ impl LocalPhysicsController {
             return LocalPhysicsFrame::default();
         }
 
+        if self.anchor_state.holding() {
+            // Frozen embedded-anchor hold: no simulated tick, no sample, and
+            // elapsed time is consumed at fixed-tick granularity so the
+            // settle gate's unchanged fail-open cap stays authoritative.
+            return self.advance_frozen_hold_frame(elapsed);
+        }
+
         self.accumulated_seconds += elapsed.as_secs_f64();
         let due = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
             .floor()
@@ -554,6 +435,27 @@ impl LocalPhysicsController {
         };
 
         for tick_index in 0..allowed {
+            // Before the first simulated tick of a freshly anchored epoch,
+            // probe the anchor out of any solid overlap (provisional
+            // recovery policy; see `anchor_probe`).
+            if tick_index == 0 {
+                match self.anchor_state.before_tick(world, state.position) {
+                    BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
+                    BeforeTick::Hold => {
+                        // Unresolvable embedment: freeze instead of letting
+                        // depenetration MTVs become transmitted motion.
+                        // Retained elapsed is discarded exactly like the
+                        // transient-blocked path so the hold never creates a
+                        // catch-up debt.
+                        self.previous_position = state.position;
+                        self.accumulated_seconds = 0.0;
+                        frame.dropped_ticks = 0;
+                        frame.embedded_anchor_hold_engaged = true;
+                        break;
+                    }
+                    BeforeTick::Proceed => {}
+                }
+            }
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -695,6 +597,30 @@ impl LocalPhysicsController {
         }
         self.dropped_tick_count = self.dropped_tick_count.saturating_add(frame.dropped_ticks);
         frame
+    }
+
+    /// One render frame of frozen embedded-anchor hold: elapsed time is
+    /// consumed at fixed-tick granularity exactly like the transient-blocked
+    /// discard path, reported for the gate's fail-open cap, and no tick runs.
+    fn advance_frozen_hold_frame(&mut self, elapsed: Duration) -> LocalPhysicsFrame {
+        self.accumulated_seconds += elapsed.as_secs_f64();
+        let held_ticks = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
+            .floor()
+            .clamp(0.0, u64::MAX as f64) as u64;
+        self.accumulated_seconds -= held_ticks as f64 * LOCAL_PHYSICS_TICK_SECONDS;
+        LocalPhysicsFrame {
+            due_ticks: held_ticks,
+            embedded_hold_ticks: held_ticks,
+            ..LocalPhysicsFrame::default()
+        }
+    }
+
+    /// Releases a frozen embedded-anchor hold after the settle gate's cap
+    /// failed it open: one more probe attempt is armed while this re-anchor
+    /// epoch still has failure budget; otherwise probing stops for the epoch
+    /// and today's fail-open streaming behavior resumes unchanged.
+    pub(super) fn release_embedded_anchor_hold(&mut self) {
+        self.anchor_state.release_after_cap();
     }
 
     pub(super) fn apply_correction(

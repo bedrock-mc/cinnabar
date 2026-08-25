@@ -905,9 +905,36 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
         duration: std::time::Duration::ZERO,
     });
 
+    let expected_network_y = -49.0_f32 + 1.0 + PLAYER_NETWORK_OFFSET;
     assert_eq!(
         stream.surface_eye_position(block_x, block_z),
-        Some([block_x as f32 + 0.5, -46.38, block_z as f32 + 0.5])
+        Some([
+            block_x as f32 + 0.5,
+            expected_network_y,
+            block_z as f32 + 0.5
+        ])
+    );
+
+    // The resolved spawn anchor must rest exactly on the surface instead of
+    // starting embedded inside it: feet are recovered from a movement anchor
+    // as network Y minus the protocol offset, so an eye-height guess left
+    // feet 1e-5 blocks inside the surface block on every surface spawn.
+    // The standing-player box arithmetic below mirrors `sim::Aabb::player_at`
+    // plus `intersects` because client-world cannot depend on `sim` under
+    // the architecture dependency policy.
+    let feet_y = f64::from(expected_network_y - PLAYER_NETWORK_OFFSET);
+    assert_eq!(
+        feet_y, -48.0_f64,
+        "feet must rest exactly on top of the surface block at y=-49"
+    );
+    let player_min_y = feet_y;
+    let player_max_y = feet_y + 1.8;
+    let surface_min_y = -49.0_f64;
+    let surface_max_y = -48.0_f64;
+    let intersects_surface = player_max_y > surface_min_y && player_min_y < surface_max_y;
+    assert!(
+        !intersects_surface,
+        "the standing-player box must not intersect the surface block"
     );
 }
 

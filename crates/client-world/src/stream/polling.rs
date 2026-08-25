@@ -1,4 +1,5 @@
 use super::*;
+use protocol::PLAYER_NETWORK_OFFSET;
 
 impl WorldStream {
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
@@ -187,9 +188,14 @@ impl WorldStream {
                 });
                 if solid {
                     let block_y = key.y.saturating_mul(16) + i32::from(local_y);
+                    // Rest the anchor exactly on the surface: movement feet
+                    // are recovered as network Y minus PLAYER_NETWORK_OFFSET,
+                    // so the former eye-height guess (`+ 2.62`) left feet
+                    // 1e-5 blocks inside the surface block and every surface
+                    // spawn started embedded in terrain.
                     return Some([
                         block_x as f32 + 0.5,
-                        block_y as f32 + 2.62,
+                        block_y as f32 + 1.0 + PLAYER_NETWORK_OFFSET,
                         block_z as f32 + 0.5,
                     ]);
                 }

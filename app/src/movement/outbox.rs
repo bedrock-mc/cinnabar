@@ -8,9 +8,46 @@
 
 use protocol::{Packet, player_auth_input};
 
+/// Terminal reconciliation classification of the outbound physics stream.
+///
+/// Extracted verbatim from the movement root module to respect the per-file
+/// architecture line policy; the public path
+/// (`crate::movement::MovementOutboxReconciliation`) is unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum MovementOutboxReconciliation {
+    #[default]
+    NotAuthoritative,
+    Drained,
+    SocketPending,
+    BudgetDeferred,
+    TransportRestored,
+    FullRestored,
+    /// The outbound stream was healthy when the REMOTE side terminated the
+    /// transport mid-session. This is a terminal classification only: it is
+    /// latched from any receive-side session failure, including server-initiated
+    /// kicks, so it means "not an outbox-drain fault", never client exoneration;
+    /// the normalized disconnect reason remains the authority for why the
+    /// server hung up.
+    RemoteClosed,
+}
+
+impl MovementOutboxReconciliation {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotAuthoritative => "NotAuthoritative",
+            Self::Drained => "Drained",
+            Self::SocketPending => "SocketPending",
+            Self::BudgetDeferred => "BudgetDeferred",
+            Self::TransportRestored => "TransportRestored",
+            Self::FullRestored => "FullRestored",
+            Self::RemoteClosed => "RemoteClosed",
+        }
+    }
+}
+
 use super::{
-    MovementOutboxReconciliation, MovementSendError, MovementTicker, PhysicsAuthorityFault,
-    PhysicsSendIdentity, PhysicsTickEvidenceContext,
+    MovementSendError, MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity,
+    PhysicsTickEvidenceContext,
 };
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
