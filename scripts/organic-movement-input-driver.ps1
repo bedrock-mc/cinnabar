@@ -22,6 +22,15 @@
     block including abnormal exits. A forced kill of the host process remains
     outside any software guarantee.
 
+    Unattended runs may pass -Activate: while waiting on the same foreground gate
+    the driver then repeatedly attempts to raise a matching target window itself
+    (ShowWindow restore, SetForegroundWindow with standard unlocks, WScript.Shell
+    AppActivate) using only ordinary local automation. Every attempt is logged as
+    an "[activate]" line with its honest outcome; the GetForegroundWindow check
+    stays authoritative, activation success is only a hint, and a failed
+    activation refuses exactly as the manual-focus path does. Default OFF
+    preserves today's semantics; -DryRun ignores the switch entirely.
+
     Validator mapping (scripts/acceptance Phase3Aggregate CandidatePhysics):
       FlatWalk     -> grounded flat-walk witness (one axis >= 0.25, non-jump)
       DiagonalWalk -> grounded diagonal-walk witness (both axes >= 0.25)
@@ -49,6 +58,11 @@
 .EXAMPLE
     .\scripts\organic-movement-input-driver.ps1 -ProcessName bedrock-client `
         -DurationSeconds 90 -Composition 'FlatWalk,TapJump,SneakPulse,LookDrift'
+
+.EXAMPLE
+    .\scripts\organic-movement-input-driver.ps1 -ProcessName bedrock-client -Activate
+    Same gate and scenario, but the driver also attempts to raise the target
+    window itself for unattended acceptance runs; refusal on failure is unchanged.
 #>
 [CmdletBinding()]
 param(
@@ -63,6 +77,13 @@ param(
     # Seconds to wait for the target window to become the foreground window.
     [ValidateRange(1, 30)]
     [int]$GraceSeconds = 10,
+    # Opt-in programmatic activation while waiting on the foreground gate:
+    # repeatedly attempt to raise a matching target window (ShowWindow restore,
+    # SetForegroundWindow with AttachThreadInput/Alt-tap unlocks, WScript.Shell
+    # AppActivate). Default OFF preserves manual-focus-only semantics; every
+    # attempt is logged as an "[activate]" line and the gate stays authoritative.
+    # Ignored by -DryRun.
+    [switch]$Activate,
     # Comma-separated primitives from $script:KnownPrimitives, executed in order.
     [string]$Composition = 'FlatWalk,DiagonalWalk,TapJump,F5Cycle',
     # Disable the periodic FlatWalk/TapJump tail that fills remaining budget.
@@ -87,6 +108,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Foreground-target resolution and the optional -Activate activation lane live
+# in a sibling module so this driver stays under the repository's 800-line
+# PowerShell cap. Dot-sourcing keeps every helper in this script's scope.
+. (Join-Path $PSScriptRoot 'organic-movement-input-focus.ps1')
 
 # Constants ----------------------------------------------------------------
 
@@ -535,84 +561,11 @@ function Send-OrganicInputMouseMove {
     }
 }
 
-# Target resolution and foreground gating (live path only) -----------------
-
-function Get-OrganicInputTargetCandidates {
-    param(
-        # Exactly-one-target presence is enforced by the caller; empty siblings
-        # are legal here and must not fail parameter binding.
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ProcessName,
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$WindowTitle
-    )
-
-    $candidates = [Collections.Generic.List[object]]::new()
-    if (-not [string]::IsNullOrWhiteSpace($ProcessName)) {
-        foreach ($process in @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
-            if ($process.MainWindowHandle -ne 0) {
-                $candidates.Add([pscustomobject]@{
-                    handle = [int64]$process.MainWindowHandle
-                    pid    = [int]$process.Id
-                    title  = [string]$process.MainWindowTitle
-                })
-            }
-        }
-        return @{
-            Candidates  = $candidates
-            Description = ("processes named '{0}'" -f $ProcessName)
-        }
-    }
-    $pattern = '*' + $WindowTitle + '*'
-    foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
-        if ($process.MainWindowHandle -eq 0) { continue }
-        if ($process.MainWindowTitle -like $pattern) {
-            $candidates.Add([pscustomobject]@{
-                handle = [int64]$process.MainWindowHandle
-                pid    = [int]$process.Id
-                title  = [string]$process.MainWindowTitle
-            })
-        }
-    }
-    return @{
-        Candidates  = $candidates
-        Description = ("windows titled like '{0}'" -f $WindowTitle)
-    }
-}
-
-function Wait-OrganicInputForegroundTarget {
-    # Returns a structured result rather than mixing progress lines into the
-    # pipeline: any Write-Output here would be captured by "$matched = ..." and
-    # a non-empty message array would evaluate truthy regardless of the
-    # boolean, silently bypassing the safety gate.
-    param(
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ProcessName,
-        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$WindowTitle,
-        [Parameter(Mandatory = $true)][ValidateRange(1, 120)][int]$GraceSeconds
-    )
-
-    Initialize-OrganicInputNativeMethods
-    $log = [Collections.Generic.List[string]]::new()
-    $target = Get-OrganicInputTargetCandidates -ProcessName $ProcessName -WindowTitle $WindowTitle
-    $log.Add(("[live] waiting up to {0}s for a foreground window of {1}; focus the target window now." -f
-        $GraceSeconds, $target.Description))
-    $deadline = (Get-Date).AddSeconds($GraceSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $target = Get-OrganicInputTargetCandidates -ProcessName $ProcessName -WindowTitle $WindowTitle
-        if ($target.Candidates.Count -gt 0) {
-            $foreground = [RustMcbe.OrganicInput.NativeMethods]::GetForegroundWindow().ToInt64()
-            foreach ($candidate in $target.Candidates) {
-                if ($candidate.handle -eq $foreground) {
-                    $log.Add(("[live] foreground target matched: pid={0} handle=0x{1:x} title='{2}'" -f
-                        $candidate.pid, $candidate.handle, $candidate.title))
-                    return @{ Matched = $true; Log = @($log.ToArray()) }
-                }
-            }
-        }
-        Start-Sleep -Milliseconds 400
-    }
-    $log.Add(("[live] grace expired with no matching foreground window for {0}" -f
-        $target.Description))
-    return @{ Matched = $false; Log = @($log.ToArray()) }
-}
+# Target resolution and foreground gating live in the dot-sourced focus
+# helper (organic-movement-input-focus.ps1): candidate enumeration, the
+# authoritative GetForegroundWindow membership check, and the opt-in -Activate
+# activation lane. The wait gate returns a structured @{Matched; Log} result and
+# this driver prints its log lines verbatim, refusing with exit 2 when unmatched.
 
 # Live executor ------------------------------------------------------------
 
@@ -785,7 +738,7 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 }
 
 $matched = Wait-OrganicInputForegroundTarget -ProcessName $ProcessName -WindowTitle $WindowTitle `
-    -GraceSeconds $GraceSeconds
+    -GraceSeconds $GraceSeconds -AttemptActivation:$Activate
 foreach ($line in @($matched.Log)) { Write-Output $line }
 if (-not $matched.Matched) {
     Write-Output 'refusing to inject: no matching foreground window within the grace period.'

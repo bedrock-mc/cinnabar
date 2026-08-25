@@ -131,7 +131,7 @@ Describe 'organic movement synthetic input driver' {
             $parsed = Get-DriverParseResult
             foreach ($name in @(
                 'ProcessName', 'WindowTitle', 'DryRun', 'DurationSeconds', 'GraceSeconds',
-                'Composition', 'OneShot', 'WalkMilliseconds', 'TapJumpMilliseconds',
+                'Activate', 'Composition', 'OneShot', 'WalkMilliseconds', 'TapJumpMilliseconds',
                 'SneakMilliseconds', 'LookDriftPixels', 'F5TapCount', 'F5GapMilliseconds',
                 'OutputPlanPath'
             )) {
@@ -368,6 +368,98 @@ Describe 'organic movement synthetic input driver' {
             Assert-Equal 2 $run.ExitCode 'clean safety abort must exit with code 2'
             $joined = $run.Output -join "`n"
             Assert-True ($joined -cmatch 'refusing to inject') 'abort must be explicit'
+            Assert-True ($joined -cnotmatch 'KeyDown') 'abort path must never inject keys'
+        }
+    }
+
+    Context 'window activation (-Activate)' {
+
+        It 'declares Activate as a default-off switch' {
+            $parsed = Get-DriverParseResult
+            $activate = Find-DriverParameter $parsed.Ast 'Activate'
+            $isSwitch = $false
+            foreach ($attribute in @($activate.Attributes)) {
+                if ([string]$attribute.TypeName.FullName -ieq 'switch') { $isSwitch = $true }
+            }
+            Assert-True $isSwitch 'Activate must be declared [switch]'
+            Assert-True ($null -eq $activate.DefaultValue) `
+                'Activate must default to off (no initializer expression)'
+        }
+
+        It 'keeps dry-run stdout and plan artifacts byte-identical when -Activate is passed' {
+            $activatePath = Join-Path $script:Scratch 'activate-dry-plan.json'
+            $run = Invoke-DriverChild @(
+                '-DryRun', '-Activate', '-DurationSeconds', '45',
+                '-OutputPlanPath', $activatePath)
+            Assert-Equal 0 $run.ExitCode 'dry run with -Activate must exit successfully'
+
+            # The artifact path line differs by design; everything else must match.
+            $baselineJoined = (@($script:DefaultRun.Output | Where-Object {
+                $_ -cnotmatch '^plan-json written:' }) -join "`n")
+            $activateJoined = (@($run.Output | Where-Object {
+                $_ -cnotmatch '^plan-json written:' }) -join "`n")
+            Assert-True ($baselineJoined -ceq $activateJoined) `
+                '-Activate must not change any dry-run output line'
+            $baselineHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:DefaultPlanPath).Hash
+            $activateHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $activatePath).Hash
+            Assert-Equal $baselineHash $activateHash `
+                '-Activate must not change the plan artifact bytes (dry runs never activate)'
+        }
+
+        It 'parses the focus helper cleanly and binds its structural surface' {
+            $helperPath = Join-Path $RepoRoot 'scripts\organic-movement-input-focus.ps1'
+            Assert-True (Test-Path -LiteralPath $helperPath) 'focus helper module must exist'
+            $tokens = $null
+            $errors = $null
+            $helperAst = [System.Management.Automation.Language.Parser]::ParseFile(
+                $helperPath, [ref]$tokens, [ref]$errors)
+            Assert-Equal 0 @($errors).Count 'focus helper must parse without syntax errors'
+            $functions = @($helperAst.FindAll(
+                { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] },
+                $true))
+            foreach ($functionName in @(
+                'Get-OrganicInputTargetCandidates',
+                'Test-OrganicInputForegroundCandidate',
+                'Invoke-OrganicInputActivationAttempt',
+                'Wait-OrganicInputForegroundTarget'
+            )) {
+                Assert-True ($null -ne ($functions | Where-Object {
+                    ([string]$_.Name) -ceq $functionName })) `
+                    "focus helper must define $functionName"
+            }
+        }
+
+        It 'uses only legitimate activation mechanisms and keeps the gate authoritative' {
+            $text = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'scripts\organic-movement-input-focus.ps1')
+            foreach ($token in @(
+                'AppActivate', 'WScript.Shell', 'SetForegroundWindow',
+                'AttachThreadInput', 'SW_RESTORE', 'TapAltUnlockKey',
+                '[activate]', 'refused'
+            )) {
+                Assert-True ($text -cmatch [regex]::Escape($token)) `
+                    "activation lane must contain '$token'"
+            }
+            $driverText = Get-Content -Raw -LiteralPath $DriverPath
+            Assert-True ($driverText -cmatch [regex]::Escape(
+                ". (Join-Path `$PSScriptRoot 'organic-movement-input-focus.ps1')")) `
+                'driver must dot-source the focus helper module'
+            Assert-True ($driverText -cmatch [regex]::Escape('-AttemptActivation:$Activate')) `
+                'driver must forward the Activate switch to the wait gate'
+        }
+
+        It 'reports honest activation failure and still refuses when no target ever appears' {
+            $run = Invoke-DriverChild @(
+                '-ProcessName', 'rust-mcbe-no-such-process-xyz', '-Activate',
+                '-GraceSeconds', '1', '-DurationSeconds', '45')
+            Assert-Equal 2 $run.ExitCode 'failed activation must refuse with exit code 2'
+            $joined = $run.Output -join "`n"
+            Assert-True ($joined -cnotmatch '\[activate\].*(succeeded|took the foreground|matched:)') `
+                'no activation success may be claimed for a nonexistent process'
+            Assert-True ($joined -cmatch '\[activate\] programmatic activation enabled') `
+                'the activation lane must announce itself on [activate] lines'
+            Assert-True ($joined -cmatch 'without the target owning the foreground') `
+                'exhausted activation attempts must be reported honestly'
+            Assert-True ($joined -cmatch 'refusing to inject') 'refusal must stay explicit'
             Assert-True ($joined -cnotmatch 'KeyDown') 'abort path must never inject keys'
         }
     }
