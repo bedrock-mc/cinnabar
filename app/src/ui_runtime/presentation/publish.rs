@@ -359,6 +359,7 @@ pub(crate) fn refresh_hud_frame(
             evicted_effects = diagnostics.evicted_effects,
             odd_metadata_values = diagnostics.odd_metadata_values,
             dropped_inventory_events = diagnostics.dropped_inventory_events,
+            unknown_container_events = diagnostics.unknown_container_events,
             odd_attribute_values = diagnostics.odd_attribute_values,
             odd_hud_packets = diagnostics.odd_hud_packets,
             oversized_chat_rows = diagnostics.oversized_chat_rows,

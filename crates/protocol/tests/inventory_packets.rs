@@ -3,11 +3,11 @@ use protocol::{
     BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
 };
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
+    CanonicalCell, ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
     MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
     VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
     normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, validate_item_nbt_size,
+    normalize_response, normalize_slot, project_container_cell, validate_item_nbt_size,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -157,6 +157,38 @@ fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
         other => panic!("expected ItemStackResponse, got {other:?}"),
     };
     assert!(matches!(response, InventoryEvent::Response(_)));
+}
+
+/// The pinned InventorySlot fixture carries window id 0 plus a full
+/// container name whose byte encodes `EnumsContainerEnumName::
+/// InventoryContainer` — the exact shape live servers send for ordinary
+/// player-inventory slot updates. The canonical address projection must
+/// route that shape onto player-inventory cell 4 exactly like the unnamed
+/// window-0 shape, restoring prior admission until live evidence says
+/// otherwise.
+#[test]
+fn pinned_inventory_slot_fixture_projects_through_the_canonical_address() {
+    let slot = match decode_fixture(SLOT_FIXTURE).data {
+        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+        other => panic!("expected InventorySlot, got {other:?}"),
+    };
+    let InventoryEvent::Slot(slot) = slot else {
+        panic!("expected a Slot event")
+    };
+    assert_eq!(slot.identity.slot, 4);
+    assert_eq!(
+        slot.identity.container,
+        ContainerIdentity {
+            window_id: Some(0),
+            slot_type: Some(29),
+            dynamic_id: None,
+        },
+        "the pinned fixture decodes to the named InventoryContainer alias on window 0"
+    );
+    assert_eq!(
+        project_container_cell(&slot.identity.container, slot.identity.slot),
+        Some(CanonicalCell::PlayerInventory(4)),
+    );
 }
 
 #[test]

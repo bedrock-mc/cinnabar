@@ -4,7 +4,10 @@
 
 use std::sync::Arc;
 
-use protocol::{ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, InventoryEvent};
+use protocol::{
+    ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, CanonicalCell, InventoryEvent,
+    project_container_cell,
+};
 use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
@@ -322,8 +325,10 @@ impl UiRuntime {
                     }
                 }
                 InventoryEvent::Content(content)
-                    if content.container.slot_type
-                        == Some(super::inventory_ledger::GENERIC_STORAGE_SLOT_TYPE) =>
+                    if matches!(
+                        project_container_cell(&content.container, 0),
+                        Some(CanonicalCell::GenericStorage { .. })
+                    ) =>
                 {
                     self.inventory_open = self.inventory_ledger.storage_slot_count().is_some();
                     if self.inventory_open {

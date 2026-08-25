@@ -17,7 +17,13 @@ use valentine::protocol::wire;
 
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
+mod address;
 mod request;
+pub use address::{
+    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR,
+    CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, project_container_cell,
+};
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
     container_close_packet, item_stack_request_packet,

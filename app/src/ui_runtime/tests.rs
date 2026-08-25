@@ -949,6 +949,7 @@ fn chat_focus_clears_stale_gameplay_touch_targets() {
 }
 
 mod chat_tests;
+mod container_address_tests;
 mod forms_tests;
 mod gameplay_hud_tests;
 mod inventory_overlay_tests;

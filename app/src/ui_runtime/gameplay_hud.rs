@@ -5,7 +5,8 @@
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
-    ArmorEquipmentEvent, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent, NetworkItemStack,
+    ArmorEquipmentEvent, CanonicalCell, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent,
+    NetworkItemStack, project_container_cell,
 };
 
 pub const MAX_HUD_EFFECTS: usize = 32;
@@ -111,6 +112,11 @@ pub struct GameplayHudDiagnostics {
     /// Effect ids outside the pinned renderable table, skipped so they can
     /// never evict a renderable effect from the bounded list.
     pub unknown_effect_ids: u64,
+    /// Well-formed inventory events whose container identity resolved onto no
+    /// canonical cell (unknown container codes, unreviewed surfaces, or
+    /// indices outside every mapped surface). Typed counted leniency: the
+    /// event is skipped whole and mutates no mirror cell.
+    pub unknown_container_events: u64,
 }
 
 /// App-owned retained gameplay HUD state fed exclusively by committed
@@ -401,46 +407,69 @@ impl GameplayHudState {
     }
 
     /// Applies one committed inventory event to the retained hotbar/offhand
-    /// mirror. Container-UI events (open/close/response/data) are dropped and
-    /// counted until the Phase 5.5 container store takes over this drain.
+    /// mirror. Every container identity resolves through the canonical
+    /// container-address projection, so a cursor or offhand update riding
+    /// the legacy player window can never land in a hotbar cell, a partial
+    /// rewrite states only the cells it actually carries, and identities
+    /// resolving onto no mirrored surface are counted skips. Container-UI
+    /// events (open/close/response/data) plus known surfaces without a HUD
+    /// mirror are dropped and counted until the Phase 5.5 container store
+    /// takes over this drain.
     pub fn apply_inventory(&mut self, event: &InventoryEvent) {
         match event {
-            InventoryEvent::Content(content) => match content.container.window_id {
-                Some(0) => {
-                    for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
-                        self.inventory.0[slot] = content.slots.get(slot).cloned();
-                    }
-                    for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
-                        self.hotbar[slot] = self.inventory.0[slot].clone();
-                    }
-                    self.hotbar_known = true;
-                }
-                Some(119) => {
-                    self.offhand = content.slots.first().cloned();
-                }
-                _ => {
-                    self.diagnostics.dropped_inventory_events =
-                        self.diagnostics.dropped_inventory_events.saturating_add(1);
-                }
-            },
-            InventoryEvent::Slot(slot_event) => {
-                let slot = usize::from(slot_event.identity.slot);
-                match slot_event.identity.container.window_id {
-                    Some(0) if slot < usize::from(HOTBAR_SLOT_COUNT) => {
-                        self.inventory.0[slot] = Some(slot_event.stack.clone());
-                        self.hotbar[slot] = Some(slot_event.stack.clone());
+            InventoryEvent::Content(content) => {
+                // A content payload addresses its surface from index zero,
+                // so the projected first cell identifies the surface.
+                match project_container_cell(&content.container, 0) {
+                    Some(CanonicalCell::PlayerInventory(_)) => {
+                        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
+                            if let Some(stack) = content.slots.get(slot) {
+                                self.inventory.0[slot] = Some(stack.clone());
+                            }
+                        }
+                        for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
+                            self.hotbar[slot] = self.inventory.0[slot].clone();
+                        }
                         self.hotbar_known = true;
                     }
-                    Some(0) if slot < PLAYER_INVENTORY_SLOT_COUNT => {
-                        self.inventory.0[slot] = Some(slot_event.stack.clone());
+                    Some(CanonicalCell::Offhand) => {
+                        self.offhand = content.slots.first().cloned();
                     }
-                    Some(0) => {}
-                    Some(119) if slot == 0 => {
-                        self.offhand = Some(slot_event.stack.clone());
-                    }
-                    _ => {
+                    // Cursor, armor, and generic-storage surfaces resolve
+                    // canonically but belong to their owning stores.
+                    Some(_) => {
                         self.diagnostics.dropped_inventory_events =
                             self.diagnostics.dropped_inventory_events.saturating_add(1);
+                    }
+                    None => {
+                        self.diagnostics.unknown_container_events =
+                            self.diagnostics.unknown_container_events.saturating_add(1);
+                    }
+                }
+            }
+            InventoryEvent::Slot(slot_event) => {
+                match project_container_cell(
+                    &slot_event.identity.container,
+                    slot_event.identity.slot,
+                ) {
+                    Some(CanonicalCell::PlayerInventory(slot)) => {
+                        let slot = usize::from(slot);
+                        self.inventory.0[slot] = Some(slot_event.stack.clone());
+                        if slot < usize::from(HOTBAR_SLOT_COUNT) {
+                            self.hotbar[slot] = Some(slot_event.stack.clone());
+                            self.hotbar_known = true;
+                        }
+                    }
+                    Some(CanonicalCell::Offhand) => {
+                        self.offhand = Some(slot_event.stack.clone());
+                    }
+                    Some(_) => {
+                        self.diagnostics.dropped_inventory_events =
+                            self.diagnostics.dropped_inventory_events.saturating_add(1);
+                    }
+                    None => {
+                        self.diagnostics.unknown_container_events =
+                            self.diagnostics.unknown_container_events.saturating_add(1);
                     }
                 }
             }
