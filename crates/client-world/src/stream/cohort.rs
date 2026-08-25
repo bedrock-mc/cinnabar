@@ -2,7 +2,9 @@ use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
 impl WorldStream {
-    /// Unique request-mode columns announced in the current publisher epoch.
+    /// Unique columns announced in the current publisher epoch through either
+    /// admission path (request-mode or inline), after each path's decode and
+    /// admission gates.
     #[must_use]
     pub fn required_columns(&self) -> &BTreeSet<ChunkKey> {
         &self.required_columns

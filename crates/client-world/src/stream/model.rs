@@ -33,7 +33,8 @@ pub struct PublisherViewGeometry {
 /// chunk columns. Publisher-created cohorts additionally retain the raw wire
 /// witness, but the protocol does not define an enumerable universal column
 /// set from that witness. Required membership is recorded separately from
-/// unique request-mode `LevelChunk` announcements in the publisher epoch.
+/// unique `LevelChunk` announcements — request-mode and inline alike — in the
+/// publisher epoch, each only after its own decode and admission gates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
