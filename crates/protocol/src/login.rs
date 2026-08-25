@@ -20,6 +20,8 @@ use crate::{
     into_world_event,
 };
 
+mod latency_probe;
+
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 
 /// Entry point for the offline local-core login sequence.
@@ -404,15 +406,10 @@ impl<T: Transport> PlaySession<T> {
         Ok(())
     }
 
-    /// Answers one server latency probe by echoing its exact creation time
-    /// with the from-server flag cleared.
-    ///
-    /// Mojang's protocol documentation defines `NetworkStackLatency` (115) as
-    /// a ping packet carrying `Creation Time` (uint64) and `Is From Server`
-    /// (boolean), sent from both directions; vanilla clients reply to server
-    /// probes immediately, which is the behavior latency-gated servers
-    /// observe. Probes not marked from-server are ignored. Malformed probe
-    /// wire stays fatal like every other decode failure.
+    /// Answers one from-server latency probe immediately with its provisionally
+    /// scaled creation time (`latency_probe::scaled_creation_time`) and the
+    /// from-server flag cleared. Probes not marked from-server are ignored.
+    /// Malformed probe wire stays fatal like every other decode failure.
     async fn answer_network_stack_latency_probe(
         &mut self,
         raw: RawPacket,
@@ -428,7 +425,7 @@ impl<T: Transport> PlaySession<T> {
             return Ok(());
         }
         let echo = NetworkStackLatencyPacket {
-            creation_time: probe.creation_time,
+            creation_time: latency_probe::scaled_creation_time(probe.creation_time),
             is_from_server: false,
         };
         self.send(echo.into()).await

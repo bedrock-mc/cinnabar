@@ -529,7 +529,8 @@ impl ServerScript {
                     // still arrives in order. A negative count is no longer a
                     // request-mode sentinel in 1.26.40, so it is simply invalid.
                     // Latency probes ride the same batch: only the from-server
-                    // probe may be answered, and never with its flag set.
+                    // probe is answered, with its creation time provisionally
+                    // scaled (x 1_000_000) and never with its flag set.
                     let mut traffic = vec![
                         McpePacket::from(LevelChunkPacket {
                             subchunks_count: u32::MAX,
@@ -563,13 +564,14 @@ impl ServerScript {
             }
             8 => {
                 let packets = self.decode_encrypted_client(frame);
-                // A server latency probe is answered immediately with the
-                // identical creation time and the from-server flag cleared.
+                // A server latency probe is answered immediately with its
+                // provisionally scaled creation time (x 1_000_000) and the
+                // from-server flag cleared.
                 if let [
                     McpePacket {
                         data:
                             McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
-                                creation_time: 777,
+                                creation_time: 777_000_000,
                                 is_from_server: false,
                             }),
                         ..
