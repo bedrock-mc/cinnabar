@@ -15,7 +15,8 @@ function Write-Phase3FinalAggregate {
     $metadataFields = @(
         'schema', 'run_id', 'target', 'endpoint', 'bridge_endpoint', 'build_commit', 'source_dirty',
         'core_sha256', 'app_sha256', 'assets_sha256', 'core_process_id', 'app_process_id', 'app_exit_code', 'core_exit_code',
-        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots'
+        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots',
+        'core_extra_arguments'
     )
     Assert-ExactProperties $metadata $metadataFields 'run metadata'
     if ([string]$metadata.schema -cne 'rust-mcbe-phase3-run-v1') {
@@ -62,6 +63,8 @@ function Write-Phase3FinalAggregate {
     if ($metadata.screenshot_slots -isnot [System.Array]) {
         throw 'run metadata screenshot_slots must be one JSON array'
     }
+    Assert-Phase3CoreArgumentTokens $metadata.core_extra_arguments `
+        'run metadata.core_extra_arguments'
     if ($null -ne $metadata.core_exit_code) {
         Assert-Integer $metadata.core_exit_code 'run metadata.core_exit_code' ([int]::MinValue) ([int]::MaxValue)
         if ([int]$metadata.core_exit_code -ne 0) { throw 'Phase 3 core exited with a nonzero code' }

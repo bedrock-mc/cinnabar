@@ -119,6 +119,7 @@ Describe 'Phase 3 production marker evidence validation' {
         )
         $script:ScenarioManifest = [ordered]@{
             schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
+            core_extra_arguments = @()
             required_input_modes = @('KeyboardMouse', 'GamePad'); deferred_input_modes = @('Touch')
             input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
             required_perspective_sequence = @(
@@ -149,6 +150,7 @@ Describe 'Phase 3 production marker evidence validation' {
             core_process_id = 41; app_process_id = 42; app_exit_code = 0; core_exit_code = $null
             core_terminated_by_launcher = $true; timed_out = $false; duration_seconds = 60
             scenario = 'CandidatePhysics'; screenshot_slots = @()
+            core_extra_arguments = @()
         }
         $script:Metrics = [ordered]@{
             session_seconds = 60.0; frame_count = 3600; p50_frame_ms = 16.0; p95_frame_ms = 18.0
@@ -313,6 +315,84 @@ Describe 'Phase 3 production marker evidence validation' {
             -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
             -DurationSeconds 60 -Scenario CandidatePhysics
         ($bds.CoreArguments -ccontains '-auth-cache') | Should Be $false
+    }
+
+    It 'keeps the core command byte-identical when no extra core arguments are supplied' {
+        $plan = New-Phase3LaunchPlan -Target Bds -Endpoint '127.0.0.1:19132' `
+            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+            -DurationSeconds 60 -Scenario CandidatePhysics
+        ($plan.CoreArguments -join ' ') | Should Be '-socket-dir socket -upstream 127.0.0.1:19132'
+        @($plan.CoreExtraArguments).Count | Should Be 0
+        $remote = New-Phase3LaunchPlan -Target Venity -Endpoint 'play.venitymc.com:19132' `
+            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+            -DurationSeconds 300 -Scenario CandidatePhysics -AuthCache token.json
+        ($remote.CoreArguments -join ' ') |
+            Should Be '-socket-dir socket -upstream play.venitymc.com:19132 -auth-cache token.json'
+        @($remote.CoreExtraArguments).Count | Should Be 0
+    }
+
+    It 'passes allowlisted core extra arguments through verbatim after the standard arguments' {
+        $plan = New-Phase3LaunchPlan -Target Venity -Endpoint 'play.venitymc.com:19132' `
+            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+            -DurationSeconds 300 -Scenario CandidatePhysics -AuthCache token.json `
+            -CoreExtraArgs @('-upstream-client-cache')
+        ($plan.CoreArguments -join ' ') | Should Be (
+            '-socket-dir socket -upstream play.venitymc.com:19132 -auth-cache token.json ' +
+            '-upstream-client-cache'
+        )
+        ($plan.CoreExtraArguments -join ' ') | Should Be '-upstream-client-cache'
+        $paired = New-Phase3LaunchPlan -Target Bds -Endpoint '127.0.0.1:19132' `
+            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+            -DurationSeconds 60 -Scenario FreeCameraSilence `
+            -CoreExtraArgs @('-quota-mib', '512')
+        ($paired.CoreArguments -join ' ') |
+            Should Be '-socket-dir socket -upstream 127.0.0.1:19132 -quota-mib 512'
+        ($paired.CoreExtraArguments -join ' ') | Should Be '-quota-mib 512'
+    }
+
+    It 'rejects disallowed core extra argument tokens before building any plan' {
+        foreach ($rejected in @(
+            '', 'not-a-flag-or-value?', '-Upstream', '--shorthand', '-dup=1',
+            '"inject"', 'two words', '-ok;rm', '-pipe|it', '-back\slash'
+        )) {
+            { New-Phase3LaunchPlan -Target Bds -Endpoint '127.0.0.1:19132' `
+                    -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+                    -DurationSeconds 60 -Scenario CandidatePhysics -CoreExtraArgs @($rejected) } |
+                Should Throw
+        }
+        { New-Phase3LaunchPlan -Target Bds -Endpoint '127.0.0.1:19132' `
+                -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
+                -DurationSeconds 60 -Scenario CandidatePhysics `
+                -CoreExtraArgs @(1..17 | ForEach-Object { "-cap-$_" }) } | Should Throw
+    }
+
+    It 'surfaces nonempty core extra arguments through the scenario manifest and run metadata schemas' {
+        $script:ScenarioManifest.core_extra_arguments = @('-upstream-client-cache')
+        $script:RunMetadata.core_extra_arguments = @('-upstream-client-cache')
+        (Invoke-Validator (Write-MarkerLog 'core-extra-valid.log')).ExitCode | Should Be 0
+    }
+
+    It 'rejects a non-allowlisted recorded core extra argument as the only changed condition' {
+        $script:ScenarioManifest.core_extra_arguments = @('-Bad;Token')
+        (Invoke-Validator (Write-MarkerLog 'core-extra-invalid.log')).ExitCode | Should Not Be 0
+    }
+
+    It 'rejects an over-capacity recorded core extra argument list as the only changed condition' {
+        $script:ScenarioManifest.core_extra_arguments = @(1..17 | ForEach-Object { "-cap-$_" })
+        (Invoke-Validator (Write-MarkerLog 'core-extra-cap.log')).ExitCode | Should Not Be 0
+    }
+
+    It 'wires validated core extra arguments into the launcher command, manifests, and metadata' {
+        $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launcher.ps1')
+        $launch = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launch.ps1')
+        $launcher | Should Match '\[string\[\]\]\$CoreExtraArgs = @\(\)'
+        $launcher | Should Match '-CoreExtraArgs \$CoreExtraArgs'
+        $launcher | Should Match 'CORE_EXTRA_ARGUMENTS='
+        ([regex]::Matches($launcher, 'core_extra_arguments = \$plan\.CoreExtraArguments')).Count | Should Be 4
+        $launch | Should Match '\$coreArguments \+= \$coreExtraArguments'
+        $launch | Should Match "function Resolve-Phase3CoreExtraArguments"
+        $launch | Should Match "'\^-\[a-z\]\[a-z0-9-\]\*\$'"
+        $launch | Should Match "'\^\[A-Za-z0-9\._/:=-\]\+\$'"
     }
 
     It 'builds a case-insensitive network-silent FreeCamera scenario without candidate physics frames' {

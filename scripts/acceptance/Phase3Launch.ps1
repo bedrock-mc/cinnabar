@@ -42,6 +42,40 @@ function Get-Phase3TargetEndpoint {
     }
 }
 
+function Resolve-Phase3CoreExtraArguments {
+    # Validates the optional bounded bedrock-core argument passthrough before any
+    # build or run. Each element must be either a lowercase long-form flag token
+    # matching '^-[a-z][a-z0-9-]*$' or a value token matching
+    # '^[A-Za-z0-9._/:=-]+$'. A flag that takes a value is therefore supplied as
+    # two elements; combined '-flag=value' tokens, shorthand '--flag' tokens,
+    # uppercase flags, backslashes, whitespace, quotes, and shell metacharacters
+    # are rejected so every accepted element always stays exactly one verbatim
+    # process token.
+    param([AllowEmptyCollection()][string[]]$CoreExtraArgs)
+
+    if ($null -eq $CoreExtraArgs) { return @() }
+    if (@($CoreExtraArgs).Count -gt 16) {
+        throw 'Phase 3 core extra arguments exceed the 16-token bound'
+    }
+    foreach ($token in @($CoreExtraArgs)) {
+        if ([string]::IsNullOrEmpty($token)) {
+            throw 'Phase 3 core extra arguments contain an empty token'
+        }
+        if ($token.Length -gt 256) {
+            throw 'Phase 3 core extra argument exceeds the 256-character bound'
+        }
+        if ($token.StartsWith('-')) {
+            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
+                throw "Phase 3 core extra argument flag token is not allowlisted: $token"
+            }
+        }
+        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
+            throw "Phase 3 core extra argument value token is not allowlisted: $token"
+        }
+    }
+    return [string[]]$CoreExtraArgs
+}
+
 function New-Phase3LaunchPlan {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')][string]$Target,
@@ -53,7 +87,8 @@ function New-Phase3LaunchPlan {
         [Parameter(Mandatory = $true)][ValidateSet('CandidatePhysics', 'FastTransferWitness', 'FreeCameraSilence')]
         [string]$Scenario,
         [string]$AuthCache,
-        [string]$Assets
+        [string]$Assets,
+        [string[]]$CoreExtraArgs = @()
     )
     $Target = ConvertTo-Phase3Target -Target $Target
     $Scenario = ConvertTo-Phase3Scenario -Scenario $Scenario
@@ -77,8 +112,10 @@ function New-Phase3LaunchPlan {
             throw 'FastTransferWitness requires the compiled vanilla asset carrier'
         }
     }
+    $coreExtraArguments = @(Resolve-Phase3CoreExtraArguments -CoreExtraArgs $CoreExtraArgs)
     $coreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Endpoint)
     if ($remote) { $coreArguments += @('-auth-cache', $AuthCache) }
+    if ($coreExtraArguments.Count -gt 0) { $coreArguments += $coreExtraArguments }
     $appArguments = @(
         '--socket-dir', $SocketDirectory,
         '--acceptance-seconds', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture),
@@ -94,6 +131,7 @@ function New-Phase3LaunchPlan {
         RunId = $RunId
         Scenario = $Scenario
         CoreArguments = $coreArguments
+        CoreExtraArguments = $coreExtraArguments
         AppArguments = $appArguments
     }
 }

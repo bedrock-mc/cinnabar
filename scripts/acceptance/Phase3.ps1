@@ -99,7 +99,8 @@ $scenarioProperties = @(
     'input_witness_deferral_reason', 'required_perspective_sequence',
     'require_replay', 'require_snap', 'require_held_jump_rejump',
     'require_release_before_landing', 'require_camera_blocked', 'require_camera_fallback',
-    'require_avatar_visibility_states', 'required_controlled_matrix'
+    'require_avatar_visibility_states', 'required_controlled_matrix',
+    'core_extra_arguments'
 )
 $controlledMatrixProperties = @(
     'sprint', 'sneak_ledge', 'slabs_stairs', 'ladder', 'liquids', 'special_surfaces',
@@ -216,6 +217,30 @@ function Assert-StringArray {
     }
 }
 
+function Assert-Phase3CoreArgumentTokens {
+    # Mirrors the launcher-side allowlist in Resolve-Phase3CoreExtraArguments so
+    # recorded core extra arguments stay exactly one verbatim allowlisted token
+    # each: a lowercase long-form flag or a conservative value.
+    param($Value, [string]$Label)
+    if ($Value -isnot [System.Array] -or @($Value).Count -gt 16) {
+        throw "$Label must be a bounded JSON array"
+    }
+    foreach ($item in @($Value)) {
+        if ($item -isnot [string] -or ([string]$item).Length -gt 256) {
+            throw "$Label must contain bounded JSON strings"
+        }
+        $token = [string]$item
+        if ($token.StartsWith('-')) {
+            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
+                throw "$Label contains a non-allowlisted flag token"
+            }
+        }
+        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
+            throw "$Label contains a non-allowlisted value token"
+        }
+    }
+}
+
 function Assert-OrderedStringArray {
     param($Value, [string]$Label, [string[]]$Allowed, [int]$Maximum)
     if ($Value -isnot [System.Array] -or @($Value).Count -gt $Maximum) {
@@ -278,6 +303,8 @@ if ($scenarioManifest.input_witness_deferral_reason -isnot [string] -or
     ([string]$scenarioManifest.input_witness_deferral_reason).Length -gt 256) {
     throw 'scenario manifest.input_witness_deferral_reason must be a bounded string'
 }
+Assert-Phase3CoreArgumentTokens $scenarioManifest.core_extra_arguments `
+    'scenario manifest.core_extra_arguments'
 Assert-OrderedStringArray $scenarioManifest.required_perspective_sequence `
     'scenario manifest.required_perspective_sequence' `
     @('FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront') 4

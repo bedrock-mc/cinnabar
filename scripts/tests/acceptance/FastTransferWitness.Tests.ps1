@@ -49,6 +49,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
             )
+            core_extra_arguments = @()
         }
         $script:Scenario = [ordered]@{
             schema = 'rust-mcbe-fast-transfer-witness-scenario-v1'; scenario = 'FastTransferWitness'
@@ -56,6 +57,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
             assets_sha256 = $script:AssetsSha256
             maximum_command_to_reset_arm_milliseconds = 30000
             minimum_post_reset_network_position_delta = 0.5; minimum_duration_seconds = 600
+            core_extra_arguments = @()
             screenshot_slots = @(
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
@@ -311,6 +313,16 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:Positions[0] = @(100.0, 72.62, 100.0)
         $script:Positions[2] = @(64.4, 80.62, 64.0)
         { Invoke-WitnessValidation (Write-WitnessArtifacts 'pre-reset-only') } | Should Throw
+    }
+
+    It 'carries bounded core extra arguments through the witness schemas' {
+        $script:Scenario.core_extra_arguments = @('-upstream-client-cache')
+        $script:Metadata.core_extra_arguments = @('-upstream-client-cache', '512')
+        $artifacts = Write-WitnessArtifacts 'core-extra'
+        (Invoke-WitnessValidation $artifacts).status | Should Be 'passed'
+        $script:Scenario.core_extra_arguments = @('not allowed')
+        $broken = Write-WitnessArtifacts 'core-extra-broken'
+        { Invoke-WitnessValidation $broken } | Should Throw
     }
 
     It 'rejects a post-reset network-position delta below 0.5' {
