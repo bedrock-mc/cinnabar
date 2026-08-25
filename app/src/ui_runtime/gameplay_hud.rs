@@ -142,6 +142,10 @@ impl GameplayHudState {
 
     /// The authoritative hotbar stack for a slot, if inventory content has
     /// arrived. Empty stacks read as `None`.
+    ///
+    /// Retained for focused HUD-mirror authority tests: hotbar presentation
+    /// now derives every cell from the gesture-ledger snapshot.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub fn hotbar_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.hotbar
@@ -165,6 +169,12 @@ impl GameplayHudState {
             .filter(|stack| !stack.is_empty())
     }
 
+    /// Whether any window-0 inventory traffic has reached the retained
+    /// mirror.
+    ///
+    /// Retained for focused HUD-mirror authority tests: hotbar presentation
+    /// now derives every cell from the gesture-ledger snapshot.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub const fn hotbar_known(&self) -> bool {
         self.hotbar_known

@@ -259,22 +259,17 @@ pub(crate) fn refresh_hud_frame(
         let slot = slot as u8;
         let stack = if selected_slot == Some(slot) {
             selected_stack
-        } else if runtime.gameplay_hud().hotbar_known() {
-            runtime.gameplay_hud().hotbar_stack(slot)
         } else {
-            None
+            runtime.inventory_ledger().displayed_stack(slot)
         };
         if let Some(stack) = stack {
             let identifier = resolve_identifier(stack);
-            // The selected cell presents the predicted stack, so its
-            // durability follows the travelling predicted overlay; every
-            // other cell presents the committed mirror with the committed
-            // overlay.
-            let overlay = if selected_slot == Some(slot) {
-                runtime.inventory_ledger().presented_slot_overlay(slot)
-            } else {
-                runtime.inventory_ledger().slot_overlay(slot)
-            };
+            // Every hotbar cell — selected or not — derives from one
+            // ledger-snapshot authority revision: the travelling predicted
+            // overlay beside its predicted stack while a gesture is in
+            // flight, otherwise the committed overlay. One accepted sparse
+            // response therefore refreshes the whole presented row at once.
+            let overlay = runtime.inventory_ledger().presented_slot_overlay(slot);
             *durability = item_facts::cell_durability_fraction(
                 stack,
                 identifier.as_deref(),

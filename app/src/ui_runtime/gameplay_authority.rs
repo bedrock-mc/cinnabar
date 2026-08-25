@@ -206,13 +206,14 @@ impl UiRuntime {
         &self.gameplay_hud
     }
 
-    /// The stack presented in one hotbar cell: the authoritative inventory
-    /// mirror when known, otherwise the MobEquipment echo for the selected
-    /// slot — authoritative before any container content has arrived.
+    /// The stack presented in one hotbar cell: the same gesture-ledger
+    /// snapshot authority the HUD presents (predicted or committed), with
+    /// the MobEquipment echo only for the selected slot before any container
+    /// content has arrived.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn presented_hotbar_stack(&self, slot: u8) -> Option<&protocol::NetworkItemStack> {
         if self.selected_hotbar_slot() != Some(slot) {
-            return self.gameplay_hud.hotbar_stack(slot);
+            return self.inventory_ledger.displayed_stack(slot);
         }
         self.selected_stack()
     }
