@@ -493,7 +493,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         } | Select-Object -First 1
         $lines.Insert(
             $terminalIndex,
-            'RUST_MCBE_PHASE3_VIOLATION={"reason":"terminal_pending_correction","schema":"rust-mcbe-phase3-violation-v1"}'
+            'RUST_MCBE_PHASE3_VIOLATION={"reason":"terminal_pending_correction","schema":"rust-mcbe-phase3-violation-v2"}'
         )
         $lines | Set-Content $pending.LogPath -Encoding utf8
 

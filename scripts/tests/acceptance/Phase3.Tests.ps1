@@ -450,9 +450,24 @@ Describe 'Phase 3 production marker evidence validation' {
 
     It 'rejects one production violation marker as the only changed condition' {
         $script:Violations = @([ordered]@{
-            schema = 'rust-mcbe-phase3-violation-v1'; reason = 'invalid_frame'
+            schema = 'rust-mcbe-phase3-violation-v2'; reason = 'invalid_frame'
         })
         $result = Invoke-Validator (Write-MarkerLog 'violation.log')
+        $result.ExitCode | Should Not Be 0
+    }
+
+    It 'still rejects a v2-shaped non-monotonic-frame violation carrying frame identity' {
+        $script:Violations = @([ordered]@{
+            schema = 'rust-mcbe-phase3-violation-v2'; reason = 'non_monotonic_frame'
+            frame_identity = [ordered]@{
+                previous_session_generation = 7; current_session_generation = 7
+                previous_physics_tick = 41; current_physics_tick = 43
+                previous_dimension = 0; current_dimension = 0
+                previous_fifo_sequence = 41; current_fifo_sequence = 43
+                previous_pose_generation = 101; current_pose_generation = 103
+            }
+        })
+        $result = Invoke-Validator (Write-MarkerLog 'violation-non-monotonic-v2.log')
         $result.ExitCode | Should Not Be 0
     }
 

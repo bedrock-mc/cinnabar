@@ -439,6 +439,24 @@ struct Phase3CorrectionEvidence {
     magnitude: f32,
 }
 
+/// Previous/current monotonicity witnesses captured when the emitter raises
+/// `non_monotonic_frame`. They ride once on that violation marker so a
+/// rejected run identifies exactly which frame identity regressed; every
+/// other violation reason stays an exact two-key object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct NonMonotonicFrameIdentity {
+    previous_session_generation: u64,
+    current_session_generation: u64,
+    previous_physics_tick: u64,
+    current_physics_tick: u64,
+    previous_dimension: i32,
+    current_dimension: i32,
+    previous_fifo_sequence: u64,
+    current_fifo_sequence: u64,
+    previous_pose_generation: u64,
+    current_pose_generation: u64,
+}
+
 impl Phase3CorrectionEvidence {
     fn event_marker(self, frame: Phase3EvidenceFrame, event_sequence: u64) -> String {
         let (outcome, corrected_tick, replayed_ticks) = match self.outcome {
@@ -569,6 +587,7 @@ pub(crate) struct Phase3EvidenceEmitter {
     identity: Option<Phase3EvidenceIdentity>,
     identity_conflict_emitted: bool,
     last_frame_identity: Option<(u64, u64, i32, u64, u64)>,
+    non_monotonic_detail: Option<NonMonotonicFrameIdentity>,
     pending_events: [bool; 2],
     pending_corrections: VecDeque<Phase3CorrectionEvidence>,
     frame_records: usize,
@@ -650,6 +669,18 @@ impl Phase3EvidenceEmitter {
                 || frame.fifo_sequence < fifo
                 || frame.pose_generation < pose
             {
+                self.non_monotonic_detail = Some(NonMonotonicFrameIdentity {
+                    previous_session_generation: session,
+                    current_session_generation: frame.session_generation,
+                    previous_physics_tick: tick,
+                    current_physics_tick: frame.physics_tick,
+                    previous_dimension: dimension,
+                    current_dimension: frame.dimension,
+                    previous_fifo_sequence: fifo,
+                    current_fifo_sequence: frame.fifo_sequence,
+                    previous_pose_generation: pose,
+                    current_pose_generation: frame.pose_generation,
+                });
                 self.record_violation("non_monotonic_frame");
                 return self.take_violation_marker();
             }
@@ -761,12 +792,23 @@ impl Phase3EvidenceEmitter {
             return Vec::new();
         }
         self.violation_emitted = true;
+        // The captured identity is cleared with this single emission and is
+        // included only for its own reason; every other reason keeps exactly
+        // the two-key object.
+        let detail = self.non_monotonic_detail.take();
         vec![format!(
             "{PHASE3_VIOLATION}={}",
-            serde_json::json!({
-                "schema": "rust-mcbe-phase3-violation-v1",
-                "reason": reason,
-            })
+            match detail {
+                Some(identity) if reason == "non_monotonic_frame" => serde_json::json!({
+                    "schema": "rust-mcbe-phase3-violation-v2",
+                    "reason": reason,
+                    "frame_identity": identity,
+                }),
+                _ => serde_json::json!({
+                    "schema": "rust-mcbe-phase3-violation-v2",
+                    "reason": reason,
+                }),
+            }
         )]
     }
 

@@ -396,6 +396,17 @@ fn phase3_evidence_is_production_shaped_exact_bounded_and_dimension_correlated()
     assert_eq!(event["kind"], "dimension");
     assert_eq!(event["physics_tick"], 0);
     assert_eq!(event["dimension"], 1);
+    assert!(
+        !transitioned
+            .iter()
+            .any(|marker| marker.starts_with("RUST_MCBE_PHASE3_VIOLATION="))
+    );
+    assert!(transition_evidence.take_violation_marker().is_empty());
+    // No violation or captured identity may persist across an accepted
+    // dimension transition: the next contiguous frame is ordinary evidence.
+    let following = transition_evidence.observe(frame(1, 104, 1));
+    assert_eq!(following.len(), 1);
+    assert!(following[0].starts_with("RUST_MCBE_PHASE3_FRAME="));
 }
 
 #[test]
@@ -663,8 +674,216 @@ fn phase3_invalid_correction_and_non_monotonic_tick_emit_durable_violations() {
     assert_eq!(non_monotonic.observe(frame(1)).len(), 1);
     let markers = non_monotonic.observe(frame(1));
     assert_eq!(markers.len(), 1);
-    assert!(markers[0].contains("non_monotonic_frame"));
+    let json: serde_json::Value = serde_json::from_str(
+        markers[0]
+            .strip_prefix("RUST_MCBE_PHASE3_VIOLATION=")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 3);
+    assert_eq!(json["schema"], "rust-mcbe-phase3-violation-v2");
+    assert_eq!(json["reason"], "non_monotonic_frame");
+    assert_eq!(json["frame_identity"]["previous_physics_tick"], 1);
+    assert_eq!(json["frame_identity"]["current_physics_tick"], 1);
+    assert_eq!(json["frame_identity"]["previous_fifo_sequence"], 1);
+    assert_eq!(json["frame_identity"]["current_fifo_sequence"], 1);
+    assert_eq!(json["frame_identity"]["previous_pose_generation"], 2);
+    assert_eq!(json["frame_identity"]["current_pose_generation"], 2);
+    // Duplicate suppression still returns empty afterwards.
     assert!(non_monotonic.observe(frame(2)).is_empty());
+}
+
+#[test]
+fn phase3_non_monotonic_violation_carries_previous_and_current_identities_v2() {
+    let frame = |physics_tick| Phase3EvidenceFrame {
+        session_generation: 7,
+        fifo_sequence: physics_tick,
+        physics_tick,
+        pose_generation: physics_tick + 100,
+        dimension: 0,
+        network_position: [8.0, 72.62, physics_tick as f32],
+        input_mode: semantic_input::InputMode::KeyboardMouse,
+        perspective: semantic_input::PerspectiveMode::FirstPerson,
+        camera_blocked: false,
+        camera_fallback: false,
+        local_avatar_visible: false,
+        movement: [0.0; 2],
+        look_delta: [0.0; 2],
+        jump_held: false,
+        outbound_authorized: true,
+        outbox_depth: 0,
+        outbox_drops: 0,
+        free_camera_packet_count: 0,
+        grounded_before_tick: false,
+        grounded_after_tick: false,
+        jump_started: false,
+        jump_repeated: false,
+        jump_released: false,
+    };
+    let mut evidence = Phase3EvidenceEmitter::default();
+    assert_eq!(evidence.observe(frame(100)).len(), 1);
+    let markers = evidence.observe(frame(102));
+    assert_eq!(markers.len(), 1);
+    assert!(markers[0].starts_with("RUST_MCBE_PHASE3_VIOLATION="));
+    let json: serde_json::Value = serde_json::from_str(
+        markers[0]
+            .strip_prefix("RUST_MCBE_PHASE3_VIOLATION=")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 3);
+    assert_eq!(json["schema"], "rust-mcbe-phase3-violation-v2");
+    assert_eq!(json["reason"], "non_monotonic_frame");
+    let identity = json["frame_identity"].as_object().unwrap();
+    assert_eq!(identity.len(), 10);
+    assert_eq!(identity["previous_session_generation"], 7);
+    assert_eq!(identity["current_session_generation"], 7);
+    assert_eq!(identity["previous_physics_tick"], 100);
+    assert_eq!(identity["current_physics_tick"], 102);
+    assert_eq!(identity["previous_dimension"], 0);
+    assert_eq!(identity["current_dimension"], 0);
+    assert_eq!(identity["previous_fifo_sequence"], 100);
+    assert_eq!(identity["current_fifo_sequence"], 102);
+    assert_eq!(identity["previous_pose_generation"], 200);
+    assert_eq!(identity["current_pose_generation"], 202);
+}
+
+#[test]
+fn phase3_non_monotonic_identity_isolates_each_detection_subcondition_v2() {
+    let frame =
+        |session: u64, tick: u64, dimension: i32, fifo: u64, pose: u64| Phase3EvidenceFrame {
+            session_generation: session,
+            fifo_sequence: fifo,
+            physics_tick: tick,
+            pose_generation: pose,
+            dimension,
+            network_position: [8.0, 72.62, -4.0],
+            input_mode: semantic_input::InputMode::KeyboardMouse,
+            perspective: semantic_input::PerspectiveMode::FirstPerson,
+            camera_blocked: false,
+            camera_fallback: false,
+            local_avatar_visible: false,
+            movement: [0.0; 2],
+            look_delta: [0.0; 2],
+            jump_held: false,
+            outbound_authorized: true,
+            outbox_depth: 0,
+            outbox_drops: 0,
+            free_camera_packet_count: 0,
+            grounded_before_tick: false,
+            grounded_after_tick: false,
+            jump_started: false,
+            jump_repeated: false,
+            jump_released: false,
+        };
+    for (name, previous, current) in [
+        // Tick gap with every other identity equal or advancing.
+        ("tick_gap", (7u64, 10u64, 0i32, 10u64, 11u64), (7, 12, 0, 12, 13)),
+        // Session change with a contiguous tick and no regression.
+        ("session_change", (7, 10, 0, 10, 11), (8, 11, 0, 11, 12)),
+        ("fifo_regression", (7, 20, 0, 20, 21), (7, 21, 0, 19, 22)),
+        ("pose_regression", (7, 30, 0, 30, 31), (7, 31, 0, 31, 30)),
+    ] {
+        let mut evidence = Phase3EvidenceEmitter::default();
+        assert_eq!(
+            evidence
+                .observe(frame(previous.0, previous.1, previous.2, previous.3, previous.4))
+                .len(),
+            1,
+            "{name}"
+        );
+        let markers =
+            evidence.observe(frame(current.0, current.1, current.2, current.3, current.4));
+        assert_eq!(markers.len(), 1, "{name}");
+        let json: serde_json::Value = serde_json::from_str(
+            markers[0]
+                .strip_prefix("RUST_MCBE_PHASE3_VIOLATION=")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["schema"], "rust-mcbe-phase3-violation-v2", "{name}");
+        assert_eq!(json["reason"], "non_monotonic_frame", "{name}");
+        assert_eq!(
+            json["frame_identity"],
+            serde_json::json!({
+                "previous_session_generation": previous.0,
+                "current_session_generation": current.0,
+                "previous_physics_tick": previous.1,
+                "current_physics_tick": current.1,
+                "previous_dimension": previous.2,
+                "current_dimension": current.2,
+                "previous_fifo_sequence": previous.3,
+                "current_fifo_sequence": current.3,
+                "previous_pose_generation": previous.4,
+                "current_pose_generation": current.4,
+            }),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn phase3_other_violation_reasons_remain_exact_two_key_v2_objects() {
+    let base = Phase3EvidenceFrame {
+        session_generation: 7,
+        fifo_sequence: 41,
+        physics_tick: 1,
+        pose_generation: 101,
+        dimension: 0,
+        network_position: [8.0, 72.62, -4.0],
+        input_mode: semantic_input::InputMode::KeyboardMouse,
+        perspective: semantic_input::PerspectiveMode::FirstPerson,
+        camera_blocked: false,
+        camera_fallback: false,
+        local_avatar_visible: false,
+        movement: [0.0; 2],
+        look_delta: [0.0; 2],
+        jump_held: false,
+        outbound_authorized: true,
+        outbox_depth: 0,
+        outbox_drops: 0,
+        free_camera_packet_count: 0,
+        grounded_before_tick: false,
+        grounded_after_tick: false,
+        jump_started: false,
+        jump_repeated: false,
+        jump_released: false,
+    };
+    let invalid_markers = Phase3EvidenceEmitter::default().observe(Phase3EvidenceFrame {
+        movement: [f32::NAN, 0.0],
+        ..base
+    });
+    assert_eq!(invalid_markers.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(
+        invalid_markers[0]
+            .strip_prefix("RUST_MCBE_PHASE3_VIOLATION=")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 2);
+    assert_eq!(json["schema"], "rust-mcbe-phase3-violation-v2");
+    assert_eq!(json["reason"], "invalid_frame");
+    assert!(json.get("frame_identity").is_none());
+
+    let fault_markers = Phase3EvidenceEmitter::default().observe_authority_fault(
+        PhysicsAuthorityFaultRecord {
+            session_generation: 7,
+            fault: PhysicsAuthorityFault::OutboxOverflow,
+            next_tick: 42,
+            pending_count: crate::movement::OUTBOX_CAPACITY,
+        },
+    );
+    assert_eq!(fault_markers.len(), 2);
+    let json: serde_json::Value = serde_json::from_str(
+        fault_markers[1]
+            .strip_prefix("RUST_MCBE_PHASE3_VIOLATION=")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 2);
+    assert_eq!(json["schema"], "rust-mcbe-phase3-violation-v2");
+    assert_eq!(json["reason"], "authority_fault");
+    assert!(json.get("frame_identity").is_none());
 }
 
 #[test]
