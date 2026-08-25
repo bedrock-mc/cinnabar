@@ -101,6 +101,26 @@ rejection. Remaining live-gate work: organic-movement drivers, the HandledTelepo
 jump/sneak flag witnesses, sustained-session survival on both live targets, and native stall
 measurement for the provisional overflow policy.
 
+**Venity abandonment root cause and first full-duration session (2026-08-25).** Four further
+authenticated sessions reproduced the teardown deterministically (56–107 s, always after exactly
+the server's spawn-region stream of 421 inline columns) and proved it independent of idleness: an
+OS-driven organic-input session transmitting 1,445 movement packets died on the same signature.
+Read-only diagnosis attributed the deaths to the target's anti-cheat latency-ACK watchdog — its
+matcher normalizes echoed `NetworkStackLatency` ids before matching stored batches, so exact-timestamp
+echoes never resolve, and its responsiveness counter only advances while the client streams
+movement, expiring into a silent disconnect. Independent source verification confirmed every cited
+mechanism at the anti-cheat's pinned version (60 s default budget matching all observed lifetimes).
+The provisional ×1,000,000 echo scaling (`1ef3e2a8`) plus the committed organic-movement driver then
+produced the first complete Venity session ever recorded: 603.2 s wall (the full 480 s acceptance
+window), 1,356 transmitted physics packets from source=Physics with a `Drained` terminal at depth
+zero, zero decode errors, zero drops, zero authority faults, and normal shutdown telemetry. The
+strict aggregate verdict remains open on: the inline-cohort world_ready defect (`317a3de1` pending
+review closes it deterministically; live confirmation is that tranche's own gate), one
+`non_monotonic_frame` witness marker in the debug run, the spawn-geometry embedment that keeps
+re-engaging the provisional settle gate, GamePad-frame validation (no physical gamepad), BDS/LBSG
+tolerance re-verification of scaled echoes, and authoritative retail-client measurement of the NSL
+echo contract.
+
 **Repository-wide parity audit follow-up (2026-08-20):** the durable mismatch inventory is
 tracked in `docs/tracking/vanilla-parity-audit.md`. It covers protocol/cache/session, world
 retention, movement/input, HUD/inventory/entities, assets/meshing/render/resource packs, and
