@@ -15,7 +15,7 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
-use super::helpers::valid_storage_window_id;
+use super::helpers::{bare_storage_window_matches, valid_storage_window_id};
 use super::{
     Cell, CellSurface, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT,
     PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
@@ -130,6 +130,14 @@ impl PlayerInventoryLedger {
             }
             Some(CanonicalCell::GenericStorage { slot, .. }) => {
                 self.apply_storage_slot(identity.container, slot, stack);
+            }
+            // Prior-admission restoration: legacy bare-window traffic (a
+            // Slot update whose optional container name is absent on the
+            // wire) addressed the open generic-storage window by its raw
+            // window id alone. The projection cannot see which windows are
+            // open, so this one leg consults the retained window.
+            None if bare_storage_window_matches(self.storage.as_ref(), &identity.container) => {
+                self.apply_storage_slot(identity.container, identity.slot, stack);
             }
             Some(CanonicalCell::Armor(_) | CanonicalCell::Offhand) | None => {
                 self.note_unrouted_container();
@@ -247,6 +255,9 @@ impl PlayerInventoryLedger {
         stack: &NetworkItemStack,
     ) {
         let Some(storage) = self.storage.as_ref() else {
+            // A storage-surface event with no open window resolved canonically
+            // but has no retained cell to land in: counted leniency.
+            self.note_unrouted_container();
             return;
         };
         if !super::helpers::storage_slot_identity_matches(storage, identity)

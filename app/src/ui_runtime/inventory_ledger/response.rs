@@ -19,9 +19,12 @@
 
 use std::sync::Arc;
 
-use protocol::{ItemStackResponseEvent, StackResponseSlot, StackResponseStatus};
+use protocol::{
+    CanonicalCell, ItemStackResponseEvent, StackResponseSlot, StackResponseStatus,
+    project_container_cell,
+};
 
-use super::{Cell, GENERIC_STORAGE_SLOT_TYPE, PlayerInventoryLedger};
+use super::{Cell, PlayerInventoryLedger};
 
 /// Authoritative presentation facts an accepted server correction attached
 /// to one inventory cell: custom display names plus the exact durability
@@ -112,8 +115,10 @@ impl PlayerInventoryLedger {
             return;
         }
         if response.containers.iter().any(|container| {
-            container.container.slot_type == Some(GENERIC_STORAGE_SLOT_TYPE)
-                && self.pending_identity_mismatch(container.container)
+            matches!(
+                project_container_cell(&container.container, 0),
+                Some(CanonicalCell::GenericStorage { .. })
+            ) && self.pending_identity_mismatch(container.container)
         }) {
             self.require_authoritative_recovery();
             return;

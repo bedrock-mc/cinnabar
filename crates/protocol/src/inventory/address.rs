@@ -19,7 +19,11 @@
 //! anything else — including decoded container names this client has no
 //! reviewed mapping for — resolves to `None`, and callers treat that as odd
 //! but well-formed data: a typed counted skip, never a mutation and never a
-//! disconnect.
+//! disconnect. One shape is routed by prior admission rather than a reviewed
+//! live mapping: the `InventoryContainer` alias on legacy window 0 (see
+//! [`project_container_cell`]), which the repository's pinned fixture corpus
+//! encodes and base admission applied to player cells before this projection
+//! existed.
 
 use super::ContainerIdentity;
 
@@ -31,6 +35,10 @@ pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = 7;
 /// `EnumsContainerEnumName::CombinedHotbarAndInventoryContainer`, the combined
 /// player inventory surface every gesture request names.
 pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 = 12;
+/// `EnumsContainerEnumName::InventoryContainer`, the named player-inventory
+/// alias live servers send riding the legacy window id (the pinned
+/// gophertunnel fixture corpus encodes exactly this shape).
+pub const CONTAINER_NAME_INVENTORY: u8 = 29;
 /// `EnumsContainerEnumName::OffhandContainer`.
 pub const CONTAINER_NAME_OFFHAND: u8 = 34;
 /// `EnumsContainerEnumName::CursorContainer`.
@@ -68,6 +76,7 @@ pub enum CanonicalCell {
 
 impl CanonicalCell {
     /// Whether this cell belongs to the combined player-inventory surface.
+    #[cfg(test)]
     #[must_use]
     pub const fn is_player_inventory(self) -> bool {
         matches!(self, Self::PlayerInventory(_))
@@ -79,9 +88,15 @@ impl CanonicalCell {
 ///
 /// Named containers resolve by their decoded container-name code alone, so a
 /// Content event, a Slot event, and an accepted item stack response (whose
-/// container carries no window id) converge on the same value. Unnamed
-/// addresses fall back to the two legacy window ids the client recognizes:
-/// window 0 as the combined player inventory and window 119 as the offhand.
+/// container carries no window id) converge on the same value. One reviewed
+/// prior-admission exception: the `InventoryContainer` alias addresses the
+/// player inventory only alongside legacy window 0 — exactly how base
+/// admission treated it before this projection existed (the pinned fixture
+/// corpus writes `window_id 0 + InventoryContainer + slot`), so that shape
+/// keeps routing onto player cells while any further named aliases wait for
+/// live adjudication. Unnamed addresses fall back to the two legacy window
+/// ids the client recognizes: window 0 as the combined player inventory and
+/// window 119 as the offhand.
 ///
 /// Slot-index sanity is part of the mapping: a cursor or offhand address only
 /// exists at index 0, and player-inventory indices outside `0..36` are not
@@ -93,6 +108,17 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         Some(CONTAINER_NAME_ARMOR) => Some(CanonicalCell::Armor(u8::try_from(slot).ok()?)),
         Some(CONTAINER_NAME_OFFHAND) => (slot == 0).then_some(CanonicalCell::Offhand),
         Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY) => player_inventory_cell(slot),
+        // Prior-admission restoration, pending live adjudication of any
+        // further named aliases: servers name ordinary player-inventory
+        // traffic `InventoryContainer` on legacy window 0, and both the
+        // ledger and the HUD hotbar mirror applied it to player cells before
+        // the projection existed. Window-less response containers carrying
+        // this name stay unrouted, as they always were.
+        Some(CONTAINER_NAME_INVENTORY)
+            if identity.window_id == Some(PLAYER_INVENTORY_WINDOW_ID) =>
+        {
+            player_inventory_cell(slot)
+        }
         Some(CONTAINER_NAME_LEVEL_ENTITY) => Some(CanonicalCell::GenericStorage {
             dynamic_id: identity.dynamic_id,
             slot,
@@ -161,6 +187,10 @@ mod tests {
             (
                 CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
                 EnumsContainerEnumName::CombinedHotbarAndInventoryContainer,
+            ),
+            (
+                CONTAINER_NAME_INVENTORY,
+                EnumsContainerEnumName::InventoryContainer,
             ),
             (
                 CONTAINER_NAME_OFFHAND,
@@ -272,6 +302,45 @@ mod tests {
             })
         );
         assert!(!storage.is_some_and(CanonicalCell::is_player_inventory));
+    }
+
+    #[test]
+    fn named_inventory_alias_on_the_legacy_window_converges_with_unnamed_window_zero() {
+        use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName;
+
+        let inventory_name = encoded_name(EnumsContainerEnumName::InventoryContainer);
+        let expected = CanonicalCell::PlayerInventory(4);
+        assert_eq!(
+            project_container_cell(&identity(0, Some(inventory_name)), 4),
+            Some(expected)
+        );
+        assert_eq!(
+            project_container_cell(&identity(0, Some(inventory_name)), 4),
+            project_container_cell(&identity(0, None), 4),
+        );
+        // The alias restores prior admission only alongside the legacy
+        // player window: other windows and the window-less response shape
+        // stay unrouted.
+        assert_eq!(
+            project_container_cell(&identity(6, Some(inventory_name)), 4),
+            None
+        );
+        assert_eq!(
+            project_container_cell(
+                &ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(inventory_name),
+                    dynamic_id: Some(3),
+                },
+                4
+            ),
+            None,
+        );
+        // Surface bounds still hold.
+        assert_eq!(
+            project_container_cell(&identity(0, Some(inventory_name)), 36),
+            None
+        );
     }
 
     #[test]

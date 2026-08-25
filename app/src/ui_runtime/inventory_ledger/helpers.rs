@@ -32,6 +32,19 @@ pub(super) fn storage_slot_identity_matches(
     }
 }
 
+/// Whether one container identity the projection left unrouted is exactly the
+/// prior bare-window storage leg: no decoded container name, no dynamic id,
+/// and a window id matching the one open generic-storage window. Named or
+/// dynamic identities never qualify — they must project canonically first.
+pub(super) fn bare_storage_window_matches(
+    storage: Option<&StorageWindow>,
+    identity: &ContainerIdentity,
+) -> bool {
+    identity.slot_type.is_none()
+        && identity.dynamic_id.is_none()
+        && storage.is_some_and(|storage| storage_slot_identity_matches(storage, *identity))
+}
+
 pub(super) fn request_slot(
     cell: Cell,
     stack_network_id: i32,

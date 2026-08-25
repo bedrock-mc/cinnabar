@@ -13,6 +13,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::ui_runtime::inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, SMALL_STORAGE_SLOT_COUNT};
 
 fn stack(network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
@@ -246,6 +247,233 @@ fn partial_window_zero_content_preserves_unseen_hotbar_mirror_cells() {
     );
 }
 
+/// The pinned gophertunnel `InventorySlot` fixture (`tools/fixturegen`)
+/// writes exactly this shape: legacy window id 0 carrying a full container
+/// name whose byte is `InventoryContainer` (29). Prior admission applied
+/// such events to player cells in both the ledger and the HUD hotbar
+/// mirror; the canonical projection must keep routing them there.
+#[test]
+fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud() {
+    const INVENTORY_CONTAINER_NAME: u8 = 29;
+
+    // Ledger admission.
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut runtime);
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(0, Some(INVENTORY_CONTAINER_NAME)),
+        4,
+        stack(29),
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .displayed_stack(4)
+            .map(|stack| stack.network_id),
+        Some(29),
+        "the fixture-shaped Slot event lands in canonical player cell 4"
+    );
+    assert_eq!(
+        runtime.inventory_ledger().skipped_unknown_containers(),
+        0,
+        "routed fixture traffic never counts as leniency"
+    );
+
+    // HUD ingestion through the production queue.
+    let mut hud = UiRuntime::new(1);
+    hud.enqueue_inventory_event(
+        1,
+        1,
+        slot_event(identity(0, Some(INVENTORY_CONTAINER_NAME)), 4, stack(29)),
+    )
+    .unwrap();
+    hud.drain_pending_inventory();
+    assert_eq!(
+        hud.gameplay_hud()
+            .hotbar_stack(4)
+            .map(|stack| stack.network_id),
+        Some(29),
+        "the fixture-shaped Slot event mirrors into hotbar cell 4"
+    );
+    assert_eq!(hud.gameplay_hud().diagnostics().unknown_container_events, 0);
+
+    // A named full-content rewrite rides the same alias.
+    let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();
+    hud.enqueue_inventory_event(
+        1,
+        2,
+        content(identity(0, Some(INVENTORY_CONTAINER_NAME)), slots),
+    )
+    .unwrap();
+    hud.drain_pending_inventory();
+    assert!(hud.gameplay_hud().hotbar_known());
+    assert_eq!(
+        hud.gameplay_hud()
+            .hotbar_stack(8)
+            .map(|stack| stack.network_id),
+        Some(9)
+    );
+
+    // The prior window-0 exclusions still hold: generic-storage-named
+    // traffic belongs to no player cell regardless of its legacy window id.
+    // With no storage window open it is counted leniency (Minor 6).
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut runtime);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(0, None), 4, stack(4)));
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(0, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+        4,
+        stack(777),
+    ));
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(6, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+        4,
+        stack(778),
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .displayed_stack(4)
+            .map(|stack| stack.network_id),
+        Some(4),
+        "storage-named events never reach player cells"
+    );
+    assert_eq!(
+        runtime.inventory_ledger().skipped_unknown_containers(),
+        2,
+        "both storage events with no matching open window were counted"
+    );
+
+    // With a matching open window the same surface lands in storage, while a
+    // wrong-window storage identity stays the prior silent targeted drop.
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(4),
+            window_type: GENERIC_STORAGE_WINDOW_TYPE,
+            position: [0, 0, 0],
+            runtime_entity_id: 1,
+        }));
+    runtime.inventory_ledger_mut().apply(&content(
+        ContainerIdentity {
+            window_id: Some(4),
+            slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: Some(9),
+        },
+        vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
+    ));
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(4, Some(protocol::CONTAINER_NAME_INVENTORY)),
+        3,
+        stack(33),
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .storage_stack(3)
+            .map(|stack| stack.network_id),
+        None,
+        "the player-inventory alias never reaches an open storage window"
+    );
+    assert_eq!(
+        runtime.inventory_ledger().skipped_unknown_containers(),
+        3,
+        "the off-window alias resolved onto no retained cell and was counted"
+    );
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(9, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+        3,
+        stack(99),
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .storage_stack(3)
+            .map(|stack| stack.network_id),
+        None,
+        "a wrong-window storage identity is dropped without mutation"
+    );
+    assert_eq!(
+        runtime.inventory_ledger().skipped_unknown_containers(),
+        3,
+        "the targeted mismatch drop stays distinct from unrouted leniency"
+    );
+}
+
+/// Prior admission matched an open generic-storage window through its bare
+/// legacy window id alone whenever a Slot update carried no decoded
+/// container name at all. That reach is restored through the same
+/// projection boundary instead of being narrowed to `None`.
+#[test]
+fn bare_window_slot_updates_still_reach_the_open_generic_storage_window() {
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut runtime);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(4),
+            window_type: GENERIC_STORAGE_WINDOW_TYPE,
+            position: [0, 0, 0],
+            runtime_entity_id: 1,
+        }));
+    runtime.inventory_ledger_mut().apply(&content(
+        ContainerIdentity {
+            window_id: Some(4),
+            slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: Some(9),
+        },
+        vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
+    ));
+
+    // A bare-window Slot update — the optional container name absent on the
+    // wire — addresses the same open window exactly as before.
+    runtime
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(4, None), 5, stack(55)));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .storage_stack(5)
+            .map(|stack| stack.network_id),
+        Some(55),
+        "bare-window updates reach the open generic-storage window like before"
+    );
+    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 0);
+
+    // A bare window id that matches no open window stays unrouted leniency.
+    runtime
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(9, None), 5, stack(99)));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .storage_stack(5)
+            .map(|stack| stack.network_id),
+        Some(55)
+    );
+    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 1);
+
+    // Without any open window the same bare shape cannot land anywhere and
+    // is counted; the session keeps accepting routed traffic.
+    let mut closed = UiRuntime::new(1);
+    server_ledger(&mut closed);
+    closed
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(4, None), 5, stack(55)));
+    assert_eq!(closed.inventory_ledger().skipped_unknown_containers(), 1);
+    closed
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(0, None), 5, stack(5)));
+    assert_eq!(
+        closed
+            .inventory_ledger()
+            .displayed_stack(5)
+            .map(|stack| stack.network_id),
+        Some(5)
+    );
+}
+
 fn zero_count_correction(slot: u8) -> StackResponseSlot {
     StackResponseSlot {
         slot,
@@ -260,16 +488,18 @@ fn zero_count_correction(slot: u8) -> StackResponseSlot {
 
 #[test]
 fn accepted_response_corrections_resolve_through_the_same_canonical_projection() {
-    // Premise: an accepted-response container carrying no decoded container
-    // name still projects onto the player-inventory surface through its
-    // legacy window id, exactly like Content and Slot ingress.
-    let unnamed_window = ContainerIdentity {
-        window_id: Some(0),
-        slot_type: None,
-        dynamic_id: None,
+    // Premise: an accepted-response container decodes without any window id
+    // at all (`normalize_response` emits only the decoded container name),
+    // so the reachable converged shape is the combined player-inventory
+    // name carrying `window_id: None`. It must project onto exactly the
+    // canonical cell the equivalent named Slot ingress addresses.
+    let named_no_window = ContainerIdentity {
+        window_id: None,
+        slot_type: Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+        dynamic_id: Some(7),
     };
     assert_eq!(
-        project_container_cell(&unnamed_window, 3),
+        project_container_cell(&named_no_window, 3),
         Some(CanonicalCell::PlayerInventory(3))
     );
 
@@ -277,7 +507,10 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
     server_ledger(&mut runtime);
     for (slot, network_id) in [(3, 33), (4, 44), (5, 55)] {
         runtime.inventory_ledger_mut().apply(&slot_event(
-            identity(0, None),
+            identity(
+                0,
+                Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+            ),
             slot,
             stack(network_id),
         ));
@@ -291,17 +524,23 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
                 status: StackResponseStatus::Accepted,
                 request_id: request,
                 containers: Arc::from([
-                    // An unnamed legacy-window container corrects the same
-                    // player cell the equivalent Slot event addresses.
+                    // The named window-less response container corrects the
+                    // same canonical player cell the named Slot event
+                    // addressed.
                     StackResponseContainer {
-                        container: unnamed_window,
+                        container: named_no_window,
                         slots: Arc::from([zero_count_correction(3)]),
                     },
-                    // An unknown container name takes precedence over its
-                    // window id and resolves onto no retained cell: skipped
-                    // whole and counted, never a mutation.
+                    // An unknown container name resolves onto no retained
+                    // cell: skipped whole and counted, never a mutation.
+                    // Responses decode unknown names with no window id, so
+                    // this is the wire-reachable unrouted shape.
                     StackResponseContainer {
-                        container: identity(0, Some(211)),
+                        container: ContainerIdentity {
+                            window_id: None,
+                            slot_type: Some(211),
+                            dynamic_id: None,
+                        },
                         slots: Arc::from([zero_count_correction(4)]),
                     },
                 ]),
@@ -314,7 +553,7 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
             .displayed_stack(3)
             .map(|stack| stack.network_id),
         None,
-        "the unnamed-window correction cleared the same canonical cell"
+        "the named response cleared the same canonical cell"
     );
     assert_eq!(
         runtime
