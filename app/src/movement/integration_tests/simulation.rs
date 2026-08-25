@@ -508,7 +508,7 @@ fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
     );
 }
 
-fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
+pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"PREG1001");
     bytes.extend_from_slice(&1001_u32.to_le_bytes());

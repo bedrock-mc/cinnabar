@@ -3,11 +3,16 @@
 //! Vanilla Bedrock asserts the `HandledTeleport` input flag on outbound
 //! `PlayerAuthInput` after it has accepted a server-driven teleport, so the
 //! server can stop re-sending the anchor. Cinnabar learns qualifying server
-//! teleports from exactly three production sites: a committed correction
-//! classified [`super::CorrectionShape::TeleportSnap`], a local-player
-//! `MovePlayer` whose event carries `teleported == true`, and a committed
-//! respawn. Dimension changes, StartGame resets, client-derived surface-spawn
-//! resolves, and Replay/Confirmed corrections never arm the assertion.
+//! teleports from exactly three production sites, all inside the authorized
+//! world-stream reconciliation (`runtime::world`): a committed correction
+//! classified [`super::CorrectionShape::TeleportSnap`] dispatches by
+//! reconciliation outcome, a local-player `MovePlayer` whose event carries
+//! `teleported == true` marks on event admission, and a committed respawn
+//! marks on event admission through [`ServerTeleportKind::Respawn`].
+//! Dimension changes, StartGame resets, client-derived surface-spawn
+//! resolves, and Replay/Confirmed corrections never arm the assertion; a
+//! dimension change explicitly clears any armed assertion instead of leaking
+//! it across the boundary.
 //!
 //! The whole feature is gated behind the registered opt-in environment
 //! marker [`markers::TELEPORT_ACK`] (value exactly `1`), evaluated once per
@@ -49,6 +54,13 @@ const SCHEMA_TAG: &str = "rust-mcbe-movement-teleport-ack-v1";
 /// outlive without finding a transmission before it expires. At the fixed
 /// 20 Hz tick this bounds the assertion to roughly two seconds of streaming;
 /// pending version-matched native Bedrock measurement.
+///
+/// Exact expiry boundary: admissions one through forty each charge the
+/// budget, and admission forty-one observes `remaining_admitted_ticks == 0`
+/// in [`MovementTicker::observe_admitted_tick_for_teleport_ack`], expiring
+/// the assertion, counting it, and emitting one bounded stdout marker. The
+/// eventual native-evidence gate must carry these admission-41 semantics
+/// verbatim rather than restating the budget as "forty ticks".
 pub(super) const TELEPORT_ACK_ADMITTED_TICK_BUDGET: u64 = 40;
 /// Which observed event reached the acknowledgement state machine.
 ///

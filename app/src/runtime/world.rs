@@ -1,28 +1,23 @@
 mod acceptance_helpers;
 mod control_apply;
+mod shutdown_watchdog;
 
 pub(crate) use acceptance_helpers::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
 pub(crate) use control_apply::apply_committed_control;
-
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU8, Ordering},
-    },
-    thread,
-    time::Duration,
+pub(crate) use shutdown_watchdog::{
+    SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, app_exit_code, arm_shutdown_watchdog,
+    begin_bounded_shutdown,
 };
+
+use std::sync::Arc;
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
-    app::AppExit,
     ecs::system::SystemParam,
     log::{debug, info, warn},
-    prelude::{
-        MessageReader, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With,
-    },
+    prelude::{MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
 use client_world::{
@@ -42,7 +37,6 @@ use render::{
 use crate::{
     acceptance::{
         AcceptanceRun,
-        markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER},
         model_witness::ModelWitnessFileSource,
         mutation::{deterministic_mutation_coordinate, write_stdout_marker},
     },
@@ -65,8 +59,6 @@ use crate::{
     },
     ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
-
-pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
@@ -99,117 +91,6 @@ pub(crate) struct ClientWorld {
     pub(crate) reported_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
-}
-
-pub(crate) const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
-pub(crate) const SHUTDOWN_WATCHDOG_ARMED: u8 = 1;
-pub(crate) const SHUTDOWN_WATCHDOG_COMPLETED: u8 = 2;
-pub(crate) const SHUTDOWN_WATCHDOG_FIRED: u8 = 3;
-
-pub(crate) type ShutdownTerminator = Arc<dyn Fn(i32) + Send + Sync + 'static>;
-
-#[derive(Resource, Clone)]
-pub(crate) struct ShutdownWatchdog {
-    pub(crate) state: Arc<AtomicU8>,
-    pub(crate) timeout: Duration,
-    pub(crate) terminate: ShutdownTerminator,
-}
-
-impl ShutdownWatchdog {
-    pub(crate) fn process(timeout: Duration) -> Self {
-        Self::new(timeout, |code| std::process::exit(code))
-    }
-
-    pub(crate) fn new<F>(timeout: Duration, terminate: F) -> Self
-    where
-        F: Fn(i32) + Send + Sync + 'static,
-    {
-        Self {
-            state: Arc::new(AtomicU8::new(SHUTDOWN_WATCHDOG_IDLE)),
-            timeout,
-            terminate: Arc::new(terminate),
-        }
-    }
-
-    pub(crate) fn arm(&self, exit: AppExit) -> bool {
-        if self
-            .state
-            .compare_exchange(
-                SHUTDOWN_WATCHDOG_IDLE,
-                SHUTDOWN_WATCHDOG_ARMED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return false;
-        }
-        let state = Arc::clone(&self.state);
-        let terminate = Arc::clone(&self.terminate);
-        let timeout = self.timeout;
-        let exit_code = app_exit_code(&exit);
-        let spawned = thread::Builder::new()
-            .name("bedrock-shutdown-watchdog".to_owned())
-            .spawn(move || {
-                thread::sleep(timeout);
-                if state
-                    .compare_exchange(
-                        SHUTDOWN_WATCHDOG_ARMED,
-                        SHUTDOWN_WATCHDOG_FIRED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-                {
-                    eprintln!(
-                        "{SHUTDOWN_WATCHDOG_FIRED_MARKER} timeout_ms={} exit_code={exit_code}",
-                        timeout.as_millis()
-                    );
-                    terminate(exit_code);
-                }
-            });
-        if spawned.is_err() {
-            self.state.store(SHUTDOWN_WATCHDOG_FIRED, Ordering::Release);
-            (self.terminate)(exit_code);
-        }
-        true
-    }
-
-    pub(crate) fn complete(&self) {
-        self.state
-            .store(SHUTDOWN_WATCHDOG_COMPLETED, Ordering::Release);
-    }
-}
-
-pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
-    match exit {
-        AppExit::Success => 0,
-        AppExit::Error(code) => i32::from(code.get()),
-    }
-}
-
-pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
-    if watchdog.arm(exit.clone()) {
-        eprintln!(
-            "{SHUTDOWN_WATCHDOG_ARMED_MARKER} timeout_ms={} exit_code={}",
-            watchdog.timeout.as_millis(),
-            app_exit_code(exit)
-        );
-    }
-}
-
-pub(crate) fn arm_shutdown_watchdog(
-    mut exits: MessageReader<AppExit>,
-    watchdog: Res<ShutdownWatchdog>,
-) {
-    let requested = exits.read().cloned().reduce(
-        |selected, next| {
-            if selected.is_error() { selected } else { next }
-        },
-    );
-    if let Some(exit) = requested {
-        begin_bounded_shutdown(&watchdog, &exit);
-    }
 }
 
 impl Default for ClientWorld {
@@ -478,15 +359,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 ..
             } => {
                 let tick = correction.source_tick;
-                // Opt-in HandledTeleport acknowledgement: only the event's
-                // explicit teleported flag is a server teleport; unmarked
-                // local MovePlayers stay counter-only.
-                if correction.teleported {
-                    movement.note_server_teleport(ServerTeleportKind::MovePlayer);
-                } else {
-                    movement.note_unmarked_local_move_player();
-                }
                 if movement.physics_is_authorized() {
+                    // Opt-in HandledTeleport acknowledgement, gated exactly
+                    // like every other arming site: only the event's explicit
+                    // teleported flag is a server teleport; unmarked local
+                    // MovePlayers stay counter-only.
+                    if correction.teleported {
+                        movement.note_server_teleport(ServerTeleportKind::MovePlayer);
+                    } else {
+                        movement.note_unmarked_local_move_player();
+                    }
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
                         collisions.registry(stream.network_id_mode()),
@@ -562,6 +444,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             CommittedControlEvent::Respawn { resolved, .. } => {
                 if movement.physics_is_authorized() {
+                    // Opt-in HandledTeleport acknowledgement: a committed
+                    // respawn is a server-driven anchor, marked on admission
+                    // under authority like the other qualifying sites (see
+                    // the movement `teleport_ack` module).
+                    movement.note_server_teleport(ServerTeleportKind::Respawn);
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
                         collisions.registry(stream.network_id_mode()),

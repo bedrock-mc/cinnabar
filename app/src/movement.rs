@@ -994,3 +994,5 @@ mod settle_tests;
 mod state_tests;
 #[cfg(test)]
 mod teleport_ack_tests;
+#[cfg(test)]
+mod teleport_ack_wiring_tests;
