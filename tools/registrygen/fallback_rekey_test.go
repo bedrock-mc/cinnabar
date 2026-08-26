@@ -148,6 +148,44 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	}
 }
 
+// rekeySidecarDigestMatches reports whether sidecar bytes record exactly the
+// given lowercase hex digest while tolerating both LF- and CRLF-terminated
+// files: a core.autocrlf checkout may rewrite tracked text sidecars to CRLF
+// without changing the digest they name.
+func rekeySidecarDigestMatches(sidecar []byte, digest string) bool {
+	return strings.TrimSpace(string(sidecar)) == strings.TrimSpace(digest)
+}
+
+// TestRekeySidecarDigestMatchesToleratesLFAndCRLFSidecars pins that the
+// checked-in sidecar comparison accepts one digest regardless of line-ending
+// termination and still rejects any different digest in either form; the
+// former raw byte comparison failed spuriously on autocrlf checkouts where
+// identical-looking digests differed only by a trailing CR.
+func TestRekeySidecarDigestMatchesToleratesLFAndCRLFSidecars(t *testing.T) {
+	digest := "31cfbf7b51dd1f37a904f73092212f209029570abead458db10ace05a16064b2"
+	other := strings.Repeat("ab", 32)
+	tests := []struct {
+		name    string
+		sidecar []byte
+		want    bool
+	}{
+		{name: "LF terminated", sidecar: []byte(digest + "\n"), want: true},
+		{name: "CRLF terminated", sidecar: []byte(digest + "\r\n"), want: true},
+		{name: "bare digest", sidecar: []byte(digest), want: true},
+		{name: "different digest LF terminated", sidecar: []byte(other + "\n"), want: false},
+		{name: "different digest CRLF terminated", sidecar: []byte(other + "\r\n"), want: false},
+		{name: "digest with interior drift", sidecar: []byte(digest[:32] + other[:16] + digest[48:] + "\n"), want: false},
+		{name: "empty sidecar", sidecar: nil, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := rekeySidecarDigestMatches(test.sidecar, digest+"\n"); got != test.want {
+				t.Fatalf("rekeySidecarDigestMatches(%q) = %v, want %v", test.sidecar, got, test.want)
+			}
+		})
+	}
+}
+
 // TestCheckedInV2168FallbackInventoryIsRekeyedAndHashBound pins the committed
 // v2168 fallback artifact in the biome-pin precedent style: its exact bytes
 // must match the tracked sidecar digest and must be reproducible byte-for-byte
@@ -164,8 +202,15 @@ func TestCheckedInV2168FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	digest := fmt.Sprintf("%x\n", sha256.Sum256(inventory))
-	if digest != string(sidecar) {
-		t.Fatalf("checked-in v2168 fallback SHA-256 %s does not match sidecar %s", digest, sidecar)
+	if !rekeySidecarDigestMatches(sidecar, digest) {
+		t.Fatalf("checked-in v2168 fallback SHA-256 %s does not match sidecar %q", digest, sidecar)
+	}
+	// The tracked sidecar is LF inside git but may be rewritten to CRLF by an
+	// autocrlf checkout, which previously failed this pin spuriously even
+	// though both sides named identical bytes; the comparison must accept both
+	// terminations of the exact digest.
+	if !rekeySidecarDigestMatches([]byte(digest), digest) || !rekeySidecarDigestMatches([]byte(strings.ReplaceAll(digest, "\n", "\r\n")), digest) {
+		t.Fatal("checked-in sidecar comparison lost its LF/CRLF tolerance")
 	}
 	legacyBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v1001.bin"))
 	if err != nil {
@@ -501,16 +546,32 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			command := exec.Command(binary, test.args...)
-			output, err := command.CombinedOutput()
-			if got := commandExitCode(err); got != test.want {
-				t.Fatalf("exit = %d, want %d; output=%s", got, test.want, output)
+			var stdout, stderr bytes.Buffer
+			command.Stdout = &stdout
+			command.Stderr = &stderr
+			if got := commandExitCode(command.Run()); got != test.want {
+				t.Fatalf("exit = %d, want %d; stdout=%s stderr=%s", got, test.want, stdout.String(), stderr.String())
 			}
-			hasReport := strings.Contains(string(output), "\"entries_joined\"")
+			// Stream separation: the stats summary belongs on stdout and every
+			// diagnostic stays on stderr; CombinedOutput would hide a swap.
+			hasReport := strings.Contains(stdout.String(), "\"output_entries\"")
 			if test.wantReport && !hasReport {
-				t.Fatalf("no-manifest success did not echo the stats summary: %s", output)
+				t.Fatalf("no-manifest success did not echo the stats summary on stdout: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 			if !test.wantReport && hasReport {
-				t.Fatalf("unexpected stdout stats summary: %s", output)
+				t.Fatalf("unexpected stdout stats summary: %q", stdout.String())
+			}
+			if test.want != 0 {
+				if stdout.Len() != 0 {
+					t.Fatalf("failure mode wrote to stdout: %q", stdout.String())
+				}
+				if strings.TrimSpace(stderr.String()) == "" {
+					t.Fatal("failure mode wrote nothing to stderr")
+				}
+				return
+			}
+			if strings.TrimSpace(stderr.String()) != "" {
+				t.Fatalf("success polluted stderr: %q", stderr.String())
 			}
 		})
 		if test.want != 0 {
