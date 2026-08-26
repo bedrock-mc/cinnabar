@@ -102,6 +102,9 @@ fn compiler_assigns_generic_birch_evergreen_and_self_colored_leaf_flags() {
 #[test]
 fn assetc_summary_reports_deterministic_cutout_material_count() {
     let (directory, resource_pack, records) = leaf_material_fixture();
+    // Real registries always carry canonical air; the fixture appends one so
+    // the CLI path sees the same shape as a protocol triple.
+    let records = with_canonical_air(&records);
     let registry = directory.path().join("registry.bin");
     let light_registry = directory.path().join("light-registry.bin");
     let biome_registry = directory.path().join("biome-registry.bin");
@@ -141,7 +144,7 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 summary"),
         format!(
-            "compiled 4 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
+            "compiled 5 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
             output_blob.display()
         )
     );
@@ -774,7 +777,7 @@ fn compiler_emits_exact_checked_stained_glass_cube_models() {
         }
     }
     assert!(
-        compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..]
+        compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..records.len()]
             .iter()
             .all(|visual| visual.kind == VisualKind::Diagnostic
                 && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
@@ -986,7 +989,7 @@ fn compiler_emits_exact_checked_copper_grate_models() {
         assert_eq!(faces(unwaxed), faces(waxed), "alias pair {unwaxed}/{waxed}");
     }
     assert!(
-        compiled.visuals[admitted_count..]
+        compiled.visuals[admitted_count..records.len()]
             .iter()
             .all(|visual| visual.kind == VisualKind::Diagnostic
                 && visual.faces == [DIAGNOSTIC_MATERIAL; 6])

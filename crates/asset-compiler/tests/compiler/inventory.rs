@@ -92,14 +92,27 @@ fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
     .find(|record| record.name.as_ref() == "minecraft:air")
     .expect("canonical air");
     record.name = "custom:air".into();
+    // Distinct wire identities so both records can share one registry.
+    record.sequential_id = 15_000;
+    record.network_hash = 0x0dec_0de5;
+    // A decoy can only compile alongside the true canonical air, exactly as a
+    // real registry would carry both identities if it were attacked this way.
+    let canonical = read_registry(include_bytes!(
+        "../../../assets/data/block-registry-v1001.bin"
+    ))
+    .expect("decode committed generated registry")
+    .into_iter()
+    .find(|record| record.name.as_ref() == "minecraft:air")
+    .expect("canonical air");
+    let records = vec![canonical, record];
     let compiled =
-        compile_pack(directory.path(), std::slice::from_ref(&record)).expect("compile custom air");
+        compile_pack(directory.path(), &records).expect("compile custom air beside canonical air");
     assert_eq!(
-        compiled.visuals[record.sequential_id as usize].kind,
+        compiled.visuals[records[1].sequential_id as usize].kind,
         VisualKind::Diagnostic
     );
     assert_eq!(
-        compiled.visuals[record.sequential_id as usize].support,
+        compiled.visuals[records[1].sequential_id as usize].support,
         assets::VisualSupport::Diagnostic
     );
     let runtime = RuntimeAssets::decode(
@@ -108,8 +121,16 @@ fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
             .into_vec(),
     )
     .expect("decode custom air diagnostic");
-    assert_eq!(runtime.air_network_id(NetworkIdMode::Sequential), None);
-    assert_eq!(runtime.air_network_id(NetworkIdMode::Hashed), None);
+    // The custom identity must not be laundered into the exact no-draw route:
+    // the runtime still resolves the pristine canonical air identities.
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Sequential),
+        Some(13_094)
+    );
+    assert_eq!(
+        runtime.air_network_id(NetworkIdMode::Hashed),
+        Some(0xdbf4_4120)
+    );
 }
 
 #[test]

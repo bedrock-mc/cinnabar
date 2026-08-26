@@ -14,7 +14,7 @@ use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
     ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES,
     encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
-    read_light_registry, read_registry, write_blob_atomic,
+    write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -30,6 +30,8 @@ mod icon_command;
 mod lang_command;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
+#[path = "assetc/registry_version.rs"]
+mod registry_version;
 
 use audio_command::compile_audio_assets_command;
 use hud_command::compile_hud_assets_command;
@@ -396,10 +398,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             })?;
             let registry_bytes = read_bounded(&registry)?;
-            let records = read_registry(&registry_bytes)?;
+            let (records, block_registry_protocol) =
+                registry_version::read_block_registry_input(&registry, &registry_bytes)?;
             let light_registry_bytes = read_bounded(&light_registry)?;
-            let light_properties =
-                read_light_registry(&light_registry_bytes, &registry_bytes, records.len())?;
+            let light_properties = registry_version::read_light_registry_input(
+                &light_registry,
+                &light_registry_bytes,
+                &registry,
+                &registry_bytes,
+                block_registry_protocol,
+                records.len(),
+            )?;
             let biome_registry_bytes = read_bounded(&biome_registry)?;
             let biome_records = read_biome_registry(&biome_registry_bytes)?;
             let behavior_pack = pack

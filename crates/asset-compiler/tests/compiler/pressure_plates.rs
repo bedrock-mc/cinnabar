@@ -183,11 +183,11 @@ fn compiler_pressure_plate_selector_fails_closed_when_missing_or_out_of_range() 
         ));
     }
     let compiled = compile_pack(directory.path(), &records).expect("compile invalid selectors");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());

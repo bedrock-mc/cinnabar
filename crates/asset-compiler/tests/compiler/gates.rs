@@ -394,11 +394,11 @@ fn compiler_gate_selectors_fail_closed_when_missing_or_out_of_range() {
         ));
     }
     let compiled = compile_pack(directory.path(), &records).expect("compile invalid gate states");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());

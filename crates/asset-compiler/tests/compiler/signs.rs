@@ -139,13 +139,15 @@ fn compiler_routes_all_sign_states_to_reviewed_blank_static_models() {
     write_sign_pack(directory.path(), &records);
     let compiled = compile_pack(directory.path(), &records).expect("compile all sign states");
 
-    assert!(compiled.visuals.iter().all(|visual| {
-        visual.kind == VisualKind::Model
-            && visual.model_template != assets::NO_MODEL_TEMPLATE
-            && visual
-                .faces
-                .iter()
-                .all(|&material| material != DIAGNOSTIC_MATERIAL)
+    let fixture_air = fixture_air_id(&records) as usize;
+    assert!(compiled.visuals.iter().enumerate().all(|(index, visual)| {
+        index == fixture_air
+            || (visual.kind == VisualKind::Model
+                && visual.model_template != assets::NO_MODEL_TEMPLATE
+                && visual
+                    .faces
+                    .iter()
+                    .all(|&material| material != DIAGNOSTIC_MATERIAL))
     }));
     for (record, visual) in records.iter().zip(compiled.visuals.iter()) {
         let template = compiled.model_templates[visual.model_template as usize];
@@ -347,11 +349,11 @@ fn compiler_sign_selectors_fail_closed_when_typed_state_is_missing_or_mismatched
     }
     write_sign_pack(directory.path(), &records);
     let compiled = compile_pack(directory.path(), &records).expect("fail closed on bad sign state");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());

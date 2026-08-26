@@ -348,12 +348,13 @@ fn compiler_door_and_trapdoor_selectors_fail_closed_when_required_fields_are_mis
         .into_boxed_slice(),
     };
     trapdoor.collision_seed = door.collision_seed.clone();
-    let compiled = compile_pack(directory.path(), &[door, trapdoor]).expect("fail closed");
+    let records = [door, trapdoor];
+    let compiled = compile_pack(directory.path(), &records).expect("fail closed");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());
@@ -434,7 +435,7 @@ fn compiler_door_and_trapdoor_selectors_fail_closed_for_every_out_of_range_field
     assert_eq!(compiled.visuals[0].kind, VisualKind::Model);
     assert_eq!(compiled.visuals[1].kind, VisualKind::Model);
     assert!(
-        compiled.visuals[2..]
+        compiled.visuals[2..records.len()]
             .iter()
             .all(|visual| visual.kind == VisualKind::Diagnostic)
     );

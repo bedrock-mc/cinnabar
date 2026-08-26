@@ -552,11 +552,11 @@ fn compiler_button_selectors_fail_closed_when_missing_invalid_extra_or_mismatche
         record.network_hash = 98_000 + id as u32;
     }
     let compiled = compile_pack(directory.path(), &records).expect("compile invalid buttons");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());

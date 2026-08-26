@@ -76,7 +76,8 @@ fn compiler_compiles_all_vine_masks_as_exact_tinted_attachment_planes() {
 
     let compiled = compile_pack(directory.path(), &generated_vine_records())
         .expect("compile every protocol-1001 vine mask");
-    assert_eq!(compiled.visuals.len(), 16);
+    // The fixture helper appends canonical air one identity above the masks.
+    assert_eq!(compiled.visuals.len(), 17);
     assert_eq!(
         compiled.model_templates.len(),
         16,
@@ -119,7 +120,11 @@ fn compiler_compiles_all_vine_masks_as_exact_tinted_attachment_planes() {
         .flat_map(|pixel| pixel.iter().copied())
         .collect::<Vec<_>>();
 
+    let fixture_air = fixture_air_id(&generated_vine_records()) as usize;
     for (mask, visual) in compiled.visuals.iter().enumerate() {
+        if mask == fixture_air {
+            continue;
+        }
         assert_eq!(
             visual.kind,
             VisualKind::Model,
@@ -307,7 +312,8 @@ fn compiler_compiles_glow_lichen_and_sculk_vein_as_distinct_exact_multiface_plan
     let compiled = compile_pack(directory.path(), &records)
         .expect("compile both exact protocol-1001 multiface families");
 
-    assert_eq!(compiled.visuals.len(), 128);
+    // The fixture helper appends canonical air one identity above the families.
+    assert_eq!(compiled.visuals.len(), 129);
     assert_eq!(
         compiled.model_templates.len(),
         126,
