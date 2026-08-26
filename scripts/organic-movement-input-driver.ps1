@@ -610,7 +610,8 @@ function Write-OrganicInputLiveLog {
 function Invoke-OrganicInputPlan {
     param(
         [Parameter(Mandatory = $true)]$Plan,
-        [Parameter(Mandatory = $true)][long]$ExpectedForegroundHandle
+        [Parameter(Mandatory = $true)][long]$ExpectedForegroundHandle,
+        [Parameter(Mandatory = $true)][uint32]$ExpectedForegroundProcessId
     )
 
     Initialize-OrganicInputNativeMethods
@@ -641,7 +642,8 @@ function Invoke-OrganicInputPlan {
                     if (-not $finished) { $budgetExhausted = $true }
                 }
                 'KeyDown' {
-                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
+                    Assert-OrganicInputForegroundIdentity -ExpectedHandle $ExpectedForegroundHandle `
+                        -ExpectedProcessId $ExpectedForegroundProcessId
                     Send-OrganicInputKey -ScanCode $step.scan_code -KeyUp $false
                     $held.Push([int]$step.scan_code)
                     $injected++
@@ -649,7 +651,8 @@ function Invoke-OrganicInputPlan {
                         ("KeyDown {0} sc=0x{1:x2} label={2}" -f $step.key, $step.scan_code, $step.label)
                 }
                 'KeyUp' {
-                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
+                    Assert-OrganicInputForegroundIdentity -ExpectedHandle $ExpectedForegroundHandle `
+                        -ExpectedProcessId $ExpectedForegroundProcessId
                     Send-OrganicInputKey -ScanCode $step.scan_code -KeyUp $true
                     if ($held.Count -gt 0 -and $held.Peek() -eq [int]$step.scan_code) { $held.Pop() }
                     $injected++
@@ -657,7 +660,8 @@ function Invoke-OrganicInputPlan {
                         ("KeyUp {0} sc=0x{1:x2} label={2}" -f $step.key, $step.scan_code, $step.label)
                 }
                 'MouseMove' {
-                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
+                    Assert-OrganicInputForegroundIdentity -ExpectedHandle $ExpectedForegroundHandle `
+                        -ExpectedProcessId $ExpectedForegroundProcessId
                     Send-OrganicInputMouseMove -Dx $step.dx -Dy $step.dy
                     $injected++
                     Write-OrganicInputLiveLog -Stopwatch $stopwatch -Message `
@@ -753,14 +757,8 @@ if (-not $matched.Matched) {
 }
 
 Write-OrganicInputTimeline -Plan $plan -AsDryRun $false
-$foregroundHandle = [RustMcbe.OrganicInput.FocusNative]::GetForegroundWindow().ToInt64()
-$currentTarget = Get-OrganicInputTargetCandidates -ProcessName $ProcessName -WindowTitle $WindowTitle
-if ($null -eq (Test-OrganicInputForegroundCandidate -Candidates @($currentTarget.Candidates) `
-        -ForegroundHandle $foregroundHandle)) {
-    Write-Output 'refusing to inject: target lost the foreground after the initial gate.'
-    exit 2
-}
 Write-Output '[live] starting in 1.0s (Ctrl+C cancels; held keys are released automatically).'
 Start-Sleep -Milliseconds 1000
-Invoke-OrganicInputPlan -Plan $plan -ExpectedForegroundHandle $foregroundHandle
+Invoke-OrganicInputPlan -Plan $plan -ExpectedForegroundHandle $matched.Handle `
+    -ExpectedForegroundProcessId $matched.ProcessId
 exit 0

@@ -5,8 +5,16 @@ set -euo pipefail
 # compiled only inside a temporary directory and is always removed by the trap.
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 source_path="${1:-$script_dir/../rename-directory-no-replace.c}"
+fetcher_path="${2:-$script_dir/../fetch-vanilla-assets.sh}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/cinnabar-rename-test.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
+
+grep -Fq 'mktemp -d "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX"' "$fetcher_path"
+grep -Fq 'publisher_binary="$publisher_work/publisher"' "$fetcher_path"
+if grep -Fq 'rm -f -- "$publisher_binary"' "$fetcher_path"; then
+    printf '%s\n' 'fetcher removes and reuses the atomic publisher leaf path' >&2
+    exit 1
+fi
 
 cc -std=c11 -O2 -Wall -Wextra -Werror "$source_path" -o "$scratch/publisher"
 

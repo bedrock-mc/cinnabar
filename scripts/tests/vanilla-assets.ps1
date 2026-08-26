@@ -432,16 +432,6 @@ exit 1
 '@ -Encoding ASCII
     $bashDeepProbeResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @($bashDeepProbeScript)
     $bashDeepTools = ($bashDeepProbeResult.ExitCode -eq 0)
-    if ($bashDeepTools) {
-        $renameHelperTest = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
-            (Join-Path $repoRoot 'scripts\tests\rename-directory-no-replace_test.sh'),
-            (Join-Path $repoRoot 'scripts\rename-directory-no-replace.c')
-        )
-        if ($renameHelperTest.ExitCode -ne 0) {
-            $sandboxFailures += "atomic-publisher-helper(bash): $($renameHelperTest.Output.Trim())"
-        }
-    }
-
     function Assert-ExtractionRejection {
         param(
             [Parameter(Mandatory = $true)]
@@ -628,32 +618,7 @@ exit 1
     Assert-ExtractionRejection -Label "duplicate-entry" `
         -Needle "duplicate ZIP entry path 'resource_pack/blocks.json'"
 
-    # Explicit directory members are entries in their own right and may not
-    # repeat. Implicit ancestors shared by distinct files remain valid.
-    Reset-BoundedFixture
-    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
-        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
-        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
-        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
-    )
-    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
-    Assert-ExtractionRejection -Label "duplicate-explicit-directory" `
-        -Needle "duplicate ZIP entry path 'resource_pack'"
-
-    Reset-BoundedFixture
-    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
-        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
-        [pscustomobject]@{ Name = "resource_pack/textures/one.txt"; Content = "one" },
-        [pscustomobject]@{ Name = "resource_pack/textures/two.txt"; Content = "two" }
-    )
-    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
-    if ($bashDeepTools) {
-        $implicitAncestorResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
-            $sandboxBashFetcher, "--accept-eula")
-        if ($implicitAncestorResult.ExitCode -ne 0) {
-            $sandboxFailures += "implicit-ancestor-repeat(bash): valid archive failed: $($implicitAncestorResult.Output.Trim())"
-        }
-    }
+    . (Join-Path $PSScriptRoot 'vanilla-assets\DirectoryEntryCases.ps1')
 
     # --- file/directory path collisions are rejected on both platforms ---
     Reset-BoundedFixture
@@ -729,14 +694,7 @@ exit 1
             -AssetRoot $assetSandboxRoot `
             -StagingResidueFilter $stagingResidueFilter
     }
-    $sandboxFailures += Test-PowerShellDirectoryMoveRace -Root $sandboxRoot
-    $powerShellFetcherText = Get-Content -Raw -LiteralPath $sandboxPowerShellFetcher
-    if (-not $powerShellFetcherText.Contains('[System.IO.Directory]::Move(')) {
-        $sandboxFailures += 'publish-race(PowerShell): fetcher does not use direct Directory.Move publication'
-    }
-    if ($powerShellFetcherText -match 'Move-Item\s+-LiteralPath\s+\$normalizedRoot') {
-        $sandboxFailures += 'publish-race(PowerShell): fetcher retained directory-destination Move-Item publication'
-    }
+    . (Join-Path $PSScriptRoot 'vanilla-assets\PublicationCases.ps1')
 
     # --- stale staging reclamation: interrupted-run leftovers older than the
     # retention age are reclaimed at startup, fresh leftovers survive within

@@ -447,27 +447,37 @@ Describe 'organic movement synthetic input driver' {
                 'driver must forward the Activate switch to the wait gate'
         }
 
-        It 'rechecks the originally matched foreground handle before every injected event' {
+        It 'rechecks the originally matched foreground handle and process before every injected event' {
             $safetyPath = Join-Path $RepoRoot 'scripts\organic-movement-input-safety.ps1'
             Assert-True (Test-Path -LiteralPath $safetyPath -PathType Leaf) `
                 'event focus safety helper must exist'
             . $safetyPath
 
-            $observed = [Collections.Generic.Queue[long]]::new()
-            $observed.Enqueue(0x1234)
-            $observed.Enqueue(0x5678)
-            $probe = { return $observed.Dequeue() }
-            { Assert-OrganicInputForegroundHandle -ExpectedHandle 0x1234 `
-                    -ForegroundHandleProvider $probe } | Should Not Throw
-            { Assert-OrganicInputForegroundHandle -ExpectedHandle 0x1234 `
-                    -ForegroundHandleProvider $probe } | Should Throw
+            $matchProbe = { return [pscustomobject]@{ Handle = 0x1234; ProcessId = 41 } }
+            { Assert-OrganicInputForegroundIdentity -ExpectedHandle 0x1234 `
+                    -ExpectedProcessId 41 -ForegroundIdentityProvider $matchProbe } |
+                Should Not Throw
+            $recycledHandleProbe = {
+                return [pscustomobject]@{ Handle = 0x1234; ProcessId = 42 }
+            }
+            { Assert-OrganicInputForegroundIdentity -ExpectedHandle 0x1234 `
+                    -ExpectedProcessId 41 -ForegroundIdentityProvider $recycledHandleProbe } |
+                Should Throw
 
             $driverText = Get-Content -Raw -LiteralPath $DriverPath
             foreach ($action in @('KeyDown', 'KeyUp', 'MouseMove')) {
-                $pattern = "'$action'\s*\{\s*Assert-OrganicInputForegroundHandle"
+                $pattern = "'$action'\s*\{\s*Assert-OrganicInputForegroundIdentity"
                 Assert-True ($driverText -cmatch $pattern) `
-                    "$action must recheck focus before its SendInput event"
+                    "$action must recheck foreground identity before its SendInput event"
             }
+            $focusText = Get-Content -Raw -LiteralPath (
+                Join-Path $RepoRoot 'scripts\organic-movement-input-focus.ps1')
+            Assert-True ($focusText -cmatch 'Handle\s*=\s*\[int64\]\$matched\.handle') `
+                'foreground wait gate must return the matched HWND'
+            Assert-True ($focusText -cmatch 'ProcessId\s*=\s*\[uint32\]\$matched\.pid') `
+                'foreground wait gate must return the matched process id'
+            Assert-True ($driverText -cmatch '-ExpectedForegroundProcessId\s+\$matched\.ProcessId') `
+                'live executor must preserve the matched process id'
             Assert-True ($driverText -cmatch 'finally\s*\{[\s\S]*release guard') `
                 'focus-loss abort must retain the held-key release guard'
         }

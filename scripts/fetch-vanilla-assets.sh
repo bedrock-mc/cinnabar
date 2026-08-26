@@ -221,6 +221,8 @@ cache_parent="$(dirname -- "$cache_path")"
 temporary_extract="$cache_path.extracting.$$"
 normalized_source="$cache_path/resource_pack/blocks.json"
 listing_work=''
+publisher_work=''
+publisher_work_identity=''
 publisher_binary=''
 
 printf 'Manifest: %s\n' "$manifest_path"
@@ -283,6 +285,15 @@ reclaim_stale_staging() {
     fi
 }
 
+# Returns a stable device/inode identity for a directory on GNU or BSD/macOS.
+# Cleanup uses it to avoid recursively removing a substituted path.
+directory_identity() {
+    local path="$1" identity
+    identity="$(stat -c '%d:%i' -- "$path" 2>/dev/null || stat -f '%d:%i' -- "$path" 2>/dev/null)" ||
+        return 1
+    printf '%s\n' "$identity"
+}
+
 cleanup_extract() {
     if [[ -n "${temporary_extract:-}" && -d "$temporary_extract" ]]; then
         case "$temporary_extract" in
@@ -295,10 +306,20 @@ cleanup_extract() {
             */cinnabar-zipcheck.*) rm -rf -- "$listing_work" ;;
         esac
     fi
-    if [[ -n "${publisher_binary:-}" && -f "$publisher_binary" ]]; then
-        case "$publisher_binary" in
-            */cinnabar-rename-no-replace.*) rm -f -- "$publisher_binary" ;;
+    if [[ -n "${publisher_work:-}" && -d "$publisher_work" && ! -L "$publisher_work" ]]; then
+        local current_identity=''
+        current_identity="$(directory_identity "$publisher_work" || true)"
+        case "$publisher_work" in
+            */cinnabar-rename-no-replace.*)
+                if [[ -n "$publisher_work_identity" && "$current_identity" == "$publisher_work_identity" ]]; then
+                    rm -rf -- "$publisher_work"
+                else
+                    printf 'refusing to clean substituted publisher workspace: %s\n' "$publisher_work" >&2
+                fi
+                ;;
         esac
+    elif [[ -n "${publisher_work:-}" && ( -e "$publisher_work" || -L "$publisher_work" ) ]]; then
+        printf 'refusing to clean non-directory publisher workspace: %s\n' "$publisher_work" >&2
     fi
 }
 trap cleanup_extract EXIT HUP INT TERM
@@ -341,9 +362,12 @@ publisher_source="$script_dir/rename-directory-no-replace.c"
 if [[ ! -f "$publisher_source" ]]; then
     fatal "atomic publication helper source is missing: $publisher_source"
 fi
-publisher_binary="$(mktemp "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX")" ||
-    fatal 'temporary atomic publication helper path unavailable'
-rm -f -- "$publisher_binary"
+publisher_work="$(mktemp -d "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX")" ||
+    fatal 'temporary atomic publication helper workspace unavailable'
+chmod 700 -- "$publisher_work" || fatal 'atomic publication helper workspace permissions failed'
+publisher_work_identity="$(directory_identity "$publisher_work")" ||
+    fatal 'atomic publication helper workspace identity unavailable'
+publisher_binary="$publisher_work/publisher"
 if ! cc -std=c11 -O2 -Wall -Wextra -Werror "$publisher_source" -o "$publisher_binary"; then
     fatal 'atomic no-replace directory publication helper could not be compiled'
 fi

@@ -6,9 +6,9 @@ $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55
 
 $resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
     -ProjectRoot $ProjectRoot `
-    -ExpectedVersion 'v1.25.3-0.20260816120458-434923f163a1' `
-    -ExpectedCommit '434923f163a15144cdaa44356536cdc76722c50d'
-Assert-Equal '434923f163a15144cdaa44356536cdc76722c50d' $resolvedGophertunnelCommit `
+    -ExpectedVersion 'v1.25.3-0.20260816124832-76f1a7016d41' `
+    -ExpectedCommit '76f1a7016d418277fed9087e39c01cec1c7fd465'
+Assert-Equal '76f1a7016d418277fed9087e39c01cec1c7fd465' $resolvedGophertunnelCommit `
     'gophertunnel commit was not derived from the resolved Go module replacement'
 Assert-ThrowsLike {
     Get-PinnedGophertunnelCommit `

@@ -369,7 +369,12 @@ function Wait-OrganicInputForegroundTarget {
             if ($null -ne $matched) {
                 $log.Add(("[live] foreground target matched: pid={0} handle=0x{1:x} title='{2}'" -f
                     $matched.pid, $matched.handle, $matched.title))
-                return @{ Matched = $true; Log = @($log.ToArray()) }
+                return @{
+                    Matched = $true
+                    Log = @($log.ToArray())
+                    Handle = [int64]$matched.handle
+                    ProcessId = [uint32]$matched.pid
+                }
             }
         }
         Start-Sleep -Milliseconds 400
