@@ -3,8 +3,10 @@
 package authcache
 
 import (
+	"errors"
 	"io/fs"
 	"os"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -43,6 +45,8 @@ func checkOpenedCacheFileSecurity(file *os.File, _ fs.FileInfo) error {
 // directory inheritance is disabled, so ambient grants on the surrounding
 // profile directories cannot expose the token.
 const trustedCacheACL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)"
+
+var reOpenFileProc = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
 
 // verifyCacheDescriptor enforces one deterministic policy: the only trustees
 // that may appear as owner or in any access control entry are the current
@@ -120,9 +124,32 @@ func protectOpenedCacheFile(file *os.File) error {
 	if err != nil || dacl == nil {
 		return unsafePermissions("acl_missing", "trusted cache ACL could not be built")
 	}
-	return windows.SetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT,
+	securityHandle, err := reopenCacheSecurityHandle(file)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(securityHandle)
+	return windows.SetSecurityInfo(securityHandle, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, dacl, nil)
+}
+
+// reopenCacheSecurityHandle obtains WRITE_DAC on the same open file object.
+// ReOpenFile is handle-relative, so no pathname substitution can redirect it.
+func reopenCacheSecurityHandle(file *os.File) (windows.Handle, error) {
+	handle, _, callErr := reOpenFileProc.Call(
+		file.Fd(),
+		uintptr(windows.WRITE_DAC|windows.READ_CONTROL),
+		uintptr(windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE),
+		uintptr(windows.FILE_ATTRIBUTE_NORMAL),
+	)
+	if handle == uintptr(syscall.InvalidHandle) {
+		if callErr == nil {
+			callErr = syscall.EINVAL
+		}
+		return windows.InvalidHandle, errors.New("reopen auth cache security handle")
+	}
+	return windows.Handle(handle), nil
 }
 
 func sidInTrusted(sid *windows.SID, trusted []*windows.SID) bool {

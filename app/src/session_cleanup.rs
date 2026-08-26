@@ -281,6 +281,15 @@ impl SessionDirectoryGuard {
     /// names this binding. Idempotent: later calls report
     /// [`ReleaseOutcome::AlreadyReleased`] and do nothing.
     pub(crate) fn release(&mut self) -> ReleaseOutcome {
+        self.release_with(remove_owned_directory)
+    }
+
+    /// Runs release through an injected remover so replacement races can be
+    /// witnessed without weakening the production identity checks.
+    fn release_with(
+        &mut self,
+        remove: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> ReleaseOutcome {
         if !self.bound {
             return ReleaseOutcome::AlreadyReleased;
         }
@@ -288,9 +297,10 @@ impl SessionDirectoryGuard {
             self.bound = false;
             return ReleaseOutcome::DirectoryMissing;
         }
-        let marker = match load_marker(&self.directory) {
+        match load_marker(&self.directory) {
             Ok(Some(on_disk)) if on_disk.token == self.token && on_disk.pid == process::id() => {
-                on_disk
+                // The marker is the deletion authority. It is deliberately
+                // rechecked after a failed removal before ownership is retained.
             }
             Ok(_) | Err(_) => {
                 // Identity mismatch or unreadable proof: never guess.
@@ -302,7 +312,7 @@ impl SessionDirectoryGuard {
                 return ReleaseOutcome::IdentityRefused;
             }
         };
-        match fs::remove_dir_all(&self.directory) {
+        match remove(&self.directory) {
             Ok(()) => {
                 self.bound = false;
                 ReleaseOutcome::Removed
@@ -311,19 +321,49 @@ impl SessionDirectoryGuard {
                 self.bound = false;
                 ReleaseOutcome::DirectoryMissing
             }
-            Err(_) => {
-                // `remove_dir_all` may remove the marker before encountering
-                // an undeletable child. Restore the same proven identity so
-                // this still-live guard can safely retry the partial cleanup.
-                let _ = write_marker(&self.directory, &marker);
-                eprintln!(
-                    "session-runtime: could not remove session directory {}; a later release or startup reclamation retries",
-                    self.directory.display()
-                );
-                ReleaseOutcome::RemoveFailed
-            }
+            Err(_) => match load_marker(&self.directory) {
+                Ok(Some(on_disk))
+                    if on_disk.token == self.token && on_disk.pid == process::id() =>
+                {
+                    eprintln!(
+                        "session-runtime: could not remove session directory {}; the still-proven owner may retry",
+                        self.directory.display()
+                    );
+                    ReleaseOutcome::RemoveFailed
+                }
+                _ => {
+                    // Never recreate deletion authority through a pathname after
+                    // removal failed: the path may now name a foreign directory.
+                    self.bound = false;
+                    eprintln!(
+                        "session-runtime: removal of {} failed and ownership proof no longer matches; refusing retry",
+                        self.directory.display()
+                    );
+                    ReleaseOutcome::IdentityRefused
+                }
+            },
         }
     }
+}
+
+/// Removes owned runtime contents while deliberately deleting the authority
+/// marker last. If a child cannot be removed, the original marker survives so
+/// a retry remains authorized without ever restamping an unverified pathname.
+fn remove_owned_directory(directory: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.file_name() == MARKER_FILE_NAME {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            fs::remove_dir_all(entry.path())?;
+        } else {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    fs::remove_file(directory.join(MARKER_FILE_NAME))?;
+    fs::remove_dir(directory)
 }
 
 impl Drop for SessionDirectoryGuard {

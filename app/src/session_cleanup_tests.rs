@@ -203,6 +203,32 @@ fn failed_removal_retains_ownership_for_an_explicit_retry() {
 }
 
 #[test]
+fn failed_removal_never_restamps_a_replacement_directory() {
+    let root = TempRoot::new("release-replacement-race");
+    let directory = root.join("connect-7-4");
+    let mut guard = SessionDirectoryGuard::bind(directory.clone()).expect("bind");
+
+    let outcome = guard.release_with(|owned| {
+        fs::remove_dir_all(owned)?;
+        fs::create_dir(owned)?;
+        fs::write(owned.join("foreign"), b"foreign")?;
+        Err(std::io::Error::other("forced failure after replacement"))
+    });
+
+    assert_eq!(outcome, ReleaseOutcome::IdentityRefused);
+    assert_eq!(fs::read(directory.join("foreign")).unwrap(), b"foreign");
+    assert!(
+        read_marker_token(&directory).is_none(),
+        "a replacement directory must never inherit deletion authority",
+    );
+    assert_eq!(guard.release(), ReleaseOutcome::AlreadyReleased);
+    assert!(
+        directory.exists(),
+        "later release must preserve replacement"
+    );
+}
+
+#[test]
 fn scoped_holder_removes_on_scope_exit_and_is_safe_when_empty() {
     let root = TempRoot::new("scoped");
     let directory = root.join("direct-71");
