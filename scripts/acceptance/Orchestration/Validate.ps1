@@ -132,7 +132,8 @@ $script:AcceptanceValidationPhase = {
         -ExpectedForkRevision $PinnedValentineForkCommit `
         -ExpectedUpstreamRevision $PinnedValentineUpstreamCommit `
         -ExpectedLicenseSha256 $PinnedValentineLicenseSha256
-    $BlockRegistryPath = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
+    $BedrockTarget = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
+    $BlockRegistryPath = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot -Target $BedrockTarget -Artifact block_registry
     $CrossCropCoverage = if ($isCrossCropGallery) {
         Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
     }

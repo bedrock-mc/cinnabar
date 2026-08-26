@@ -5,9 +5,10 @@ function Get-FlowerBedCoverageEvidence {
     $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     try {
-        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003' -or $reader.ReadUInt32() -ne 1001) {
-            throw 'flowerbed coverage requires the protocol-1001 BREG1003 registry'
+        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003') {
+            throw 'flowerbed coverage requires a BREG1003 registry'
         }
+        $registryProtocol = $reader.ReadUInt32()
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
@@ -71,7 +72,7 @@ function Get-FlowerBedCoverageEvidence {
     }
     return [pscustomobject][ordered]@{
         schema = 'rust-mcbe-flowerbed-coverage-v1'
-        registry_protocol = 1001
+        registry_protocol = $registryProtocol
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         state_set_sha256 = Get-CanonicalObjectHash -Value @($entries)
         state_count = $entries.Count

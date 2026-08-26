@@ -290,6 +290,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         return Assert-FastTransferWitnessEvidence @Artifacts `
             -ExpectedBuildCommit $script:BuildCommit -ExpectedPregSha256 $script:PregSha256 `
             -ExpectedBregSha256 $script:BregSha256 -ExpectedCoreSha256 $script:CoreSha256 `
+            -ExpectedProtocol 2168 `
             -ExpectedAppSha256 $script:AppSha256 -ExpectedAssetsSha256 $script:AssetsSha256 `
             -ExpectedRunId $script:RunId `
             -ExpectedBridgeEndpoint $script:BridgeEndpoint -ExpectedCoreProcessId 41 `
@@ -548,7 +549,8 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $entrypoint | Should Match "Scenario = 'FastTransferWitness'"
         $entrypoint | Should Match 'DurationSeconds = 900'
         $entrypoint | Should Match 'microsoft-token.json'
-        $entrypoint | Should Match 'vanilla-v1001.mcbea'
+        $entrypoint | Should Not Match 'vanilla-v[0-9]+\.mcbea'
+        $launcher | Should Match 'Get-BedrockTargetManifest'
         $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
         $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
         $launcher | Should Match "appBuildArguments \+= '--release'"

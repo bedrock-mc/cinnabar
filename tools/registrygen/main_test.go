@@ -75,15 +75,26 @@ func TestGenerateBlockItemRoutesRejectsDuplicateMissingAndAmbiguousStates(t *tes
 }
 
 func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
-	breg, err := os.ReadFile("../../crates/assets/data/block-registry-v1001.bin")
+	assertCheckedInBlockItemRoutesMatchPinnedGenerator(t, 1001)
+}
+
+func TestCheckedInV2168BlockItemRoutesMatchPinnedGenerator(t *testing.T) {
+	assertCheckedInBlockItemRoutesMatchPinnedGenerator(t, 2168)
+}
+
+// assertCheckedInBlockItemRoutesMatchPinnedGenerator verifies that a checked-in
+// route table is the byte-for-byte output of the pinned Dragonfly generator.
+func assertCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T, protocol uint32) {
+	t.Helper()
+	breg, err := os.ReadFile(fmt.Sprintf("../../crates/assets/data/block-registry-v%d.bin", protocol))
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, err := readBREG1003LightIdentities(breg)
+	records, err := readBREG1003IdentitiesForProtocol(breg, protocol)
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, 1001)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +103,7 @@ func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded = append(encoded, '\n')
-	want, err := os.ReadFile("../../crates/assets/data/block-item-routes-v1001.json")
+	want, err := os.ReadFile(fmt.Sprintf("../../crates/assets/data/block-item-routes-v%d.json", protocol))
 	if err != nil {
 		t.Fatal(err)
 	}

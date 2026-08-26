@@ -7,6 +7,47 @@ function ConvertTo-CommandArgument {
     return '"' + $Value.Replace('"', '\"') + '"'
 }
 
+# Reads and validates the single manifest that owns the active Bedrock target.
+function Get-BedrockTargetManifest {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+
+    $manifestPath = Join-Path $ProjectRoot 'assets\bedrock-target.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Bedrock target manifest does not exist: $manifestPath"
+    }
+    $target = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    if ([string]$target.schema -cne 'cinnabar.bedrock-target.v1' -or
+        [uint32]$target.wire_protocol -eq 0 -or
+        $null -eq $target.artifacts -or
+        [string]::IsNullOrWhiteSpace([string]$target.artifacts.block_registry) -or
+        [string]::IsNullOrWhiteSpace([string]$target.artifacts.physics_registry) -or
+        [string]::IsNullOrWhiteSpace([string]$target.artifacts.world_assets)) {
+        throw "Bedrock target manifest is invalid: $manifestPath"
+    }
+    return $target
+}
+
+# Resolves one manifest-owned artifact while preventing paths outside the repo.
+function Resolve-BedrockTargetArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)]$Target,
+        [Parameter(Mandatory = $true)][ValidateSet('block_registry', 'physics_registry', 'world_assets')][string]$Artifact
+    )
+
+    $relative = [string]$Target.artifacts.$Artifact
+    if ([IO.Path]::IsPathRooted($relative)) {
+        throw "Bedrock target artifact must be repository-relative: $relative"
+    }
+    $root = [IO.Path]::GetFullPath($ProjectRoot).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $resolved = [IO.Path]::GetFullPath((Join-Path $root $relative))
+    $prefix = $root + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Bedrock target artifact escapes the repository: $relative"
+    }
+    return $resolved
+}
+
 function Format-ResolvedCommand {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,

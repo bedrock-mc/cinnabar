@@ -234,9 +234,10 @@ function Get-SlabStairCoverageEvidence {
     $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     try {
-        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003' -or $reader.ReadUInt32() -ne 1001) {
-            throw 'slab/stair coverage requires the protocol-1001 BREG1003 registry'
+        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003') {
+            throw 'slab/stair coverage requires a BREG1003 registry'
         }
+        $registryProtocol = $reader.ReadUInt32()
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
@@ -305,7 +306,7 @@ function Get-SlabStairCoverageEvidence {
         sequential_id = $_.sequential_id; family = $_.family; name = $_.name; canonical_state = $_.canonical_state
     } })
     return [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-slab-stair-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS05'
+        schema = 'rust-mcbe-slab-stair-coverage-v1'; registry_protocol = $registryProtocol; compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash; state_count = $entries.Count; slab_state_count = $slabs.Count

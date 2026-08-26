@@ -444,7 +444,7 @@ fn production_ratchet_and_cli_reject_a_matching_but_noncanonical_small_corpus() 
     let run = {
         std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
             .args([
-                "ratchet",
+                "legacy-ratchet1001",
                 "--registry",
                 registry_path.to_str().unwrap(),
                 "--assets",

@@ -8,9 +8,10 @@ function Get-VineCoverageEvidence {
     $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     try {
-        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003' -or $reader.ReadUInt32() -ne 1001) {
-            throw 'vine coverage requires the protocol-1001 BREG1003 registry'
+        if ($utf8.GetString($reader.ReadBytes(8)) -cne 'BREG1003') {
+            throw 'vine coverage requires a BREG1003 registry'
         }
+        $registryProtocol = $reader.ReadUInt32()
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
@@ -54,7 +55,7 @@ function Get-VineCoverageEvidence {
         $expectedState = "{`"vine_direction_bits`":{`"type`":`"int`",`"value`":$mask}}"
         if ([int]$entry.mask -ne $mask -or [byte]$entry.family -ne 32 -or [byte]$entry.model_mask -ne 16 -or
             [string]$entry.name -cne 'minecraft:vine' -or [string]$entry.canonical_state -cne $expectedState) {
-            throw "vine registry masks are not the exact protocol-1001 bijection 0..15 at mask $mask"
+            throw "vine registry masks are not an exact bijection 0..15 at mask $mask"
         }
     }
 
@@ -87,7 +88,7 @@ function Get-VineCoverageEvidence {
         sequential_id = $_.sequential_id; name = $_.name; canonical_state = $_.canonical_state; mask = $_.mask
     } })
     return [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-vine-coverage-v1'; registry_protocol = 1001; compiler_schema = 'MCBEAS05'
+        schema = 'rust-mcbe-vine-coverage-v1'; registry_protocol = $registryProtocol; compiler_schema = 'MCBEAS05'
         registry_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant()
         assets_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetsPath).Hash.ToLowerInvariant()
         state_set_sha256 = $stateSetHash; state_count = $orderedEntries.Count; diagnostic_vine = $diagnostic

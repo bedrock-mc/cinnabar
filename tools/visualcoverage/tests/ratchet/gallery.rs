@@ -184,7 +184,7 @@ fn gallery_inventory_cli_preserves_output_on_failure() {
 
     let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
         .args([
-            "gallery-inventory",
+            "legacy-gallery-inventory1001",
             "--registry",
             registry_path.to_str().unwrap(),
             "--assets",

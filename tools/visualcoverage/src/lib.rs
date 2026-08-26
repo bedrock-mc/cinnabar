@@ -1,3 +1,9 @@
+//! Frozen protocol-1001 visual-coverage evidence replay.
+//!
+//! This crate is deliberately historical. Active protocol selection belongs to
+//! `assets/bedrock-target.json`; runtime, packaging, and acceptance code must not
+//! use this crate to choose a protocol or asset carrier.
+
 mod coverage;
 
 pub use coverage::{

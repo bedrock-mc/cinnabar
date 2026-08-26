@@ -338,8 +338,10 @@ pub fn ratchet(
     })
 }
 
-/// Runs the production protocol-1001 gate. Synthetic tests may use `ratchet`
-/// directly, but the CLI must never accept a caller-replaced smaller corpus.
+/// Replays the frozen protocol-1001 evidence gate.
+///
+/// This is retained for historical auditability only. The active runtime target
+/// is owned by `assets/bedrock-target.json` and must not call this function.
 pub fn ratchet_protocol_1001(
     snapshot: CoverageSnapshot,
     baseline: &Baseline,

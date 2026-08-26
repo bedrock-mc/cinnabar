@@ -120,6 +120,7 @@ function Assert-FastTransferWitnessEvidence {
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedBuildCommit,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedPregSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedBregSha256,
+        [Parameter(Mandatory = $true)][ValidateRange(1, [uint32]::MaxValue)][uint32]$ExpectedProtocol,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedCoreSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedAppSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedAssetsSha256,
@@ -312,7 +313,7 @@ function Assert-FastTransferWitnessEvidence {
         [string]$identity.run_id -cne $ExpectedRunId) {
         throw 'FastTransferWitness production identity attribution is not exact'
     }
-    Assert-FastTransferInteger $identity.protocol 'identity.protocol' 2168 2168
+    Assert-FastTransferInteger $identity.protocol 'identity.protocol' $ExpectedProtocol $ExpectedProtocol
     Assert-FastTransferInteger $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
     Assert-FastTransferInteger $identity.core_process_id 'identity.core_process_id' 1 ([decimal][int]::MaxValue)
     Assert-FastTransferInteger $identity.app_process_id 'identity.app_process_id' 1 ([decimal][int]::MaxValue)

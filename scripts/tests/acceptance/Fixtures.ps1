@@ -146,7 +146,7 @@ function Get-TestRegistryEntries {
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     try {
         Assert-Equal 'BREG1003' $utf8.GetString($reader.ReadBytes(8)) 'test registry helper received the wrong schema'
-        Assert-Equal 1001 $reader.ReadUInt32() 'test registry helper received the wrong protocol'
+        Assert-Equal 2168 $reader.ReadUInt32() 'test registry helper received the wrong protocol'
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }

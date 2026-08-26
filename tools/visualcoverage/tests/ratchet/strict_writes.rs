@@ -56,7 +56,7 @@ fn strict_cli_preserves_preexisting_output_on_semantic_failure() {
 
     let run = std::process::Command::new(env!("CARGO_BIN_EXE_visualcoverage"))
         .args([
-            "strict",
+            "legacy-strict1001",
             "--registry",
             registry_path.to_str().unwrap(),
             "--assets",

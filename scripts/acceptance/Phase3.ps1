@@ -21,6 +21,10 @@ param(
     [string]$ExpectedBregSha256,
 
     [Parameter(Mandatory = $true)]
+    [ValidateRange(1, [uint32]::MaxValue)]
+    [uint32]$ExpectedProtocol,
+
+    [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{32}$')]
     [string]$ExpectedRunId,
 
@@ -524,7 +528,7 @@ if ($identity.build_commit -isnot [string] -or
 if ($identity.target -isnot [string] -or [string]$identity.target -cne $ExpectedTarget) {
     throw 'identity target does not match the exact requested server target'
 }
-Assert-Integer $identity.protocol 'identity.protocol' 2168 2168
+Assert-Integer $identity.protocol 'identity.protocol' $ExpectedProtocol $ExpectedProtocol
 Assert-Integer $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
 foreach ($hash in @(
     @('preg_sha256', $ExpectedPregSha256),

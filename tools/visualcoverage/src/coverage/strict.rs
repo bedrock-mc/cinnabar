@@ -2,9 +2,8 @@ use super::*;
 
 /// Validates the complete semantic draw graph for decoded records.
 ///
-/// `enforce_protocol_1001` is false only for bounded synthetic fixtures. All
-/// production callers must use [`strict_bytes`], which enforces the exact
-/// reviewed protocol inventory and baseline.
+/// `enforce_protocol_1001` is true only when replaying frozen protocol-1001
+/// evidence. The active runtime target is not validated by this legacy module.
 pub fn strict_records(
     records: &[RegistryRecord],
     runtime: &RuntimeAssets,
@@ -260,10 +259,8 @@ pub fn strict_bytes(
     strict_records(&records, &runtime, snapshot, baseline, true)
 }
 
-/// Compiles the exact protocol-1001 target inventory consumed by later gallery
-/// placement and screenshot stages. Diagnostics are retained as explicit
-/// targets. Acceptance requires both zero diagnostics and a fully valid strict
-/// semantic draw graph.
+/// Compiles the frozen protocol-1001 target inventory retained for historical
+/// gallery evidence. It is not an active runtime or acceptance carrier.
 pub(super) fn assemble_gallery_inventory(
     snapshot: CoverageSnapshot,
     baseline: &Baseline,

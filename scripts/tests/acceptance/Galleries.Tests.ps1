@@ -74,7 +74,7 @@
                 Assert-Equal 1 @($vinePlan.FixtureCommands | Where-Object { $_ -ceq $supportCommand }).Count "vine mask $mask manifest support did not map to exactly one BDS command"
             }
             $expectedStateCommandSuffix = " minecraft:vine [`"vine_direction_bits`"=$mask]"
-            Assert-Equal 1 @($vinePlan.FixtureCommands | Where-Object { $_.EndsWith($expectedStateCommandSuffix) }).Count "vine mask $mask lost its exact protocol-1001 state command"
+            Assert-Equal 1 @($vinePlan.FixtureCommands | Where-Object { $_.EndsWith($expectedStateCommandSuffix) }).Count "vine mask $mask lost its exact protocol-2168 state command"
         }
         Assert-Equal 0 @($vinePlan.Manifest.witnesses | Where-Object mask -eq 0 | ForEach-Object supports).Count 'vine mask 0 gained diagnostic/support geometry'
         Assert-Equal 32 $supportIdentities.Count 'vine gallery did not create the exact 32 isolated horizontal supports'
@@ -98,9 +98,9 @@
         Assert-True (-not (($slabStairPlan.Commands -join "`n").Contains('`'))) "$($slabStairPlan.Manifest.pose) published a literal PowerShell escape in a BDS command"
         $slabCommands = @($slabStairPlan.FixtureCommands | Where-Object { $_ -match '^setblock .*slab' })
         Assert-Equal 3 $slabCommands.Count "$($slabStairPlan.Manifest.pose) changed the exact slab witness command count"
-        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="bottom"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 bottom smooth-stone slab"
-        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="top"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 top smooth-stone slab"
-        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_double_slab') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-1001 double smooth-stone slab"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="bottom"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-2168 bottom smooth-stone slab"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_slab ["minecraft:vertical_half"="top"]') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-2168 top smooth-stone slab"
+        Assert-Equal 1 @($slabCommands | Where-Object { $_.EndsWith(' minecraft:smooth_stone_double_slab') }).Count "$($slabStairPlan.Manifest.pose) omitted the exact protocol-2168 double smooth-stone slab"
     }
     $unsealedSlabStairAssets = Join-Path $TempRoot 'unsealed covered visual mutation.mcbea'
     $unsealedBytes = [IO.File]::ReadAllBytes($SlabStairAssets)
@@ -183,7 +183,7 @@
 
     $vineCoverage = Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     Assert-Equal 'rust-mcbe-vine-coverage-v1' $vineCoverage.schema 'vine coverage lost strict schema identity'
-    Assert-Equal 1001 ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
+    Assert-Equal 2168 ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
     Assert-Equal 'MCBEAS05' $vineCoverage.compiler_schema 'vine coverage lost compiler binding'
     Assert-Equal 16 ([int]$vineCoverage.state_count) 'vine coverage did not contain exactly 16 states'
     Assert-Equal '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' (@($vineCoverage.entries | ForEach-Object mask) -join ',') 'vine coverage masks were not an exact bijection 0..15'

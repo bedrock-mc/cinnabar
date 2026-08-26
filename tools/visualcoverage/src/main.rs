@@ -16,7 +16,7 @@ const MAX_BASELINE_BYTES: u64 = visualcoverage::MAX_BASELINE_BYTES as u64;
 const MAX_ALLOWLIST_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Parser)]
-#[command(about = "Deterministic vanilla visual-coverage gates")]
+#[command(about = "Legacy protocol-1001 visual-coverage evidence tools")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -24,8 +24,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Generates the reviewed protocol inventory and current diagnostic baseline.
-    Baseline {
+    /// Generates a historical protocol-1001 diagnostic baseline.
+    LegacyBaseline1001 {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
@@ -35,8 +35,8 @@ enum Command {
         #[arg(long = "out")]
         out: PathBuf,
     },
-    /// Rejects canonical inventory changes, diagnostic regressions, and invisible laundering.
-    Ratchet {
+    /// Replays the historical protocol-1001 inventory ratchet.
+    LegacyRatchet1001 {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
@@ -46,8 +46,8 @@ enum Command {
         #[arg(long = "out")]
         out: PathBuf,
     },
-    /// Rejects every diagnostic, unsupported, empty, or transitive no-draw visual route.
-    Strict {
+    /// Replays the historical protocol-1001 strict visual-route gate.
+    LegacyStrict1001 {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
@@ -57,8 +57,8 @@ enum Command {
         #[arg(long = "out")]
         out: PathBuf,
     },
-    /// Compiles the exact 65-page public target inventory for GPU gallery acceptance.
-    GalleryInventory {
+    /// Compiles the historical protocol-1001 GPU gallery inventory.
+    LegacyGalleryInventory1001 {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
@@ -73,7 +73,7 @@ enum Command {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Cli { command } = Cli::parse();
     match command {
-        Command::Baseline {
+        Command::LegacyBaseline1001 {
             registry,
             assets,
             invisible_allowlist,
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let baseline = baseline_from_snapshot(&snapshot, allowlist)?;
             write_deterministic_json_atomic(&out, &baseline)?;
         }
-        Command::Ratchet {
+        Command::LegacyRatchet1001 {
             registry,
             assets,
             baseline,
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ratchet_protocol_1001(analyze_bytes(&registry_bytes, &assets_bytes)?, &baseline)?;
             write_deterministic_json_atomic(&out, &report)?;
         }
-        Command::Strict {
+        Command::LegacyStrict1001 {
             registry,
             assets,
             baseline,
@@ -118,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let report = strict_bytes(&registry_bytes, &assets_bytes, &baseline)?;
             write_deterministic_json_atomic(&out, &report)?;
         }
-        Command::GalleryInventory {
+        Command::LegacyGalleryInventory1001 {
             registry,
             assets,
             baseline,

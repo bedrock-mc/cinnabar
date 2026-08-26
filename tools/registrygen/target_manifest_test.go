@@ -59,6 +59,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"tools/dist/src/layout.rs":                  {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
 		"app/src/metrics/diagnostics.rs":            {"block-registry-v2168.bin"},
 		"crates/asset-compiler/src/entity/item.rs":  {"block-registry-v2168.bin", "block-item-routes-v2168.json"},
+		"crates/asset-compiler/src/bin/assetc.rs":   {"vanilla-v2168.mcbea"},
 		"crates/protocol/Cargo.toml":                {target.CodecFeature},
 	}
 	for path, required := range consumers {
@@ -75,6 +76,47 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			if strings.Contains(string(contents), forbidden) {
 				t.Fatalf("production target consumer %s still selects %s", path, forbidden)
 			}
+		}
+	}
+	legacyVisualCoverage, err := os.ReadFile(filepath.Join(root, "tools", "visualcoverage", "src", "main.rs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"Legacy protocol-1001", "LegacyBaseline1001", "LegacyRatchet1001", "LegacyStrict1001", "LegacyGalleryInventory1001"} {
+		if !strings.Contains(string(legacyVisualCoverage), marker) {
+			t.Fatalf("historical visual-coverage CLI is not explicitly retired: missing %s", marker)
+		}
+	}
+	for _, activeCommand := range []string{"Command::Baseline", "Command::Ratchet", "Command::Strict", "Command::GalleryInventory"} {
+		if strings.Contains(string(legacyVisualCoverage), activeCommand) {
+			t.Fatalf("historical visual-coverage CLI still exposes active command %s", activeCommand)
+		}
+	}
+	centralizedAcceptanceConsumers := map[string][]string{
+		"scripts/acceptance/Common.ps1":                        {"assets\\bedrock-target.json", "Get-BedrockTargetManifest", "Resolve-BedrockTargetArtifact"},
+		"scripts/acceptance/Phase3Launcher.ps1":                {"Get-BedrockTargetManifest", "wire_protocol", "artifacts.physics_registry", "Resolve-BedrockTargetArtifact"},
+		"scripts/acceptance/Orchestration/Validate.ps1":        {"Get-BedrockTargetManifest", "Resolve-BedrockTargetArtifact"},
+		"scripts/acceptance/Phase3.ps1":                        {"ExpectedProtocol"},
+		"scripts/acceptance/FastTransferWitnessValidation.ps1": {"ExpectedProtocol"},
+		"scripts/acceptance/FastTransferWitness.ps1":           {"$arguments.Assets"},
+		"scripts/acceptance/Galleries/Aquatic.ps1":             {"$registryProtocol = $reader.ReadUInt32()"},
+		"scripts/acceptance/Galleries/CrossCrop.ps1":           {"$registryProtocol = $reader.ReadUInt32()"},
+		"scripts/acceptance/Galleries/FlowerBed.ps1":           {"$registryProtocol = $reader.ReadUInt32()"},
+		"scripts/acceptance/Galleries/SlabStair.ps1":           {"$registryProtocol = $reader.ReadUInt32()"},
+		"scripts/acceptance/Galleries/Vine.ps1":                {"$registryProtocol = $reader.ReadUInt32()"},
+	}
+	for path, required := range centralizedAcceptanceConsumers {
+		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range required {
+			if !strings.Contains(string(contents), value) {
+				t.Fatalf("acceptance consumer %s does not derive %s from the target manifest or registry", path, value)
+			}
+		}
+		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2168") {
+			t.Fatalf("acceptance consumer %s hard-codes a versioned carrier instead of deriving the target", path)
 		}
 	}
 }

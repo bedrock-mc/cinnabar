@@ -44,6 +44,10 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $Target = ConvertTo-Phase3Target -Target $Target
 $Scenario = ConvertTo-Phase3Scenario -Scenario $Scenario
+$bedrockTarget = Get-BedrockTargetManifest -ProjectRoot $projectRoot
+if ($Scenario -ceq 'FastTransferWitness' -and [string]::IsNullOrWhiteSpace($Assets)) {
+    $Assets = [string]$bedrockTarget.artifacts.world_assets
+}
 
 Assert-Phase3CleanTrackedSource -ProjectRoot $projectRoot
 $buildCommit = (& git -C $projectRoot rev-parse HEAD).Trim()
@@ -86,8 +90,8 @@ $executableSuffix = if ($isWindowsPlatform) { '.exe' } else { '' }
 $buildProfile = if ($Scenario -ceq 'FastTransferWitness') { 'release' } else { 'debug' }
 $coreExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-core$executableSuffix"
 $appExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-client$executableSuffix"
-$pregPath = Join-Path $projectRoot '.local\assets\block-physics-v1001.bin'
-$bregPath = Join-Path $projectRoot 'crates\assets\data\block-registry-v1001.bin'
+$pregPath = Join-Path $projectRoot (Join-Path '.local\assets' (Split-Path -Leaf ([string]$bedrockTarget.artifacts.physics_registry)))
+$bregPath = Resolve-BedrockTargetArtifact -ProjectRoot $projectRoot -Target $bedrockTarget -Artifact block_registry
 $assetsSha256 = if ($null -eq $assetsFull) { $null } else {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $assetsFull).Hash.ToLowerInvariant()
 }
@@ -349,6 +353,7 @@ try {
             -ScenarioManifestPath $scenarioManifestPath -OutputPath $aggregatePath `
             -ExpectedBuildCommit $buildCommit -ExpectedPregSha256 $pregSha256 `
             -ExpectedBregSha256 $bregSha256 -ExpectedCoreSha256 $coreSha256 `
+            -ExpectedProtocol ([uint32]$bedrockTarget.wire_protocol) `
             -ExpectedAppSha256 $appSha256 -ExpectedAssetsSha256 $assetsSha256 -ExpectedRunId $runId `
             -ExpectedBridgeEndpoint $bridgeEndpoint -ExpectedCoreProcessId $coreProcessId `
             -ExpectedAppProcessId $appProcessId -ExpectedPresentMode Fifo
@@ -357,6 +362,7 @@ try {
         & (Join-Path $PSScriptRoot 'Phase3.ps1') `
             -LogPath $logPath -ExpectedTarget $Target -ExpectedBuildCommit $buildCommit `
             -ExpectedPregSha256 $pregSha256 -ExpectedBregSha256 $bregSha256 `
+            -ExpectedProtocol ([uint32]$bedrockTarget.wire_protocol) `
             -ExpectedRunId $runId -ExpectedEndpoint $endpoint -ExpectedBridgeEndpoint $bridgeEndpoint `
             -ExpectedCoreSha256 $coreSha256 `
             -ExpectedCoreProcessId $coreProcessId -ExpectedAppProcessId $appProcessId `
