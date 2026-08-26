@@ -263,6 +263,20 @@ pub fn read_registry(bytes: &[u8]) -> Result<Box<[RegistryRecord]>, AssetError> 
     read_registry_for_protocol(bytes, LEGACY_REGISTRY_PROTOCOL)
 }
 
+/// Reads the wire protocol stamped in a `BREG1003` header without decoding
+/// any record payload.
+///
+/// Startup cross-carrier coherence checks use this cheap reader ahead of the
+/// full decode; malformed headers surface the same error classes the full
+/// reader produces.
+pub fn registry_header_protocol(bytes: &[u8]) -> Result<u32, AssetError> {
+    let mut reader = Reader::new(bytes);
+    if reader.read_exact(REGISTRY_MAGIC.len(), "registry magic")? != REGISTRY_MAGIC {
+        return Err(AssetError::InvalidRegistryMagic);
+    }
+    reader.read_u32("registry protocol")
+}
+
 /// Reads a bounded `BREG1003` registry for one explicit wire protocol.
 pub fn read_registry_for_protocol(
     bytes: &[u8],

@@ -150,6 +150,23 @@ pub fn read_physics_registry(
     read_physics_registry_for_protocol(preg, breg, records, LEGACY_PHYSICS_REGISTRY_PROTOCOL)
 }
 
+/// Reads the wire protocol stamped in a `PREG1001` carrier header without
+/// decoding record payloads or verifying the trailer digest.
+///
+/// Startup cross-carrier coherence checks use this cheap reader ahead of the
+/// full decode; the length floor matches the full decoder's first structural
+/// check and malformed headers surface its exact error detail strings.
+pub fn physics_registry_header_protocol(preg: &[u8]) -> Result<u32, AssetError> {
+    if preg.len() < HEADER_BYTES + TRAILER_BYTES {
+        return invalid("carrier is shorter than its header and digest");
+    }
+    let mut reader = Reader::new(&preg[..preg.len() - TRAILER_BYTES]);
+    if reader.read_exact(MAGIC.len(), "magic")? != MAGIC {
+        return invalid("invalid magic");
+    }
+    reader.read_u32("protocol")
+}
+
 /// Decodes a strict `PREG1001` carrier for one explicit wire protocol.
 ///
 /// Only the reviewed protocol-1001 and protocol-2168 projections are

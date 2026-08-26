@@ -552,8 +552,13 @@ fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
     let records = read_registry(breg).expect("checked-in BREG1001");
     let preg = synthetic_preg(breg, &records);
 
-    let registries = PhysicsCollisionRegistries::from_assets(breg, &records, &preg)
-        .expect("BREG-bound PREG facts are valid");
+    let registries = PhysicsCollisionRegistries::from_assets(
+        breg,
+        &records,
+        &preg,
+        crate::asset_startup::active_content_registry_protocol(),
+    )
+    .expect("BREG-bound PREG facts are valid");
 
     assert_eq!(
         registries.registered_count(NetworkIdMode::Sequential),

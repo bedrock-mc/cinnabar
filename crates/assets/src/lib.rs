@@ -114,14 +114,14 @@ pub use model::{
     TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 pub use physics_registry::{
-    BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,
-    read_physics_registry_for_protocol,
+    BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,
+    physics_registry_header_protocol, read_physics_registry, read_physics_registry_for_protocol,
 };
 pub use provenance::{BlobProvenance, canonical_source_manifest_sha256};
 pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
-    read_registry_for_protocol,
+    read_registry_for_protocol, registry_header_protocol,
 };
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
 pub use texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
