@@ -42,6 +42,19 @@ func writeFilteredFallback(inputPath, outputPath, bregPath string) error {
 	return nil
 }
 
+// parseFallbackInventoryHeader validates the exact CVFB1001 table envelope
+// shared by every fallback-inventory mode and returns its entry count.
+func parseFallbackInventoryHeader(input []byte) (int, error) {
+	if len(input) < fallbackHeaderBytes || string(input[:8]) != "CVFB1001" || binary.LittleEndian.Uint32(input[8:12]) != 1 {
+		return 0, fmt.Errorf("fallback inventory has an invalid header")
+	}
+	count := int(binary.LittleEndian.Uint32(input[12:16]))
+	if len(input) != fallbackHeaderBytes+count*fallbackEntryBytes {
+		return 0, fmt.Errorf("fallback inventory length does not match %d entries", count)
+	}
+	return count, nil
+}
+
 func selectedFallbackHashes(records []bregLightIdentity) (map[uint32]struct{}, error) {
 	owners := make(map[uint32]uint32, len(records))
 	selected := make(map[uint32]struct{}, retailReservedCount)
@@ -65,12 +78,9 @@ func selectedFallbackHashes(records []bregLightIdentity) (map[uint32]struct{}, e
 }
 
 func filterFallbackInventory(input []byte, excluded map[uint32]struct{}) ([]byte, error) {
-	if len(input) < fallbackHeaderBytes || string(input[:8]) != "CVFB1001" || binary.LittleEndian.Uint32(input[8:12]) != 1 {
-		return nil, fmt.Errorf("fallback inventory has an invalid header")
-	}
-	count := int(binary.LittleEndian.Uint32(input[12:16]))
-	if len(input) != fallbackHeaderBytes+count*fallbackEntryBytes {
-		return nil, fmt.Errorf("fallback inventory length does not match %d entries", count)
+	count, err := parseFallbackInventoryHeader(input)
+	if err != nil {
+		return nil, err
 	}
 	output := append([]byte(nil), input[:fallbackHeaderBytes]...)
 	removed := 0

@@ -421,6 +421,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &records,
                 &biome_records,
                 &light_properties,
+                block_registry_protocol,
             )?;
             compiled.provenance = BlobProvenance {
                 source_manifest_sha256: assets::canonical_source_manifest_sha256(&manifest_bytes),

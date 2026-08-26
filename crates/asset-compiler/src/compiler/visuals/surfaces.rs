@@ -1,9 +1,11 @@
 use super::super::*;
 use super::context::push_model_template;
+use super::fallback::FallbackInventory;
 
 pub(in crate::compiler) struct SurfaceRuleContext<'a> {
     pub(in crate::compiler) pack: &'a PackSources,
     pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
+    pub(in crate::compiler) fallback: &'static FallbackInventory<'static>,
     pub(in crate::compiler) visual: &'a mut BlockVisual,
     pub(in crate::compiler) transparent_cube_template_by_material: &'a mut BTreeMap<[u32; 6], u32>,
     pub(in crate::compiler) flowerbed_template_by_key: &'a mut BTreeMap<[u32; 4], u32>,
@@ -20,6 +22,7 @@ pub(in crate::compiler) fn compile_surface_rule(
     let SurfaceRuleContext {
         pack,
         material_by_descriptor,
+        fallback,
         visual,
         transparent_cube_template_by_material,
         flowerbed_template_by_key,
@@ -34,7 +37,7 @@ pub(in crate::compiler) fn compile_surface_rule(
         // Exact names fail closed when any admission fact disagrees.
     } else if is_stained_glass_cube(record) || is_copper_grate(record) {
         let materials = BlockFace::ALL.map(|face| {
-            descriptor_for(pack, record, face)
+            descriptor_for(fallback, pack, record, face)
                 .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
         });
         if let [
@@ -72,7 +75,7 @@ pub(in crate::compiler) fn compile_surface_rule(
         }
     } else if is_supported_liquid(record) {
         let materials = BlockFace::ALL.map(|face| {
-            descriptor_for(pack, record, face)
+            descriptor_for(fallback, pack, record, face)
                 .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
         });
         let liquid_depth = record
@@ -142,7 +145,7 @@ pub(in crate::compiler) fn compile_surface_rule(
             visual.model_template = template;
         }
     } else if is_vine(record) {
-        let material = descriptor_for(pack, record, BlockFace::South)
+        let material = descriptor_for(fallback, pack, record, BlockFace::South)
             .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
         let connections = record.model_state.get(ModelStateField::Connections);
         if let (Some(material), Some(connections @ 0..=15)) = (material, connections) {
@@ -183,7 +186,7 @@ pub(in crate::compiler) fn compile_surface_rule(
         let descriptor = if record.model_family == ModelFamily::ResinClump {
             resin_clump_material_descriptor(pack)
         } else {
-            descriptor_for(pack, record, BlockFace::South)
+            descriptor_for(fallback, pack, record, BlockFace::South)
         };
         let material =
             descriptor.and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied());
