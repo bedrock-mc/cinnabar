@@ -334,10 +334,14 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
         .add_systems(Last, arm_shutdown_watchdog);
 }
 
-fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
+fn read_verified_physics_registry(
+    path: &Path,
+    expected_sha256: &str,
+    expected_protocol: u32,
+) -> Result<Vec<u8>> {
     let bytes = fs::read(path).with_context(|| {
         format!(
-            "read required protocol-1001 physics registry {}; {}",
+            "read required protocol-{expected_protocol} physics registry {}; {}",
             path.display(),
             PHYSICS_REGISTRY_GENERATION_GUIDANCE
         )
@@ -346,7 +350,7 @@ fn read_verified_physics_registry(path: &Path, expected_sha256: &str) -> Result<
     let expected_sha256 = expected_sha256.trim();
     if actual_sha256 != expected_sha256 {
         bail!(
-            "protocol-1001 physics registry {} is stale or corrupt: expected sha256 {}, got {}; {}",
+            "protocol-{expected_protocol} physics registry {} is stale or corrupt: expected sha256 {}, got {}; {}",
             path.display(),
             expected_sha256,
             actual_sha256,
@@ -536,17 +540,25 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 "prepare validated runtime entity geometry for actor rendering: {error:?}"
             )
         })?;
+    // One shared authority drives both startup registry gates: the
+    // world-carrier provenance pins and this physics binding both derive
+    // their protocol expectation from it, so a partially flipped carrier set
+    // fails closed here instead of aliasing live block identities.
+    let expected_protocol = crate::asset_startup::active_content_registry_protocol();
     let collision_breg = crate::asset_startup::pinned_block_registry_bytes();
-    let collision_records = assets::read_registry(collision_breg)
-        .context("decode checked-in protocol-1001 collision registry")?;
-    let collision_preg =
-        read_verified_physics_registry(&layout.physics_registry, PHYSICS_REGISTRY_SHA256)?;
-    let collision_registries = PhysicsCollisionRegistries::from_assets(
+    let collision_preg = read_verified_physics_registry(
+        &layout.physics_registry,
+        PHYSICS_REGISTRY_SHA256,
+        expected_protocol,
+    )?;
+    let collision_registries = PhysicsCollisionRegistries::bind_coherent_assets(
         collision_breg,
-        &collision_records,
         &collision_preg,
+        &layout.physics_registry,
+        &loaded_assets.selected_path,
+        expected_protocol,
     )
-    .context("decode and bind protocol-1001 PREG collision registries")?;
+    .context("decode and bind the active-content-protocol collision registries")?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
@@ -769,7 +781,11 @@ mod preg_startup_tests {
         fs::write(&path, b"PREG test carrier").expect("write fixture");
         let expected = format!("{:x}", Sha256::digest(b"PREG test carrier"));
 
-        let result = read_verified_physics_registry(&path, &format!("{expected}\n"));
+        let result = read_verified_physics_registry(
+            &path,
+            &format!("{expected}\n"),
+            crate::asset_startup::active_content_registry_protocol(),
+        );
         fs::remove_file(path).expect("remove fixture");
 
         assert_eq!(result.expect("valid digest"), b"PREG test carrier");
@@ -780,8 +796,12 @@ mod preg_startup_tests {
         let path = temporary_path("preg-stale");
         fs::write(&path, b"stale PREG test carrier").expect("write fixture");
 
-        let error = read_verified_physics_registry(&path, &"0".repeat(64))
-            .expect_err("stale digest must fail");
+        let error = read_verified_physics_registry(
+            &path,
+            &"0".repeat(64),
+            crate::asset_startup::active_content_registry_protocol(),
+        )
+        .expect_err("stale digest must fail");
         fs::remove_file(path).expect("remove fixture");
         let message = format!("{error:#}");
 
@@ -793,8 +813,12 @@ mod preg_startup_tests {
     #[test]
     fn missing_physics_registry_reports_acquisition_guidance() {
         let path = temporary_path("preg-missing");
-        let error = read_verified_physics_registry(&path, &"0".repeat(64))
-            .expect_err("missing carrier must fail");
+        let error = read_verified_physics_registry(
+            &path,
+            &"0".repeat(64),
+            crate::asset_startup::active_content_registry_protocol(),
+        )
+        .expect_err("missing carrier must fail");
         let message = format!("{error:#}");
 
         assert!(message.contains("read required protocol-1001 physics registry"));

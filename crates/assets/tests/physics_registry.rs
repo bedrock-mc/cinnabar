@@ -1,7 +1,8 @@
 use assets::{
     AssetError, BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, RegistryRecord,
-    SurfaceResponse, read_physics_registry, read_physics_registry_for_protocol, read_registry,
-    read_registry_for_protocol,
+    SurfaceResponse, physics_registry_header_protocol, read_physics_registry,
+    read_physics_registry_for_protocol, read_registry, read_registry_for_protocol,
+    registry_header_protocol,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -275,6 +276,42 @@ fn legacy_alias_keeps_rejecting_non_1001_carriers() {
     let error = read_physics_registry(PREG_V2168, BREG_V2168, &records).unwrap_err();
     assert_physics_error(&error, "protocol is not 1001");
 }
+
+#[test]
+fn header_protocol_readers_stamp_both_committed_carriers_without_a_full_decode() {
+    assert_eq!(registry_header_protocol(BREG).unwrap(), 1001);
+    assert_eq!(registry_header_protocol(BREG_V2168).unwrap(), 2168);
+    assert_eq!(physics_registry_header_protocol(PREG_V2168).unwrap(), 2168);
+
+    let synthetic = valid_preg(&read_registry(BREG).unwrap());
+    assert_eq!(physics_registry_header_protocol(&synthetic).unwrap(), 1001);
+}
+
+#[test]
+fn header_protocol_readers_reject_short_and_malformed_carriers() {
+    assert!(registry_header_protocol(&[]).is_err());
+    let mut bad_breg_magic = BREG.to_vec();
+    bad_breg_magic[0] ^= 1;
+    assert!(matches!(
+        registry_header_protocol(&bad_breg_magic),
+        Err(AssetError::InvalidRegistryMagic)
+    ));
+
+    assert!(physics_registry_header_protocol(&[]).is_err());
+    assert!(physics_registry_header_protocol(&PREG_V2168[..HEADER_BYTES_FLOOR - 1]).is_err());
+    let mut bad_preg_magic = PREG_V2168.to_vec();
+    bad_preg_magic[0] ^= 1;
+    match physics_registry_header_protocol(&bad_preg_magic) {
+        Err(AssetError::InvalidPhysicsRegistry { detail }) => {
+            assert_eq!(detail.as_ref(), "invalid magic");
+        }
+        other => panic!("expected invalid-magic physics error, got {other:?}"),
+    }
+}
+
+/// The full decoder's minimum carrier size (48-byte header plus 32-byte
+/// trailer); the cheap reader enforces the same floor.
+const HEADER_BYTES_FLOOR: usize = 80;
 
 #[test]
 fn cross_version_bindings_are_rejected_in_both_directions() {

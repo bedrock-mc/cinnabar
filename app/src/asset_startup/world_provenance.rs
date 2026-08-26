@@ -14,9 +14,30 @@ use sha2::{Digest, Sha256};
 
 use assets::{
     BlobProvenance, RuntimeAssets, RuntimeAtmosphereAssets, canonical_source_manifest_sha256,
+    registry_header_protocol,
 };
 
 use super::{ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, COMPILE_COMMAND, format_sha256};
+
+/// The one checkout-wide authority for the active content registry wire
+/// protocol.
+///
+/// Every production startup gate that consumes a content registry artifact
+/// derives its expectation from this single value: the world-carrier
+/// provenance gate below verifies that the pinned registry inputs stamp it,
+/// and the collision binding (`movement`'s
+/// `PhysicsCollisionRegistries::bind_coherent_assets`) rejects any installed
+/// physics registry whose stamped header protocol differs. Raising this
+/// constant therefore fails startup closed on both gates until the matching
+/// carrier set is regenerated together, so a partial version flip can never
+/// recreate the cross-carrier block-identity aliasing mechanism under zero
+/// decode errors.
+pub(crate) const ACTIVE_CONTENT_REGISTRY_PROTOCOL: u32 = 1001;
+
+/// The active content registry protocol every startup gate binds to.
+pub(crate) const fn active_content_registry_protocol() -> u32 {
+    ACTIVE_CONTENT_REGISTRY_PROTOCOL
+}
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../../assets/vanilla-source.json");
 const BLOCK_REGISTRY_BYTES: &[u8] =
@@ -51,6 +72,7 @@ pub(crate) fn verify_world_carrier(
     path: &Path,
     runtime: &RuntimeAssets,
 ) -> Result<(), AssetStartupError> {
+    verify_pinned_registries_bind(ACTIVE_CONTENT_REGISTRY_PROTOCOL)?;
     let expected = pinned_world_provenance();
     let actual = runtime.provenance();
     for (component, expected, actual) in [
@@ -88,6 +110,28 @@ pub(crate) fn verify_world_carrier(
     Ok(())
 }
 
+/// Derives the provenance gate's protocol expectation from the shared
+/// authority instead of assuming the embedded pins already match it.
+///
+/// The byte-level pins below enforce carrier identity transitively (a
+/// carrier compiled from any other protocol's registries carries different
+/// input hashes), but only this check ties those pins to
+/// [`ACTIVE_CONTENT_REGISTRY_PROTOCOL`] explicitly: a future authority bump
+/// with stale embedded registry inputs fails here, naming both protocols,
+/// before any carrier comparison can misattribute the mismatch.
+fn verify_pinned_registries_bind(authority_protocol: u32) -> Result<(), AssetStartupError> {
+    match registry_header_protocol(BLOCK_REGISTRY_BYTES) {
+        Ok(stamped) if stamped == authority_protocol => Ok(()),
+        Ok(stamped) => Err(AssetStartupError::PinnedRegistryProtocolMismatch {
+            expected: authority_protocol,
+            actual: stamped,
+        }),
+        Err(source) => Err(AssetStartupError::PinnedRegistryHeader {
+            source: Box::new(source),
+        }),
+    }
+}
+
 /// Fails closed unless the decoded atmosphere carrier was compiled from the
 /// checkout-pinned vanilla source manifest.
 pub(crate) fn verify_atmosphere_carrier(
@@ -109,12 +153,46 @@ pub(crate) fn verify_atmosphere_carrier(
 
 #[cfg(test)]
 mod tests {
-    use super::pinned_world_provenance;
+    use super::{
+        ACTIVE_CONTENT_REGISTRY_PROTOCOL, active_content_registry_protocol,
+        pinned_world_provenance, verify_pinned_registries_bind,
+    };
 
     #[test]
     fn pinned_world_identity_is_complete_and_deterministic() {
         let pinned = pinned_world_provenance();
         assert!(pinned.is_complete(), "every identity slot must be bound");
         assert_eq!(pinned, pinned_world_provenance());
+    }
+
+    /// The default authority stays exactly 1001: production startup behavior
+    /// is byte-identical until a deliberate reviewed flip regenerates every
+    /// carrier together.
+    #[test]
+    fn active_content_authority_remains_pinned_to_protocol_1001() {
+        assert_eq!(active_content_registry_protocol(), 1001);
+        assert_eq!(ACTIVE_CONTENT_REGISTRY_PROTOCOL, 1001);
+    }
+
+    /// Consolidation witness: driving the gate with a mutated authority value
+    /// flips its decision on the identical embedded pins, so the world gate's
+    /// expectation provably hangs off the one shared knob.
+    #[test]
+    fn mutating_the_authority_flips_the_pinned_registry_expectation() {
+        verify_pinned_registries_bind(active_content_registry_protocol())
+            .expect("the checked-in pins must satisfy the shipped authority");
+
+        let error = verify_pinned_registries_bind(2168)
+            .expect_err("a flipped authority must reject the stale protocol-1001 pins");
+        assert!(
+            matches!(
+                error,
+                crate::asset_startup::AssetStartupError::PinnedRegistryProtocolMismatch {
+                    expected: 2168,
+                    actual: 1001
+                }
+            ),
+            "unexpected error {error:?}"
+        );
     }
 }
