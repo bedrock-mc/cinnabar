@@ -84,6 +84,13 @@ use visuals::{
 
 const MAX_VISUALS: usize = 65_536;
 
+/// Registry wire protocol whose stamped fallback inventory backs
+/// [`compile_pack`]. Library-level compilation without a header-derived
+/// protocol can only bind the pinned legacy inventory; production compiles
+/// pass the block registry's own protocol through
+/// [`compile_pack_with_biomes`].
+const LEGACY_REGISTRY_PROTOCOL: u32 = 1001;
+
 /// Complete placeholder identity embedded by library-level compilation. The
 /// `assetc compile` command overwrites this with the exact canonical manifest
 /// and registry input hashes before encoding; decode rejects incomplete
@@ -112,7 +119,8 @@ type CompiledVisuals = (
 );
 type CompiledAnimations = (Box<[Animation]>, Box<[TextureRef]>);
 
-/// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
+/// Compiles the cube-geometry subset of a bounded Bedrock resource pack
+/// against the legacy protocol-1001 fallback inventory.
 pub fn compile_pack(
     root: &Path,
     records: &[RegistryRecord],
@@ -123,19 +131,23 @@ pub fn compile_pack(
         records,
         light_properties,
         CompiledBiomeAssets::diagnostic(),
+        LEGACY_REGISTRY_PROTOCOL,
     )
 }
 
-/// Compiles the complete v3 block and biome asset set.
+/// Compiles the complete v3 block and biome asset set, consuming the
+/// provisional fallback inventory stamped for the block registry's own
+/// header-derived wire protocol.
 pub fn compile_pack_with_biomes(
     root: &Path,
     behavior_pack: &Path,
     records: &[RegistryRecord],
     biome_registry: &[BiomeRegistryRecord],
     light_properties: &[LightProperties],
+    registry_protocol: u32,
 ) -> Result<CompiledAssets, AssetError> {
     let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
-    compile_pack_inner(root, records, light_properties, biomes)
+    compile_pack_inner(root, records, light_properties, biomes, registry_protocol)
 }
 
 /// Reads and compiles a bounded animation staging plan without changing the
@@ -190,9 +202,11 @@ fn compile_pack_inner(
     records: &[RegistryRecord],
     light_properties: &[LightProperties],
     biomes: CompiledBiomeAssets,
+    registry_protocol: u32,
 ) -> Result<CompiledAssets, AssetError> {
     let pack = read_pack(root)?;
     validate_records(records)?;
+    let fallback = visuals::fallback::inventory(registry_protocol)?;
 
     let admit_chiseled_bookshelves = chiseled_bookshelf_inventory_is_exact(records);
     let admit_mineral_cubes = mineral_cube_inventory_is_exact(records)
@@ -210,44 +224,42 @@ fn compile_pack_inner(
     for record in records.iter().filter(|record| {
         if is_mineral_cube_name(&record.name) {
             return (admit_mineral_cubes && is_mineral_cube_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_selector_alias_cube_name(&record.name) {
             return (admit_selector_alias_cubes && is_selector_alias_cube_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_resin_clump_name(&record.name) {
             return (admit_resin_clumps && is_resin_clump_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_chiseled_bookshelf_name(&record.name) {
             return (admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_cactus_name(&record.name) {
-            return (admit_cacti && is_cactus_record(record))
-                || visuals::fallback::is_record(record);
+            return (admit_cacti && is_cactus_record(record)) || fallback.contains(record);
         }
         if is_cake_name(&record.name) {
-            return (admit_cakes && is_cake_record(record)) || visuals::fallback::is_record(record);
+            return (admit_cakes && is_cake_record(record)) || fallback.contains(record);
         }
         if is_farmland_name(&record.name) {
-            return (admit_farmland && is_farmland_record(record))
-                || visuals::fallback::is_record(record);
+            return (admit_farmland && is_farmland_record(record)) || fallback.contains(record);
         }
         if is_bee_housing_name(&record.name) {
             return (admit_bee_housing && is_bee_housing_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
-            || visuals::fallback::is_record(record)
+            || fallback.contains(record)
     }) {
-        if visuals::fallback::is_record(record) {
+        if fallback.contains(record) {
             for face in BlockFace::ALL {
-                if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
+                if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
                     fallback_descriptors.insert(descriptor.clone());
                     descriptor_keys
                         .entry(descriptor)
@@ -362,7 +374,7 @@ fn compile_pack_inner(
             &BlockFace::ALL
         };
         for &face in faces {
-            if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
+            if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
                 descriptor_keys
                     .entry(descriptor)
                     .and_modify(|current| {
@@ -382,12 +394,13 @@ fn compile_pack_inner(
     let (materials, material_by_descriptor) =
         compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
     let vanilla_fallback_material =
-        visuals::fallback::neutral_material(records, &pack, &material_by_descriptor)?;
+        visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
     let (visuals, hashed, model_templates, model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
         vanilla_fallback_material,
+        fallback,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -460,6 +473,7 @@ fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
 }
 
 fn descriptor_for(
+    fallback: &visuals::fallback::FallbackInventory,
     pack: &PackSources,
     record: &RegistryRecord,
     face: BlockFace,
@@ -473,7 +487,7 @@ fn descriptor_for(
     };
     if !is_model_visual(record)
         && !is_liquid(record)
-        && !visuals::fallback::is_record(record)
+        && !fallback.contains(record)
         && source_is_deferred(pack, record, &key, path)
     {
         return None;
@@ -483,7 +497,7 @@ fn descriptor_for(
     } else {
         0
     };
-    if let Some(fallback_flags) = visuals::fallback::material_flags(record) {
+    if let Some(fallback_flags) = fallback.material_flags(record) {
         flags |= fallback_flags;
     } else if is_stained_glass_cube(record) {
         flags |= MATERIAL_FLAG_ALPHA_BLEND;

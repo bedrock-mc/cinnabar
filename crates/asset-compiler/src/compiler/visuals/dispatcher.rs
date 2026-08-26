@@ -3,6 +3,7 @@ use super::context::{
     ButtonTemplateKey, CuboidTemplateKey, GateTemplateKey, ModelStorage, PaleMossCarpetTemplateKey,
     PressurePlateTemplateKey, RuleInputs, SignTemplateKey, diagnostic_visual,
 };
+use super::fallback::FallbackInventory;
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct ExactAdmissions {
@@ -177,6 +178,7 @@ impl VisualCompiler {
             &mut super::surfaces::SurfaceRuleContext {
                 pack: inputs.pack,
                 material_by_descriptor: inputs.material_by_descriptor,
+                fallback: inputs.fallback,
                 visual: &mut surface_visual,
                 transparent_cube_template_by_material: &mut self.transparent_cube_templates,
                 flowerbed_template_by_key: &mut self.flowerbed_templates,
@@ -316,6 +318,7 @@ pub(in crate::compiler) fn compile_visuals(
     pack: &PackSources,
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
     vanilla_fallback_material: u32,
+    fallback: &'static FallbackInventory<'static>,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let canonical_air = resolve_canonical_air(records)?;
@@ -332,6 +335,7 @@ pub(in crate::compiler) fn compile_visuals(
         pack,
         material_by_descriptor,
         vanilla_fallback_material,
+        fallback,
     };
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);

@@ -1,9 +1,11 @@
 use super::super::*;
+use super::fallback::FallbackInventory;
 
 pub(in crate::compiler) struct RuleInputs<'a> {
     pub(in crate::compiler) pack: &'a PackSources,
     pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
     pub(in crate::compiler) vanilla_fallback_material: u32,
+    pub(in crate::compiler) fallback: &'static FallbackInventory<'static>,
 }
 
 impl RuleInputs<'_> {
@@ -12,7 +14,7 @@ impl RuleInputs<'_> {
         record: &RegistryRecord,
         face: BlockFace,
     ) -> Option<u32> {
-        descriptor_for(self.pack, record, face)
+        descriptor_for(self.fallback, self.pack, record, face)
             .and_then(|(descriptor, _)| self.material_by_descriptor.get(&descriptor).copied())
     }
 

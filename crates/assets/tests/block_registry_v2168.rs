@@ -1,4 +1,7 @@
-use assets::{read_light_registry_for_protocol, read_registry, read_registry_for_protocol};
+use assets::{
+    BlockFlags, ContributorRole, ModelFamily, read_light_registry_for_protocol, read_registry,
+    read_registry_for_protocol,
+};
 use sha2::{Digest, Sha256};
 
 const BREG: &[u8] = include_bytes!("../data/block-registry-v2168.bin");
@@ -32,6 +35,40 @@ fn checked_in_v2168_block_and_light_registries_are_exact_and_bound() {
     assert_eq!(
         format!("{:x}", Sha256::digest(LREG)),
         "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"
+    );
+}
+
+#[test]
+fn checked_in_v2168_registry_pins_the_unique_canonical_air_identity() {
+    let records = read_registry_for_protocol(BREG, 2168).expect("decode v2168 BREG1003");
+    let air = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:air")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        air.len(),
+        1,
+        "the checked-in v2168 registry must carry exactly one minecraft:air record"
+    );
+    let air = air[0];
+    assert_eq!(air.sequential_id, 13_629);
+    assert_eq!(air.canonical_state.as_ref(), "{}");
+    assert_eq!(air.model_family, ModelFamily::Air);
+    assert_eq!(air.contributor_role, ContributorRole::Air);
+    assert!(air.flags.contains(BlockFlags::AIR));
+
+    // The network hash is content-derived from the canonical identity, so it
+    // must equal the legacy registry's air hash; only the sequential slot
+    // moves between protocols.
+    let legacy_air = read_registry(LEGACY_BREG)
+        .expect("decode legacy BREG1003")
+        .into_iter()
+        .find(|record| record.name.as_ref() == "minecraft:air")
+        .expect("legacy canonical air");
+    assert_eq!(legacy_air.canonical_state.as_ref(), "{}");
+    assert_eq!(
+        air.network_hash, legacy_air.network_hash,
+        "canonical air keeps its content-derived network hash across protocols"
     );
 }
 

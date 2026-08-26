@@ -226,12 +226,15 @@ fn canonical_air_at_an_arbitrary_identity_compiles_to_the_exact_invisible_route(
     const ARBITRARY_ID: u32 = 7_004;
     const ARBITRARY_HASH: u32 = 0x1234_5678;
     let records = vec![synthetic_air_record(ARBITRARY_ID, ARBITRARY_HASH)];
+    let fallback = super::visuals::fallback::inventory(super::LEGACY_REGISTRY_PROTOCOL)
+        .expect("resolve the legacy fallback inventory");
 
     let (visuals, hashed, _, _) = super::visuals::dispatcher::compile_visuals(
         &records,
         &pack,
         &BTreeMap::new(),
         0,
+        fallback,
         no_exact_admissions(),
     )
     .expect("compile a single-air synthetic registry");
@@ -248,12 +251,15 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
     let mut decoy = synthetic_air_record(9_001, 0x0bad_f00d);
     decoy.name = "custom:air".into();
     let records = vec![synthetic_air_record(CANONICAL_ID, 0x5afe_0000), decoy];
+    let fallback = super::visuals::fallback::inventory(super::LEGACY_REGISTRY_PROTOCOL)
+        .expect("resolve the legacy fallback inventory");
 
     let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
         &records,
         &pack,
         &BTreeMap::new(),
         0,
+        fallback,
         no_exact_admissions(),
     )
     .expect("compile a canonical-plus-decoy-air synthetic registry");
