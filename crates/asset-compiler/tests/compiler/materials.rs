@@ -843,8 +843,11 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
         record.network_hash = 91_000 + id as u32;
     }
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned stained glass");
+    let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id < ordinary_count {
+        if id == fixture_air {
+            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
+        } else if id < ordinary_count {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             assert_eq!(
                 compiled.model_templates[visual.model_template as usize].flags,
@@ -1097,8 +1100,11 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
         record.network_hash = 93_000 + id as u32;
     }
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned copper grates");
+    let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id < admitted_count {
+        if id == fixture_air {
+            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
+        } else if id < admitted_count {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             let template = compiled.model_templates[visual.model_template as usize];
             assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE);
