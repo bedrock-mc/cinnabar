@@ -116,18 +116,20 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile crossed plants");
-    assert!(compiled.visuals.iter().all(|visual| {
-        visual.kind == VisualKind::Cross && visual.model_template != assets::NO_MODEL_TEMPLATE
+    let fixture_air = fixture_air_id(&records) as usize;
+    assert!(compiled.visuals.iter().enumerate().all(|(index, visual)| {
+        index == fixture_air
+            || (visual.kind == VisualKind::Cross
+                && visual.model_template != assets::NO_MODEL_TEMPLATE)
     }));
     assert_eq!(
-        compiled
-            .visuals
+        compiled.visuals[..records.len()]
             .iter()
             .map(|visual| visual.variant)
             .collect::<Vec<_>>(),
         [0, 0, 0, 0, 0, 7, 2, 0, 1]
     );
-    for (index, visual) in compiled.visuals.iter().enumerate() {
+    for (index, visual) in compiled.visuals[..records.len()].iter().enumerate() {
         let template = compiled.model_templates[visual.model_template as usize];
         assert_eq!(
             template.quad_count, 2,
@@ -154,7 +156,7 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             "grass and fern must use the biome grass tint class"
         );
     }
-    for index in 2..compiled.visuals.len() {
+    for index in 2..records.len() {
         let template = compiled.model_templates[compiled.visuals[index].model_template as usize];
         let material = compiled.model_quads[template.quad_start as usize].material as usize;
         assert_eq!(
@@ -246,9 +248,10 @@ fn compiler_compiles_exact_animated_seagrass_pairs_without_biome_tint() {
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile animated seagrass");
-    assert_eq!(compiled.visuals.len(), 3);
+    // The fixture helper appends canonical air one identity above the plants.
+    assert_eq!(compiled.visuals.len(), 4);
     let expected_ticks = [[4, 4], [3, 3], [3, 3]];
-    for (index, visual) in compiled.visuals.iter().enumerate() {
+    for (index, visual) in compiled.visuals[..3].iter().enumerate() {
         assert_eq!(visual.kind, VisualKind::Cross);
         assert_ne!(visual.model_template, assets::NO_MODEL_TEMPLATE);
         let template = compiled.model_templates[visual.model_template as usize];
@@ -352,8 +355,9 @@ fn compiler_compiles_all_kelp_ages_as_six_animated_body_and_head_faces() {
         .collect::<Vec<_>>();
 
     let compiled = compile_pack(directory.path(), &records).expect("compile all kelp ages");
-    assert_eq!(compiled.visuals.len(), 26);
-    assert!(compiled.visuals.iter().all(|visual| {
+    // The fixture helper appends canonical air one identity above the ages.
+    assert_eq!(compiled.visuals.len(), 27);
+    assert!(compiled.visuals[..records.len()].iter().all(|visual| {
         visual.kind == VisualKind::Model
             && visual.model_template == compiled.visuals[0].model_template
             && visual.flags.is_empty()

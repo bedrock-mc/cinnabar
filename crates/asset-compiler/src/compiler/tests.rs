@@ -1,10 +1,10 @@
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use ::image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
 use super::CompileRuleResult;
 use super::inspect_animation_inventory;
-use assets::TILE_SIZE;
+use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
@@ -173,4 +173,96 @@ fn visual_family_dispatch_uses_explicit_ordered_outcomes() {
         CompileRuleResult::Compiled(visual),
         CompileRuleResult::Compiled(observed) if observed == visual
     ));
+}
+
+/// Builds one canonical-shaped air record at an arbitrary wire identity.
+fn synthetic_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {
+    RegistryRecord {
+        sequential_id,
+        network_hash,
+        name: "minecraft:air".into(),
+        canonical_state: "{}".into(),
+        flags: assets::BlockFlags::AIR,
+        model_family: assets::ModelFamily::Air,
+        contributor_role: assets::ContributorRole::Air,
+        model_state: Default::default(),
+        face_coverage: 0,
+        collision_seed: Default::default(),
+        provenance: assets::RegistryProvenance::PMMP,
+    }
+}
+
+fn empty_pack_sources() -> crate::PackSources {
+    let directory = tempfile::tempdir().expect("create empty-pack fixture");
+    // `read_pack` borrows nothing from the directory after parsing, so leak
+    // the temporary directory for the lifetime of the returned sources.
+    let root = directory.path().to_path_buf();
+    std::mem::forget(directory);
+    write(root.join("blocks.json"), "{}");
+    write(
+        root.join("textures/terrain_texture.json"),
+        r#"{"texture_data":{}}"#,
+    );
+    write(root.join("textures/flipbook_textures.json"), "[]");
+    crate::pack::read_pack(&root).expect("parse synthetic empty pack")
+}
+
+fn no_exact_admissions() -> super::visuals::dispatcher::ExactAdmissions {
+    super::visuals::dispatcher::ExactAdmissions {
+        mineral_cubes: false,
+        chiseled_bookshelves: false,
+        resin_clumps: false,
+        selector_alias_cubes: false,
+        cacti: false,
+        cakes: false,
+        farmland: false,
+        bee_housing: false,
+    }
+}
+
+#[test]
+fn canonical_air_at_an_arbitrary_identity_compiles_to_the_exact_invisible_route() {
+    let pack = empty_pack_sources();
+    const ARBITRARY_ID: u32 = 7_004;
+    const ARBITRARY_HASH: u32 = 0x1234_5678;
+    let records = vec![synthetic_air_record(ARBITRARY_ID, ARBITRARY_HASH)];
+
+    let (visuals, hashed, _, _) = super::visuals::dispatcher::compile_visuals(
+        &records,
+        &pack,
+        &BTreeMap::new(),
+        0,
+        no_exact_admissions(),
+    )
+    .expect("compile a single-air synthetic registry");
+
+    assert_eq!(hashed.as_ref(), &[(ARBITRARY_HASH, ARBITRARY_ID)]);
+    assert_eq!(visuals[ARBITRARY_ID as usize].kind, VisualKind::Invisible);
+    assert_eq!(visuals[ARBITRARY_ID as usize].support, VisualSupport::Exact);
+}
+
+#[test]
+fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
+    let pack = empty_pack_sources();
+    const CANONICAL_ID: u32 = 9_000;
+    let mut decoy = synthetic_air_record(9_001, 0x0bad_f00d);
+    decoy.name = "custom:air".into();
+    let records = vec![synthetic_air_record(CANONICAL_ID, 0x5afe_0000), decoy];
+
+    let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
+        &records,
+        &pack,
+        &BTreeMap::new(),
+        0,
+        no_exact_admissions(),
+    )
+    .expect("compile a canonical-plus-decoy-air synthetic registry");
+
+    assert_eq!(visuals[CANONICAL_ID as usize].kind, VisualKind::Invisible);
+    assert_eq!(visuals[CANONICAL_ID as usize].support, VisualSupport::Exact);
+    let visual = &visuals[9_001];
+    assert_eq!(visual.kind, VisualKind::Diagnostic);
+    assert_eq!(visual.support, VisualSupport::Diagnostic);
+    assert!(!visual.flags.contains(assets::BlockFlags::AIR));
+    assert_eq!(visual.contributor_role, assets::ContributorRole::Primary);
 }

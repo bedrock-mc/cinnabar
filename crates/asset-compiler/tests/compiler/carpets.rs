@@ -485,11 +485,11 @@ fn compiler_carpet_selectors_fail_closed_when_missing_invalid_or_extra() {
         record.network_hash = 96_000 + id as u32;
     }
     let compiled = compile_pack(directory.path(), &records).expect("compile invalid carpets");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
-        compiled
-            .visuals
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+        compiled.visuals.iter().enumerate().all(|(index, visual)| {
+            index == fixture_air || visual.kind == VisualKind::Diagnostic
+        })
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());
@@ -503,11 +503,13 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_carpet_states_when_requested() 
     let mut records = generated_carpet_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned carpets");
     assert_eq!(records.len(), 179);
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
         compiled
             .visuals
             .iter()
-            .all(|visual| visual.kind == VisualKind::Model)
+            .enumerate()
+            .all(|(index, visual)| index == fixture_air || visual.kind == VisualKind::Model)
     );
     assert!(
         compiled

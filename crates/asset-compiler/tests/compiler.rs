@@ -69,3 +69,6 @@ mod baseline;
 
 #[path = "compiler/architecture.rs"]
 mod architecture;
+
+#[path = "compiler/versioned_triple.rs"]
+mod versioned_triple;

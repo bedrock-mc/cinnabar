@@ -22,7 +22,7 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
         TILE_SIZE,
         &solid(TILE_SIZE, TILE_SIZE, [100, 100, 100, 255]),
     );
-    let records = [
+    let records = with_canonical_air(&[
         record(
             5,
             0xf000_0005,
@@ -37,11 +37,12 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
             "{}",
             BlockFlags::empty(),
         ),
-    ];
+    ]);
 
     let compiled = compile_pack(directory.path(), &records).expect("compile full cubes only");
 
-    assert_eq!(compiled.visuals.len(), 6);
+    // The fixture helper appends canonical air at identity 6.
+    assert_eq!(compiled.visuals.len(), 7);
     assert_eq!(compiled.visuals[2].faces, [0; 6]);
     assert!(
         compiled.visuals[5]
@@ -49,7 +50,14 @@ fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {
             .into_iter()
             .all(|material| material != 0)
     );
-    assert_eq!(&*compiled.hashed, &[(0x8000_0002, 2), (0xf000_0005, 5)]);
+    assert_eq!(
+        &*compiled.hashed,
+        &[
+            (0x8000_0002, 2),
+            (0xf000_0005, 5),
+            (records[2].network_hash, 6)
+        ]
+    );
     for &(hash, visual_index) in compiled.hashed.iter() {
         let record = records
             .iter()
@@ -269,7 +277,9 @@ fn compiler_installs_recognized_flipbooks_after_loading_the_strip() {
     assert_eq!(compiled.visuals[0].variant, 3);
     assert_eq!(compiled.visuals[1].kind, VisualKind::Liquid);
     assert_eq!(compiled.visuals[1].variant, 15);
-    for visual in &compiled.visuals[2..] {
+    // Records 2..=4 stay diagnostic; the trailing fixture-appended canonical
+    // air visual is excluded from this slice.
+    for visual in &compiled.visuals[2..5] {
         assert_eq!(visual.kind, VisualKind::Diagnostic);
         assert_eq!(visual.faces, [DIAGNOSTIC_MATERIAL; 6]);
         assert_eq!(visual.variant, 0);
@@ -371,8 +381,9 @@ fn compiler_maps_every_protocol_1001_lava_depth_for_both_runtime_names() {
     }
 
     let compiled = compile_pack(directory.path(), &records).expect("compile all lava states");
-    assert_eq!(compiled.visuals.len(), 32);
-    for (sequential_id, visual) in compiled.visuals.iter().enumerate() {
+    // The fixture helper appends canonical air one identity above the lava depths.
+    assert_eq!(compiled.visuals.len(), 33);
+    for (sequential_id, visual) in compiled.visuals.iter().take(32).enumerate() {
         assert_eq!(visual.kind, VisualKind::Liquid, "state {sequential_id}");
         assert_eq!(
             visual.contributor_role,

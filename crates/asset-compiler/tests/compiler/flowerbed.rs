@@ -90,6 +90,7 @@ fn compiler_flowerbed_positions_and_uvs_match_pinned_layout_hashes() {
     let actual = compiled
         .visuals
         .iter()
+        .take(records.len())
         .map(|visual| {
             let template = compiled.model_templates[visual.model_template as usize];
             flowerbed_geometry_digest(
@@ -294,11 +295,13 @@ fn compiler_flowerbed_templates_are_bounded_deduplicated_and_blob_stable() {
         compiled.visuals[duplicate_id as usize].model_template, compiled.visuals[10].model_template,
         "identical material/growth/orientation identity must deduplicate"
     );
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
         compiled
             .visuals
             .iter()
-            .all(|visual| visual.kind == VisualKind::Model),
+            .enumerate()
+            .all(|(index, visual)| index == fixture_air || visual.kind == VisualKind::Model),
         "all 64 normal flowerbed states must route to models"
     );
     for name_index in 0..2 {
@@ -360,11 +363,13 @@ fn compiler_flowerbed_exact_pair_does_not_require_command_only_records() {
         .collect::<Vec<_>>();
 
     let compiled = compile_pack(directory.path(), &records).expect("compile exact-pair flowerbed");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
         compiled
             .visuals
             .iter()
-            .all(|visual| visual.kind == VisualKind::Model)
+            .enumerate()
+            .all(|(index, visual)| index == fixture_air || visual.kind == VisualKind::Model)
     );
     assert_eq!(compiled.model_templates.len(), 4);
 }
@@ -403,11 +408,13 @@ fn compiler_keeps_flowerbeds_diagnostic_for_an_overlong_terrain_variant_array() 
         .collect::<Vec<_>>();
 
     let compiled = compile_pack(directory.path(), &records).expect("compile malformed flowerbed");
+    let fixture_air = fixture_air_id(&records) as usize;
     assert!(
         compiled
             .visuals
             .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic)
+            .enumerate()
+            .all(|(index, visual)| index == fixture_air || visual.kind == VisualKind::Diagnostic)
     );
     assert!(compiled.model_templates.is_empty());
     assert!(compiled.model_quads.is_empty());
