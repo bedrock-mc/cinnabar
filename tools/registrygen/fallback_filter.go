@@ -43,12 +43,16 @@ func writeFilteredFallback(inputPath, outputPath, bregPath string) error {
 }
 
 // parseFallbackInventoryHeader validates the exact CVFB1001 table envelope
-// shared by every fallback-inventory mode and returns its entry count.
+// shared by every fallback-inventory mode and returns its entry count. A zero
+// count fails closed because the real producer never emits an empty table.
 func parseFallbackInventoryHeader(input []byte) (int, error) {
 	if len(input) < fallbackHeaderBytes || string(input[:8]) != "CVFB1001" || binary.LittleEndian.Uint32(input[8:12]) != 1 {
 		return 0, fmt.Errorf("fallback inventory has an invalid header")
 	}
 	count := int(binary.LittleEndian.Uint32(input[12:16]))
+	if count == 0 {
+		return 0, fmt.Errorf("fallback inventory declares zero entries")
+	}
 	if len(input) != fallbackHeaderBytes+count*fallbackEntryBytes {
 		return 0, fmt.Errorf("fallback inventory length does not match %d entries", count)
 	}

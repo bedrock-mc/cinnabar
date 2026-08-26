@@ -377,9 +377,22 @@ func main() {
 			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/asset-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2168.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2168.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2168.json]\n")
 			os.Exit(2)
 		}
-		if err := writeRekeyedFallback(*fallbackRekeyIn, *rekeyLegacyBREG, *rekeyNewBREG, *fallbackRekeyOut, *fallbackRekeyManifest); err != nil {
+		stats, err := writeRekeyedFallback(*fallbackRekeyIn, *rekeyLegacyBREG, *rekeyNewBREG, *fallbackRekeyOut, *fallbackRekeyManifest)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
+		}
+		if *fallbackRekeyManifest == "" {
+			rekeyReportBytes, marshalErr := json.MarshalIndent(fallbackRekeyReport{
+				EntriesJoined:    stats.OutputEntries,
+				ReservedExcluded: stats.ReservedExcluded,
+				Output:           filepath.ToSlash(*fallbackRekeyOut),
+			}, "", "  ")
+			if marshalErr != nil {
+				fmt.Fprintf(os.Stderr, "registrygen: encode rekey report: %v\n", marshalErr)
+				os.Exit(1)
+			}
+			fmt.Println(string(rekeyReportBytes))
 		}
 		return
 	}

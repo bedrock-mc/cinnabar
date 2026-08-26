@@ -19,17 +19,25 @@ import (
 // record derives, and an entry landing on a cinnabar:reserved v2168 record is
 // defensively excluded and counted. Network hashes are content-derived from
 // the canonical identity, so a vanilla identity that survives a protocol bump
-// keeps its hash; for the current pinned corpus every entry joins unchanged,
-// making the emitted bytes equal the input, and the real-registry test proves
-// that continuity rather than assuming it. Any future dropped, renamed, or
-// hash-drifted fallback identity fails closed with an entry-by-entry listing.
+// keeps its hash while a genuinely re-keyed one moves; joining through the
+// canonical key handles both, and for the current pinned corpus every entry
+// joins unchanged, making the emitted bytes equal the input, which the
+// real-registry test witnesses rather than assumes. The failing classes are
+// identities dropped or renamed out of either registry and stored fingerprints
+// disagreeing with either joined identity; each fails closed with an
+// entry-by-entry listing.
 // The envelope geometry, texture alpha, and provenance inputs below are
 // preserved verbatim from the reviewed v1001 tranche because this mode changes
 // identity keying only.
 
 const (
-	fallbackRekeySchema  = "cinnabar-vanilla-fallback-source-v1"
-	fallbackRekeyStatus  = "provisional-vanilla-fallback"
+	fallbackRekeySchema = "cinnabar-vanilla-fallback-source-v1"
+	fallbackRekeyStatus = "provisional-vanilla-fallback"
+
+	// The pack and envelope constants below must change together with the
+	// matching fields of assets/vanilla-fallback-source-v1001.json: the rekey
+	// deliberately preserves the reviewed v1001 visual provenance verbatim
+	// instead of deriving new values.
 	fallbackRekeyPack    = "v1.26.30.32-preview"
 	fallbackRekeyBlocks  = "a53c486ba078d5824ae9694bb5ad360d8b64645b935c903cf8b4e410c75c1592"
 	fallbackRekeyTerrain = "fe8c2199f6b21c095f5f4612ea183f0ab358c74d6ba5580f3c1cabe00fc29329"
@@ -41,6 +49,9 @@ const (
 	fallbackRekeyContractMessage = "Known canonical vanilla identities only. Geometry is a conservative visualShape envelope; zero-volume envelopes use a neutral full cube. Resolvable pinned-pack textures are preferred, otherwise canonical stone is used. This status does not satisfy exact vanilla visual coverage."
 )
 
+// fallbackRekeyStats counts the input entries, emitted entries, defensively
+// excluded reserved collisions, distinct emitted block names, and zero-volume
+// envelopes of one rekey pass.
 type fallbackRekeyStats struct {
 	InputEntries     int
 	OutputEntries    int
@@ -49,11 +60,15 @@ type fallbackRekeyStats struct {
 	ZeroVolume       int
 }
 
+// rekeyedFallbackEntry is one emitted inventory row keyed by its new
+// protocol-2168 network hash with the source payload preserved verbatim.
 type rekeyedFallbackEntry struct {
 	networkHash uint32
 	bytes       [fallbackEntryBytes]byte
 }
 
+// vanillaFallbackSourceInventory binds the emitted fallback inventory binary
+// by repository path, envelope schema/version, fixed entry width, and SHA-256.
 type vanillaFallbackSourceInventory struct {
 	Path       string `json:"path"`
 	Schema     string `json:"schema"`
@@ -62,17 +77,23 @@ type vanillaFallbackSourceInventory struct {
 	SHA256     string `json:"sha256"`
 }
 
+// vanillaFallbackSourceRegistry binds one checked-in block registry binary by
+// repository path and SHA-256.
 type vanillaFallbackSourceRegistry struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 }
 
+// vanillaFallbackSourcePack pins the reviewed Mojang bedrock-samples release
+// whose blocks and terrain-texture payloads supplied the visual materials.
 type vanillaFallbackSourcePack struct {
 	Release              string `json:"release"`
 	BlocksSHA256         string `json:"blocks_sha256"`
 	TerrainTextureSHA256 string `json:"terrain_texture_sha256"`
 }
 
+// vanillaFallbackSourceEnvelope pins the CloudburstMC Data commit whose block
+// properties supplied the conservative geometry envelopes.
 type vanillaFallbackSourceEnvelope struct {
 	Repository string `json:"repository"`
 	Commit     string `json:"commit"`
@@ -80,6 +101,9 @@ type vanillaFallbackSourceEnvelope struct {
 	SHA256     string `json:"sha256"`
 }
 
+// vanillaFallbackSourceManifest is the deterministic provenance manifest
+// published beside a compiled fallback inventory; field order is part of the
+// committed artifact contract.
 type vanillaFallbackSourceManifest struct {
 	Schema              string                         `json:"schema"`
 	Protocol            uint32                         `json:"protocol"`
@@ -88,10 +112,20 @@ type vanillaFallbackSourceManifest struct {
 	ZeroVolumeEnvelopes int                            `json:"zero_volume_envelopes"`
 	Status              string                         `json:"status"`
 	Inventory           vanillaFallbackSourceInventory `json:"inventory"`
+	InputInventory      vanillaFallbackSourceRegistry  `json:"input_inventory"`
 	Registry            vanillaFallbackSourceRegistry  `json:"registry"`
+	LegacyRegistry      vanillaFallbackSourceRegistry  `json:"legacy_registry"`
 	BedrockPack         vanillaFallbackSourcePack      `json:"bedrock_pack"`
 	EnvelopeSource      vanillaFallbackSourceEnvelope  `json:"envelope_source"`
 	Contract            string                         `json:"contract"`
+}
+
+// fallbackRekeyReport is the success-path stdout summary echoed when no source
+// manifest was requested; with a manifest, stdout stays silent.
+type fallbackRekeyReport struct {
+	EntriesJoined    int    `json:"entries_joined"`
+	ReservedExcluded int    `json:"reserved_excluded"`
+	Output           string `json:"output"`
 }
 
 // fallbackIdentityFingerprint mirrors the consumer's FNV-style canonical
@@ -120,44 +154,46 @@ func fallbackIdentityFingerprint(name string, state []byte) uint64 {
 // beside the output like every other checked-in data artifact, and optionally
 // writes a source manifest that mirrors
 // assets/vanilla-fallback-source-v1001.json with the current BREG's exact
-// SHA-256 binding.
-func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, manifestPath string) error {
+// SHA-256 binding plus the input inventory and legacy registry provenance.
+// It returns the rekey stats so the caller can echo a stdout summary when no
+// manifest was requested.
+func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, manifestPath string) (fallbackRekeyStats, error) {
 	input, err := os.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("read fallback inventory: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("read fallback inventory: %w", err)
 	}
 	legacyBytes, err := os.ReadFile(legacyBREGPath)
 	if err != nil {
-		return fmt.Errorf("read legacy fallback BREG: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("read legacy fallback BREG: %w", err)
 	}
 	currentBytes, err := os.ReadFile(newBREGPath)
 	if err != nil {
-		return fmt.Errorf("read current fallback BREG: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("read current fallback BREG: %w", err)
 	}
 	_, legacyRecords, err := decodeBREGRecords(legacyBytes, registryProtocol)
 	if err != nil {
-		return err
+		return fallbackRekeyStats{}, err
 	}
 	_, currentRecords, err := decodeBREGRecords(currentBytes, v2168BlockProtocol)
 	if err != nil {
-		return err
+		return fallbackRekeyStats{}, err
 	}
 	output, stats, err := rekeyFallbackInventory(input, legacyRecords, currentRecords)
 	if err != nil {
-		return err
+		return fallbackRekeyStats{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return fmt.Errorf("create fallback rekey output directory: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("create fallback rekey output directory: %w", err)
 	}
 	if err := os.WriteFile(outputPath, output, 0o644); err != nil {
-		return fmt.Errorf("write fallback rekey output: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("write fallback rekey output: %w", err)
 	}
 	digest := sha256.Sum256(output)
 	if err := os.WriteFile(strings.TrimSuffix(outputPath, filepath.Ext(outputPath))+".sha256", []byte(fmt.Sprintf("%x\n", digest)), 0o644); err != nil {
-		return fmt.Errorf("write fallback rekey checksum: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("write fallback rekey checksum: %w", err)
 	}
 	if manifestPath == "" {
-		return nil
+		return stats, nil
 	}
 	manifest := vanillaFallbackSourceManifest{
 		Schema:              fallbackRekeySchema,
@@ -173,9 +209,17 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 			EntryBytes: fallbackEntryBytes,
 			SHA256:     fmt.Sprintf("%x", digest),
 		},
+		InputInventory: vanillaFallbackSourceRegistry{
+			Path:   filepath.ToSlash(inputPath),
+			SHA256: fmt.Sprintf("%x", sha256.Sum256(input)),
+		},
 		Registry: vanillaFallbackSourceRegistry{
 			Path:   filepath.ToSlash(newBREGPath),
 			SHA256: fmt.Sprintf("%x", sha256.Sum256(currentBytes)),
+		},
+		LegacyRegistry: vanillaFallbackSourceRegistry{
+			Path:   filepath.ToSlash(legacyBREGPath),
+			SHA256: fmt.Sprintf("%x", sha256.Sum256(legacyBytes)),
 		},
 		BedrockPack: vanillaFallbackSourcePack{
 			Release:              fallbackRekeyPack,
@@ -192,13 +236,13 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode fallback rekey manifest: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("encode fallback rekey manifest: %w", err)
 	}
 	manifestBytes = append(manifestBytes, '\n')
 	if err := os.WriteFile(manifestPath, manifestBytes, 0o644); err != nil {
-		return fmt.Errorf("write fallback rekey manifest: %w", err)
+		return fallbackRekeyStats{}, fmt.Errorf("write fallback rekey manifest: %w", err)
 	}
-	return nil
+	return stats, nil
 }
 
 // rekeyFallbackInventory rewrites every input entry under its protocol-2168
