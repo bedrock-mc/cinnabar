@@ -94,6 +94,72 @@ fn out_of_schema_entries_quarantine_the_whole_file() {
 }
 
 #[test]
+fn oversized_saved_server_file_is_bounded_and_quarantined() {
+    let directory = unique_directory("file-bound");
+    let path = directory.join("servers.json");
+    write_bytes(
+        &path,
+        &vec![b' '; crate::menu::servers::MAX_SAVED_SERVER_FILE_BYTES + 1],
+    );
+
+    let loaded = load_servers(&path);
+
+    assert!(loaded.servers.is_empty());
+    assert!(loaded.recovery_message.is_some());
+    assert!(!path.exists());
+    assert!(path.with_file_name("servers.json.invalid").exists());
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn too_many_saved_servers_are_rejected_on_load_and_save() {
+    let directory = unique_directory("entry-bound");
+    let path = directory.join("servers.json");
+    let prior = vec![sample_server("Prior", "prior.example:19132")];
+    save_servers(&path, &prior).unwrap();
+    let excessive = vec![
+        sample_server("Entry", "entry.example:19132");
+        crate::menu::servers::MAX_SAVED_SERVERS + 1
+    ];
+
+    let error = save_servers(&path, &excessive).expect_err("entry count must be bounded");
+    assert!(error.to_string().contains("too many saved servers"));
+    assert_eq!(
+        load_servers(&path).servers,
+        prior,
+        "failed save preserves prior file"
+    );
+
+    write_bytes(&path, &serde_json::to_vec(&excessive).unwrap());
+    let loaded = load_servers(&path);
+    assert!(loaded.servers.is_empty());
+    assert!(loaded.recovery_message.is_some());
+    assert!(!path.exists());
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn oversized_serialized_save_preserves_the_previous_file() {
+    let directory = unique_directory("serialized-bound");
+    let path = directory.join("servers.json");
+    let prior = vec![sample_server("Prior", "prior.example:19132")];
+    save_servers(&path, &prior).unwrap();
+    let large = vec![
+        sample_server(&"n".repeat(64), &"a".repeat(128));
+        crate::menu::servers::MAX_SAVED_SERVERS
+    ];
+
+    let error = save_servers(&path, &large).expect_err("serialized bytes must be bounded");
+    assert!(error.to_string().contains("saved-server file"));
+    assert_eq!(
+        load_servers(&path).servers,
+        prior,
+        "byte-limit rejection happens before replacing the prior file",
+    );
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
 fn missing_file_loads_empty_without_quarantining_anything() {
     let directory = unique_directory("missing");
     let path = directory.join("nested").join("servers.json");

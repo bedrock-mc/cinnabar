@@ -209,6 +209,52 @@ fn unknown_container_identities_skip_without_mutating_cells_or_ending_the_sessio
 }
 
 #[test]
+fn combined_player_name_on_a_foreign_window_is_skipped_by_ledger_and_hud() {
+    let foreign = identity(
+        6,
+        Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+    );
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut runtime);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&slot_event(identity(0, None), 3, stack(3)));
+    runtime
+        .inventory_ledger_mut()
+        .apply(&slot_event(foreign, 3, stack(63)));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .displayed_stack(3)
+            .map(|stack| stack.network_id),
+        Some(3),
+    );
+    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 1);
+
+    runtime
+        .enqueue_inventory_event(1, 1, slot_event(identity(0, None), 3, stack(3)))
+        .unwrap();
+    runtime
+        .enqueue_inventory_event(1, 2, content(foreign, vec![stack(60)]))
+        .unwrap();
+    runtime.drain_pending_inventory();
+    assert_eq!(
+        runtime
+            .gameplay_hud()
+            .hotbar_stack(0)
+            .map(|stack| stack.network_id),
+        None,
+    );
+    assert_eq!(
+        runtime
+            .gameplay_hud()
+            .diagnostics()
+            .unknown_container_events,
+        1
+    );
+}
+
+#[test]
 fn partial_window_zero_content_preserves_unseen_hotbar_mirror_cells() {
     let mut runtime = UiRuntime::new(1);
     let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();

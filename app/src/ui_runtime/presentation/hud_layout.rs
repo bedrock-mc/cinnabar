@@ -744,13 +744,13 @@ impl<'a> HudLayout<'a> {
     /// filled strip clipped by authoritative health and tinted by the
     /// authoritative color.
     fn boss_bars(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let stacked = runtime.boss_bars().stacked();
-        if stacked.is_empty() {
-            return Ok(());
-        }
         let g = self.geometry;
         let mut y = 12.0f32;
-        for bar in stacked.iter().take(MAX_PRESENTED_BOSS_BARS) {
+        for bar in runtime
+            .boss_bars()
+            .stacked_iter()
+            .take(MAX_PRESENTED_BOSS_BARS)
+        {
             if y + 19.0 > g.gui_height / 3.0 + 19.0 {
                 break;
             }

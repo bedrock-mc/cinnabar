@@ -584,6 +584,33 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
 }
 
 #[test]
+fn allocation_free_boss_query_preserves_first_show_order() {
+    let mut store = BossBarStore::default();
+    store
+        .apply(1, boss(BossAction::Show, 20, "first", 0.5))
+        .unwrap();
+    store
+        .apply(2, boss(BossAction::Show, 10, "second", 1.0))
+        .unwrap();
+    store
+        .apply(3, boss(BossAction::Show, 20, "updated", 0.75))
+        .unwrap();
+
+    let mut bars = store.stacked_iter();
+    let first = bars.next().expect("first bar");
+    let second = bars.next().expect("second bar");
+    assert_eq!(
+        (first.target_entity_id, first.title.as_ref()),
+        (20, "updated")
+    );
+    assert_eq!(
+        (second.target_entity_id, second.title.as_ref()),
+        (10, "second")
+    );
+    assert!(bars.next().is_none());
+}
+
+#[test]
 fn boss_bounds_nonfinite_health_and_missing_updates_do_not_mutate() {
     let mut store = BossBarStore::default();
     assert_eq!(

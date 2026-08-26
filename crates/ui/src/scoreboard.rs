@@ -761,18 +761,37 @@ impl BossBarStore {
         &self.diagnostics
     }
 
-    pub fn stacked(&self) -> Vec<BossBarView> {
-        let mut bars = self.bars.iter().collect::<Vec<_>>();
-        bars.sort_by_key(|(entity_id, bar)| (bar.first_show_sequence, **entity_id));
-        bars.into_iter()
-            .map(|(target_entity_id, bar)| BossBarView {
+    /// Iterates active boss bars in stable first-show order without
+    /// allocating a temporary ordering vector.
+    pub fn stacked_iter(&self) -> impl Iterator<Item = BossBarView> + '_ {
+        let mut previous = None;
+        std::iter::from_fn(move || {
+            let (target_entity_id, bar) = self
+                .bars
+                .iter()
+                .filter(|(target_entity_id, bar)| {
+                    previous.is_none_or(|previous| {
+                        (bar.first_show_sequence, **target_entity_id) > previous
+                    })
+                })
+                .min_by_key(|(target_entity_id, bar)| {
+                    (bar.first_show_sequence, **target_entity_id)
+                })?;
+            previous = Some((bar.first_show_sequence, *target_entity_id));
+            Some(BossBarView {
                 target_entity_id: *target_entity_id,
                 title: Arc::clone(&bar.title),
                 filtered_title: Arc::clone(&bar.filtered_title),
                 health: bar.health,
                 style: bar.style,
             })
-            .collect()
+        })
+    }
+
+    /// Materializes the stable boss-bar presentation order for callers that
+    /// need an owned collection outside the per-frame rendering path.
+    pub fn stacked(&self) -> Vec<BossBarView> {
+        self.stacked_iter().collect()
     }
 
     /// The registered player memberships of one bar, materialized on demand;

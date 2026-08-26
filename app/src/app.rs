@@ -424,16 +424,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         resolve_socket_dir(&args.socket_dir)
     };
-    let mut core_process = CoreProcessGuard::default();
     // Owned before any core spawn so the direct-connect path below derives
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
     let client_blob_cache = ClientBlobCacheOwner::default();
-    // Bound before the app is built: the explicit `drop(app)` below stops
-    // the core first, then this holder removes the runtime directory at
-    // scope exit. It also covers early asset failures through ordinary
-    // unwinding.
+    // Bound before the core guard is declared so Rust's reverse local-drop
+    // order always stops the core before releasing this directory, including
+    // every startup `?` before the app takes ownership of the guard.
     let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
+    let mut core_process = CoreProcessGuard::default();
     if let Some(address) = args.address.as_deref() {
         let child = spawn_core_for_address(
             &layout,
@@ -444,8 +443,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
-        wait_for_core(&socket_dir)
-            .with_context(|| format!("wait for Go core endpoint for {address}"))?;
+        if let Err(error) = wait_for_core(&socket_dir) {
+            crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
+            return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
+        }
     } else if connection_requested {
         preflight_bridge_endpoint(&socket_dir)?;
     }
@@ -564,13 +565,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
     let network = if connection_requested {
-        spawn_network(NetworkConfig {
+        match spawn_network(NetworkConfig {
             session_generation: 1,
             socket_dir,
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
         })
-        .context("spawn Bedrock network worker")?
+        .context("spawn Bedrock network worker")
+        {
+            Ok(network) => network,
+            Err(error) => {
+                crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
+                return Err(error);
+            }
+        }
     } else {
         NetworkHandle::disconnected()
     };

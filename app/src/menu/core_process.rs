@@ -82,6 +82,16 @@ impl Drop for CoreProcessGuard {
     }
 }
 
+/// Stops a just-spawned core completely before running setup rollback such
+/// as releasing its session-directory ownership.
+pub(crate) fn stop_core_then<T>(
+    guard: &mut CoreProcessGuard,
+    release: impl FnOnce(CoreStopOutcome) -> T,
+) -> T {
+    let outcome = guard.stop();
+    release(outcome)
+}
+
 pub(crate) fn spawn_core_for_address(
     layout: &InstallLayout,
     socket_dir: &Path,

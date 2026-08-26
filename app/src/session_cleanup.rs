@@ -284,29 +284,40 @@ impl SessionDirectoryGuard {
         if !self.bound {
             return ReleaseOutcome::AlreadyReleased;
         }
-        self.bound = false;
         if !self.directory.exists() {
+            self.bound = false;
             return ReleaseOutcome::DirectoryMissing;
         }
-        match load_marker(&self.directory) {
-            Ok(Some(on_disk)) if on_disk.token == self.token && on_disk.pid == process::id() => {}
+        let marker = match load_marker(&self.directory) {
+            Ok(Some(on_disk)) if on_disk.token == self.token && on_disk.pid == process::id() => {
+                on_disk
+            }
             Ok(_) | Err(_) => {
                 // Identity mismatch or unreadable proof: never guess.
                 eprintln!(
                     "session-runtime: refusing removal of {}: its identity marker no longer proves this binding owns it",
                     self.directory.display()
                 );
+                self.bound = false;
                 return ReleaseOutcome::IdentityRefused;
             }
-        }
+        };
         match fs::remove_dir_all(&self.directory) {
-            Ok(()) => ReleaseOutcome::Removed,
+            Ok(()) => {
+                self.bound = false;
+                ReleaseOutcome::Removed
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.bound = false;
                 ReleaseOutcome::DirectoryMissing
             }
             Err(_) => {
+                // `remove_dir_all` may remove the marker before encountering
+                // an undeletable child. Restore the same proven identity so
+                // this still-live guard can safely retry the partial cleanup.
+                let _ = write_marker(&self.directory, &marker);
                 eprintln!(
-                    "session-runtime: could not remove session directory {}; the next startup reclamation retries",
+                    "session-runtime: could not remove session directory {}; a later release or startup reclamation retries",
                     self.directory.display()
                 );
                 ReleaseOutcome::RemoveFailed

@@ -126,3 +126,25 @@ fn core_guard_replace_stops_the_previous_child_gracefully() {
     remove_directory(&first_directory);
     remove_directory(&second_directory);
 }
+
+#[test]
+fn failed_setup_stops_the_core_before_releasing_session_ownership() {
+    let (child, directory) = stdin_holding_child();
+    let mut guard = CoreProcessGuard::default();
+    guard.replace(child);
+    let session_path = directory.join(format!("connect-{}-1", std::process::id()));
+    let mut session = crate::session_cleanup::SessionDirectoryGuard::bind(session_path.clone())
+        .expect("bind setup session directory");
+
+    crate::menu::core_process::stop_core_then(&mut guard, |outcome| {
+        assert_eq!(outcome, CoreStopOutcome::ExitedAfterGracefulClose);
+        assert_eq!(
+            session.release(),
+            crate::session_cleanup::ReleaseOutcome::Removed,
+        );
+    });
+
+    assert!(!session_path.exists());
+    assert_eq!(guard.stop(), CoreStopOutcome::NotRunning);
+    remove_directory(&directory);
+}

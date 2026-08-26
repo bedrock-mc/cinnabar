@@ -63,7 +63,7 @@ fn attempt_connect(
             return;
         }
     };
-    if let Err(error) = spawn_core_for_address(
+    let child = match spawn_core_for_address(
         &menu.layout,
         &socket_dir,
         &address,
@@ -73,13 +73,18 @@ fn attempt_connect(
         // session below; that ownership is what makes the client answer
         // LoginSuccess with cache-enabled status downstream.
         client_blob_cache.enables_upstream_client_cache(),
-    )
-    .map_err(std::io::Error::other)
-    .and_then(|child| {
-        guard.replace(child);
-        wait_for_core(&socket_dir).map_err(std::io::Error::other)
-    }) {
-        drop(session_directory);
+    ) {
+        Ok(child) => child,
+        Err(error) => {
+            drop(session_directory);
+            menu.message = Some(format!("Could not start {address}: {error}"));
+            menu.connecting = false;
+            return;
+        }
+    };
+    guard.replace(child);
+    if let Err(error) = wait_for_core(&socket_dir) {
+        super::core_process::stop_core_then(guard, |_| drop(session_directory));
         menu.message = Some(format!("Could not start {address}: {error}"));
         menu.connecting = false;
         return;
@@ -103,6 +108,7 @@ fn attempt_connect(
             menu.mark_connecting();
         }
         Err(error) => {
+            super::core_process::stop_core_then(guard, |_| menu.release_session_directory());
             menu.message = Some(format!("Could not connect: {error}"));
             menu.connecting = false;
         }
@@ -448,6 +454,11 @@ mod transfer_follow_tests {
         assert_eq!(
             format_transfer_address("2001:db8::10", 25565),
             "[2001:db8::10]:25565"
+        );
+        assert_eq!(
+            format_transfer_address("[2001:db8::10]", 25565),
+            "[2001:db8::10]:25565",
+            "an already-bracketed transfer literal must not be bracketed twice",
         );
     }
 

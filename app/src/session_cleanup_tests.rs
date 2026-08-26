@@ -178,6 +178,30 @@ fn explicit_release_is_idempotent_and_later_drops_do_nothing() {
     assert!(!directory.exists(), "no resurrection after double shutdown");
 }
 
+#[cfg(unix)]
+#[test]
+fn failed_removal_retains_ownership_for_an_explicit_retry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempRoot::new("release-retry");
+    let directory = root.join("connect-7-3");
+    let blocked = directory.join("blocked");
+    let mut guard = SessionDirectoryGuard::bind(directory.clone()).expect("bind");
+    fs::create_dir(&blocked).expect("create blocked child");
+    fs::write(blocked.join("payload"), b"owned").expect("seed child");
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o500)).expect("block removal");
+
+    assert_eq!(guard.release(), ReleaseOutcome::RemoveFailed);
+    assert!(
+        directory.exists(),
+        "failed cleanup retains the owned directory"
+    );
+
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).expect("allow retry");
+    assert_eq!(guard.release(), ReleaseOutcome::Removed);
+    assert!(!directory.exists(), "the retained owner can retry cleanup");
+}
+
 #[test]
 fn scoped_holder_removes_on_scope_exit_and_is_safe_when_empty() {
     let root = TempRoot::new("scoped");

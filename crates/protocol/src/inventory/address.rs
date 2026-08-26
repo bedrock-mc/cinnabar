@@ -107,7 +107,11 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         Some(CONTAINER_NAME_CURSOR) => (slot == 0).then_some(CanonicalCell::Cursor),
         Some(CONTAINER_NAME_ARMOR) => Some(CanonicalCell::Armor(u8::try_from(slot).ok()?)),
         Some(CONTAINER_NAME_OFFHAND) => (slot == 0).then_some(CanonicalCell::Offhand),
-        Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY) => player_inventory_cell(slot),
+        Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY)
+            if matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
+        {
+            player_inventory_cell(slot)
+        }
         // Prior-admission restoration, pending live adjudication of any
         // further named aliases: servers name ordinary player-inventory
         // traffic `InventoryContainer` on legacy window 0, and both the
@@ -249,6 +253,30 @@ mod tests {
                 4_095
             ),
             None
+        );
+    }
+
+    #[test]
+    fn combined_player_name_requires_the_player_window_when_a_window_is_present() {
+        assert_eq!(
+            project_container_cell(
+                &identity(6, Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY)),
+                3,
+            ),
+            None,
+            "inbound Content and Slot traffic cannot relabel another window as player inventory",
+        );
+        assert_eq!(
+            project_container_cell(
+                &ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                    dynamic_id: Some(7),
+                },
+                3,
+            ),
+            Some(CanonicalCell::PlayerInventory(3)),
+            "windowless stack-response containers remain routable",
         );
     }
 

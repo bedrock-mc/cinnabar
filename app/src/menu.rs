@@ -50,7 +50,9 @@ pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
 ///
 /// IPv6 literals are bracketed the way the Go core's dialer expects.
 pub(crate) fn format_transfer_address(host: &str, port: u16) -> String {
-    if host.contains(':') {
+    if host.starts_with('[') && host.ends_with(']') {
+        format!("{host}:{port}")
+    } else if host.contains(':') {
         format!("[{host}]:{port}")
     } else {
         format!("{host}:{port}")

@@ -113,7 +113,7 @@ pub(crate) fn update_atmosphere_frame(
     outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
 ) {
     let (mut frame, mut route) = outputs;
-    let state = derive_boss_environment(&boss_bars.boss_bars().stacked());
+    let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
     let Some(assets) = atmosphere_assets.runtime() else {
         *frame = apply_boss_environment(
             derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0),
@@ -147,13 +147,24 @@ pub(crate) struct BossEnvironmentState {
     pub(crate) world_fog: bool,
 }
 
+#[cfg(test)]
 pub(crate) fn derive_boss_environment(bars: &[BossBarView]) -> BossEnvironmentState {
-    BossEnvironmentState {
-        darken_sky: bars.iter().any(|bar| bar.style.darken_sky == Some(true)),
-        world_fog: bars
-            .iter()
-            .any(|bar| bar.style.create_world_fog == Some(true)),
+    derive_boss_environment_iter(bars)
+}
+
+/// Derives boss environment flags from an allocation-free boss-bar query.
+fn derive_boss_environment_iter<I>(bars: I) -> BossEnvironmentState
+where
+    I: IntoIterator,
+    I::Item: std::borrow::Borrow<BossBarView>,
+{
+    let mut state = BossEnvironmentState::default();
+    for bar in bars {
+        let bar = std::borrow::Borrow::borrow(&bar);
+        state.darken_sky |= bar.style.darken_sky == Some(true);
+        state.world_fog |= bar.style.create_world_fog == Some(true);
     }
+    state
 }
 
 /// Boss effects respond only in air; water and lava media own their fog
