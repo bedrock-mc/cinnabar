@@ -384,8 +384,9 @@ func main() {
 		}
 		if *fallbackRekeyManifest == "" {
 			rekeyReportBytes, marshalErr := json.MarshalIndent(fallbackRekeyReport{
-				EntriesJoined:    stats.OutputEntries,
+				InputEntries:     stats.InputEntries,
 				ReservedExcluded: stats.ReservedExcluded,
+				OutputEntries:    stats.OutputEntries,
 				Output:           filepath.ToSlash(*fallbackRekeyOut),
 			}, "", "  ")
 			if marshalErr != nil {

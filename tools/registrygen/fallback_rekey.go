@@ -22,10 +22,13 @@ import (
 // keeps its hash while a genuinely re-keyed one moves; joining through the
 // canonical key handles both, and for the current pinned corpus every entry
 // joins unchanged, making the emitted bytes equal the input, which the
-// real-registry test witnesses rather than assumes. The failing classes are
-// identities dropped or renamed out of either registry and stored fingerprints
-// disagreeing with either joined identity; each fails closed with an
-// entry-by-entry listing.
+// real-registry test witnesses rather than assumes. Failure classes split by
+// evidence style: identities unmatched in either registry accumulate into one
+// exhaustive sorted entry-by-entry listing, while a stored fingerprint
+// disagreeing with its joined legacy or current identity, duplicate legacy
+// network hashes or duplicate current canonical keys inside the registry
+// inputs themselves, and two entries colliding on one emitted network hash
+// each fail closed immediately, naming the offending entries.
 // The envelope geometry, texture alpha, and provenance inputs below are
 // preserved verbatim from the reviewed v1001 tranche because this mode changes
 // identity keying only.
@@ -121,10 +124,13 @@ type vanillaFallbackSourceManifest struct {
 }
 
 // fallbackRekeyReport is the success-path stdout summary echoed when no source
-// manifest was requested; with a manifest, stdout stays silent.
+// manifest was requested; with a manifest, stdout stays silent. Input,
+// reserved-excluded, and emitted counts each carry their own field so no
+// figure silently changes meaning.
 type fallbackRekeyReport struct {
-	EntriesJoined    int    `json:"entries_joined"`
+	InputEntries     int    `json:"input_entries"`
 	ReservedExcluded int    `json:"reserved_excluded"`
+	OutputEntries    int    `json:"output_entries"`
 	Output           string `json:"output"`
 }
 
