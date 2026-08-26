@@ -354,8 +354,35 @@ func main() {
 	fallbackIn := flag.String("fallback-in", "", "existing CVFB1001 inventory to filter")
 	fallbackOut := flag.String("fallback-out", "", "path to write the filtered CVFB1001 inventory")
 	fallbackBREG := flag.String("fallback-breg", "", "projected BREG1003 used to select fallback exclusions")
+	fallbackRekeyIn := flag.String("fallback-rekey-in", "", "existing protocol-1001-keyed CVFB1001 inventory to rekey")
+	rekeyLegacyBREG := flag.String("legacy-breg", "", "checked-in protocol-1001 BREG1003 naming the rekey input identities")
+	rekeyNewBREG := flag.String("new-breg", "", "checked-in protocol-2168 BREG1003 supplying the rekeyed network hashes")
+	fallbackRekeyOut := flag.String("fallback-rekey-out", "", "path to write the rekeyed CVFB1001 inventory")
+	fallbackRekeyManifest := flag.String("fallback-rekey-manifest", "", "optional path to write the rekeyed source manifest")
 	refreshBindings := flag.Bool("refresh-bindings", false, "bind derived registries to the newly generated BREG")
 	flag.Parse()
+	if *fallbackRekeyIn != "" || *rekeyLegacyBREG != "" || *rekeyNewBREG != "" || *fallbackRekeyOut != "" || *fallbackRekeyManifest != "" {
+		if *fallbackRekeyIn == "" || *rekeyLegacyBREG == "" || *rekeyNewBREG == "" || *fallbackRekeyOut == "" ||
+			*out != "" || *lightOut != "" || *lightBREG != "" ||
+			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
+			*physicsV2168Out != "" || *physicsV2168SHAOut != "" || *physicsV2168BREG != "" || *physicsV2168Manifest != "" ||
+			*biomeOut != "" || *biomeCoverage != "" ||
+			*biomeV2168Executable != "" || *biomeV2168PMMP != "" || *biomeV2168Allowlist != "" || *biomeV2168Manifest != "" ||
+			*pmmpRoot != "" || *prismarineRoot != "" || *coverageManifest != "" ||
+			*blockItemOut != "" || *blockItemBREG != "" ||
+			*blockV2168Source != "" || *blockV2168LegacyBREG != "" || *blockV2168LegacyLight != "" ||
+			*blockV2168Allowlist != "" || *blockV2168Manifest != "" ||
+			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
+			fmt.Fprintln(os.Stderr, "registrygen: fallback rekey mode requires only -fallback-rekey-in, -legacy-breg, -new-breg, and -fallback-rekey-out")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/asset-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2168.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2168.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2168.json]\n")
+			os.Exit(2)
+		}
+		if err := writeRekeyedFallback(*fallbackRekeyIn, *rekeyLegacyBREG, *rekeyNewBREG, *fallbackRekeyOut, *fallbackRekeyManifest); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *physicsV2168Out != "" || *physicsV2168BREG != "" || *physicsV2168SHAOut != "" || *physicsV2168Manifest != "" {
 		if *physicsV2168Out == "" || *physicsV2168BREG == "" || *pmmpRoot == "" || *prismarineRoot == "" ||
 			*out != "" || *lightOut != "" || *lightBREG != "" || *biomeOut != "" || *biomeCoverage != "" ||
