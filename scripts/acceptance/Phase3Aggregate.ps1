@@ -84,6 +84,14 @@ function Write-Phase3FinalAggregate {
         }
     }
     Assert-Number $metrics.session_seconds 'metrics.session_seconds' 0.001 ([double]::MaxValue)
+    # The generic acceptance launcher allows five seconds for process startup
+    # and teardown outside the measured session. Dedicated Phase 3 evidence
+    # must meet the same bounded tolerance instead of accepting an arbitrarily
+    # early RemoteClosed terminal.
+    $minimumSessionSeconds = [Math]::Max(0.0, [double]$metadata.duration_seconds - 5.0)
+    if ([double]$metrics.session_seconds -lt $minimumSessionSeconds) {
+        throw ("metrics.session_seconds=$($metrics.session_seconds), expected at least $minimumSessionSeconds for requested duration $($metadata.duration_seconds)")
+    }
     Assert-Integer $metrics.frame_count 'metrics.frame_count' 1 ([decimal][uint64]::MaxValue)
     foreach ($field in @('p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms')) {
         Assert-Number $metrics.$field "metrics.$field" 0.0 ([double]::MaxValue)

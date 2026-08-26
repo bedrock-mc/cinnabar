@@ -52,6 +52,29 @@ require_nonnegative_number() {
     fi
 }
 
+# Compares nonnegative decimal integer strings without shell arithmetic, whose
+# signed machine-word conversion can wrap attacker-sized CLI values. Prints -1,
+# 0, or 1 when the left operand is less than, equal to, or greater than right.
+compare_decimal_integers() {
+    local LC_ALL=C
+    local left="$1" right="$2"
+    while [[ "${left#0}" != "$left" ]]; do left="${left#0}"; done
+    while [[ "${right#0}" != "$right" ]]; do right="${right#0}"; done
+    [[ -n "$left" ]] || left=0
+    [[ -n "$right" ]] || right=0
+    if [[ "${#left}" -lt "${#right}" ]]; then
+        printf '%s\n' -1
+    elif [[ "${#left}" -gt "${#right}" ]]; then
+        printf '%s\n' 1
+    elif [[ "$left" == "$right" ]]; then
+        printf '%s\n' 0
+    elif [[ "$left" < "$right" ]]; then
+        printf '%s\n' -1
+    else
+        printf '%s\n' 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --accept-eula) accept_eula=true ;;
@@ -87,11 +110,14 @@ done
 resolve_tightened_long() {
     # Echoes the effective bound. Overrides may only tighten.
     local name="$1" default_value="$2" override="$3"
-    if [[ "$override" -eq 0 ]]; then
+    local zero_comparison default_comparison
+    zero_comparison="$(compare_decimal_integers "$override" 0)"
+    if [[ "$zero_comparison" == 0 ]]; then
         printf '%s\n' "$default_value"
         return 0
     fi
-    if [[ "$override" -gt "$default_value" ]]; then
+    default_comparison="$(compare_decimal_integers "$override" "$default_value")"
+    if [[ "$default_comparison" == 1 ]]; then
         printf -- '--%s %s exceeds the built-in maximum %s; overrides may only tighten bounds\n' \
             "$name" "$override" "$default_value" >&2
         exit 1
@@ -195,6 +221,7 @@ cache_parent="$(dirname -- "$cache_path")"
 temporary_extract="$cache_path.extracting.$$"
 normalized_source="$cache_path/resource_pack/blocks.json"
 listing_work=''
+publisher_binary=''
 
 printf 'Manifest: %s\n' "$manifest_path"
 printf 'Source URL: %s\n' "$url"
@@ -268,6 +295,11 @@ cleanup_extract() {
             */cinnabar-zipcheck.*) rm -rf -- "$listing_work" ;;
         esac
     fi
+    if [[ -n "${publisher_binary:-}" && -f "$publisher_binary" ]]; then
+        case "$publisher_binary" in
+            */cinnabar-rename-no-replace.*) rm -f -- "$publisher_binary" ;;
+        esac
+    fi
 }
 trap cleanup_extract EXIT HUP INT TERM
 
@@ -282,7 +314,7 @@ if [[ -e "$cache_path" ]]; then
     exit 1
 fi
 
-for command_name in curl unzip od awk find stat; do
+for command_name in curl unzip od awk find stat cc; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         printf 'required command is unavailable: %s\n' "$command_name" >&2
         exit 1
@@ -304,6 +336,17 @@ fatal() {
     printf '%s\n' "$*" >&2
     exit 1
 }
+
+publisher_source="$script_dir/rename-directory-no-replace.c"
+if [[ ! -f "$publisher_source" ]]; then
+    fatal "atomic publication helper source is missing: $publisher_source"
+fi
+publisher_binary="$(mktemp "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX")" ||
+    fatal 'temporary atomic publication helper path unavailable'
+rm -f -- "$publisher_binary"
+if ! cc -std=c11 -O2 -Wall -Wextra -Werror "$publisher_source" -o "$publisher_binary"; then
+    fatal 'atomic no-replace directory publication helper could not be compiled'
+fi
 
 validate_entry_name() {
     # VPA-209: mirrors the PowerShell extractor's per-entry safety rules in
@@ -383,6 +426,11 @@ validate_entry_name() {
         local kind="d"
         if [[ "$part" == "${parts[${#parts[@]}-1]}" && "$is_directory" == false ]]; then
             kind="f"
+        elif [[ "$part" == "${parts[${#parts[@]}-1]}" ]]; then
+            # Explicit directory entries are distinct archive members. Keep
+            # that fact separate from repeated implicit ancestor discovery so
+            # duplicate explicit directories match PowerShell's rejection.
+            kind="x"
         fi
         printf '%s\t%s\n' "$kind" "$cumulative" >> "$kinds_file"
     done
@@ -415,7 +463,7 @@ parse_and_check_listing() {
         # runs of spaces between dash groups.
         /^-[[:space:]-]*$/ && /-/ { next }
         {
-            if (match($0, /^[[:space:]]*[0-9]+[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]+[[:space:]]+-?[0-9]+%[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}(:[0-9]{2})?[[:space:]]+[0-9A-Fa-f]{8}[[:space:]]{2}/)) {
+            if (match($0, /^[[:space:]]*[0-9]+[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]+[[:space:]]+-?[0-9]+%[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}-[0-9]{2}-[0-9]{4})[[:space:]]+[0-9]{2}:[0-9]{2}(:[0-9]{2})?[[:space:]]+[0-9A-Fa-f]{8}[[:space:]]{2}/)) {
                 # Save the prefix length immediately: later match() calls on
                 # sub-strings overwrite RSTART/RLENGTH.
                 prefix_length = RLENGTH
@@ -564,17 +612,20 @@ validate_archive_bounds() {
     awk -F'\t' '
         {
             key = $2; kind = $1
+            shape = (kind == "f" ? "f" : "d")
             if (key in seen) {
-                if (seen[key] != kind) {
+                if (seen[key] != shape) {
                     printf "ZIP entry path collision at \047%s\047\n", key > "/dev/stderr"
                     exit 3
                 }
-                if (kind == "f") {
+                if (kind == "f" || (kind == "x" && explicit[key])) {
                     printf "duplicate ZIP entry path \047%s\047\n", key > "/dev/stderr"
                     exit 3
                 }
+                if (kind == "x") { explicit[key] = 1 }
             } else {
-                seen[key] = kind
+                seen[key] = shape
+                if (kind == "x") { explicit[key] = 1 }
             }
         }
         ' "$listing_work/kinds" || fatal 'unsafe ZIP entry names'
@@ -731,17 +782,12 @@ else
     fi
 fi
 
-# VPA-209: publish by a same-volume atomic rename into an absent target.
-# The startup absence check raced this whole window; under a concurrent
-# writer creating the target during extraction, POSIX `mv dir target`
-# moves staging INTO the existing directory and corrupts the published
-# layout. Recheck absence immediately before the move, mirroring the
-# PowerShell extractor's pre-publication guard.
-if [[ -e "$cache_path" ]]; then
-    printf 'cache directory appeared during extraction: %s\n' "$cache_path" >&2
+# VPA-209: the helper makes the same-volume rename itself conditional on the
+# destination still being absent. There is no check/use gap, and an existing
+# directory is never interpreted as a request to nest staging inside it.
+if ! "$publisher_binary" "$normalized_root" "$cache_path"; then
     exit 1
 fi
-mv -- "$normalized_root" "$cache_path"
 if [[ "$normalized_root" != "$temporary_extract" ]]; then
     rmdir -- "$temporary_extract"
 fi

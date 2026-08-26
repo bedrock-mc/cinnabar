@@ -677,6 +677,33 @@ Describe 'Phase 3 production marker evidence validation' {
         $aggregate.evidence.terminal_outbox_reconciliation | Should Be 'RemoteClosed'
     }
 
+    It 'rejects a RemoteClosed candidate terminal before the requested duration tolerance' {
+        $script:Terminals[0].outbox_reconciliation = 'RemoteClosed'
+        $script:Metrics.session_seconds = 54.999
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-remote-closed-early.log')
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'metrics.session_seconds=54.999.*expected at least 55'
+    }
+
+    It 'accepts session metrics at the five-second launcher tolerance boundary' {
+        $script:Metrics.session_seconds = 55.0
+        (Invoke-Validator (Write-MarkerLog 'session-duration-tolerance.log')).ExitCode | Should Be 0
+    }
+
+    It 'rejects retained server-disconnect evidence with its classification' {
+        $logPath = Write-MarkerLog 'server-disconnect.log'
+        Add-Content -LiteralPath $logPath -Encoding utf8 -Value (
+            'RUST_MCBE_NETWORK_PUMP_TERMINAL=' +
+            '{"schema":"rust-mcbe-network-pump-terminal-v1","outcome":"failed",' +
+            '"stage":"receive_packet","message":"connection reset","decode_error_count":0,' +
+            '"server_disconnect":{"reason":"Kicked","message":"Removed by server",' +
+            '"filtered_message":""}}'
+        )
+        $result = Invoke-Validator $logPath
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'server-initiated disconnect.*reason=Kicked'
+    }
+
     It 'rejects a nonzero app process exit as the only changed condition' {
         $script:RunMetadata.app_exit_code = 9
         (Invoke-Validator (Write-MarkerLog 'process-app-exit.log')).ExitCode | Should Not Be 0

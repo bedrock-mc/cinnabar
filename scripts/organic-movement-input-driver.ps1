@@ -113,6 +113,7 @@ $ErrorActionPreference = 'Stop'
 # in a sibling module so this driver stays under the repository's 800-line
 # PowerShell cap. Dot-sourcing keeps every helper in this script's scope.
 . (Join-Path $PSScriptRoot 'organic-movement-input-focus.ps1')
+. (Join-Path $PSScriptRoot 'organic-movement-input-safety.ps1')
 
 # Constants ----------------------------------------------------------------
 
@@ -607,7 +608,10 @@ function Write-OrganicInputLiveLog {
 }
 
 function Invoke-OrganicInputPlan {
-    param([Parameter(Mandatory = $true)]$Plan)
+    param(
+        [Parameter(Mandatory = $true)]$Plan,
+        [Parameter(Mandatory = $true)][long]$ExpectedForegroundHandle
+    )
 
     Initialize-OrganicInputNativeMethods
     $budgetMs = [double]($Plan.duration_seconds * 1000)
@@ -637,6 +641,7 @@ function Invoke-OrganicInputPlan {
                     if (-not $finished) { $budgetExhausted = $true }
                 }
                 'KeyDown' {
+                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
                     Send-OrganicInputKey -ScanCode $step.scan_code -KeyUp $false
                     $held.Push([int]$step.scan_code)
                     $injected++
@@ -644,6 +649,7 @@ function Invoke-OrganicInputPlan {
                         ("KeyDown {0} sc=0x{1:x2} label={2}" -f $step.key, $step.scan_code, $step.label)
                 }
                 'KeyUp' {
+                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
                     Send-OrganicInputKey -ScanCode $step.scan_code -KeyUp $true
                     if ($held.Count -gt 0 -and $held.Peek() -eq [int]$step.scan_code) { $held.Pop() }
                     $injected++
@@ -651,6 +657,7 @@ function Invoke-OrganicInputPlan {
                         ("KeyUp {0} sc=0x{1:x2} label={2}" -f $step.key, $step.scan_code, $step.label)
                 }
                 'MouseMove' {
+                    Assert-OrganicInputForegroundHandle -ExpectedHandle $ExpectedForegroundHandle
                     Send-OrganicInputMouseMove -Dx $step.dx -Dy $step.dy
                     $injected++
                     Write-OrganicInputLiveLog -Stopwatch $stopwatch -Message `
@@ -746,7 +753,14 @@ if (-not $matched.Matched) {
 }
 
 Write-OrganicInputTimeline -Plan $plan -AsDryRun $false
+$foregroundHandle = [RustMcbe.OrganicInput.FocusNative]::GetForegroundWindow().ToInt64()
+$currentTarget = Get-OrganicInputTargetCandidates -ProcessName $ProcessName -WindowTitle $WindowTitle
+if ($null -eq (Test-OrganicInputForegroundCandidate -Candidates @($currentTarget.Candidates) `
+        -ForegroundHandle $foregroundHandle)) {
+    Write-Output 'refusing to inject: target lost the foreground after the initial gate.'
+    exit 2
+}
 Write-Output '[live] starting in 1.0s (Ctrl+C cancels; held keys are released automatically).'
 Start-Sleep -Milliseconds 1000
-Invoke-OrganicInputPlan -Plan $plan
+Invoke-OrganicInputPlan -Plan $plan -ExpectedForegroundHandle $foregroundHandle
 exit 0

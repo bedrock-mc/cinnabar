@@ -231,11 +231,11 @@ function Write-RawTestZipArchive {
     $bw.Dispose(); $cw.Dispose(); $body.Dispose(); $central.Dispose()
 }
 
-# VPA-209 publish-race witness for the bash extractor's pre-publication
-# absence recheck. A concurrent writer creating the cache target between
+# VPA-209 publish-race witness for the bash extractor's atomic no-replace
+# publication. A concurrent writer creating the cache target between
 # extraction and publication must fail the run closed instead of letting
-# POSIX `mv dir target` move staging INTO the live directory and corrupting
-# the published layout. Injection is deterministic: a PATH-shimmed unzip
+# directory-destination move semantics nest staging into the live directory.
+# Injection is deterministic: a PATH-shimmed unzip
 # delegates to the real Info-ZIP binary, then creates the publication target
 # immediately after extraction returns, inside the fetcher's pre-move window.
 # The caller owns fixture construction and manifest pinning; this helper
@@ -349,6 +349,42 @@ function Test-PublishRaceInjection {
     $raceResidue = @(Get-ChildItem -Force -LiteralPath $AssetRoot -Directory -Filter $StagingResidueFilter -ErrorAction SilentlyContinue)
     if ($raceResidue.Count -ne 0) {
         $failures += "publish-race(bash): left extraction staging behind: $($raceResidue.FullName -join ', ')"
+    }
+    return $failures
+}
+
+# Exercises the exact .NET primitive used by the PowerShell fetcher after a
+# competing writer has claimed the destination. Directory.Move must refuse the
+# operation without replacing the winner or nesting the staged directory.
+function Test-PowerShellDirectoryMoveRace {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root
+    )
+
+    $failures = @()
+    $source = Join-Path $Root 'powershell-race-source'
+    $destination = Join-Path $Root 'powershell-race-destination'
+    New-Item -ItemType Directory -Path $source, $destination | Out-Null
+    Set-Content -LiteralPath (Join-Path $source 'staged.txt') -Value staged
+    Set-Content -LiteralPath (Join-Path $destination 'winner.txt') -Value winner
+    $refused = $false
+    try {
+        [System.IO.Directory]::Move($source, $destination)
+    }
+    catch [System.IO.IOException] {
+        $refused = $true
+    }
+    if (-not $refused) {
+        $failures += 'publish-race(PowerShell): Directory.Move replaced or nested into an existing destination'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $source 'staged.txt') -PathType Leaf)) {
+        $failures += 'publish-race(PowerShell): staged source did not survive the refused publication'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $destination 'winner.txt') -PathType Leaf)) {
+        $failures += 'publish-race(PowerShell): concurrent winner was modified'
+    }
+    if (Test-Path -LiteralPath (Join-Path $destination 'powershell-race-source')) {
+        $failures += 'publish-race(PowerShell): staged source was nested into the destination'
     }
     return $failures
 }

@@ -86,6 +86,8 @@ try {
     New-Item -ItemType Directory -Path $sandboxScripts, $sandboxAssets | Out-Null
     Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\fetch-vanilla-assets.sh") `
         -Destination (Join-Path $sandboxScripts "fetch-vanilla-assets.sh")
+    Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\rename-directory-no-replace.c") `
+        -Destination (Join-Path $sandboxScripts "rename-directory-no-replace.c")
     Copy-Item -LiteralPath $fetcher -Destination (Join-Path $sandboxScripts "fetch-vanilla-assets.ps1")
 
     $sandboxBashFetcher = Join-Path $sandboxScripts "fetch-vanilla-assets.sh"
@@ -423,13 +425,22 @@ if ($LASTEXITCODE -ne 0) {
     $bashDeepTools = $false
     $bashDeepProbeScript = Join-Path $sandboxScripts "probe-bash-tools.sh"
     Set-Content -LiteralPath $bashDeepProbeScript -Value @'
-if command -v unzip >/dev/null 2>&1; then
+if command -v unzip >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
     exit 0
 fi
 exit 1
 '@ -Encoding ASCII
     $bashDeepProbeResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @($bashDeepProbeScript)
     $bashDeepTools = ($bashDeepProbeResult.ExitCode -eq 0)
+    if ($bashDeepTools) {
+        $renameHelperTest = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
+            (Join-Path $repoRoot 'scripts\tests\rename-directory-no-replace_test.sh'),
+            (Join-Path $repoRoot 'scripts\rename-directory-no-replace.c')
+        )
+        if ($renameHelperTest.ExitCode -ne 0) {
+            $sandboxFailures += "atomic-publisher-helper(bash): $($renameHelperTest.Output.Trim())"
+        }
+    }
 
     function Assert-ExtractionRejection {
         param(
@@ -534,6 +545,18 @@ exit 1
         } elseif (-not (Test-OutputContains -Output $raiseResult.Output -Needle "overrides may only tighten bounds")) {
             $sandboxFailures += "tighten-guard(bash): omitted tighten-only diagnostic: $($raiseResult.Output.Trim())"
         }
+
+        $overflowRaiseResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
+            $sandboxBashFetcher,
+            "--accept-eula",
+            "--dry-run",
+            "--max-archive-entries=999999999999999999999999999999999999"
+        )
+        if ($overflowRaiseResult.ExitCode -eq 0) {
+            $sandboxFailures += "tighten-guard-overflow(bash): accepted an overflowing bound"
+        } elseif (-not (Test-OutputContains -Output $overflowRaiseResult.Output -Needle "overrides may only tighten bounds")) {
+            $sandboxFailures += "tighten-guard-overflow(bash): omitted tighten-only diagnostic: $($overflowRaiseResult.Output.Trim())"
+        }
     }
     $raisePsResult = Invoke-NativeCapture -FilePath $childPowerShell -ArgumentList @(
         "-NoProfile",
@@ -604,6 +627,33 @@ exit 1
     Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
     Assert-ExtractionRejection -Label "duplicate-entry" `
         -Needle "duplicate ZIP entry path 'resource_pack/blocks.json'"
+
+    # Explicit directory members are entries in their own right and may not
+    # repeat. Implicit ancestors shared by distinct files remain valid.
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
+        [pscustomobject]@{ Name = "resource_pack/"; Content = $null },
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    Assert-ExtractionRejection -Label "duplicate-explicit-directory" `
+        -Needle "duplicate ZIP entry path 'resource_pack'"
+
+    Reset-BoundedFixture
+    New-TestZipArchive -Path $syntheticArchivePath -Entries @(
+        [pscustomobject]@{ Name = "resource_pack/blocks.json"; Content = "{}" },
+        [pscustomobject]@{ Name = "resource_pack/textures/one.txt"; Content = "one" },
+        [pscustomobject]@{ Name = "resource_pack/textures/two.txt"; Content = "two" }
+    )
+    Write-BoundedCaseManifest -Sha (Get-TestSha256Hex -Path $syntheticArchivePath)
+    if ($bashDeepTools) {
+        $implicitAncestorResult = Invoke-NativeCapture -FilePath $bash -ArgumentList @(
+            $sandboxBashFetcher, "--accept-eula")
+        if ($implicitAncestorResult.ExitCode -ne 0) {
+            $sandboxFailures += "implicit-ancestor-repeat(bash): valid archive failed: $($implicitAncestorResult.Output.Trim())"
+        }
+    }
 
     # --- file/directory path collisions are rejected on both platforms ---
     Reset-BoundedFixture
@@ -679,6 +729,14 @@ exit 1
             -AssetRoot $assetSandboxRoot `
             -StagingResidueFilter $stagingResidueFilter
     }
+    $sandboxFailures += Test-PowerShellDirectoryMoveRace -Root $sandboxRoot
+    $powerShellFetcherText = Get-Content -Raw -LiteralPath $sandboxPowerShellFetcher
+    if (-not $powerShellFetcherText.Contains('[System.IO.Directory]::Move(')) {
+        $sandboxFailures += 'publish-race(PowerShell): fetcher does not use direct Directory.Move publication'
+    }
+    if ($powerShellFetcherText -match 'Move-Item\s+-LiteralPath\s+\$normalizedRoot') {
+        $sandboxFailures += 'publish-race(PowerShell): fetcher retained directory-destination Move-Item publication'
+    }
 
     # --- stale staging reclamation: interrupted-run leftovers older than the
     # retention age are reclaimed at startup, fresh leftovers survive within
@@ -748,7 +806,7 @@ exit 1
             $sandboxFailures += "reclaim(bash): fresh staging was reclaimed despite remaining under the count bound"
         }
     } else {
-        Write-Output "NOTE: bash deep-extraction contracts skipped on this host because unzip is unavailable in the discovered bash."
+        Write-Output "NOTE: bash deep-extraction contracts skipped because unzip or cc is unavailable in the discovered bash."
     }
 
     if ($sandboxFailures.Count -ne 0) {

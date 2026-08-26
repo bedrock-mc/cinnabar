@@ -624,13 +624,21 @@ try {
         }
     }
 
-    # VPA-209: publish by a same-volume atomic rename into an absent target.
-    # A failed or interrupted run discards staging above and leaves any
-    # previous published tree untouched.
-    if (Test-Path -LiteralPath $cachePath) {
-        throw "cache directory appeared during extraction: $cachePath"
+    # VPA-209: Directory.Move is a direct same-volume directory rename. Unlike
+    # Move-Item/mv directory-destination semantics it never nests the source,
+    # and it fails atomically if a concurrent writer won the destination name.
+    try {
+        [System.IO.Directory]::Move(
+            (ConvertTo-ExtendedLengthPath -Path $normalizedRoot),
+            (ConvertTo-ExtendedLengthPath -Path $cachePath)
+        )
     }
-    Move-Item -LiteralPath $normalizedRoot -Destination $cachePath
+    catch [System.IO.IOException] {
+        if (Test-Path -LiteralPath $cachePath) {
+            throw "cache directory appeared during extraction: $cachePath"
+        }
+        throw
+    }
     if (Test-Path -LiteralPath $temporaryExtract) {
         Remove-ExtractionTree -Path $temporaryExtract
     }

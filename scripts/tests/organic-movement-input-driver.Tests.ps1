@@ -447,6 +447,31 @@ Describe 'organic movement synthetic input driver' {
                 'driver must forward the Activate switch to the wait gate'
         }
 
+        It 'rechecks the originally matched foreground handle before every injected event' {
+            $safetyPath = Join-Path $RepoRoot 'scripts\organic-movement-input-safety.ps1'
+            Assert-True (Test-Path -LiteralPath $safetyPath -PathType Leaf) `
+                'event focus safety helper must exist'
+            . $safetyPath
+
+            $observed = [Collections.Generic.Queue[long]]::new()
+            $observed.Enqueue(0x1234)
+            $observed.Enqueue(0x5678)
+            $probe = { return $observed.Dequeue() }
+            { Assert-OrganicInputForegroundHandle -ExpectedHandle 0x1234 `
+                    -ForegroundHandleProvider $probe } | Should Not Throw
+            { Assert-OrganicInputForegroundHandle -ExpectedHandle 0x1234 `
+                    -ForegroundHandleProvider $probe } | Should Throw
+
+            $driverText = Get-Content -Raw -LiteralPath $DriverPath
+            foreach ($action in @('KeyDown', 'KeyUp', 'MouseMove')) {
+                $pattern = "'$action'\s*\{\s*Assert-OrganicInputForegroundHandle"
+                Assert-True ($driverText -cmatch $pattern) `
+                    "$action must recheck focus before its SendInput event"
+            }
+            Assert-True ($driverText -cmatch 'finally\s*\{[\s\S]*release guard') `
+                'focus-loss abort must retain the held-key release guard'
+        }
+
         It 'reports honest activation failure and still refuses when no target ever appears' {
             $run = Invoke-DriverChild @(
                 '-ProcessName', 'rust-mcbe-no-such-process-xyz', '-Activate',

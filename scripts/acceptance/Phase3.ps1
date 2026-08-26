@@ -461,9 +461,22 @@ $identityJson = [Collections.Generic.List[string]]::new()
 $terminalJson = [Collections.Generic.List[string]]::new()
 foreach ($line in Get-Content -LiteralPath $LogPath) {
     if ($line.StartsWith($networkPumpTerminalPrefix, [StringComparison]::Ordinal)) {
+        $networkTerminalJson = $line.Substring($networkPumpTerminalPrefix.Length)
+        try { $networkTerminal = $networkTerminalJson | ConvertFrom-Json }
+        catch { throw 'Phase 3 network pump terminal marker is malformed' }
+        if ($null -ne $networkTerminal.PSObject.Properties['server_disconnect'] -and
+            $null -ne $networkTerminal.server_disconnect) {
+            $reason = if ($networkTerminal.server_disconnect.reason -is [string] -and
+                -not [string]::IsNullOrWhiteSpace([string]$networkTerminal.server_disconnect.reason)) {
+                [string]$networkTerminal.server_disconnect.reason
+            } else {
+                'Unknown'
+            }
+            throw "Phase 3 evidence contains a server-initiated disconnect (reason=$reason)"
+        }
         Write-Warning (
             'Phase 3 network pump terminal diagnostic: ' +
-            $line.Substring($networkPumpTerminalPrefix.Length)
+            $networkTerminalJson
         )
     }
     if ($line.StartsWith($violationPrefix, [StringComparison]::Ordinal)) {
