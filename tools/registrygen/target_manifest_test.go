@@ -119,4 +119,16 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			t.Fatalf("acceptance consumer %s hard-codes a versioned carrier instead of deriving the target", path)
 		}
 	}
+	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(workflow), "make physics-assets") {
+		t.Fatal("CI does not exercise the manifest-owned physics target")
+	}
+	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2168"} {
+		if strings.Contains(string(workflow), carrier) {
+			t.Fatalf("CI hard-codes %s instead of using the manifest-owned Make target", carrier)
+		}
+	}
 }

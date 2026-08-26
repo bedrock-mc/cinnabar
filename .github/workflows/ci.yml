@@ -197,11 +197,5 @@ jobs:
       - name: Test hermetic vanilla asset acquisition on macOS (bash extractor bounds)
         shell: pwsh
         run: ./scripts/tests/vanilla-assets.ps1
-      - name: Acquire and compile protocol-1001 physics assets through Make
+      - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets
-      - name: Verify the generated runtime carrier
-        shell: bash
-        run: |
-          expected="$(tr -d '[:space:]' < crates/assets/data/block-physics-v1001.sha256)"
-          actual="$(shasum -a 256 .local/assets/block-physics-v1001.bin | awk '{print $1}')"
-          test "$actual" = "$expected"

@@ -76,7 +76,7 @@ RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
 ifeq ($(OS),Windows_NT)
-PHYSICS_REGISTRY_INSTALL = powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(dir $(abspath $(PHYSICS_REGISTRY)))' | Out-Null; Copy-Item -Force '$(abspath $(PHYSICS_REGISTRY_SOURCE))' '$(abspath $(PHYSICS_REGISTRY))'"
+PHYSICS_REGISTRY_INSTALL = $(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(dir $(abspath $(PHYSICS_REGISTRY)))' | Out-Null; Copy-Item -Force '$(abspath $(PHYSICS_REGISTRY_SOURCE))' '$(abspath $(PHYSICS_REGISTRY))'"
 else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif

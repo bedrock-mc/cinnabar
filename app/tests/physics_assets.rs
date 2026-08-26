@@ -17,6 +17,7 @@ fn make_client_acquires_and_builds_the_required_physics_registry() {
         "physics-assets: $(PHYSICS_REGISTRY)",
         "$(PHYSICS_REGISTRY): $(PHYSICS_REGISTRY_SOURCE) $(PHYSICS_REGISTRY_SHA256) $(BEDROCK_TARGET_MANIFEST)",
         "$(PHYSICS_REGISTRY_INSTALL)",
+        "PHYSICS_REGISTRY_INSTALL = $(POWERSHELL)",
         "$(GO) -C tools/registrygen run ./cmd/hashcheck",
         "$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )",
     ] {
