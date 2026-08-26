@@ -212,12 +212,6 @@ impl<T: Transport> PlaySession<T> {
         self.server_disconnect.take()
     }
 
-    fn retain_server_disconnect(&mut self, packet: &Packet) {
-        if let Some(event) = ServerDisconnectEvent::from_packet_data(&packet.data) {
-            self.server_disconnect = Some(event);
-        }
-    }
-
     /// Takes the most recent normalized server-directed transfer target.
     ///
     /// Like the retained disconnect reason this is one-shot: the play pump
@@ -232,34 +226,6 @@ impl<T: Transport> PlaySession<T> {
     /// completely and the session survives.
     pub fn transfer_skip_count(&self) -> u64 {
         self.transfer_skips
-    }
-
-    fn retain_server_transfer(&mut self, packet: &Packet) {
-        match ServerTransferEvent::from_packet_data(&packet.data) {
-            Ok(Some(event)) => self.server_transfer = Some(event),
-            Ok(None) => {}
-            Err(_) => self.transfer_skips = self.transfer_skips.saturating_add(1),
-        }
-    }
-
-    /// Decodes one session-boundary packet, retains any disconnect reason or
-    /// transfer target it carries, and resets the cache for the immediate
-    /// boundary. Malformed wire stays fatal.
-    async fn absorb_boundary_packet(
-        &mut self,
-        raw: RawPacket,
-        name: McpePacketName,
-    ) -> Result<(), ProtocolError> {
-        let packet = match self.stream.decode_raw_packet(raw) {
-            Ok(packet) => packet,
-            Err(error) => return Err(self.fail_session(error)),
-        };
-        self.retain_server_disconnect(&packet);
-        self.retain_server_transfer(&packet);
-        if let Some(resolver) = self.blob_cache.as_mut() {
-            reset_cache_for_immediate_boundary(resolver, name)?;
-        }
-        Ok(())
     }
 
     /// Takes the validated ordered resource-pack archives captured during login.
@@ -381,8 +347,10 @@ impl<T: Transport> PlaySession<T> {
                 McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
             ) {
                 let name = raw.id;
-                self.absorb_boundary_packet(raw, name).await?;
-                return boundary_wakeup();
+                if self.absorb_boundary_packet(raw, name).await? {
+                    return boundary_wakeup();
+                }
+                continue;
             }
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
@@ -605,8 +573,10 @@ impl<T: Transport> PlaySession<T> {
                 packet_name,
                 McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
             ) {
-                self.absorb_boundary_packet(raw, packet_name).await?;
-                return boundary_wakeup();
+                if self.absorb_boundary_packet(raw, packet_name).await? {
+                    return boundary_wakeup();
+                }
+                continue;
             }
 
             if matches!(

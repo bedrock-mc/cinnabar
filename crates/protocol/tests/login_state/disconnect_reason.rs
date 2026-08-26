@@ -193,22 +193,17 @@ pub(super) fn boundary_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePacke
     }
 }
 
-async fn drain_until_disconnect_sentinel<T: Transport>(session: &mut PlaySession<T>) {
+/// Drains the ordinary login epilogue until the decoded terminal packet wakes
+/// the receiver with the play-boundary sentinel.
+async fn expect_session_boundary<T: Transport>(session: &mut PlaySession<T>) {
     for _ in 0..EPILOGUE_ITERATION_LIMIT {
-        match session
-            .recv_world_event(0)
-            .await
-            .expect("epilogue traffic stays decodable")
-        {
-            WorldEvent::SetTime(protocol::SetTimeEvent { time })
-                if time == EPILOGUE_SENTINEL_TIME =>
-            {
-                return;
-            }
-            _ => continue,
+        match session.recv_world_event(0).await {
+            Err(ProtocolError::SessionBoundary) => return,
+            Err(error) => panic!("terminal epilogue failed before its boundary: {error}"),
+            Ok(_) => {}
         }
     }
-    panic!("disconnect epilogue sentinel never arrived");
+    panic!("terminal epilogue never surfaced its session boundary");
 }
 
 #[tokio::test]
@@ -222,7 +217,7 @@ async fn play_ingress_retains_a_normalized_server_disconnect_reason() {
         .await
         .expect("scripted login");
 
-    drain_until_disconnect_sentinel(&mut session).await;
+    expect_session_boundary(&mut session).await;
 
     let disconnect = session
         .take_server_disconnect()
@@ -255,7 +250,7 @@ async fn cached_play_ingress_retains_a_normalized_server_disconnect_reason() {
     .await
     .expect("scripted cache login");
 
-    drain_until_disconnect_sentinel(&mut session).await;
+    expect_session_boundary(&mut session).await;
 
     let disconnect = session
         .take_server_disconnect()
@@ -265,6 +260,7 @@ async fn cached_play_ingress_retains_a_normalized_server_disconnect_reason() {
         Some("We've detected movement cheats")
     );
     assert_eq!(session.decode_error_count(), 0);
+    assert!(session.take_server_disconnect().is_none());
 }
 
 #[tokio::test]
@@ -318,7 +314,7 @@ async fn play_ingress_retains_a_normalized_server_transfer_target() {
         .await
         .expect("scripted login");
 
-    drain_until_transfer_sentinel(&mut session).await;
+    expect_session_boundary(&mut session).await;
 
     let transfer = session
         .take_server_transfer()
@@ -349,7 +345,7 @@ async fn cached_play_ingress_retains_a_normalized_server_transfer_target() {
     .await
     .expect("scripted cache login");
 
-    drain_until_transfer_sentinel(&mut session).await;
+    expect_session_boundary(&mut session).await;
 
     let transfer = session
         .take_server_transfer()
@@ -357,6 +353,7 @@ async fn cached_play_ingress_retains_a_normalized_server_transfer_target() {
     assert_eq!(transfer.host, TRANSFER_EPILOGUE_HOST);
     assert_eq!(transfer.port, TRANSFER_EPILOGUE_PORT);
     assert_eq!(session.decode_error_count(), 0);
+    assert!(session.take_server_transfer().is_none());
 }
 
 #[tokio::test]
@@ -406,6 +403,33 @@ async fn well_formed_but_unusable_transfer_targets_are_counted_semantic_skips() 
             1,
             "{epilogue:?} must count exactly one semantic transfer skip"
         );
+        assert!(session.take_server_transfer().is_none());
+        assert_eq!(session.decode_error_count(), 0);
+    }
+}
+
+#[tokio::test]
+async fn cached_unusable_transfer_targets_are_counted_semantic_skips() {
+    for epilogue in [
+        PlayEpilogue::OddTransferEmptyHost,
+        PlayEpilogue::OddTransferZeroPort,
+    ] {
+        let transport = ScriptTransport::new_with_cache_and_epilogue(
+            CompressionMode::Deflate,
+            SpawnOrder::RadiusThenSpawn,
+            epilogue,
+        );
+        let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
+            transport,
+            "RustClient",
+            ClientBlobCache::default(),
+        )
+        .await
+        .expect("scripted cache login");
+
+        drain_until_transfer_sentinel(&mut session).await;
+
+        assert_eq!(session.transfer_skip_count(), 1);
         assert!(session.take_server_transfer().is_none());
         assert_eq!(session.decode_error_count(), 0);
     }
