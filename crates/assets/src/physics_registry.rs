@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use bitflags::bitflags;
 use sha2::{Digest, Sha256};
 
-use crate::{AssetError, CollisionBox, RegistryRecord, read_registry};
+use crate::{AssetError, CollisionBox, RegistryRecord, read_registry_for_protocol};
 
 const MAGIC: &[u8; 8] = b"PREG1001";
-const PROTOCOL: u32 = 1001;
+const LEGACY_PHYSICS_REGISTRY_PROTOCOL: u32 = 1001;
 const HEADER_BYTES: usize = 48;
 const TRAILER_BYTES: usize = 32;
 const MAX_RECORDS: usize = 65_536;
@@ -96,6 +96,7 @@ pub struct PhysicsRegistry {
     hashes: HashMap<u32, usize>,
     sha256: [u8; 32],
     breg_sha256: [u8; 32],
+    protocol: u32,
 }
 
 impl PhysicsRegistry {
@@ -122,6 +123,12 @@ impl PhysicsRegistry {
         self.breg_sha256
     }
 
+    /// The exact wire protocol stamped in the decoded carrier header.
+    #[must_use]
+    pub const fn protocol(&self) -> u32 {
+        self.protocol
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.records.len()
@@ -133,11 +140,33 @@ impl PhysicsRegistry {
     }
 }
 
+/// Decodes a strict `PREG1001` artifact bound to the exact protocol-1001 BREG
+/// bytes and records.
 pub fn read_physics_registry(
     preg: &[u8],
     breg: &[u8],
     records: &[RegistryRecord],
 ) -> Result<PhysicsRegistry, AssetError> {
+    read_physics_registry_for_protocol(preg, breg, records, LEGACY_PHYSICS_REGISTRY_PROTOCOL)
+}
+
+/// Decodes a strict `PREG1001` carrier for one explicit wire protocol.
+///
+/// Only the reviewed protocol-1001 and protocol-2168 projections are
+/// accepted; every other value is rejected before any structural read. All
+/// structural checks (trailer digest, count versus the supplied BREG records,
+/// exact-BREG-SHA-256 binding, element-wise re-decode, contiguity, unique
+/// network hashes, box bounds, and record semantics) apply identically to
+/// both supported protocols.
+pub fn read_physics_registry_for_protocol(
+    preg: &[u8],
+    breg: &[u8],
+    records: &[RegistryRecord],
+    expected_protocol: u32,
+) -> Result<PhysicsRegistry, AssetError> {
+    if !matches!(expected_protocol, 1001 | 2168) {
+        return invalid("unsupported PREG1001 wire protocol");
+    }
     if preg.len() < HEADER_BYTES + TRAILER_BYTES {
         return invalid("carrier is shorter than its header and digest");
     }
@@ -154,8 +183,8 @@ pub fn read_physics_registry(
     if reader.read_exact(8, "magic")? != MAGIC {
         return invalid("invalid magic");
     }
-    if reader.read_u32("protocol")? != PROTOCOL {
-        return invalid("protocol is not 1001");
+    if reader.read_u32("protocol")? != expected_protocol {
+        return invalid(format!("protocol is not {expected_protocol}"));
     }
     let count = usize::try_from(reader.read_u32("record count")?)
         .map_err(|_| physics_error("record count does not fit usize"))?;
@@ -176,7 +205,7 @@ pub fn read_physics_registry(
     if encoded_breg_sha != actual_breg_sha {
         return invalid("exact BREG SHA-256 mismatch");
     }
-    let decoded_breg = read_registry(breg)?;
+    let decoded_breg = read_registry_for_protocol(breg, expected_protocol)?;
     if decoded_breg.as_ref() != records {
         return invalid("supplied records are not the exact decoded BREG records");
     }
@@ -263,6 +292,7 @@ pub fn read_physics_registry(
         hashes,
         sha256: Sha256::digest(preg).into(),
         breg_sha256: actual_breg_sha,
+        protocol: expected_protocol,
     })
 }
 

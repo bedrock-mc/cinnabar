@@ -43,8 +43,11 @@ impl PhysicsCollisionRegistries {
         preg_bytes: &[u8],
     ) -> Result<Self, PhysicsCollisionRegistryError> {
         let physics = assets::read_physics_registry(preg_bytes, breg_bytes, records)?;
+        // The identity carries the decoder's exact stamped wire protocol so
+        // the registries never claim a protocol the carrier did not declare;
+        // today's production v1001 carrier decodes to 1001 exactly as before.
         let sequential_identity = CollisionRegistryIdentity {
-            protocol: 1001,
+            protocol: physics.protocol(),
             id_space: CollisionIdSpace::Sequential,
             preg_sha256: physics.sha256(),
         };
