@@ -331,6 +331,10 @@ func main() {
 	physicsOut := flag.String("physics-out", "", "optional path to write the BREG-bound block physics registry")
 	physicsSHAOut := flag.String("physics-sha-out", "", "optional path to write the physics registry SHA-256")
 	physicsBREG := flag.String("physics-breg", "", "existing reviewed BREG1003 whose exact bytes the physics registry binds")
+	physicsV2168Out := flag.String("physics-v2168-out", "", "path to write the projected protocol-2168 block physics registry")
+	physicsV2168SHAOut := flag.String("physics-v2168-sha-out", "", "optional path to write the v2168 physics registry SHA-256")
+	physicsV2168BREG := flag.String("physics-v2168-breg", "", "checked-in protocol-2168 BREG1003 whose exact bytes the physics projection binds")
+	physicsV2168Manifest := flag.String("physics-v2168-manifest", "", "reviewed v2168 block-projection manifest cross-checked against the projection")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	biomeCoverage := flag.String("biome-coverage", "", "reviewed numeric biome coverage manifest")
 	biomeV2168Executable := flag.String("biome-v2168-executable", "", "local exact public BDS executable")
@@ -352,6 +356,25 @@ func main() {
 	fallbackBREG := flag.String("fallback-breg", "", "projected BREG1003 used to select fallback exclusions")
 	refreshBindings := flag.Bool("refresh-bindings", false, "bind derived registries to the newly generated BREG")
 	flag.Parse()
+	if *physicsV2168Out != "" || *physicsV2168BREG != "" || *physicsV2168SHAOut != "" || *physicsV2168Manifest != "" {
+		if *physicsV2168Out == "" || *physicsV2168BREG == "" || *pmmpRoot == "" || *prismarineRoot == "" ||
+			*out != "" || *lightOut != "" || *lightBREG != "" || *biomeOut != "" || *biomeCoverage != "" ||
+			*biomeV2168Executable != "" || *biomeV2168PMMP != "" || *biomeV2168Allowlist != "" || *biomeV2168Manifest != "" ||
+			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
+			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings ||
+			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
+			*blockV2168Source != "" || *blockV2168LegacyBREG != "" || *blockV2168LegacyLight != "" ||
+			*blockV2168Allowlist != "" || *blockV2168Manifest != "" {
+			fmt.Fprintln(os.Stderr, "registrygen: v2168 physics mode requires only -physics-v2168-out, -physics-v2168-breg, -pmmp, and -prismarine")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -physics-v2168-out %s -physics-v2168-breg %s [-physics-v2168-sha-out <path>] [-physics-v2168-manifest assets/block-projection-v2168.json] -pmmp <PINNED_PMMP> -prismarine <PINNED_PRISMARINE>\n", v2168PhysicsOutputPath, v2168PhysicsBREGInputPath)
+			os.Exit(2)
+		}
+		if err := writeV2168PhysicsProjection(*physicsV2168BREG, *pmmpRoot, *prismarineRoot, *physicsV2168Out, *physicsV2168SHAOut, *physicsV2168Manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *blockV2168Source != "" || *blockV2168LegacyBREG != "" || *blockV2168LegacyLight != "" || *blockV2168Allowlist != "" || *blockV2168Manifest != "" {
 		if *out == "" || *blockV2168Source == "" || *blockV2168LegacyBREG == "" || *blockV2168LegacyLight == "" ||
 			*blockV2168Allowlist == "" || *blockV2168Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||

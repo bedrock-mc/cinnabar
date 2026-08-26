@@ -489,6 +489,13 @@ func strictBubbleDragDown(state []byte) (bool, error) {
 }
 
 func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount int) ([]byte, error) {
+	return encodePhysicsRegistryForProtocol(breg, records, expectedCount, registryProtocol)
+}
+
+// encodePhysicsRegistryForProtocol stamps an explicit wire protocol so the
+// protocol-2168 projection can bind its own identity space without mutating
+// the shared protocol-1001 constants or its byte-reproducible output.
+func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expectedCount int, protocol uint32) ([]byte, error) {
 	if len(records) != expectedCount {
 		return nil, fmt.Errorf("physics record count %d does not match expected %d", len(records), expectedCount)
 	}
@@ -500,7 +507,7 @@ func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount i
 	seenHashes := make(map[uint32]struct{}, len(sorted))
 	encoded := make([]byte, 0, 48+len(sorted)*36+32)
 	encoded = append(encoded, physicsRegistryHeader...)
-	encoded = binary.LittleEndian.AppendUint32(encoded, registryProtocol)
+	encoded = binary.LittleEndian.AppendUint32(encoded, protocol)
 	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(sorted)))
 	bregDigest := sha256.Sum256(breg)
 	encoded = append(encoded, bregDigest[:]...)
