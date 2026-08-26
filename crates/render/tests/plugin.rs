@@ -347,7 +347,7 @@ fn flowerbed_runtime_assets() -> &'static RuntimeAssets {
         write_flowerbed_pack(directory.path());
         let generated = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
             .expect("decode committed FlowerBed registry");
-        let records = [0_u32, 3, 7]
+        let mut records = [0_u32, 3, 7]
             .into_iter()
             .enumerate()
             .map(|(sequential_id, growth)| {
@@ -365,6 +365,18 @@ fn flowerbed_runtime_assets() -> &'static RuntimeAssets {
                 record
             })
             .collect::<Vec<_>>();
+        // The compiler resolves canonical air from registry content and fails
+        // closed on an air-less registry, so this family-isolated fixture
+        // appends the real committed minecraft:air record unchanged; its
+        // genuine protocol-1001 identity collides with neither the
+        // renumbered wildflowers ids nor their synthetic 50_000+ hashes.
+        records.push(
+            generated
+                .iter()
+                .find(|record| record.name.as_ref() == "minecraft:air")
+                .expect("committed canonical air record")
+                .clone(),
+        );
         let compiled = compile_pack(directory.path(), &records)
             .expect("compile real FlowerBed render fixture through assets");
         let blob = encode_blob(&compiled).expect("encode compiled FlowerBed render fixture");

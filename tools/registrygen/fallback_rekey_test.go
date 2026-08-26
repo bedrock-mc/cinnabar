@@ -136,12 +136,63 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if stats.DistinctNames != 335 || stats.ZeroVolume != 5 {
 		t.Fatalf("preserved-envelope counts = names %d zero-volume %d", stats.DistinctNames, stats.ZeroVolume)
 	}
+	if !bytes.Equal(input, output) {
+		t.Fatal("current-corpus rekey did not reproduce the input bytes exactly")
+	}
 	regenerated, regeneratedStats, err := rekeyFallbackInventory(input, legacy, current)
 	if err != nil || regeneratedStats != stats {
 		t.Fatalf("regeneration diverged: %v / %+v vs %+v", err, regeneratedStats, stats)
 	}
 	if !bytes.Equal(output, regenerated) {
 		t.Fatal("rekeyed inventory regeneration is not byte-deterministic")
+	}
+}
+
+// TestCheckedInV2168FallbackInventoryIsRekeyedAndHashBound pins the committed
+// v2168 fallback artifact in the biome-pin precedent style: its exact bytes
+// must match the tracked sidecar digest and must be reproducible byte-for-byte
+// by rekeying the checked-in v1001 input against both checked-in registries,
+// so a stale or hand-edited artifact fails instead of drifting silently.
+func TestCheckedInV2168FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
+	root := filepath.Join("..", "..")
+	inventory, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2168.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sidecar, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2168.sha256"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := fmt.Sprintf("%x\n", sha256.Sum256(inventory))
+	if digest != string(sidecar) {
+		t.Fatalf("checked-in v2168 fallback SHA-256 %s does not match sidecar %s", digest, sidecar)
+	}
+	legacyBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v1001.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, legacyRecords, err := decodeBREGRecords(legacyBytes, registryProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2168.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, currentRecords, err := decodeBREGRecords(currentBytes, v2168BlockProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.ReadFile(filepath.Join(root, "crates", "asset-compiler", "data", "vanilla-fallback-v1001.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rekeyed, _, err := rekeyFallbackInventory(input, legacyRecords, currentRecords)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(inventory, rekeyed) {
+		t.Fatal("checked-in v2168 fallback inventory is not a fresh byte-exact rekey of the v1001 input")
 	}
 }
 
@@ -251,14 +302,14 @@ func TestRekeyFallbackRejectsWrongVersionBREGs(t *testing.T) {
 	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, registryProtocol, currentRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
+	_, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
 	if err == nil || !strings.Contains(err.Error(), "protocol-1001") {
 		t.Fatalf("v2168 bytes in the legacy slot were accepted: %v", err)
 	}
 	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, registryProtocol, legacyRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
+	_, err = writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
 	if err == nil || !strings.Contains(err.Error(), "protocol-2168") {
 		t.Fatalf("protocol-1001 bytes in the new slot were accepted: %v", err)
 	}
@@ -291,7 +342,7 @@ func TestRekeyFallbackManifestMirrorsSourceSchema(t *testing.T) {
 	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2168BlockProtocol, currentRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, manifestPath); err != nil {
+	if _, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, manifestPath); err != nil {
 		t.Fatal(err)
 	}
 	payload, err := os.ReadFile(manifestPath)
@@ -312,6 +363,14 @@ func TestRekeyFallbackManifestMirrorsSourceSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	inputFile, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyBREG, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if manifest.Schema != "cinnabar-vanilla-fallback-source-v1" || manifest.Protocol != v2168BlockProtocol ||
 		manifest.Status != "provisional-vanilla-fallback" {
 		t.Fatalf("manifest identity = %+v", manifest)
@@ -322,10 +381,16 @@ func TestRekeyFallbackManifestMirrorsSourceSchema(t *testing.T) {
 	if manifest.Inventory.SHA256 != fmt.Sprintf("%x", sha256.Sum256(encoded)) || manifest.Inventory.EntryBytes != fallbackEntryBytes {
 		t.Fatalf("manifest inventory binding = %+v", manifest.Inventory)
 	}
+	if manifest.InputInventory.Path != filepath.ToSlash(inputPath) || manifest.InputInventory.SHA256 != fmt.Sprintf("%x", sha256.Sum256(inputFile)) {
+		t.Fatalf("manifest input_inventory binding = %+v", manifest.InputInventory)
+	}
 	if manifest.Registry.SHA256 != fmt.Sprintf("%x", sha256.Sum256(newBREG)) {
 		t.Fatalf("manifest registry binding = %+v", manifest.Registry)
 	}
-	if !strings.HasSuffix(payloadString(payload), "}\n") {
+	if manifest.LegacyRegistry.Path != filepath.ToSlash(legacyPath) || manifest.LegacyRegistry.SHA256 != fmt.Sprintf("%x", sha256.Sum256(legacyBREG)) {
+		t.Fatalf("manifest legacy_registry binding = %+v", manifest.LegacyRegistry)
+	}
+	if !strings.HasSuffix(string(payload), "}\n") {
 		t.Fatal("manifest is not newline terminated")
 	}
 }
@@ -341,6 +406,10 @@ func TestRekeyFallbackRejectsMalformedInventoryHeaders(t *testing.T) {
 		{name: "empty input", mutate: func(table []byte) []byte { return nil }},
 		{name: "bad magic", mutate: func(table []byte) []byte { table[0] = 'X'; return table }},
 		{name: "unsupported version", mutate: func(table []byte) []byte { binary.LittleEndian.PutUint32(table[8:12], 2); return table }},
+		{name: "header-only empty table", mutate: func(table []byte) []byte {
+			binary.LittleEndian.PutUint32(table[12:16], 0)
+			return table[:fallbackHeaderBytes]
+		}},
 		{name: "lying entry count", mutate: func(table []byte) []byte { binary.LittleEndian.PutUint32(table[12:16], 2); return table }},
 		{name: "truncated tail", mutate: func(table []byte) []byte { return table[:len(table)-1] }},
 	}
@@ -371,7 +440,7 @@ func TestRekeyFallbackWritesTheOutputChecksumSidecar(t *testing.T) {
 	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2168BlockProtocol, []Record{rekeyTestRecord(0, 200, "minecraft:kept", `{}`)}), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, ""); err != nil {
+	if _, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, ""); err != nil {
 		t.Fatal(err)
 	}
 	encoded, err := os.ReadFile(outputPath)
@@ -415,11 +484,12 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 		return append(append([]string(nil), rekeyArgs...), foreign...)
 	}
 	tests := []struct {
-		name string
-		args []string
-		want int
+		name       string
+		args       []string
+		want       int
+		wantReport bool
 	}{
-		{name: "complete mode", args: rekeyArgs, want: 0},
+		{name: "complete mode", args: rekeyArgs, want: 0, wantReport: true},
 		{name: "optional manifest accepted", args: withForeign("-fallback-rekey-manifest", filepath.Join(dir, "manifest.json")), want: 0},
 		{name: "missing required member", args: rekeyArgs[:6], want: 2},
 		{name: "lone optional flag", args: []string{"-fallback-rekey-manifest", filepath.Join(dir, "manifest.json")}, want: 2},
@@ -435,6 +505,13 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 			if got := commandExitCode(err); got != test.want {
 				t.Fatalf("exit = %d, want %d; output=%s", got, test.want, output)
 			}
+			hasReport := strings.Contains(string(output), "\"entries_joined\"")
+			if test.wantReport && !hasReport {
+				t.Fatalf("no-manifest success did not echo the stats summary: %s", output)
+			}
+			if !test.wantReport && hasReport {
+				t.Fatalf("unexpected stdout stats summary: %s", output)
+			}
 		})
 		if test.want != 0 {
 			continue
@@ -444,5 +521,3 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 		}
 	}
 }
-
-func payloadString(payload []byte) string { return string(payload) }
