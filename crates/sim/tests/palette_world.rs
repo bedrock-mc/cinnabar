@@ -462,10 +462,7 @@ fn provenance_surface_names_exact_block_and_runtime_id_per_collider() {
     // runtime id registered for that cell, including both shapes of the one
     // compound block.
     let compound_slab = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.0, 0.5, 4.0));
-    let compound_post = Aabb::new(
-        Vec3::new(2.375, 0.5, 3.375),
-        Vec3::new(2.625, 1.5, 3.625),
-    );
+    let compound_post = Aabb::new(Vec3::new(2.375, 0.5, 3.375), Vec3::new(2.625, 1.5, 3.625));
     for shape in [compound_slab, compound_post] {
         let entry = provenanced
             .value
@@ -567,10 +564,7 @@ fn provenance_surface_matches_the_box_only_surface_exactly() {
         )
         .unwrap();
     registry
-        .register(
-            19,
-            [Aabb::new(Vec3::new(-1.0, -1.0, -1.0), Vec3::ONE)],
-        )
+        .register(19, [Aabb::new(Vec3::new(-1.0, -1.0, -1.0), Vec3::ONE)])
         .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0);
 
@@ -635,11 +629,7 @@ fn provenance_surface_keeps_the_box_only_error_contract_exactly() {
     let oversized = sim::MAX_COLLISION_QUERY_EXTENT + 1.0;
     let bad_query = Aabb::new(Vec3::ZERO, Vec3::new(oversized, 1.0, 1.0));
     assert_eq!(
-        assert_same_error(
-            &unknown,
-            bad_query,
-            "query validation fails identically"
-        ),
+        assert_same_error(&unknown, bad_query, "query validation fails identically"),
         WorldQueryError::QueryExtentExceeded,
     );
 }

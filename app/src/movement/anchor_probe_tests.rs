@@ -25,8 +25,7 @@ use super::{
 };
 use protocol::PLAYER_NETWORK_OFFSET;
 use sim::{
-    Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3,
-    WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3, WorldQueryError,
 };
 
 const SETTLE_TIMEOUT_TICKS: u64 = super::settle::SETTLE_TIMEOUT_TICKS;
@@ -490,16 +489,8 @@ struct ProvenancedShaft;
 impl ProvenancedShaft {
     fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
         [
-            (
-                FLOOR_CELL,
-                [0_i32, 65, 0],
-                13_629_u64,
-            ),
-            (
-                CEILING_CELL,
-                [0, 67, 0],
-                13_094,
-            ),
+            (FLOOR_CELL, [0_i32, 65, 0], 13_629_u64),
+            (CEILING_CELL, [0, 67, 0], 13_094),
             // Same sealing side cells as UnitShaft, each with its own wire id.
             (
                 Aabb::new(Vec3::new(-1.0, 65.0, -1.0), Vec3::new(0.0, 66.0, 0.0)),
@@ -567,10 +558,7 @@ impl LayeredProvenancedShaft {
 impl CollisionWorld for LayeredProvenancedShaft {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(
-            Self::colliders(query)
-                .into_iter()
-                .map(|e| e.aabb)
-                .collect(),
+            Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
         ))
     }
 
@@ -906,7 +894,9 @@ fn marker_truncation_keeps_provenanced_ids_in_query_order() {
         .collect::<Vec<_>>();
     assert_eq!(
         kept_ids,
-        (0..MAX_SEALING_COLLIDERS as u64).map(|layer| 1_000 + layer).collect::<Vec<_>>(),
+        (0..MAX_SEALING_COLLIDERS as u64)
+            .map(|layer| 1_000 + layer)
+            .collect::<Vec<_>>(),
         "kept-prefix runtime ids follow query order",
     );
 }
@@ -965,10 +955,7 @@ fn provenance_attribution_wins_over_geometric_cell_inference() {
 
 #[test]
 fn evidence_instrumentation_never_changes_gate_or_hold_decisions() {
-    fn drive_shaft_epoch(
-        world: &impl CollisionWorld,
-        evidence_enabled: bool,
-    ) -> Vec<BeforeTick> {
+    fn drive_shaft_epoch(world: &impl CollisionWorld, evidence_enabled: bool) -> Vec<BeforeTick> {
         let mut state = AnchorProbeState::new();
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();

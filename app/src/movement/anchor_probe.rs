@@ -131,17 +131,19 @@ fn probe_anchor(
         .iter()
         .map(|entry| entry.aabb)
         .collect::<Vec<_>>();
-    Ok(match sim::depenetrate_player(
-        feet,
-        &boxes,
-        ANCHOR_PROBE_MAX_ITERATIONS,
-        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
-    ) {
-        Some(clear_feet) => AnchorResolution::Cleared(clear_feet),
-        None => AnchorResolution::Unresolvable {
-            colliders: instances.value,
+    Ok(
+        match sim::depenetrate_player(
+            feet,
+            &boxes,
+            ANCHOR_PROBE_MAX_ITERATIONS,
+            ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+        ) {
+            Some(clear_feet) => AnchorResolution::Cleared(clear_feet),
+            None => AnchorResolution::Unresolvable {
+                colliders: instances.value,
+            },
         },
-    })
+    )
 }
 
 /// Per-controller spawn-anchor probe state. One epoch per hard anchor.
