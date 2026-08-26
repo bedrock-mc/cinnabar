@@ -74,6 +74,22 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Current integration snapshot (2026-08-16)
 
+**`dev/ox-alpha` branch audit closeout (2026-08-26).** The complete
+`59f1f8e2..dcf780f1` repair range closes the repository review findings across
+session boundaries, retained-tick correction and motion replay, player-list and
+inventory projection, process/session cleanup, saved-server bounds, auth-cache
+file identity and ACL handling, acceptance duration/disconnect classification,
+foreground-input identity, atomic asset publication, and registry-tool CI
+coverage. Every behavior fix carries an observed RED-to-GREEN regression. Fresh
+post-integration verification passed the full locked Rust workspace, strict
+all-target Clippy, formatting, architecture policy, Go core tests/vet, full
+registrygen tests/vet, the Bash acceptance harness, and the macOS/Linux
+no-replace publisher contracts; the Windows auth-cache suite cross-compiles,
+while native PowerShell execution remains the CI matrix's platform gate. A fresh
+Sol-high review of the entire range returned APPROVE with no Critical,
+Important, or Minor findings. No live/native gameplay or visual gate is closed
+by this code-quality tranche.
+
 **LBSG anti-cheat diagnosis and live movement tranche (2026-08-22):** a ranked read-only
 investigation attributed the Lifeboat "movement cheats" rejections to semantic state vanilla
 never claims plus server-authoritative signals the client consumed and ignored, led by
