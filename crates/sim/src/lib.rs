@@ -23,6 +23,6 @@ pub use simulator::{
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
     CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
-    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError,
-    SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
+    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider,
+    RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
 };

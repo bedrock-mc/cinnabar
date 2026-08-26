@@ -521,6 +521,30 @@ fn validate_shapes(runtime_id: u32, shapes: &[Aabb]) -> Result<(), RegistryError
     Ok(())
 }
 
+/// One emitted collision instance plus its exact palette-cell provenance.
+///
+/// [`PaletteWorld::collision_boxes`] emits one translated registry shape
+/// instance per (block, layer, shape) triple and never merges neighbouring
+/// cells into one box, so provenance is exact whenever an entry comes from
+/// that adapter. The generic [`CollisionWorld::collision_boxes_with_provenance`]
+/// fallback instead reports neither fact (`block: None`, `runtime_id: None`)
+/// because a bare-AABB surface cannot know it; consumers must treat missing
+/// provenance as unknown rather than re-inferring it from geometry.
+///
+/// Invariant: `runtime_id` is meaningful only together with `block`; an entry
+/// carrying a runtime id without its block cell is treated as unprovenanced.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProvenancedCollider {
+    /// Translated collider bounds, identical to the same instance's slot in
+    /// [`CollisionWorld::collision_boxes`].
+    pub aabb: Aabb,
+    /// The palette cell whose registered shape produced this collider.
+    pub block: Option<[i32; 3]>,
+    /// Wire runtime id (widened from the registry's `u32` key space) of the
+    /// palette entry on the contributing layer.
+    pub runtime_id: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldQueryError {
     #[error("collision query contains non-finite or inverted bounds")]
@@ -554,6 +578,32 @@ pub enum WorldQueryError {
 pub trait CollisionWorld {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError>;
 
+    /// Per-collider provenance companion to [`Self::collision_boxes`].
+    ///
+    /// The default derives every entry from [`Self::collision_boxes`] with
+    /// both provenance facts absent; adapters that can attribute each emitted
+    /// instance to its source palette cell override this method. Bounds,
+    /// ordering, identity, and the error contract stay exactly those of the
+    /// box-only surface either way.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            identity: boxes.identity,
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| ProvenancedCollider {
+                    aabb,
+                    block: None,
+                    runtime_id: None,
+                })
+                .collect(),
+        })
+    }
+
     fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         Ok(BlockPhysicsSample {
             layers: Box::new([BlockPhysicsFacts {
@@ -582,6 +632,14 @@ pub struct PaletteWorld<'a> {
     store: &'a ChunkStore,
     registry: &'a CollisionRegistry,
     dimension: i32,
+}
+
+/// One internal collision instance before projection onto the public
+/// box-only or provenance surfaces.
+struct CollisionInstance {
+    shape: Aabb,
+    block: [i32; 3],
+    runtime_id: u32,
 }
 
 impl<'a> PaletteWorld<'a> {
@@ -641,10 +699,14 @@ impl<'a> PaletteWorld<'a> {
             ids
         })
     }
-}
-
-impl CollisionWorld for PaletteWorld<'_> {
-    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+    /// Shared emission core behind both public collision surfaces so their
+    /// outputs structurally cannot diverge: one translated registry shape
+    /// instance per (block, layer, shape) triple in block-scan order, each
+    /// kept only when it intersects `query`.
+    fn collision_instances(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<CollisionInstance>>, WorldQueryError> {
         validate_collision_query(query)?;
         if query.min == query.max {
             return Ok(CollisionQuery {
@@ -662,7 +724,7 @@ impl CollisionWorld for PaletteWorld<'_> {
             .collect::<Vec<_>>();
         let identity = self.identity_for_chunks(chunks)?;
 
-        let mut result = Vec::new();
+        let mut instances = Vec::new();
         for x in min[0]..=max[0] {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
@@ -673,21 +735,52 @@ impl CollisionWorld for PaletteWorld<'_> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        result.extend(
-                            physics
-                                .shapes
-                                .iter()
-                                .copied()
-                                .map(|shape| shape.translated(block_offset))
-                                .filter(|shape| shape.intersects(query)),
-                        );
+                        for shape in physics.shapes.iter().copied() {
+                            let shape = shape.translated(block_offset);
+                            if shape.intersects(query) {
+                                instances.push(CollisionInstance {
+                                    shape,
+                                    block,
+                                    runtime_id,
+                                });
+                            }
+                        }
                     }
                 }
             }
         }
         Ok(CollisionQuery {
-            value: result,
+            value: instances,
             identity,
+        })
+    }
+}
+
+impl CollisionWorld for PaletteWorld<'_> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let instances = self.collision_instances(query)?;
+        Ok(CollisionQuery {
+            value: instances.value.into_iter().map(|i| i.shape).collect(),
+            identity: instances.identity,
+        })
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        let instances = self.collision_instances(query)?;
+        Ok(CollisionQuery {
+            value: instances
+                .value
+                .into_iter()
+                .map(|instance| ProvenancedCollider {
+                    aabb: instance.shape,
+                    block: Some(instance.block),
+                    runtime_id: Some(u64::from(instance.runtime_id)),
+                })
+                .collect(),
+            identity: instances.identity,
         })
     }
 
