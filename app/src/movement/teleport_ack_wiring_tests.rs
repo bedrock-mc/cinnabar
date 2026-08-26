@@ -108,8 +108,13 @@ fn fixture_registries() -> PhysicsCollisionRegistries {
     let breg = include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
     let records = read_registry(breg).expect("checked-in BREG1001");
     let preg = synthetic_preg(breg, &records);
-    PhysicsCollisionRegistries::from_assets(breg, &records, &preg)
-        .expect("BREG-bound PREG facts are valid")
+    PhysicsCollisionRegistries::from_assets(
+        breg,
+        &records,
+        &preg,
+        crate::asset_startup::active_content_registry_protocol(),
+    )
+    .expect("BREG-bound PREG facts are valid")
 }
 
 fn fixture_stream() -> WorldStream {

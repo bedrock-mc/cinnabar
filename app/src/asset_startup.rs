@@ -18,8 +18,8 @@ use crate::metrics::AssetMetrics;
 mod font_fallback;
 use font_fallback::diagnostic_font_assets;
 mod world_provenance;
-pub(crate) use world_provenance::pinned_block_registry_bytes;
 pub use world_provenance::pinned_world_provenance;
+pub(crate) use world_provenance::{active_content_registry_protocol, pinned_block_registry_bytes};
 
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
@@ -356,6 +356,17 @@ pub enum AssetStartupError {
         expected: String,
         actual: String,
         rebuild_command: &'static str,
+    },
+
+    #[error(
+        "checkout conflict: the pinned block registry stamps wire protocol {actual} but the active content authority binds protocol {expected}; regenerate the world and physics registry inputs together"
+    )]
+    PinnedRegistryProtocolMismatch { expected: u32, actual: u32 },
+
+    #[error("could not read the wire protocol stamp from the pinned block registry: {source}")]
+    PinnedRegistryHeader {
+        #[source]
+        source: Box<AssetError>,
     },
 
     #[error(
