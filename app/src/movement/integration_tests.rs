@@ -9,7 +9,7 @@ use super::{
     PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
     physics_movement_input, reconcile_candidate_physics_correction,
 };
-use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry};
+use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
 use protocol::{PlayerInputFlags, PlayerInputMode};
 use sha2::{Digest, Sha256};
 use sim::{

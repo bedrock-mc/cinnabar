@@ -59,7 +59,7 @@ fn compiles_exact_metadata_variants_reviewed_block_routes_and_missing_items() {
         encode_entity_blob(&first).unwrap(),
         encode_entity_blob(&second).unwrap()
     );
-    assert_eq!(first.block_visual_count, 16_913);
+    assert_eq!(first.block_visual_count, 17_499);
     assert!(matches!(
         visual(&first.item_visuals, "minecraft:air", 0).route,
         ItemVisualDefinitionRoute::EmptyHand
@@ -145,6 +145,6 @@ fn reviewed_block_routes_and_empty_hand_do_not_depend_on_an_item_atlas() {
     ));
     assert_eq!(
         compiled.sources[stone.source as usize].path.as_ref(),
-        "registry/block-item-routes-v1001.json"
+        "registry/block-item-routes-v2168.json"
     );
 }

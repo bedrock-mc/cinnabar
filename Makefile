@@ -23,18 +23,16 @@ HUD_PACK_DIR ?= $(PACK_DIR)
 UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
 UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9
 UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf
-BLOCK_REGISTRY ?= crates/assets/data/block-registry-v1001.bin
-LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin
-BIOME_REGISTRY ?= crates/assets/data/biome-registry-v1001.bin
+BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
+BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2168.bin
+LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2168.bin
+BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2168.bin
 REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2168.json
-BLOCK_DATA_MANIFEST ?= assets/block-data-sources.json
-BLOCK_DATA_DIR ?= .local/assets/block-data
-BLOCK_DATA_SENTINEL ?= $(BLOCK_DATA_DIR)/pmmp/protocol_info.json
-PHYSICS_REGISTRY ?= .local/assets/block-physics-v1001.bin
-PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v1001.sha256
-PHYSICS_BUILD_DIR ?= .local/phase3
+PHYSICS_REGISTRY ?= .local/assets/block-physics-v2168.bin
+PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2168.bin
+PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2168.sha256
 VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
-ASSET_BLOB ?= .local/assets/compiled/vanilla-v1001.mcbea
+ASSET_BLOB ?= .local/assets/compiled/vanilla-v2168.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
@@ -54,16 +52,9 @@ ICON_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeico
 ICON_ASSET_REPORT ?= .local/assets/compiled/icon-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
-ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
+ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
 VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh
-REGISTRYGEN_INPUTS := tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/*.go)
-BLOCK_DATA_FETCH_INPUTS := $(BLOCK_DATA_MANIFEST) tools/registrygen/go.mod tools/registrygen/go.sum $(wildcard tools/registrygen/cmd/datafetch/*.go)
-BLOCK_COVERAGE_MANIFEST := assets/block-coverage-v1001.json
-BIOME_COVERAGE_MANIFEST := assets/biome-coverage-v1001.json
-BLOCK_DATA_FETCH = $(GO) -C tools/registrygen run ./cmd/datafetch -manifest "$(abspath $(BLOCK_DATA_MANIFEST))" -out "$(abspath $(BLOCK_DATA_DIR))"
 PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
-PHYSICS_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -out "$(abspath $(PHYSICS_BUILD_DIR))/block-registry-v1001.bin" -light-out "$(abspath $(PHYSICS_BUILD_DIR))/block-light-registry-v1001.bin" -light-breg "$(abspath $(BLOCK_REGISTRY))" -physics-out "$(abspath $(PHYSICS_REGISTRY))" -physics-sha-out "$(abspath $(PHYSICS_BUILD_DIR))/block-physics-v1001.sha256" -physics-breg "$(abspath $(BLOCK_REGISTRY))" -pmmp "$(abspath $(BLOCK_DATA_DIR))/pmmp" -prismarine "$(abspath $(BLOCK_DATA_DIR))/prismarine" -coverage "$(abspath $(BLOCK_COVERAGE_MANIFEST))"
-BIOME_REGISTRY_COMPILE = $(GO) -C tools/registrygen run . -biome-out "$(abspath $(BIOME_REGISTRY))" -biome-coverage "$(abspath $(BIOME_COVERAGE_MANIFEST))"
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
 WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
@@ -84,6 +75,12 @@ VANILLA_ASSET_FETCH = bash scripts/fetch-vanilla-assets.sh --accept-eula
 RUN_IF_ASSET_REPORT_STALE = bash scripts/run-if-asset-report-stale.sh "$@" "$<"
 endif
 
+ifeq ($(OS),Windows_NT)
+PHYSICS_REGISTRY_INSTALL = powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(dir $(abspath $(PHYSICS_REGISTRY)))' | Out-Null; Copy-Item -Force '$(abspath $(PHYSICS_REGISTRY_SOURCE))' '$(abspath $(PHYSICS_REGISTRY))'"
+else
+PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
+endif
+
 .PHONY: help vanilla-assets assets atmosphere-assets entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
@@ -100,7 +97,7 @@ help:
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make audio-assets    - Compile the pinned sound-definition lookup catalog
-	@echo make physics-assets  - Acquire pinned block data and compile the protocol-1001 physics registry
+	@echo make physics-assets  - Install and verify the pinned protocol-2168 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
@@ -148,16 +145,11 @@ else
 endif
 
 physics-assets: $(PHYSICS_REGISTRY)
-	$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_COMPILE) && $(PHYSICS_REGISTRY_CHECK) )
+	$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )
 
-$(BLOCK_DATA_SENTINEL): $(BLOCK_DATA_FETCH_INPUTS)
-	$(BLOCK_DATA_FETCH)
+$(PHYSICS_REGISTRY): $(PHYSICS_REGISTRY_SOURCE) $(PHYSICS_REGISTRY_SHA256) $(BEDROCK_TARGET_MANIFEST)
+	$(PHYSICS_REGISTRY_INSTALL)
 
-$(PHYSICS_REGISTRY): $(BLOCK_DATA_SENTINEL) $(REGISTRYGEN_INPUTS) $(BLOCK_REGISTRY) $(LIGHT_REGISTRY) $(BLOCK_COVERAGE_MANIFEST)
-	$(PHYSICS_REGISTRY_COMPILE)
-
-$(BIOME_REGISTRY): $(REGISTRYGEN_INPUTS) $(BIOME_COVERAGE_MANIFEST)
-	$(BIOME_REGISTRY_COMPILE)
 
 $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)
 	$(VANILLA_ASSET_FETCH)

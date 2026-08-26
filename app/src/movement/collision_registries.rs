@@ -228,7 +228,6 @@ mod tests {
         include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
     const BREG_V2168: &[u8] =
         include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
-    const PREG_V2168: &[u8] = include_bytes!("../../../crates/assets/data/block-physics-v2168.bin");
 
     /// Minimal byte-valid PREG stamped for one protocol and bound to one BREG
     /// digest; shape mirrors the committed movement fixtures so no new
@@ -293,7 +292,9 @@ mod tests {
     /// attribution.
     #[test]
     fn valid_wrong_protocol_preg_fails_with_typed_cross_carrier_mismatch() {
-        let error = bind(BREG_V1001, PREG_V2168, active_content_registry_protocol())
+        let legacy_records = assets::read_registry(BREG_V1001).unwrap();
+        let preg_v1001 = synthetic_preg(1001, BREG_V1001, &legacy_records);
+        let error = bind(BREG_V2168, &preg_v1001, active_content_registry_protocol())
             .expect_err("a flipped physics registry must fail startup");
 
         let PhysicsCollisionRegistryError::ProtocolMismatch {
@@ -305,8 +306,8 @@ mod tests {
         else {
             panic!("expected ProtocolMismatch, got {error:?}");
         };
-        assert_eq!(*expected_protocol, 1001);
-        assert_eq!(*actual_protocol, 2168);
+        assert_eq!(*expected_protocol, 2168);
+        assert_eq!(*actual_protocol, 1001);
         assert_eq!(
             physics_registry_path,
             &PathBuf::from("installed/physics/block-physics.bin")
@@ -328,12 +329,12 @@ mod tests {
     #[test]
     fn coherent_active_protocol_pair_binds_completely() {
         let registries = bind(
-            BREG_V1001,
+            BREG_V2168,
             &synthetic_preg(
-                1001,
-                BREG_V1001,
-                &assets::read_registry_for_protocol(BREG_V1001, 1001)
-                    .expect("checked-in v1001 BREG"),
+                2168,
+                BREG_V2168,
+                &assets::read_registry_for_protocol(BREG_V2168, 2168)
+                    .expect("checked-in v2168 BREG"),
             ),
             active_content_registry_protocol(),
         )

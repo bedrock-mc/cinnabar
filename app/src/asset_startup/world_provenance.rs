@@ -3,13 +3,15 @@
 //! Startup validates every compiled world blob against these expectations so
 //! structurally valid carriers built from stale or foreign sources fail
 //! closed instead of reaching gameplay. The registry bytes are embedded at
-//! compile time from the checked-in protocol-1001 inputs, exactly like the
+//! compile time from the checked-in protocol-2168 inputs, exactly like the
 //! collision consumer, so validation never depends on the process working
 //! directory or installed layout.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use assets::{
@@ -19,8 +21,16 @@ use assets::{
 
 use super::{ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, COMPILE_COMMAND, format_sha256};
 
+const BEDROCK_TARGET_JSON: &str = include_str!("../../../assets/bedrock-target.json");
+
+#[derive(Deserialize)]
+struct BedrockTarget {
+    wire_protocol: u32,
+    hashes: BTreeMap<Box<str>, Box<str>>,
+}
+
 /// The one checkout-wide authority for the active content registry wire
-/// protocol.
+/// protocol, decoded from the cross-language target manifest.
 ///
 /// Every production startup gate that consumes a content registry artifact
 /// derives its expectation from this single value: the world-carrier
@@ -32,29 +42,45 @@ use super::{ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, COMPILE_COMMAND, form
 /// carrier set is regenerated together, so a partial version flip can never
 /// recreate the cross-carrier block-identity aliasing mechanism under zero
 /// decode errors.
-pub(crate) const ACTIVE_CONTENT_REGISTRY_PROTOCOL: u32 = 1001;
-
 /// The active content registry protocol every startup gate binds to.
-pub(crate) const fn active_content_registry_protocol() -> u32 {
-    ACTIVE_CONTENT_REGISTRY_PROTOCOL
+pub(crate) fn active_content_registry_protocol() -> u32 {
+    static TARGET: OnceLock<BedrockTarget> = OnceLock::new();
+    TARGET
+        .get_or_init(|| {
+            let target: BedrockTarget =
+                serde_json::from_str(BEDROCK_TARGET_JSON).expect("valid Bedrock target manifest");
+            for (name, bytes) in [
+                ("block_registry", BLOCK_REGISTRY_BYTES),
+                ("light_registry", LIGHT_REGISTRY_BYTES),
+                ("biome_registry", BIOME_REGISTRY_BYTES),
+            ] {
+                let actual = format!("{:x}", Sha256::digest(bytes));
+                assert_eq!(
+                    target.hashes.get(name).map(AsRef::as_ref),
+                    Some(actual.as_str())
+                );
+            }
+            target
+        })
+        .wire_protocol
 }
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../../assets/vanilla-source.json");
 const BLOCK_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
+    include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
 const LIGHT_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/block-light-registry-v1001.bin");
+    include_bytes!("../../../crates/assets/data/block-light-registry-v2168.bin");
 const BIOME_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/biome-registry-v1001.bin");
+    include_bytes!("../../../crates/assets/data/biome-registry-v2168.bin");
 
-/// The checked-in protocol-1001 block registry, shared with the collision
+/// The checked-in protocol-2168 block registry, shared with the collision
 /// consumer so one embed feeds both physics and provenance validation.
 pub(crate) const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
 }
 
 /// The exact world-carrier identity this checkout pins: the canonical
-/// vanilla source manifest plus each consumed protocol-1001 registry input.
+/// vanilla source manifest plus each consumed protocol-2168 registry input.
 #[must_use]
 pub fn pinned_world_provenance() -> &'static BlobProvenance {
     static PINNED: OnceLock<BlobProvenance> = OnceLock::new();
@@ -72,7 +98,7 @@ pub(crate) fn verify_world_carrier(
     path: &Path,
     runtime: &RuntimeAssets,
 ) -> Result<(), AssetStartupError> {
-    verify_pinned_registries_bind(ACTIVE_CONTENT_REGISTRY_PROTOCOL)?;
+    verify_pinned_registries_bind(active_content_registry_protocol())?;
     let expected = pinned_world_provenance();
     let actual = runtime.provenance();
     for (component, expected, actual) in [
@@ -116,7 +142,7 @@ pub(crate) fn verify_world_carrier(
 /// The byte-level pins below enforce carrier identity transitively (a
 /// carrier compiled from any other protocol's registries carries different
 /// input hashes), but only this check ties those pins to
-/// [`ACTIVE_CONTENT_REGISTRY_PROTOCOL`] explicitly: a future authority bump
+/// the Bedrock target manifest explicitly: a future authority bump
 /// with stale embedded registry inputs fails here, naming both protocols,
 /// before any carrier comparison can misattribute the mismatch.
 fn verify_pinned_registries_bind(authority_protocol: u32) -> Result<(), AssetStartupError> {
@@ -154,8 +180,7 @@ pub(crate) fn verify_atmosphere_carrier(
 #[cfg(test)]
 mod tests {
     use super::{
-        ACTIVE_CONTENT_REGISTRY_PROTOCOL, active_content_registry_protocol,
-        pinned_world_provenance, verify_pinned_registries_bind,
+        active_content_registry_protocol, pinned_world_provenance, verify_pinned_registries_bind,
     };
 
     #[test]
@@ -165,13 +190,10 @@ mod tests {
         assert_eq!(pinned, pinned_world_provenance());
     }
 
-    /// The default authority stays exactly 1001: production startup behavior
-    /// is byte-identical until a deliberate reviewed flip regenerates every
-    /// carrier together.
+    /// The active authority stays exactly on the protocolgen target.
     #[test]
-    fn active_content_authority_remains_pinned_to_protocol_1001() {
-        assert_eq!(active_content_registry_protocol(), 1001);
-        assert_eq!(ACTIVE_CONTENT_REGISTRY_PROTOCOL, 1001);
+    fn active_content_authority_is_protocol_2168() {
+        assert_eq!(active_content_registry_protocol(), 2168);
     }
 
     /// Consolidation witness: driving the gate with a mutated authority value
@@ -182,14 +204,14 @@ mod tests {
         verify_pinned_registries_bind(active_content_registry_protocol())
             .expect("the checked-in pins must satisfy the shipped authority");
 
-        let error = verify_pinned_registries_bind(2168)
-            .expect_err("a flipped authority must reject the stale protocol-1001 pins");
+        let error = verify_pinned_registries_bind(1001)
+            .expect_err("a legacy authority must reject the protocol-2168 pins");
         assert!(
             matches!(
                 error,
                 crate::asset_startup::AssetStartupError::PinnedRegistryProtocolMismatch {
-                    expected: 2168,
-                    actual: 1001
+                    expected: 1001,
+                    actual: 2168
                 }
             ),
             "unexpected error {error:?}"

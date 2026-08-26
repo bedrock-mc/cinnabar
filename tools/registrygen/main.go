@@ -676,11 +676,15 @@ func writeBlockItemRouteTable(output, bregPath string) error {
 	if len(breg) > 128<<20 {
 		return errors.New("block-item BREG exceeds 128 MiB")
 	}
-	records, err := readBREG1003LightIdentities(breg)
+	if len(breg) < 12 {
+		return errors.New("block-item BREG header is truncated")
+	}
+	protocol := binary.LittleEndian.Uint32(breg[8:12])
+	records, err := readBREG1003IdentitiesForProtocol(breg, protocol)
 	if err != nil {
 		return err
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol)
 	if err != nil {
 		return err
 	}
@@ -698,7 +702,7 @@ func writeBlockItemRouteTable(output, bregPath string) error {
 	return nil
 }
 
-func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity, breg []byte, registry world.BlockRegistry) (BlockItemRouteTable, error) {
+func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity, breg []byte, registry world.BlockRegistry, protocol uint32) (BlockItemRouteTable, error) {
 	index := make(map[string][]bregLightIdentity, len(records))
 	for _, record := range records {
 		if record.SequentialID >= uint32(len(records)) {
@@ -753,7 +757,7 @@ func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity
 	})
 	digest := sha256.Sum256(breg)
 	return BlockItemRouteTable{
-		Schema: 1, Protocol: registryProtocol, CanonicalBlockStates: uint32(len(records)),
+		Schema: 1, Protocol: protocol, CanonicalBlockStates: uint32(len(records)),
 		DragonflyModule: dragonflyModule, DragonflyVersion: dragonflyVersion,
 		DragonflyModuleSum: dragonflyModuleSum, BREGSHA256: fmt.Sprintf("%x", digest), Routes: routes,
 	}, nil
@@ -3126,7 +3130,7 @@ func encodeResolvedLightRegistry(breg []byte, sorted []Record, properties []byte
 }
 
 func validateLightBindingBREG(breg []byte, records []Record) error {
-	identities, err := readBREG1003LightIdentities(breg)
+	identities, err := readBREG1003IdentitiesForProtocol(breg, registryProtocol)
 	if err != nil {
 		return err
 	}
@@ -3147,10 +3151,14 @@ func validateLightBindingBREG(breg []byte, records []Record) error {
 }
 
 func readBREG1003LightIdentities(data []byte) ([]bregLightIdentity, error) {
+	return readBREG1003IdentitiesForProtocol(data, registryProtocol)
+}
+
+func readBREG1003IdentitiesForProtocol(data []byte, expectedProtocol uint32) ([]bregLightIdentity, error) {
 	const headerBytes = 8 + 7*4
 	const recordPrefixBytes = 24 + 8*4
-	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != registryProtocol {
-		return nil, errors.New("light binding input is not protocol-1001 BREG1003")
+	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != expectedProtocol {
+		return nil, fmt.Errorf("binding input is not protocol-%d BREG1003", expectedProtocol)
 	}
 	count := int(binary.LittleEndian.Uint32(data[16:20]))
 	if count > maxRecordCount {

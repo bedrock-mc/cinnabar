@@ -41,10 +41,10 @@ pub const COMPILE_COMMAND: &str = concat!(
     "cargo run -p asset-compiler --bin assetc -- compile ",
     "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
     "--source-manifest assets/vanilla-source.json ",
-    "--registry crates/assets/data/block-registry-v1001.bin ",
-    "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
-    "--biome-registry crates/assets/data/biome-registry-v1001.bin ",
-    "--out .local/assets/compiled/vanilla-v1001.mcbea"
+    "--registry crates/assets/data/block-registry-v2168.bin ",
+    "--light-registry crates/assets/data/block-light-registry-v2168.bin ",
+    "--biome-registry crates/assets/data/biome-registry-v2168.bin ",
+    "--out .local/assets/compiled/vanilla-v2168.mcbea"
 );
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");

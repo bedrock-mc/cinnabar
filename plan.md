@@ -74,6 +74,17 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Current integration snapshot (2026-08-16)
 
+**Protocol-2168 target cutover (2026-08-26).** One canonical
+`assets/bedrock-target.json` now owns the active game/protocol/codec identity,
+carrier paths, and artifact hashes. Cinnabar's runtime world provenance,
+collision/physics loading, diagnostics, Make defaults, install paths, dist
+layout, and generated block-item routes consume the 2168 set; no production
+consumer selects the v1001 block/light/biome/physics/world/item carriers.
+Registrygen verifies all manifest hashes and exhaustively guards each production
+consumer against legacy carrier drift. The ignored local world/entity carriers
+must be rebuilt before live testing. Deterministic closure does not itself close
+the LBSG live confirmation gate.
+
 **`dev/ox-alpha` branch audit closeout (2026-08-26).** The complete
 `59f1f8e2..dcf780f1` repair range closes the repository review findings across
 session boundaries, retained-tick correction and motion replay, player-list and

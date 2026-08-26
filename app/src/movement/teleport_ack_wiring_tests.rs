@@ -40,7 +40,7 @@ use crate::runtime::world::{
 };
 use crate::server_camera::ServerCameraInstructions;
 use crate::ui_runtime::UiRuntime;
-use assets::read_registry;
+use assets::read_registry_for_protocol;
 use client_world::WorldStream;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
@@ -105,8 +105,8 @@ fn authorized_ticker(enabled: bool) -> MovementTicker {
 }
 
 fn fixture_registries() -> PhysicsCollisionRegistries {
-    let breg = include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
-    let records = read_registry(breg).expect("checked-in BREG1001");
+    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
+    let records = read_registry_for_protocol(breg, 2168).expect("checked-in protocol-2168 BREG");
     let preg = synthetic_preg(breg, &records);
     PhysicsCollisionRegistries::from_assets(
         breg,

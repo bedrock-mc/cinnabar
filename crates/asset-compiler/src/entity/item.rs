@@ -11,10 +11,10 @@ use sha2::{Digest, Sha256};
 use super::{SourcePayloads, invalid, json::parse_semantic_json};
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
-    include_bytes!("../../../assets/data/block-item-routes-v1001.json");
-const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v1001.bin");
+    include_bytes!("../../../assets/data/block-item-routes-v2168.json");
+const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2168.bin");
 const ROUTE_SCHEMA: u32 = 1;
-const ROUTE_PROTOCOL: u32 = 1001;
+const ROUTE_PROTOCOL: u32 = 2168;
 const DRAGONFLY_VERSION: &str = "v0.11.1-0.20260714151819-dbbd8b787946";
 const DRAGONFLY_MODULE_SUM: &str = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=";
 
@@ -65,7 +65,7 @@ pub(super) fn compile(
         .collect::<BTreeMap<_, _>>();
     let routes = parse_block_item_routes()?;
     let route_source = *source_indices
-        .get("registry/block-item-routes-v1001.json")
+        .get("registry/block-item-routes-v2168.json")
         .ok_or_else(|| invalid("reviewed block item authority source is absent"))?;
     let mut definitions = BTreeMap::<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>::new();
     definitions.insert(
@@ -157,7 +157,7 @@ struct ReviewedRoutes {
 fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
     let table: BlockItemRouteTable =
         serde_json::from_slice(BLOCK_ITEM_ROUTES).map_err(|source| AssetError::Json {
-            path: "crates/assets/data/block-item-routes-v1001.json".into(),
+            path: "crates/assets/data/block-item-routes-v2168.json".into(),
             source,
         })?;
     let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));

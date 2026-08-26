@@ -528,7 +528,9 @@ fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
 pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"PREG1001");
-    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(
+        &crate::asset_startup::active_content_registry_protocol().to_le_bytes(),
+    );
     bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&Sha256::digest(breg));
     for record in records {
@@ -565,8 +567,8 @@ pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8>
 
 #[test]
 fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
-    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v1001.bin");
-    let records = read_registry(breg).expect("checked-in BREG1001");
+    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v2168.bin");
+    let records = read_registry_for_protocol(breg, 2168).expect("checked-in protocol-2168 BREG");
     let preg = synthetic_preg(breg, &records);
 
     let registries = PhysicsCollisionRegistries::from_assets(

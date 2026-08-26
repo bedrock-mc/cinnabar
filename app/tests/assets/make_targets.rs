@@ -10,9 +10,9 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
     .replace("\r\n", "\n");
 
     for contract in [
-        "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v1001.bin",
+        "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2168.bin",
         concat!(
-            "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock crates/assets/Cargo.toml ",
+            "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml ",
             "crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) ",
             "$(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) ",
             "$(wildcard crates/asset-compiler/src/*/*.rs) ",
@@ -432,6 +432,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
+        "REGISTRYGEN_INPUTS=".to_owned(),
         "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
@@ -640,6 +641,7 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     };
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
+        "REGISTRYGEN_INPUTS=".to_owned(),
         "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
@@ -803,6 +805,7 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
         format!("ASSET_BLOB={}", make_path(&world)),
         format!("ENTITY_ASSET_BLOB={}", make_path(&carrier)),
         format!("ENTITY_ASSET_REPORT={}", make_path(&report)),
+        "REGISTRYGEN_INPUTS=".to_owned(),
         format!("ENTITY_ASSET_COMPILE={producer}"),
         format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&upstream)),
         format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),

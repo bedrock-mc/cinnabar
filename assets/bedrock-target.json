@@ -1,0 +1,24 @@
+{
+  "schema": "cinnabar.bedrock-target.v1",
+  "game_version": "1.26.40",
+  "server_version": "1.26.40.8",
+  "wire_protocol": 2168,
+  "codec_feature": "bedrock_1_26_44",
+  "hashes": {
+    "block_registry": "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8",
+    "light_registry": "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272",
+    "biome_registry": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c",
+    "physics_registry": "e7631b3c6ac01cfdc558c574ebccda54832e736a8cd09c180f188b3d6b3863d4",
+    "fallback_inventory": "31cfbf7b51dd1f37a904f73092212f209029570abead458db10ace05a16064b2",
+    "block_item_routes": "e1c95cbbd8e6b66f38372e6029bd047cb02b6ab8174a990e5121de9840681dba"
+  },
+  "artifacts": {
+    "block_registry": "crates/assets/data/block-registry-v2168.bin",
+    "light_registry": "crates/assets/data/block-light-registry-v2168.bin",
+    "biome_registry": "crates/assets/data/biome-registry-v2168.bin",
+    "physics_registry": "crates/assets/data/block-physics-v2168.bin",
+    "fallback_inventory": "crates/assets/data/vanilla-fallback-v2168.bin",
+    "world_assets": ".local/assets/compiled/vanilla-v2168.mcbea",
+    "block_item_routes": "crates/assets/data/block-item-routes-v2168.json"
+  }
+}

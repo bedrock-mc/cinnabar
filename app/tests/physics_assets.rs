@@ -2,7 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use sha2::{Digest, Sha256};
@@ -11,19 +11,14 @@ use sha2::{Digest, Sha256};
 fn make_client_acquires_and_builds_the_required_physics_registry() {
     let makefile = read_makefile();
     for contract in [
-        "BLOCK_DATA_MANIFEST ?= assets/block-data-sources.json",
-        "BLOCK_DATA_DIR ?= .local/assets/block-data",
-        "PHYSICS_REGISTRY ?= .local/assets/block-physics-v1001.bin",
-        "PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v1001.sha256",
+        "PHYSICS_REGISTRY ?= .local/assets/block-physics-v2168.bin",
+        "PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2168.bin",
+        "PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2168.sha256",
         "physics-assets: $(PHYSICS_REGISTRY)",
-        "$(GO) -C tools/registrygen run ./cmd/datafetch",
-        "-manifest \"$(abspath $(BLOCK_DATA_MANIFEST))\"",
-        "-out \"$(abspath $(BLOCK_DATA_DIR))\"",
-        "-light-breg \"$(abspath $(BLOCK_REGISTRY))\"",
-        "-physics-out \"$(abspath $(PHYSICS_REGISTRY))\"",
-        "-physics-breg \"$(abspath $(BLOCK_REGISTRY))\"",
+        "$(PHYSICS_REGISTRY): $(PHYSICS_REGISTRY_SOURCE) $(PHYSICS_REGISTRY_SHA256) $(BEDROCK_TARGET_MANIFEST)",
+        "$(PHYSICS_REGISTRY_INSTALL)",
         "$(GO) -C tools/registrygen run ./cmd/hashcheck",
-        "$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_COMPILE) && $(PHYSICS_REGISTRY_CHECK) )",
+        "$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )",
     ] {
         assert!(
             makefile.contains(contract),
@@ -56,7 +51,7 @@ fn make_client_acquires_and_builds_the_required_physics_registry() {
 }
 
 #[test]
-fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
+fn make_physics_assets_installs_the_pinned_registry_once() {
     if !make_available() {
         eprintln!("skipping executable physics Makefile test: `make` is unavailable");
         return;
@@ -66,60 +61,33 @@ fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
     let physics = temporary.join("block-physics.bin");
     let expected_sha = temporary.join("block-physics.sha256");
     let invocation_log = temporary.join("invocations.log");
-    let prerequisites = [
-        temporary.join("protocol_info.json"),
-        temporary.join("block-registry.bin"),
-        temporary.join("light-registry.bin"),
-        temporary.join("palette.bin"),
-        temporary.join("blocks.rs"),
-    ];
-    for prerequisite in &prerequisites {
-        fs::write(prerequisite, b"fixture").unwrap();
-    }
-    fs::write(&physics, b"corrupt but newer\n").unwrap();
-    // The synthetic repair truncates the registry to zero bytes: `cd .`
-    // prints nothing on every recipe shell GNU make can pick (`sh`, or the
-    // cmd.exe fallback used when no `sh.exe` is reachable), so the
-    // redirection produces the identical empty file everywhere. Writing
-    // content through `echo` instead was environment-dependent: `sh` emits
-    // `repaired\n` while cmd.exe emits `repaired  \r\n`, so the pinned
-    // digest matched only on hosts whose recipe shell was `sh`. The empty
-    // repair still cannot launder a non-repair: the corrupt fixture is
-    // nonempty, so until the recipe truncates the file the real digest
-    // check below rejects it and make fails loudly.
-    let repaired = b"";
-    fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(repaired))).unwrap();
-    let old = SystemTime::now() - Duration::from_secs(120);
-    for prerequisite in prerequisites.iter().chain([&expected_sha]) {
-        fs::File::options()
-            .write(true)
-            .open(prerequisite)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
-    }
-    // `cd .` is silent under both `sh` and cmd.exe, and the redirection
-    // truncates the registry at recipe-execution time — after the first
-    // digest check has already failed — so the repair-once semantics stay
-    // witnessed. The `echo` log keeps shell-dependent trailing whitespace,
-    // which `.lines().count()` tolerates (same precedent as
-    // app/tests/assets/make_targets.rs).
-    let compile = format!(
-        "echo invocation >> \"{}\" && cd . > \"{}\"",
-        make_path(&invocation_log),
-        make_path(&physics)
-    );
+    let source = temporary.join("checked-in-block-physics.bin");
+    let manifest = temporary.join("bedrock-target.json");
+    let pinned = b"protocol-2168-physics";
+    fs::write(&source, pinned).unwrap();
+    fs::write(&manifest, b"{}").unwrap();
+    fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(pinned))).unwrap();
+    let install = if cfg!(windows) {
+        format!(
+            "echo invocation >> \"{}\" && copy /Y \"{}\" \"{}\" >NUL",
+            make_path(&invocation_log),
+            make_path(&source),
+            make_path(&physics)
+        )
+    } else {
+        format!(
+            "echo invocation >> \"{}\" && cp \"{}\" \"{}\"",
+            make_path(&invocation_log),
+            make_path(&source),
+            make_path(&physics)
+        )
+    };
     let assignments = [
-        "REGISTRYGEN_INPUTS=".to_owned(),
-        "BLOCK_DATA_FETCH_INPUTS=".to_owned(),
-        format!("BLOCK_DATA_SENTINEL={}", make_path(&prerequisites[0])),
-        format!("BLOCK_REGISTRY={}", make_path(&prerequisites[1])),
-        format!("LIGHT_REGISTRY={}", make_path(&prerequisites[2])),
-        format!("VALENTINE_PALETTE={}", make_path(&prerequisites[3])),
-        format!("VALENTINE_BLOCKS={}", make_path(&prerequisites[4])),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
+        format!("PHYSICS_REGISTRY_SOURCE={}", make_path(&source)),
         format!("PHYSICS_REGISTRY_SHA256={}", make_path(&expected_sha)),
-        format!("PHYSICS_REGISTRY_COMPILE={compile}"),
+        format!("BEDROCK_TARGET_MANIFEST={}", make_path(&manifest)),
+        format!("PHYSICS_REGISTRY_INSTALL={install}"),
     ];
     for expected_invocations in [1, 1] {
         let output = Command::new("make")
@@ -139,10 +107,7 @@ fn make_physics_assets_repairs_a_newer_corrupt_registry_once() {
             expected_invocations
         );
     }
-    assert!(
-        fs::read(&physics).unwrap().is_empty(),
-        "the repair must produce exactly the truncated bytes covered by the pinned digest"
-    );
+    assert_eq!(fs::read(&physics).unwrap(), pinned);
     fs::remove_dir_all(temporary).unwrap();
 }
 

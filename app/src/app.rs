@@ -102,7 +102,7 @@ use crate::{
 use crate::acceptance::model_witness::drive_model_witness;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v1001.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2168.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
 
@@ -829,7 +829,7 @@ mod preg_startup_tests {
         .expect_err("missing carrier must fail");
         let message = format!("{error:#}");
 
-        assert!(message.contains("read required protocol-1001 physics registry"));
+        assert!(message.contains("read required protocol-2168 physics registry"));
         assert!(message.contains("make physics-assets"));
         assert!(message.contains("make client"));
     }

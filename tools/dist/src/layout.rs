@@ -9,7 +9,7 @@ pub(crate) const ASSET_FILES: &[&str] = &[
     "vanilla-v1.mcbehud",
     "vanilla-v1.mcbeico",
     "vanilla-v1.mcbelang",
-    "vanilla-v1001.mcbea",
+    "vanilla-v2168.mcbea",
 ];
 
 pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
@@ -41,7 +41,7 @@ pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
         (options.core.clone(), format!("{binary_root}{core_name}")),
         (
             options.physics.clone(),
-            format!("{resource_root}/block-physics-v1001.bin"),
+            format!("{resource_root}/block-physics-v2168.bin"),
         ),
         (
             options.notices.clone(),

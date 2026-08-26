@@ -3,7 +3,7 @@
 
 use std::{ffi::OsString, path::Path, path::PathBuf};
 
-pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
+pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v2168.mcbea";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetPathSource {

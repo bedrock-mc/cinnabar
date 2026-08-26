@@ -48,7 +48,7 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 	}
 	records := []bregLightIdentity{{SequentialID: 0, Name: "minecraft:air", StateJSON: []byte("{}")}, {SequentialID: 1, Name: "minecraft:test_block", StateJSON: state}}
 	breg := []byte("reviewed BREG bytes")
-	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg, nil)
+	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg, nil, 1001)
 	if err != nil {
 		t.Fatalf("generate routes: %v", err)
 	}
@@ -63,13 +63,13 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 func TestGenerateBlockItemRoutesRejectsDuplicateMissingAndAmbiguousStates(t *testing.T) {
 	item := fixtureBlockItem{itemName: "minecraft:test_item", blockName: "minecraft:test_block"}
 	record := bregLightIdentity{SequentialID: 0, Name: "minecraft:test_block", StateJSON: []byte("{}")}
-	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg"), nil); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg"), nil, 1001); err == nil {
 		t.Fatal("duplicate route accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg"), nil); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg"), nil, 1001); err == nil {
 		t.Fatal("missing state accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg"), nil); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg"), nil, 1001); err == nil {
 		t.Fatal("ambiguous state accepted")
 	}
 }
@@ -83,7 +83,7 @@ func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, 1001)
 	if err != nil {
 		t.Fatal(err)
 	}

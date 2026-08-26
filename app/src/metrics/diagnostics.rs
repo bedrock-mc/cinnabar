@@ -55,13 +55,14 @@ struct DiagnosticCatalogEntry {
     name: Box<str>,
 }
 
-fn protocol_1001_catalog() -> &'static [DiagnosticCatalogEntry] {
+fn active_protocol_catalog() -> &'static [DiagnosticCatalogEntry] {
     static CATALOG: OnceLock<Box<[DiagnosticCatalogEntry]>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let records = assets::read_registry(include_bytes!(
-            "../../../crates/assets/data/block-registry-v1001.bin"
-        ))
-        .expect("checked-in protocol-1001 registry must remain valid");
+        let records = assets::read_registry_for_protocol(
+            include_bytes!("../../../crates/assets/data/block-registry-v2168.bin"),
+            crate::asset_startup::active_content_registry_protocol(),
+        )
+        .expect("checked-in active-protocol registry must remain valid");
         records
             .into_vec()
             .into_iter()
@@ -154,7 +155,7 @@ impl DiagnosticQuadTracker {
 
     #[must_use]
     pub fn snapshot(&self) -> DiagnosticAttributionSnapshot {
-        let catalog = protocol_1001_catalog();
+        let catalog = active_protocol_catalog();
         let mut counts = self
             .totals
             .iter()

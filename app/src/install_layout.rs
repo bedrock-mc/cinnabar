@@ -65,7 +65,7 @@ impl InstallLayout {
             return Ok(Self {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
-                physics_registry: local.join("assets/block-physics-v1001.bin"),
+                physics_registry: local.join("assets/block-physics-v2168.bin"),
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: local.join("cinnabar"),
                 user_data_root: local.clone(),
@@ -120,7 +120,7 @@ impl InstallLayout {
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
             compiled_assets: resource_root.join("assets"),
-            physics_registry: resource_root.join("assets/block-physics-v1001.bin"),
+            physics_registry: resource_root.join("assets/block-physics-v2168.bin"),
             resource_root,
             core_executable,
             user_config_root,
@@ -148,7 +148,7 @@ impl InstallLayout {
 
     #[must_use]
     pub fn world_assets(&self) -> PathBuf {
-        self.compiled_assets.join("vanilla-v1001.mcbea")
+        self.compiled_assets.join("vanilla-v2168.mcbea")
     }
 
     #[must_use]
@@ -373,11 +373,11 @@ mod tests {
         .unwrap();
         assert_eq!(
             layout.world_assets(),
-            PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v1001.mcbea")
+            PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2168.mcbea")
         );
         assert_eq!(
             layout.physics_registry,
-            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v1001.bin")
+            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v2168.bin")
         );
         assert_eq!(
             layout.runtime_root,
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn explicit_asset_sources_precede_the_layout_default() {
-        let default = PathBuf::from("/bundle/resources/assets/vanilla-v1001.mcbea");
+        let default = PathBuf::from("/bundle/resources/assets/vanilla-v2168.mcbea");
         let environment = select_asset_path_with_default(
             None,
             Some(OsString::from("/override/environment.mcbea")),

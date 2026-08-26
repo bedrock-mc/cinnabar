@@ -145,7 +145,7 @@ pub fn compile_entity_assets_with_report(
     {
         return Err(invalid("entity source-byte total or count exceeds bound"));
     }
-    let route_path: Box<str> = "registry/block-item-routes-v1001.json".into();
+    let route_path: Box<str> = "registry/block-item-routes-v2168.json".into();
     sources.push(EntityAssetSource {
         path: route_path.clone(),
         source_bytes: route_bytes.len() as u32,
