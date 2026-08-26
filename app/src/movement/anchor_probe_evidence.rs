@@ -13,24 +13,29 @@
 //! the disabled path returns before touching the collider slice, so per-tick
 //! allocation is unchanged and probe outcomes are byte-identical either way.
 //!
-//! Collider attribution is geometric: the production `sim::PaletteWorld`
-//! emits one translated shape instance per (block, layer), so a collider
-//! lying fully inside one unit cell is reported with that cell as its
-//! contributing `block` coordinate, while a collider spanning multiple cells
-//! cannot be attributed to a single block and reports `merged:true` with its
-//! AABB alone. The current `CollisionWorld` trait surface returns bare AABBs
-//! and cannot supply wire runtime IDs; no `runtime_id` field is emitted
-//! until the trait grows provenance (recorded open limitation, not a silent
-//! omission).
+//! Collider attribution is exact whenever the caller supplies palette
+//! provenance from `sim::CollisionWorld::collision_boxes_with_provenance`:
+//! the production `sim::PaletteWorld` emits one translated shape instance
+//! per (block, layer), so a provenanced collider reports its true source
+//! cell as `block` plus the wire runtime id of that palette entry as `rid`
+//! — including halo shapes whose bounds happen to lie in a neighbouring
+//! cell. When provenance is unavailable (a bare-AABB surface), attribution
+//! falls back to the original geometric containment inference: a collider
+//! lying fully inside one unit cell reports that inferred cell as `block`
+//! without any `rid`, and a collider spanning multiple cells reports
+//! `merged:true` with its AABB alone.
 
-use sim::{Aabb, Vec3};
+use sim::{Aabb, ProvenancedCollider, Vec3};
 
 /// Stdout line prefix, family style of `MOVEMENT_TX_GATE=`/`TELEPORT_ACK=`.
 /// The registered opt-in environment literal is
 /// `crate::acceptance::markers::ANCHOR_PROBE`.
 pub(super) const MARKER_PREFIX: &str = "ANCHOR_PROBE=";
 
-const SCHEMA_TAG: &str = "rust-mcbe-anchor-probe-v1";
+/// Schema v2 adds the optional per-collider `"rid"` wire-runtime-id key;
+/// every prior top-level and collider key renders exactly as v1 did, and
+/// colliders without provenance stay byte-compatible with v1 output.
+const SCHEMA_TAG: &str = "rust-mcbe-anchor-probe-v2";
 
 /// PROVISIONAL hard cap on how many sealing colliders one failure marker
 /// may name, chosen so a worst-case well-formed line stays far below the
@@ -108,8 +113,30 @@ fn is_reportable(collider: Aabb, player: Aabb) -> bool {
     collider.min.is_finite() && collider.max.is_finite() && collider.intersects(player)
 }
 
-/// Renders one collider descriptor with 1/64-quantized bounds.
-fn render_collider(collider: Aabb) -> String {
+/// Appends the `"block"` array plus the optional `"rid"` key and closes the
+/// descriptor object.
+fn push_block_tail(out: &mut String, cell: [i32; 3], runtime_id: Option<u64>) {
+    out.push_str("],\"block\":[");
+    for (axis, block) in cell.iter().enumerate() {
+        if axis > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!("{block}"));
+    }
+    out.push(']');
+    if let Some(runtime_id) = runtime_id {
+        out.push_str(&format!(",\"rid\":{runtime_id}"));
+    }
+    out.push('}');
+}
+
+/// Renders one collider descriptor with 1/64-quantized bounds. Exact palette
+/// provenance wins when supplied (naming the true source cell plus its wire
+/// runtime id); otherwise the original geometric containment inference
+/// decides between `"block"` and `"merged":true`, and no `rid` is ever
+/// invented.
+fn render_collider(entry: ProvenancedCollider) -> String {
+    let collider = entry.aabb;
     let mut out = String::with_capacity(96);
     out.push_str("{\"min\":[");
     for (axis, value) in [collider.min.x, collider.min.y, collider.min.z]
@@ -131,18 +158,16 @@ fn render_collider(collider: Aabb) -> String {
         }
         out.push_str(&mark_float(format!("{}", quantize_to_1_64(value))));
     }
-    match containing_cell(collider) {
+    match entry.block {
         Some(cell) => {
-            out.push_str("],\"block\":[");
-            for (axis, block) in cell.iter().enumerate() {
-                if axis > 0 {
-                    out.push(',');
-                }
-                out.push_str(&format!("{block}"));
-            }
-            out.push_str("]}");
+            // Runtime ids are meaningful only alongside their source cell;
+            // the paired facts are emitted together or not at all.
+            push_block_tail(&mut out, cell, entry.runtime_id);
         }
-        None => out.push_str("],\"merged\":true}"),
+        None => match containing_cell(collider) {
+            Some(cell) => push_block_tail(&mut out, cell, None),
+            None => out.push_str("],\"merged\":true}"),
+        },
     }
     out
 }
@@ -230,7 +255,7 @@ fn header_length(
 pub(super) fn failure_marker_lines(
     enabled: bool,
     feet: Vec3,
-    colliders: &[Aabb],
+    colliders: &[ProvenancedCollider],
     probe_iterations: usize,
     probe_max_displacement_blocks: f64,
     epoch_spent: bool,
@@ -242,7 +267,7 @@ pub(super) fn failure_marker_lines(
     let total_sealing_count = colliders
         .iter()
         .copied()
-        .filter(|collider| is_reportable(*collider, player))
+        .filter(|entry| is_reportable(entry.aabb, player))
         .count();
     // A genuine failure always has at least one finite overlapping collider:
     // `depenetrate_player` reports success immediately when none overlap, and
@@ -252,12 +277,12 @@ pub(super) fn failure_marker_lines(
         return Vec::new();
     }
     let mut rendered = Vec::with_capacity(total_sealing_count.min(MAX_SEALING_COLLIDERS));
-    for collider in colliders.iter().copied() {
+    for entry in colliders.iter().copied() {
         if rendered.len() >= MAX_SEALING_COLLIDERS {
             break;
         }
-        if is_reportable(collider, player) {
-            rendered.push(render_collider(collider));
+        if is_reportable(entry.aabb, player) {
+            rendered.push(render_collider(entry));
         }
     }
 

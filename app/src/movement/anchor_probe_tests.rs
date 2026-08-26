@@ -24,7 +24,10 @@ use super::{
     flush_player_auth_inputs, reconcile_candidate_physics_correction,
 };
 use protocol::PLAYER_NETWORK_OFFSET;
-use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, Vec3, WorldQueryError};
+use sim::{
+    Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3,
+    WorldQueryError,
+};
 
 const SETTLE_TIMEOUT_TICKS: u64 = super::settle::SETTLE_TIMEOUT_TICKS;
 
@@ -476,13 +479,116 @@ impl CollisionWorld for ByteBudgetRoom {
     }
 }
 
+/// Unit-cell shaft whose colliders carry exact palette provenance from the
+/// new `collision_boxes_with_provenance` surface. The ids mirror the live
+/// aliasing story this evidence exists for: a current-content server streams
+/// sequential id 13629 (pinned-v1001 birch_stairs, current-content air) and
+/// 13094 (v1001 air), so naming wire runtime ids directly proves or refutes
+/// sequential-id aliasing on the wire without any registry inference.
+struct ProvenancedShaft;
+
+impl ProvenancedShaft {
+    fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+        [
+            (
+                FLOOR_CELL,
+                [0_i32, 65, 0],
+                13_629_u64,
+            ),
+            (
+                CEILING_CELL,
+                [0, 67, 0],
+                13_094,
+            ),
+            // Same sealing side cells as UnitShaft, each with its own wire id.
+            (
+                Aabb::new(Vec3::new(-1.0, 65.0, -1.0), Vec3::new(0.0, 66.0, 0.0)),
+                [-1, 65, -1],
+                7_001,
+            ),
+            (
+                Aabb::new(Vec3::new(1.0, 65.0, 0.0), Vec3::new(2.0, 66.0, 1.0)),
+                [1, 65, 0],
+                7_002,
+            ),
+        ]
+        .into_iter()
+        .filter(|(shape, _, _)| shape.intersects(query))
+        .map(|(aabb, block, runtime_id)| ProvenancedCollider {
+            aabb,
+            block: Some(block),
+            runtime_id: Some(runtime_id),
+        })
+        .collect()
+    }
+}
+
+impl CollisionWorld for ProvenancedShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
+        ))
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Self::colliders(query)))
+    }
+}
+
+/// Same shaft with ten distinct provenanced floor colliders plus the ceiling
+/// cell, to exercise the eight-collider report cap while every entry carries
+/// a runtime id.
+struct LayeredProvenancedShaft;
+
+impl LayeredProvenancedShaft {
+    fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+        let mut entries = (0_u64..10)
+            .map(|layer| ProvenancedCollider {
+                aabb: FLOOR_CELL,
+                block: Some([0, 65, 0]),
+                runtime_id: Some(1_000 + layer),
+            })
+            .collect::<Vec<_>>();
+        entries.push(ProvenancedCollider {
+            aabb: CEILING_CELL,
+            block: Some([0, 67, 0]),
+            runtime_id: Some(13_094),
+        });
+        entries
+            .into_iter()
+            .filter(|entry| entry.aabb.intersects(query))
+            .collect()
+    }
+}
+
+impl CollisionWorld for LayeredProvenancedShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::colliders(query)
+                .into_iter()
+                .map(|e| e.aabb)
+                .collect(),
+        ))
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Self::colliders(query)))
+    }
+}
+
 fn shaft_failure_lines(
     world: &impl CollisionWorld,
     enabled: bool,
     epoch_spent: bool,
 ) -> Vec<String> {
     let colliders = world
-        .collision_boxes(probe_query(SHAFT_FEET))
+        .collision_boxes_with_provenance(probe_query(SHAFT_FEET))
         .expect("stub worlds are always loaded")
         .value;
     failure_marker_lines(
@@ -508,7 +614,9 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     assert_bounded_line(&lines[0]);
 
     let parsed = parse_marker(&lines[0]);
-    assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v1");
+    // v2 adds the optional per-collider "rid" key; every prior key renders
+    // exactly as v1 did, and provenance-less colliders stay byte-compatible.
+    assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v2");
     assert_eq!(parsed["phase"], "failed");
     assert_eq!(parsed["feet"], serde_json::json!([0.5, 65.5, 0.5]));
     assert_eq!(
@@ -542,7 +650,7 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     // and therefore zero marker lines even when instrumentation is enabled.
     const SURFACE_FEET: Vec3 = Vec3::new(0.0, 70.0, 0.0);
     let surface = SurfaceFloor
-        .collision_boxes(probe_query(SURFACE_FEET))
+        .collision_boxes_with_provenance(probe_query(SURFACE_FEET))
         .expect("loaded stub world")
         .value;
     let success_lines = failure_marker_lines(
@@ -564,7 +672,7 @@ fn failed_probe_marker_reports_merged_multicell_colliders_without_block_ids() {
     // The established sealed-room fixture: giant slabs spanning many cells.
     let feet = Vec3::new(0.5, 66.620_01, 0.5);
     let colliders = SealedRoom
-        .collision_boxes(probe_query(feet))
+        .collision_boxes_with_provenance(probe_query(feet))
         .expect("loaded stub world")
         .value;
     let lines = failure_marker_lines(
@@ -600,13 +708,17 @@ fn failed_probe_marker_reports_merged_multicell_colliders_without_block_ids() {
             entry.get("block").is_none(),
             "multi-cell colliders must not claim a block id: {entry}"
         );
+        assert!(
+            entry.get("rid").is_none(),
+            "merged colliders must not claim a runtime id: {entry}"
+        );
     }
 }
 
 #[test]
 fn epoch_degrade_transition_emits_one_additional_degraded_marker() {
     let colliders = UnitShaft
-        .collision_boxes(probe_query(SHAFT_FEET))
+        .collision_boxes_with_provenance(probe_query(SHAFT_FEET))
         .expect("loaded stub world")
         .value;
     let common_args = (
@@ -743,19 +855,131 @@ fn marker_byte_cap_truncates_instead_of_exceeding_2048_bytes() {
 }
 
 #[test]
+fn failed_probe_marker_names_exact_runtime_ids_from_palette_provenance() {
+    let lines = shaft_failure_lines(&ProvenancedShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v2");
+    // Only the two unit cells genuinely overlapping the anchored player box
+    // seal it; the side cells reach depenetration through the grown query but
+    // never touch the player, so they stay out of the sealing report.
+    assert_eq!(parsed["total_sealing_count"], 2);
+    assert_eq!(parsed["truncated"], false);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [0, 65, 0], "rid": 13629},
+            {"min": [0.0, 67.0, 0.0], "max": [1.0, 68.0, 1.0], "block": [0, 67, 0], "rid": 13094},
+        ]),
+        "each provenanced collider names its true source cell plus its exact wire runtime id",
+    );
+
+    // The disabled path stays empty even when provenance is available.
+    assert!(shaft_failure_lines(&ProvenancedShaft, false, false).is_empty());
+}
+
+#[test]
+fn marker_truncation_keeps_provenanced_ids_in_query_order() {
+    let lines = shaft_failure_lines(&LayeredProvenancedShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["total_sealing_count"], 11);
+    assert_eq!(parsed["truncated"], true);
+    let sealing = parsed["sealing"].as_array().expect("array");
+    assert_eq!(
+        sealing.len(),
+        MAX_SEALING_COLLIDERS,
+        "the report keeps at most eight colliders",
+    );
+    let kept_ids = sealing
+        .iter()
+        .map(|entry| {
+            entry
+                .get("rid")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_else(|| panic!("every kept entry carries its rid: {entry}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kept_ids,
+        (0..MAX_SEALING_COLLIDERS as u64).map(|layer| 1_000 + layer).collect::<Vec<_>>(),
+        "kept-prefix runtime ids follow query order",
+    );
+}
+
+#[test]
+fn provenance_attribution_wins_over_geometric_cell_inference() {
+    // A halo-registered shape can lie fully inside a cell other than its
+    // source block; geometric containment would misname or merge it. Exact
+    // provenance must name the SOURCE cell and its runtime id instead.
+    struct HaloShaft;
+
+    impl CollisionWorld for HaloShaft {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(
+                Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
+            ))
+        }
+
+        fn collision_boxes_with_provenance(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Self::colliders(query)))
+        }
+    }
+
+    impl HaloShaft {
+        fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+            const SHAPE: Aabb = Aabb::new(Vec3::new(0.0, 65.0, 0.0), Vec3::new(1.0, 66.0, 1.0));
+            [SHAPE]
+                .into_iter()
+                .filter(|shape| shape.intersects(query))
+                .map(|aabb| ProvenancedCollider {
+                    aabb,
+                    block: Some([5, 60, -3]),
+                    runtime_id: Some(4_242),
+                })
+                .collect()
+        }
+    }
+
+    let lines = shaft_failure_lines(&HaloShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [5, 60, -3], "rid": 4242},
+        ]),
+        "the supplied source cell and id win over geometric inference",
+    );
+}
+
+#[test]
 fn evidence_instrumentation_never_changes_gate_or_hold_decisions() {
-    fn drive_shaft_epoch(evidence_enabled: bool) -> Vec<BeforeTick> {
+    fn drive_shaft_epoch(
+        world: &impl CollisionWorld,
+        evidence_enabled: bool,
+    ) -> Vec<BeforeTick> {
         let mut state = AnchorProbeState::new();
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
         let mut decisions = Vec::new();
-        decisions.push(state.before_tick(&UnitShaft, SHAFT_FEET)); // fail #1
-        decisions.push(state.before_tick(&UnitShaft, SHAFT_FEET)); // frozen-hold guard
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #1
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // frozen-hold guard
         state.release_after_cap();
-        decisions.push(state.before_tick(&UnitShaft, SHAFT_FEET)); // fail #2
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #2
         state.release_after_cap();
-        decisions.push(state.before_tick(&UnitShaft, SHAFT_FEET)); // fail #3: degrade
-        decisions.push(state.before_tick(&UnitShaft, SHAFT_FEET)); // spent epoch
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #3: degrade
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // spent epoch
         decisions
     }
 
@@ -767,13 +991,25 @@ fn evidence_instrumentation_never_changes_gate_or_hold_decisions() {
         BeforeTick::Proceed,
     ];
     assert_eq!(
-        drive_shaft_epoch(false),
+        drive_shaft_epoch(&UnitShaft, false),
         expected,
         "instrumentation off keeps today's exact decision sequence"
     );
     assert_eq!(
-        drive_shaft_epoch(true),
+        drive_shaft_epoch(&UnitShaft, true),
         expected,
         "instrumentation on must produce the identical decision sequence",
+    );
+    // The identical guarantee with per-collider runtime-id provenance flowing
+    // through the evidence path.
+    assert_eq!(
+        drive_shaft_epoch(&ProvenancedShaft, false),
+        expected,
+        "provenanced evidence off keeps today's exact decision sequence"
+    );
+    assert_eq!(
+        drive_shaft_epoch(&ProvenancedShaft, true),
+        expected,
+        "provenanced evidence on must produce the identical decision sequence",
     );
 }

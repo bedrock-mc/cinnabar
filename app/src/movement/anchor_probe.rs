@@ -47,7 +47,7 @@ use std::sync::OnceLock;
 use super::anchor_probe_evidence as evidence;
 use super::trace::write_trace_line;
 use crate::acceptance::markers;
-use sim::{Aabb, CollisionWorld, Vec3};
+use sim::{Aabb, CollisionWorld, ProvenancedCollider, Vec3};
 
 /// PROVISIONAL maximum number of iterative minimal-translation applications
 /// one probe may spend before declaring the embedment unresolved.
@@ -80,10 +80,11 @@ pub(super) enum BeforeTick {
 
 enum AnchorResolution {
     Cleared(Vec3),
-    /// The colliders the failed query already fetched, so evidence can name
-    /// the sealing geometry without a second world query.
+    /// The colliders the failed query already fetched — with their exact
+    /// palette provenance when the world surface can supply it — so evidence
+    /// can name the sealing geometry without a second world query.
     Unresolvable {
-        colliders: Vec<Aabb>,
+        colliders: Vec<ProvenancedCollider>,
     },
 }
 
@@ -118,22 +119,29 @@ fn probe_anchor(
 ) -> Result<AnchorResolution, sim::WorldQueryError> {
     // The query grows by the full displacement budget so every collider the
     // probe could ever reach is visible in one bounded query through the
-    // same PaletteWorld the frame already builds.
+    // same PaletteWorld the frame already builds. The provenance surface
+    // shares one emission core with `collision_boxes`, so the ordered box
+    // sequence fed to depenetration — and therefore every probe decision —
+    // is identical to the established box-only path (pinned by the sim
+    // crate's dual-surface regression).
     let query = Aabb::player_at(feet).grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS);
-    let colliders = world.collision_boxes(query)?;
-    Ok(
-        match sim::depenetrate_player(
-            feet,
-            &colliders.value,
-            ANCHOR_PROBE_MAX_ITERATIONS,
-            ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
-        ) {
-            Some(clear_feet) => AnchorResolution::Cleared(clear_feet),
-            None => AnchorResolution::Unresolvable {
-                colliders: colliders.value,
-            },
+    let instances = world.collision_boxes_with_provenance(query)?;
+    let boxes = instances
+        .value
+        .iter()
+        .map(|entry| entry.aabb)
+        .collect::<Vec<_>>();
+    Ok(match sim::depenetrate_player(
+        feet,
+        &boxes,
+        ANCHOR_PROBE_MAX_ITERATIONS,
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+    ) {
+        Some(clear_feet) => AnchorResolution::Cleared(clear_feet),
+        None => AnchorResolution::Unresolvable {
+            colliders: instances.value,
         },
-    )
+    })
 }
 
 /// Per-controller spawn-anchor probe state. One epoch per hard anchor.

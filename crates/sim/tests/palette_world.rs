@@ -429,6 +429,222 @@ fn identity_limit_stops_before_polling_a_panic_sentinel() {
 }
 
 #[test]
+fn provenance_surface_names_exact_block_and_runtime_id_per_collider() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut store = loaded_uniform_store(chunk, 7);
+    store
+        .update_block(
+            SubChunkKey::from_chunk(chunk, 0),
+            BlockUpdate::new(2, 0, 3, 0, 9),
+            0,
+        )
+        .unwrap();
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    registry
+        .register(
+            9,
+            [
+                Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0)),
+                Aabb::new(Vec3::new(0.375, 0.5, 0.375), Vec3::new(0.625, 1.5, 0.625)),
+            ],
+        )
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+
+    let query = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.0, 1.6, 4.0));
+    let provenanced = world.collision_boxes_with_provenance(query).unwrap();
+
+    // Every emitted collider carries its emitting palette cell plus the wire
+    // runtime id registered for that cell, including both shapes of the one
+    // compound block.
+    let compound_slab = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.0, 0.5, 4.0));
+    let compound_post = Aabb::new(
+        Vec3::new(2.375, 0.5, 3.375),
+        Vec3::new(2.625, 1.5, 3.625),
+    );
+    for shape in [compound_slab, compound_post] {
+        let entry = provenanced
+            .value
+            .iter()
+            .find(|entry| entry.aabb == shape)
+            .unwrap_or_else(|| panic!("compound shape missing from report: {shape:?}"));
+        assert_eq!(entry.block, Some([2, 0, 3]));
+        assert_eq!(entry.runtime_id, Some(9));
+    }
+    for entry in &provenanced.value {
+        if entry.aabb == compound_slab || entry.aabb == compound_post {
+            continue;
+        }
+        assert_eq!(entry.runtime_id, Some(7), "uniform neighbours are id 7");
+        let cell = [
+            entry.aabb.min.x.floor() as i32,
+            entry.aabb.min.y.floor() as i32,
+            entry.aabb.min.z.floor() as i32,
+        ];
+        assert_eq!(entry.block, Some(cell), "unit cubes name their own cell");
+    }
+
+    // The provenance surface reports the identical box sequence and identity
+    // as the established box-only surface.
+    let boxes = world.collision_boxes(query).unwrap();
+    let projected = provenanced.value.iter().map(|e| e.aabb).collect::<Vec<_>>();
+    assert_eq!(boxes.value, projected);
+    assert_eq!(boxes.identity, provenanced.identity);
+}
+
+#[test]
+fn provenance_surface_preserves_halo_shapes_with_their_source_cell() {
+    // Registry validation admits shapes inside the [-1, 2] local halo, so a
+    // translated halo shape can lie fully inside a neighbouring cell. Exact
+    // provenance still names the SOURCE cell rather than inferring one from
+    // geometry, which is the whole point of naming sealing colliders.
+    let chunk = ChunkKey::new(0, 0, 0);
+    let store = loaded_uniform_store(chunk, 19);
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(
+            19,
+            [Aabb::new(
+                Vec3::new(1.0, 0.0, 1.0),
+                Vec3::new(2.0, 1.0, 2.0),
+            )],
+        )
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+
+    let query = Aabb::new(Vec3::new(1.0, 0.0, 1.0), Vec3::new(3.0, 1.0, 3.0));
+    let provenanced = world.collision_boxes_with_provenance(query).unwrap();
+    assert!(!provenanced.value.is_empty());
+    for entry in &provenanced.value {
+        assert_eq!(
+            entry.block.map(|cell| (cell[0], cell[1], cell[2])),
+            Some((
+                entry.aabb.min.x.floor() as i32 - 1,
+                entry.aabb.min.y.floor() as i32,
+                entry.aabb.min.z.floor() as i32 - 1,
+            )),
+            "the source cell sits one block west/north of the translated halo shape",
+        );
+        assert_eq!(entry.runtime_id, Some(19));
+    }
+}
+
+#[test]
+fn provenance_surface_matches_the_box_only_surface_exactly() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut store = loaded_uniform_store(chunk, 7);
+    store
+        .update_block(
+            SubChunkKey::from_chunk(chunk, 0),
+            BlockUpdate::new(2, 0, 3, 0, 9),
+            0,
+        )
+        .unwrap();
+    store
+        .update_block(
+            SubChunkKey::from_chunk(chunk, 0),
+            BlockUpdate::new(3, 1, 4, 0, 19),
+            0,
+        )
+        .unwrap();
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    registry
+        .register(
+            9,
+            [
+                Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0)),
+                Aabb::new(Vec3::new(0.375, 0.5, 0.375), Vec3::new(0.625, 1.5, 0.625)),
+            ],
+        )
+        .unwrap();
+    registry
+        .register(
+            19,
+            [Aabb::new(Vec3::new(-1.0, -1.0, -1.0), Vec3::ONE)],
+        )
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+
+    for query in [
+        Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.5, 2.5, 4.5)),
+        Aabb::new(Vec3::new(-4.0, -2.0, -4.0), Vec3::new(0.0, 0.0, 0.0)),
+        Aabb::new(Vec3::ZERO, Vec3::ZERO),
+    ] {
+        let boxes = world.collision_boxes(query).unwrap();
+        let provenanced = world.collision_boxes_with_provenance(query).unwrap();
+        assert_eq!(boxes.identity, provenanced.identity);
+        let projected = provenanced.value.iter().map(|e| e.aabb).collect::<Vec<_>>();
+        assert_eq!(
+            boxes.value, projected,
+            "both surfaces must emit the identical ordered box sequence"
+        );
+        for entry in &provenanced.value {
+            assert!(
+                entry.block.is_some() && entry.runtime_id.is_some(),
+                "the palette surface always proves both facts together"
+            );
+        }
+    }
+}
+
+#[test]
+fn provenance_surface_keeps_the_box_only_error_contract_exactly() {
+    fn assert_same_error(
+        world: &impl CollisionWorld,
+        query: Aabb,
+        context: &'static str,
+    ) -> WorldQueryError {
+        let from_boxes = world.collision_boxes(query).expect_err("query must fail");
+        let from_provenance = world
+            .collision_boxes_with_provenance(query)
+            .expect_err("query must fail");
+        assert_eq!(from_boxes, from_provenance, "{context}");
+        from_provenance
+    }
+
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    let empty_store = ChunkStore::new();
+    let empty = PaletteWorld::new(&empty_store, &registry, 2);
+    let query = Aabb::new(Vec3::ZERO, Vec3::ONE);
+    assert_eq!(
+        assert_same_error(&empty, query, "unloaded columns fail identically"),
+        WorldQueryError::UnloadedChunk(ChunkKey::new(2, -1, -1)),
+    );
+
+    let chunk = ChunkKey::new(0, 0, 0);
+    let store = loaded_uniform_store(chunk, 77);
+    let unknown = PaletteWorld::new(&store, &registry, 0);
+    assert_eq!(
+        assert_same_error(&unknown, query, "unknown runtime ids fail identically"),
+        WorldQueryError::UnknownRuntimeId {
+            runtime_id: 77,
+            block: [0, 0, 0],
+        },
+    );
+
+    let oversized = sim::MAX_COLLISION_QUERY_EXTENT + 1.0;
+    let bad_query = Aabb::new(Vec3::ZERO, Vec3::new(oversized, 1.0, 1.0));
+    assert_eq!(
+        assert_same_error(
+            &unknown,
+            bad_query,
+            "query validation fails identically"
+        ),
+        WorldQueryError::QueryExtentExceeded,
+    );
+}
+
+#[test]
 fn primitive_registration_rejects_contradictory_physics_facts() {
     let mut registry = CollisionRegistry::with_identity(registry_identity());
     let full = [Aabb::new(Vec3::ZERO, Vec3::ONE)];
