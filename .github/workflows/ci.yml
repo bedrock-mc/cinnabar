@@ -112,7 +112,7 @@ jobs:
       - name: Test and vet protocol registry tools on Windows
         shell: powershell
         run: |
-          go -C tools/registrygen test ./cmd/... -count=1
+          go -C tools/registrygen test ./... -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C tools/registrygen vet ./...
 
@@ -169,7 +169,7 @@ jobs:
       - run: go vet ./core/...
       - name: Test and vet protocol registry tools
         run: |
-          go -C tools/registrygen test ./cmd/... -count=1
+          go -C tools/registrygen test ./... -count=1
           go -C tools/registrygen vet ./...
       - name: Test and vet pinned chunk fixture generator
         working-directory: tools/chunkfix

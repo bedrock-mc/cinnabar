@@ -12,15 +12,16 @@ import (
 // safety check. The suffix mirrors the saved-server quarantine convention.
 const invalidCacheSuffix = ".invalid"
 
-// quarantineCacheFile renames a rejected cache to a sibling with the
-// .invalid suffix so its bytes survive for inspection while the session
-// proceeds exactly as if no cache existed. An earlier quarantine is replaced;
-// the original file is never deleted. The moved-aside sibling is restamped
-// private on a best-effort basis so the rejected bytes stop carrying the
-// group/world access or ambient grants that provoked the rejection; a stamp
-// failure is tolerated because the session already treats the cache as
-// absent and startup must not fail over retained diagnostic bytes.
+// quarantineCacheFile renames a rejected cache to a private sibling with the
+// .invalid suffix. An earlier quarantine is replaced. If the moved bytes
+// cannot be made private, they are removed and the operation fails closed.
 func quarantineCacheFile(path string) (string, error) {
+	return quarantineCacheFileWith(path, stampCachePrivacy)
+}
+
+// quarantineCacheFileWith performs quarantine using the supplied privacy
+// stamp so failure cleanup can be exercised deterministically in tests.
+func quarantineCacheFileWith(path string, stamp func(string) error) (string, error) {
 	target := path + invalidCacheSuffix
 	if _, err := os.Lstat(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
@@ -28,7 +29,12 @@ func quarantineCacheFile(path string) (string, error) {
 	if err := os.Rename(path, target); err != nil {
 		return "", err
 	}
-	_ = stampCachePrivacy(target)
+	if err := stamp(target); err != nil {
+		if removeErr := os.Remove(target); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
+			return "", errors.New("secure rejected auth cache after privacy failure")
+		}
+		return "", errors.New("secure rejected auth cache after privacy failure")
+	}
 	return target, nil
 }
 

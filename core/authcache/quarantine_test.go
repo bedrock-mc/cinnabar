@@ -83,8 +83,12 @@ func TestSourceQuarantinesUnprivateCacheAndReauthenticates(t *testing.T) {
 
 	line := notice.String()
 	wantCode := expectedUnprivateCode(t)
+	wantPath, err := canonicalizeCachePath(path)
+	if err != nil {
+		t.Fatalf("canonicalizeCachePath(%q) error = %v", path, err)
+	}
 	if !strings.HasPrefix(line, "AUTH_CACHE_QUARANTINED code="+wantCode+" ") ||
-		!strings.HasSuffix(line, "path="+path+"\n") {
+		!strings.HasSuffix(line, "path="+wantPath+"\n") {
 		t.Fatalf("quarantine notice = %q, want AUTH_CACHE_QUARANTINED code=%s line", line, wantCode)
 	}
 	for _, secret := range []string{"cached-secret", "cached-refresh-secret"} {
@@ -223,6 +227,61 @@ func TestQuarantineFailureKeepsRejectedCacheInPlace(t *testing.T) {
 		t.Fatalf("request calls = %d, want 0 while the rejected cache cannot be moved aside", requests)
 	}
 	assertFileContents(t, path, originalBytes)
+}
+
+func TestQuarantinePrivacyFailureRemovesRejectedBytesAndFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "microsoft-token.json")
+	writeToken(t, path, token("exposed-secret", "exposed-refresh-secret"))
+	makeCacheFileUnprivate(t, path)
+
+	_, err := quarantineCacheFileWith(path, func(string) error {
+		return errors.New("forced privacy failure containing exposed-refresh-secret")
+	})
+	if err == nil || !strings.Contains(err.Error(), "secure rejected auth cache") {
+		t.Fatalf("quarantineCacheFileWith() error = %v, want bounded privacy failure", err)
+	}
+	if strings.Contains(err.Error(), "exposed-refresh-secret") {
+		t.Fatalf("quarantineCacheFileWith() error contains token material: %v", err)
+	}
+	for _, candidate := range []string{path, path + invalidCacheSuffix} {
+		if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("Lstat(%q) error = %v, want unsafe bytes removed", candidate, statErr)
+		}
+	}
+}
+
+func TestSourcePrivacyFailureDoesNotNotifyOrReauthenticate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "microsoft-token.json")
+	writeToken(t, path, token("exposed-secret", "exposed-refresh-secret"))
+	makeCacheFileUnprivate(t, path)
+	requests := 0
+	var notice bytes.Buffer
+
+	_, err := sourceWithQuarantine(context.Background(), Config{
+		Path:   path,
+		Writer: &notice,
+		Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+			requests++
+			return token("unused", "unused"), nil
+		},
+		Refresh: staticRefresh,
+	}, func(path string) (string, error) {
+		return quarantineCacheFileWith(path, func(string) error {
+			return errors.New("forced privacy failure containing exposed-refresh-secret")
+		})
+	})
+	if err == nil || !strings.Contains(err.Error(), "quarantine Microsoft auth cache") {
+		t.Fatalf("sourceWithQuarantine() error = %v, want bounded quarantine failure", err)
+	}
+	if strings.Contains(err.Error(), "exposed-refresh-secret") {
+		t.Fatalf("sourceWithQuarantine() error contains token material: %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("request calls = %d, want 0", requests)
+	}
+	if notice.Len() != 0 {
+		t.Fatalf("quarantine notice = %q, want none", notice.String())
+	}
 }
 
 // readFileBytes reads a file's exact bytes without ever logging them.

@@ -130,6 +130,28 @@ func TestRunRejectsRedirectedDownloadCacheWithoutWritingThroughIt(t *testing.T) 
 	}
 }
 
+func TestRequireRealDirectoryAcceptsStandardTemporaryPath(t *testing.T) {
+	if err := requireRealDirectory(t.TempDir()); err != nil {
+		t.Fatalf("standard temporary directory was rejected: %v", err)
+	}
+}
+
+func TestRequireRealDirectoryRejectsNestedSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	child := filepath.Join(target, "child")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "nested-alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("directory symlinks are unavailable: %v", err)
+	}
+	if err := requireRealDirectory(filepath.Join(alias, "child")); err == nil {
+		t.Fatal("directory beneath a nested symlink unexpectedly succeeded")
+	}
+}
+
 type sourceFixture struct {
 	id          string
 	destination string

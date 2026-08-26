@@ -31,6 +31,16 @@ type Config struct {
 // Source loads or acquires a Microsoft token and returns a source that persists
 // each successfully refreshed token before returning it to the caller.
 func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
+	return sourceWithQuarantine(ctx, config, quarantineCacheFile)
+}
+
+// sourceWithQuarantine builds a token source using the supplied quarantine
+// operation so fail-closed recovery behavior can be tested deterministically.
+func sourceWithQuarantine(
+	ctx context.Context,
+	config Config,
+	quarantine func(string) (string, error),
+) (oauth2.TokenSource, error) {
 	if config.Path == "" {
 		return nil, errors.New("auth cache path is empty")
 	}
@@ -61,7 +71,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	case errors.Is(err, fs.ErrNotExist):
 		return acquire(ctx, config.Path, writer, request, refresh)
 	case errors.Is(err, errUnsafePermissions):
-		if _, quarantineErr := quarantineCacheFile(config.Path); quarantineErr != nil {
+		if _, quarantineErr := quarantine(config.Path); quarantineErr != nil {
 			return nil, fmt.Errorf("quarantine Microsoft auth cache: %w", quarantineErr)
 		}
 		notifyQuarantinedCache(writer, config.Path, err)
@@ -238,6 +248,7 @@ func save(path string, tok *oauth2.Token) error {
 
 type saveHooks struct {
 	afterTokenSync            func(tempPath string) error
+	protectTemp               func(tempPath string) error
 	scrubTemp                 func(*os.File) error
 	afterCleanupIdentityCheck func(tempPath string)
 }
@@ -295,15 +306,11 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 		return err
 	}
 	tempPath := filepath.Join(dir, tempName)
-	// Restrict the temporary cache to trusted principals before any token
-	// bytes are written so the published file never inherits ambient grants.
-	if err := protectCacheFile(tempPath); err != nil {
-		return err
-	}
 	tempInfo, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return err
+		_ = root.Remove(tempName)
+		return errors.New("inspect temporary auth cache")
 	}
 	success := false
 	defer func() {
@@ -314,6 +321,15 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 			returnErr = errors.New("secure auth cache cleanup failed")
 		}
 	}()
+	// Restrict the temporary cache to trusted principals before any token
+	// bytes are written so the published file never inherits ambient grants.
+	protect := protectCacheFile
+	if hooks.protectTemp != nil {
+		protect = hooks.protectTemp
+	}
+	if err := protect(tempPath); err != nil {
+		return errors.New("protect temporary auth cache")
+	}
 	if err := checkRegular(tempInfo); err != nil {
 		return err
 	}
@@ -440,9 +456,35 @@ func cleanupTempIdentity(root *os.Root, file *os.File, identity fs.FileInfo, hoo
 	if scanErr == nil && hooks.afterCleanupIdentityCheck != nil && len(names) != 0 {
 		hooks.afterCleanupIdentityCheck(filepath.Join(root.Name(), names[0]))
 	}
-	_, rescanErr := identityNames(root, identity)
-	if scrubErr != nil || closeErr != nil || scanErr != nil || rescanErr != nil {
+	names, rescanErr := identityNames(root, identity)
+	removeErr := removeTempIdentityNames(root, identity, names)
+	remaining, verifyErr := identityNames(root, identity)
+	if scrubErr != nil || closeErr != nil || scanErr != nil || rescanErr != nil || removeErr != nil || verifyErr != nil || len(remaining) != 0 {
 		return errors.New("temporary auth cache cleanup could not be verified")
+	}
+	return nil
+}
+
+// removeTempIdentityNames removes only directory entries that still name the
+// temporary file identity, leaving a foreign replacement untouched.
+func removeTempIdentityNames(root *os.Root, identity fs.FileInfo, names []string) error {
+	for _, name := range names {
+		info, err := root.Lstat(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(identity, info) {
+			continue
+		}
+		if err := checkRegular(info); err != nil {
+			return err
+		}
+		if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }
