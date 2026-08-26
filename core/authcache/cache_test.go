@@ -385,7 +385,7 @@ func TestSaveProtectFailureCleansCreatedTempIdentity(t *testing.T) {
 	parent := t.TempDir()
 
 	err := saveWithHooks(filepath.Join(parent, "microsoft-token.json"), token("access-secret", "refresh-secret"), saveHooks{
-		protectTemp: func(string) error {
+		protectTemp: func(*os.File) error {
 			return errors.New("forced protection failure containing refresh-secret")
 		},
 	})
@@ -402,6 +402,42 @@ func TestSaveProtectFailureCleansCreatedTempIdentity(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("cache directory entries = %v, want cleaned temporary identity", entries)
 	}
+}
+
+func TestSaveProtectionFollowsOpenedIdentityAcrossLeafSwap(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "microsoft-token.json")
+	replacement := []byte("foreign replacement")
+	var moved string
+
+	err := saveWithHooks(target, token("access-secret", "refresh-secret"), saveHooks{
+		protectTemp: func(file *os.File) error {
+			original := file.Name()
+			moved = original + ".moved"
+			if err := os.Rename(original, moved); err != nil {
+				return err
+			}
+			if err := os.WriteFile(original, replacement, 0o600); err != nil {
+				return err
+			}
+			return protectOpenedCacheFile(file)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "temporary auth cache changed") {
+		t.Fatalf("saveWithHooks() error = %v, want temporary identity failure", err)
+	}
+	entries, readErr := os.ReadDir(parent)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("cache directory entries = %v, want only foreign replacement", entries)
+	}
+	assertFileContents(t, filepath.Join(parent, entries[0].Name()), replacement)
+	if _, statErr := os.Lstat(moved); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved temporary cache) error = %v, want scrubbed identity removed", statErr)
+	}
+	assertNoTokenMaterialInDirectory(t, parent, "access-secret", "refresh-secret")
 }
 
 func TestSaveTempLeafSwapCleanupIsIdentitySafe(t *testing.T) {

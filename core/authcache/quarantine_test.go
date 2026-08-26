@@ -201,11 +201,10 @@ func TestSourceValidCacheCreatesNoQuarantine(t *testing.T) {
 	}
 }
 
-func TestQuarantineFailureKeepsRejectedCacheInPlace(t *testing.T) {
+func TestQuarantineRenameFailureScrubsRejectedCacheAndDoesNotReauthenticate(t *testing.T) {
 	parent := t.TempDir()
 	path := filepath.Join(parent, "microsoft-token.json")
 	writeToken(t, path, token("blocked-secret", "blocked-refresh-secret"))
-	originalBytes := readFileBytes(t, path)
 	makeCacheFileUnprivate(t, path)
 	if err := os.Mkdir(path+invalidCacheSuffix, 0o700); err != nil {
 		t.Fatal(err)
@@ -226,7 +225,10 @@ func TestQuarantineFailureKeepsRejectedCacheInPlace(t *testing.T) {
 	if requests != 0 {
 		t.Fatalf("request calls = %d, want 0 while the rejected cache cannot be moved aside", requests)
 	}
-	assertFileContents(t, path, originalBytes)
+	if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(rejected cache) error = %v, want scrubbed identity removed", statErr)
+	}
+	assertNoTokenMaterialInDirectory(t, parent, "blocked-secret", "blocked-refresh-secret")
 }
 
 func TestQuarantinePrivacyFailureRemovesRejectedBytesAndFails(t *testing.T) {
@@ -234,9 +236,9 @@ func TestQuarantinePrivacyFailureRemovesRejectedBytesAndFails(t *testing.T) {
 	writeToken(t, path, token("exposed-secret", "exposed-refresh-secret"))
 	makeCacheFileUnprivate(t, path)
 
-	_, err := quarantineCacheFileWith(path, func(string) error {
+	_, err := quarantineCacheFileWith(path, quarantineHooks{protect: func(*os.File) error {
 		return errors.New("forced privacy failure containing exposed-refresh-secret")
-	})
+	}})
 	if err == nil || !strings.Contains(err.Error(), "secure rejected auth cache") {
 		t.Fatalf("quarantineCacheFileWith() error = %v, want bounded privacy failure", err)
 	}
@@ -248,6 +250,31 @@ func TestQuarantinePrivacyFailureRemovesRejectedBytesAndFails(t *testing.T) {
 			t.Fatalf("Lstat(%q) error = %v, want unsafe bytes removed", candidate, statErr)
 		}
 	}
+}
+
+func TestQuarantineLeafSwapScrubsOriginalAndPreservesReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "microsoft-token.json")
+	writeToken(t, path, token("exposed-secret", "exposed-refresh-secret"))
+	makeCacheFileUnprivate(t, path)
+	moved := path + ".moved"
+	replacement := []byte("foreign replacement")
+
+	_, err := quarantineCacheFileWith(path, quarantineHooks{afterRename: func(target string) {
+		if renameErr := os.Rename(target, moved); renameErr != nil {
+			t.Fatal(renameErr)
+		}
+		if writeErr := os.WriteFile(target, replacement, 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}})
+	if err == nil || !strings.Contains(err.Error(), "changed during quarantine") {
+		t.Fatalf("quarantineCacheFileWith() error = %v, want identity-change failure", err)
+	}
+	assertFileContents(t, path+invalidCacheSuffix, replacement)
+	if _, statErr := os.Lstat(moved); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved rejected cache) error = %v, want scrubbed identity removed", statErr)
+	}
+	assertNoTokenMaterialInDirectory(t, filepath.Dir(path), "exposed-secret", "exposed-refresh-secret")
 }
 
 func TestSourcePrivacyFailureDoesNotNotifyOrReauthenticate(t *testing.T) {
@@ -266,9 +293,9 @@ func TestSourcePrivacyFailureDoesNotNotifyOrReauthenticate(t *testing.T) {
 		},
 		Refresh: staticRefresh,
 	}, func(path string) (string, error) {
-		return quarantineCacheFileWith(path, func(string) error {
+		return quarantineCacheFileWith(path, quarantineHooks{protect: func(*os.File) error {
 			return errors.New("forced privacy failure containing exposed-refresh-secret")
-		})
+		}})
 	})
 	if err == nil || !strings.Contains(err.Error(), "quarantine Microsoft auth cache") {
 		t.Fatalf("sourceWithQuarantine() error = %v, want bounded quarantine failure", err)

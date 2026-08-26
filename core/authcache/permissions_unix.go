@@ -20,18 +20,11 @@ func checkOpenedCacheFileSecurity(_ *os.File, info fs.FileInfo) error {
 	return checkUnixCacheOwnership(info)
 }
 
-// protectCacheFile is a no-op on Unix: the owner-only mode applied through
-// file.Chmod during save already enforces the private-file contract, and
-// ownership follows the creating process.
-func protectCacheFile(string) error {
-	return nil
-}
-
-// stampCachePrivacy applies the owner-only mode to a quarantined cache so the
-// moved-aside bytes stop carrying the group/world access that caused the
-// rejection.
-func stampCachePrivacy(path string) error {
-	return os.Chmod(path, 0o600)
+// protectOpenedCacheFile applies the owner-only mode through the already-open
+// descriptor so a concurrent leaf-name substitution cannot redirect the
+// protection operation to another inode.
+func protectOpenedCacheFile(file *os.File) error {
+	return file.Chmod(0o600)
 }
 
 // checkUnixCacheOwnership enforces owner-only access: no group or other

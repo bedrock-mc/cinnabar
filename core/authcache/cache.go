@@ -248,7 +248,7 @@ func save(path string, tok *oauth2.Token) error {
 
 type saveHooks struct {
 	afterTokenSync            func(tempPath string) error
-	protectTemp               func(tempPath string) error
+	protectTemp               func(*os.File) error
 	scrubTemp                 func(*os.File) error
 	afterCleanupIdentityCheck func(tempPath string)
 }
@@ -323,11 +323,11 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 	}()
 	// Restrict the temporary cache to trusted principals before any token
 	// bytes are written so the published file never inherits ambient grants.
-	protect := protectCacheFile
+	protect := protectOpenedCacheFile
 	if hooks.protectTemp != nil {
 		protect = hooks.protectTemp
 	}
-	if err := protect(tempPath); err != nil {
+	if err := protect(file); err != nil {
 		return errors.New("protect temporary auth cache")
 	}
 	if err := checkRegular(tempInfo); err != nil {

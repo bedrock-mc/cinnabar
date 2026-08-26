@@ -108,10 +108,10 @@ func trustedCacheTrustees() ([]*windows.SID, error) {
 	return []*windows.SID{user.User.Sid, system, administrators, ownerRights}, nil
 }
 
-// protectCacheFile replaces a cache file's inherited ACL with the bounded
-// trusted-cache ACL before any token bytes are written, mirroring the Unix
-// owner-only chmod performed during save.
-func protectCacheFile(path string) error {
+// protectOpenedCacheFile replaces an already-open cache file's inherited ACL
+// with the bounded trusted-cache ACL. Applying it through the handle prevents
+// a concurrent leaf-name substitution from redirecting protection elsewhere.
+func protectOpenedCacheFile(file *os.File) error {
 	descriptor, err := windows.SecurityDescriptorFromString(trustedCacheACL)
 	if err != nil {
 		return err
@@ -120,16 +120,9 @@ func protectCacheFile(path string) error {
 	if err != nil || dacl == nil {
 		return unsafePermissions("acl_missing", "trusted cache ACL could not be built")
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+	return windows.SetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, dacl, nil)
-}
-
-// stampCachePrivacy replaces a quarantined cache's ambient grants with the
-// protected trusted-cache ACL so the moved-aside bytes stop carrying whatever
-// broad access caused the rejection.
-func stampCachePrivacy(path string) error {
-	return protectCacheFile(path)
 }
 
 func sidInTrusted(sid *windows.SID, trusted []*windows.SID) bool {
