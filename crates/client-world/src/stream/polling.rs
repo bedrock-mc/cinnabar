@@ -67,7 +67,7 @@ impl WorldStream {
             && self.in_flight.is_empty()
             && !self.pending_mesh.is_empty()
         {
-            dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL;
+            dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
         }
         report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(camera_position, dispatch_budget);
         report

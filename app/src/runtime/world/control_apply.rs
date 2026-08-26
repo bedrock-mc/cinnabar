@@ -80,7 +80,8 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
-        | CommittedControlEvent::LocalActorMotion { .. } => return,
+        | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::PlayerListChanged { .. } => return,
     };
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;

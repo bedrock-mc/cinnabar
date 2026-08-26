@@ -29,6 +29,9 @@ pub enum ProtocolError {
     #[error("Bedrock session failed: {0}")]
     Session(#[from] jolyne::error::JolyneError),
 
+    #[error("the server ended the current play session")]
+    SessionBoundary,
+
     #[error("invalid raw batch header: expected 0xfe, got {actual:?}")]
     InvalidBatchHeader { actual: Option<u8> },
 

@@ -244,6 +244,11 @@ impl Default for LocalPhysicsController {
 }
 
 impl LocalPhysicsController {
+    /// Returns the prediction state retained for one authoritative tick.
+    pub(super) fn retained_state(&self, tick: u64) -> Option<&PlayerState> {
+        self.history.state_at(tick)
+    }
+
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.state.is_some()
@@ -265,33 +270,23 @@ impl LocalPhysicsController {
     }
 
     /// Retains one server-authoritative velocity impulse (knockback, launch,
-    /// explosion) to replace the pre-tick velocity of the next simulated tick.
+    /// explosion) at the tick carried by `SetActorMotion`.
     ///
     /// The overlay is keyed by that tick so a correction rewind covering it
     /// re-applies the same replacement deterministically. Non-finite impulses
     /// are ignored; when inactive there is no prediction timeline to enter.
-    pub fn queue_server_motion(&mut self, motion: [f32; 3]) {
+    pub fn queue_server_motion(&mut self, motion: [f32; 3], applies_at_tick: u64) {
         if !motion.into_iter().all(f32::is_finite) {
             return;
         }
-        let Some(state) = self.state.as_ref() else {
+        if self.state.is_none() {
             return;
-        };
+        }
         let velocity = Vec3::new(
             f64::from(motion[0]),
             f64::from(motion[1]),
             f64::from(motion[2]),
         );
-        let applies_at_tick = state.tick.saturating_add(1);
-        // A newer impulse supersedes an older one that has not been applied
-        // yet; both claim the same pre-tick slot.
-        if let Some(index) = self
-            .server_motions
-            .iter()
-            .position(|overlay| overlay.tick == applies_at_tick)
-        {
-            self.server_motions.remove(index);
-        }
         if self.server_motions.len() == LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
             self.server_motions.pop_front();
         }
@@ -482,11 +477,10 @@ impl LocalPhysicsController {
             // rewind covering its tick re-applies it deterministically;
             // capacity bounds evict the oldest entries.
             let next_tick = state.tick.saturating_add(1);
-            if let Some(overlay) = self
+            for overlay in self
                 .server_motions
                 .iter()
-                .find(|overlay| overlay.tick == next_tick)
-                .copied()
+                .filter(|overlay| overlay.tick == next_tick)
             {
                 state.velocity = overlay.velocity;
             }

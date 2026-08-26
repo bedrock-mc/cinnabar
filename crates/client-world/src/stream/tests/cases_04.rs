@@ -35,6 +35,33 @@ fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped()
 }
 
 #[test]
+fn player_list_only_updates_commit_a_tab_cache_refresh_marker() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: [7; 16] }]),
+            })),
+        )
+        .unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![CommittedControlEvent::PlayerListChanged { sequence: 1 }]
+    );
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn respawn_commits_as_a_local_position_authority_change() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -864,6 +891,46 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
         4,
         "exactly the floored budget must enter the worker window"
     );
+}
+
+#[test]
+fn starved_mesh_dispatch_floor_never_exceeds_the_callers_budget() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let keys = (0..6)
+        .map(|x| SubChunkKey::new(0, x, -4, 0))
+        .collect::<Vec<_>>();
+    for key in &keys {
+        stream
+            .store
+            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .unwrap();
+        stream.resident.insert(*key);
+    }
+    stream.mark_light_changed_sources(keys.iter().copied());
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
+    for key in &keys {
+        stream.mark_dirty_exact(*key, Instant::now());
+    }
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
+
+    assert_eq!(stream.poll([0.0; 3], 2).mesh_jobs_dispatched, 2);
 }
 
 #[test]

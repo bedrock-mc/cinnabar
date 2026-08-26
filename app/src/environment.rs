@@ -193,7 +193,8 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::Respawn { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
-        | CommittedControlEvent::LocalActorMotion { .. } => false,
+        | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::PlayerListChanged { .. } => false,
     }
 }
 

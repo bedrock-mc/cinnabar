@@ -727,6 +727,7 @@ impl WorldStream {
             }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
+                let player_list_changed = matches!(&event, ActorEvent::PlayerList(_));
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
@@ -764,6 +765,11 @@ impl WorldStream {
                     });
                 }
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                if player_list_changed {
+                    self.push_committed_control(CommittedControlEvent::PlayerListChanged {
+                        sequence,
+                    });
+                }
                 self.publish_local_mount_change(sequence, previous_mount);
             }
             WorldEvent::ActorEffect(event) => {

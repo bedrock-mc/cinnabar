@@ -1,5 +1,7 @@
 mod acceptance_helpers;
 mod control_apply;
+#[cfg(test)]
+mod player_list_tests;
 mod shutdown_watchdog;
 
 pub(crate) use acceptance_helpers::{
@@ -63,6 +65,25 @@ use crate::{
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
+}
+
+/// Refreshes Tab/rawtext identity state when a committed player-list marker
+/// reports that the authoritative roster changed without a UI packet.
+fn refresh_player_list_cache_for_controls(
+    stream: &WorldStream,
+    ui_runtime: &mut UiRuntime,
+    controls: &[CommittedControlEvent],
+) {
+    if !controls
+        .iter()
+        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
+    {
+        return;
+    }
+    ui_runtime.refresh_raw_text_identities(
+        |unique_id| stream.actor_display_name(unique_id),
+        stream.player_list_usernames(),
+    );
 }
 
 #[derive(Resource, Debug, Default)]
@@ -231,6 +252,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut local_physics,
         mut movement_effects,
         mut movement_speed,
+        mut ui_runtime,
         collisions,
         time,
         ..
@@ -255,6 +277,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         .committed_view_cohort()
         .map(|target| stream.cohort_status(target));
     let controls = stream.take_committed_controls();
+    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
     drain_committed_audio(stream, |event| {
         audio.write(event);
     });
@@ -274,6 +297,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
+        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
+            continue;
+        }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
             movement_effects.apply(clock.session_generation(), sequence, event);
             continue;
@@ -296,7 +322,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             // trajectory and fights corrections after every hit. It needs no
             // spatial reconciliation and does not reset interpolation frames.
             if movement.physics_is_authorized() {
-                local_physics.queue_server_motion(event.motion);
+                local_physics.queue_server_motion(event.motion, event.tick);
             }
             continue;
         }
@@ -486,7 +512,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
-            | CommittedControlEvent::LocalActorMotion { .. } => {
+            | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(
                     "environment-only and impulse controls return before spatial reconciliation"
                 )

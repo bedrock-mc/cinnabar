@@ -201,9 +201,9 @@ impl PredictionHistory {
         let mut ticks = Vec::with_capacity(candidate.frames.len() - index - 1);
         for frame_index in (index + 1)..candidate.frames.len() {
             let simulated_tick = candidate.frames[frame_index].state.tick;
-            if let Some(overlay) = overlays
+            for overlay in overlays
                 .iter()
-                .find(|overlay| overlay.tick == simulated_tick)
+                .filter(|overlay| overlay.tick == simulated_tick)
             {
                 replayed_state.velocity = overlay.velocity;
             }

@@ -1,6 +1,6 @@
 use sim::{
-    Aabb, CollisionQuery, CollisionWorld, MovementEffects, MovementInput, PlayerState,
-    PredictionError, PredictionHistory, Simulator, Vec3, WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MotionOverlay, MovementEffects, MovementInput,
+    PlayerState, PredictionError, PredictionHistory, Simulator, Vec3, WorldQueryError,
 };
 
 struct Floor;
@@ -105,6 +105,44 @@ fn traced_replay_returns_each_fresh_tick_result_in_order() {
             .all(|tick| tick.world_identity == ticks[0].world_identity)
     );
     assert_eq!(ticks.last().unwrap().position, state.position);
+}
+
+#[test]
+fn replay_applies_same_tick_motion_overlays_in_arrival_order() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(8).unwrap();
+    for _ in 0..2 {
+        history
+            .predict(&mut state, forward(), &simulator, &Floor)
+            .unwrap();
+    }
+    let corrected = history.state_at(1).unwrap().clone();
+    let final_velocity = Vec3::new(-0.25, 0.8, 0.3);
+    let overlays = [
+        MotionOverlay {
+            tick: 2,
+            velocity: Vec3::new(0.6, 0.5, -0.1),
+        },
+        MotionOverlay {
+            tick: 2,
+            velocity: final_velocity,
+        },
+    ];
+    history
+        .rewind_and_replay_traced_with_overlays(
+            &mut state,
+            corrected.clone(),
+            &simulator,
+            &Floor,
+            &overlays,
+        )
+        .unwrap();
+
+    let mut expected = corrected;
+    expected.velocity = final_velocity;
+    simulator.tick(&mut expected, forward(), &Floor).unwrap();
+    assert_eq!(state, expected);
 }
 
 #[test]

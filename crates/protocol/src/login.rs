@@ -20,7 +20,9 @@ use crate::{
     into_world_event,
 };
 
+mod boundary;
 mod latency_probe;
+use boundary::boundary_wakeup;
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 
@@ -380,7 +382,7 @@ impl<T: Transport> PlaySession<T> {
             ) {
                 let name = raw.id;
                 self.absorb_boundary_packet(raw, name).await?;
-                continue;
+                return boundary_wakeup();
             }
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
                 self.stream.decode_raw_packet(raw)
@@ -604,7 +606,7 @@ impl<T: Transport> PlaySession<T> {
                 McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
             ) {
                 self.absorb_boundary_packet(raw, packet_name).await?;
-                continue;
+                return boundary_wakeup();
             }
 
             if matches!(

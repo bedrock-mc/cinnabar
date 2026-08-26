@@ -43,7 +43,7 @@ fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
 
     let mut knocked = LocalPhysicsController::default();
     knocked.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    knocked.queue_server_motion([0.45, 0.42, -0.35]);
+    knocked.queue_server_motion([0.45, 0.42, -0.35], 101);
     let hit = run_one_tick(&mut knocked, &VersionedFloor(1));
 
     assert_eq!(hit.tick, plain.tick);
@@ -76,10 +76,27 @@ fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
 }
 
 #[test]
+fn authoritative_server_motion_ticks_preserve_ordered_future_impulses() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
+    physics.queue_server_motion([0.6, 0.5, -0.1], 103);
+    physics.queue_server_motion([-0.2, 0.8, 0.3], 103);
+
+    let tick_101 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let tick_102 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let tick_103 = run_one_tick(&mut physics, &VersionedFloor(1));
+
+    assert_eq!([tick_101.tick, tick_102.tick, tick_103.tick], [101, 102, 103]);
+    assert!(tick_102.velocity[0] > 0.0, "the first impulse keeps its wire tick");
+    assert!(tick_103.velocity[0] < 0.0, "the second impulse is not coalesced into the first");
+}
+
+#[test]
 fn non_finite_server_motion_is_ignored_and_inactive_controllers_drop_it() {
     let mut physics = LocalPhysicsController::default();
-    physics.queue_server_motion([f32::NAN, 0.0, 0.0]);
-    physics.queue_server_motion([0.0, f32::INFINITY, 0.0]);
+    physics.queue_server_motion([f32::NAN, 0.0, 0.0], 1);
+    physics.queue_server_motion([0.0, f32::INFINITY, 0.0], 1);
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
 
     let mut baseline = LocalPhysicsController::default();
@@ -95,7 +112,7 @@ fn correction_replay_reapplies_retained_server_motion_overlays() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let t101 = run_one_tick(&mut physics, &VersionedFloor(1));
-    physics.queue_server_motion([0.45, 0.42, -0.35]);
+    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
     let t102 = run_one_tick(&mut physics, &VersionedFloor(1));
     let t103 = run_one_tick(&mut physics, &VersionedFloor(1));
     assert_eq!(t102.tick, 102);

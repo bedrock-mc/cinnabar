@@ -195,3 +195,27 @@ fn failure_display_prefers_the_server_reason_and_falls_back_cleanly() {
         format!("network session failed: {transport_message}")
     );
 }
+
+#[test]
+fn failure_display_falls_back_through_filtered_message_and_reason() {
+    let transport = "connection closed";
+    let filtered = ServerDisconnectEvent {
+        reason: "Kicked".to_owned(),
+        message: Some(String::new()),
+        filtered_message: Some("Policy message".to_owned()),
+    };
+    assert_eq!(
+        session_failure_display(transport, Some(&filtered)),
+        "server disconnected: Policy message (connection closed)"
+    );
+
+    let reason_only = ServerDisconnectEvent {
+        reason: "TimedOut".to_owned(),
+        message: None,
+        filtered_message: Some("   ".to_owned()),
+    };
+    assert_eq!(
+        session_failure_display(transport, Some(&reason_only)),
+        "server disconnected: TimedOut (connection closed)"
+    );
+}

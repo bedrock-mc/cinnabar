@@ -887,7 +887,7 @@ pub(crate) fn session_failure_display(
     transport_message: &str,
     server_disconnect: Option<&ServerDisconnectEvent>,
 ) -> String {
-    match server_disconnect.and_then(|disconnect| disconnect.message.clone()) {
+    match server_disconnect.and_then(disconnect_display_reason) {
         Some(reason) => format!("server disconnected: {reason} ({transport_message})"),
         None => format!("network session failed: {transport_message}"),
     }
@@ -985,6 +985,8 @@ mod pump;
 use pump::*;
 mod pump_runtime;
 use pump_runtime::*;
+mod disconnect_display;
+use disconnect_display::disconnect_display_reason;
 
 #[cfg(test)]
 mod tests;

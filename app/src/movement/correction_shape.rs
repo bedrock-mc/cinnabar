@@ -47,15 +47,23 @@ pub enum CorrectionShape {
 }
 
 impl LocalPhysicsController {
-    /// Classifies one committed correction against current prediction state.
+    /// Classifies one committed correction against prediction state retained
+    /// for the correction's own authoritative tick.
     ///
     /// Position agreement is exact — the same comparison already proven by the
     /// transport-confirmation rule in [`LocalPhysicsController::apply_correction`]
     /// — rather than a newly invented epsilon. Anything that does not compare
     /// exactly degrades to the ordinary replay path, so float jitter on live
-    /// servers keeps working exactly as before.
+    /// servers keeps working exactly as before. A missing retained tick also
+    /// selects replay so the established not-retained fallback performs its
+    /// bounded authoritative snap instead of comparing unrelated current state.
     #[must_use]
-    pub fn correction_shape(&self, network_position: [f32; 3], on_ground: bool) -> CorrectionShape {
+    pub fn correction_shape(
+        &self,
+        network_position: [f32; 3],
+        correction_tick: u64,
+        on_ground: bool,
+    ) -> CorrectionShape {
         if !network_position.into_iter().all(f32::is_finite) {
             // Position resolution bounds non-finite input upstream, so this is
             // pure defense: an unresolvable anchor is rejected by the
@@ -63,7 +71,7 @@ impl LocalPhysicsController {
             // runs, leaving prediction state untouched.
             return CorrectionShape::TeleportSnap;
         }
-        let Some(state) = self.state() else {
+        let Some(state) = self.retained_state(correction_tick) else {
             return CorrectionShape::Replay;
         };
         let current = [
@@ -100,7 +108,7 @@ pub(crate) fn reconcile_committed_correction(
     on_ground: bool,
     world: &impl CollisionWorld,
 ) -> Result<Option<PhysicsCorrectionOutcome>, PhysicsAuthorityFault> {
-    let mode = match physics.correction_shape(network_position, on_ground) {
+    let mode = match physics.correction_shape(network_position, correction_tick, on_ground) {
         CorrectionShape::Confirmed => return Ok(None),
         CorrectionShape::Replay => PhysicsCorrectionMode::ReplayIfRetained,
         CorrectionShape::TeleportSnap => PhysicsCorrectionMode::Snap,

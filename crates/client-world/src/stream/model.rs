@@ -362,6 +362,11 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorMotionEvent,
     },
+    /// The retained authoritative player list changed and Tab/rawtext identity
+    /// consumers must refresh even when no ordinary UI packet committed.
+    PlayerListChanged {
+        sequence: u64,
+    },
     ChangeDimension {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
