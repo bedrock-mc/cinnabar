@@ -115,6 +115,7 @@ pub use model::{
 };
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse, read_physics_registry,
+    read_physics_registry_for_protocol,
 };
 pub use provenance::{BlobProvenance, canonical_source_manifest_sha256};
 pub use registry::{

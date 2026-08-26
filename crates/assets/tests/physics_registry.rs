@@ -1,6 +1,7 @@
 use assets::{
-    BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, RegistryRecord, SurfaceResponse,
-    read_physics_registry, read_registry,
+    AssetError, BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, RegistryRecord,
+    SurfaceResponse, read_physics_registry, read_physics_registry_for_protocol, read_registry,
+    read_registry_for_protocol,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -205,4 +206,141 @@ fn rejects_stale_or_malformed_carriers_without_partial_acceptance() {
     let mut stale_breg = BREG.to_vec();
     *stale_breg.last_mut().unwrap() ^= 1;
     assert!(read_physics_registry(&valid, &stale_breg, &records).is_err());
+}
+
+const BREG_V2168: &[u8] = include_bytes!("../data/block-registry-v2168.bin");
+const PREG_V2168: &[u8] = include_bytes!("../data/block-physics-v2168.bin");
+
+/// Pinned sidecar digest of `crates/assets/data/block-physics-v2168.bin`
+/// (`block-physics-v2168.sha256`); guards the committed artifact against drift.
+const PREG_V2168_SHA256_HEX: &str =
+    "e7631b3c6ac01cfdc558c574ebccda54832e736a8cd09c180f188b3d6b3863d4";
+
+fn assert_physics_error(error: &AssetError, needle: &str) {
+    match error {
+        AssetError::InvalidPhysicsRegistry { detail } => {
+            assert!(
+                detail.contains(needle),
+                "expected {needle:?} in physics error {detail:?}"
+            );
+        }
+        other => panic!("expected InvalidPhysicsRegistry, got {other:?}"),
+    }
+}
+
+#[test]
+fn committed_protocol_2168_artifact_decodes_against_its_own_breg() {
+    let records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let registry = read_physics_registry_for_protocol(PREG_V2168, BREG_V2168, &records, 2168)
+        .expect("committed protocol-2168 PREG decodes against its pinned BREG");
+    assert_eq!(registry.len(), records.len());
+    assert_eq!(registry.protocol(), 2168);
+    let expected_sha: [u8; 32] = Sha256::digest(PREG_V2168).into();
+    let mut pinned = [0_u8; 32];
+    for (index, byte) in PREG_V2168_SHA256_HEX.as_bytes().chunks_exact(2).enumerate() {
+        pinned[index] = u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 16).unwrap();
+    }
+    assert_eq!(registry.sha256(), expected_sha);
+    assert_eq!(expected_sha, pinned, "artifact drifted from its sidecar");
+    assert_eq!(
+        registry.breg_sha256(),
+        Sha256::digest(BREG_V2168).as_slice()
+    );
+
+    for name in ["minecraft:air", "minecraft:stone"] {
+        let identity = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap_or_else(|| panic!("{name} exists in the checked-in v2168 BREG"));
+        let decoded: &BlockPhysicsRecord = registry
+            .by_sequential_id(identity.sequential_id)
+            .unwrap_or_else(|| panic!("{name} decodes from the v2168 PREG"));
+        assert_eq!(decoded.network_hash, identity.network_hash, "{name}");
+        assert_eq!(
+            decoded.boxes.as_ref(),
+            identity.collision_seed.boxes.as_ref(),
+            "{name} boxes stay the verbatim BREG seeds"
+        );
+        assert_eq!(
+            registry.by_network_hash(identity.network_hash),
+            Some(decoded),
+            "{name} hash lookup"
+        );
+    }
+}
+
+#[test]
+fn legacy_alias_keeps_rejecting_non_1001_carriers() {
+    let records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let error = read_physics_registry(PREG_V2168, BREG_V2168, &records).unwrap_err();
+    assert_physics_error(&error, "protocol is not 1001");
+}
+
+#[test]
+fn cross_version_bindings_are_rejected_in_both_directions() {
+    // v2168 carrier bound to a v1001 BREG: the stamped BREG digest cannot
+    // match, so the exact-BREG-SHA-256 binding rejects before any record.
+    let v2168_records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let error =
+        read_physics_registry_for_protocol(PREG_V2168, BREG, &v2168_records, 2168).unwrap_err();
+    assert_physics_error(&error, "exact BREG SHA-256 mismatch");
+
+    // Vice versa: a valid v1001 carrier presented with v2168 BREG bytes.
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error = read_physics_registry_for_protocol(&preg1001, BREG_V2168, &v1001_records, 1001)
+        .unwrap_err();
+    assert_physics_error(&error, "exact BREG SHA-256 mismatch");
+
+    // A v1001-stamped body can never satisfy an explicit 2168 expectation.
+    let error =
+        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 2168).unwrap_err();
+    assert_physics_error(&error, "protocol is not 2168");
+}
+
+#[test]
+fn unknown_physics_protocols_are_rejected_before_any_structural_read() {
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error =
+        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 999).unwrap_err();
+    assert_physics_error(&error, "unsupported PREG1001 wire protocol");
+    // The gate precedes even the length and trailer checks.
+    let error = read_physics_registry_for_protocol(&[], BREG, &v1001_records, 999).unwrap_err();
+    assert_physics_error(&error, "unsupported PREG1001 wire protocol");
+}
+
+#[test]
+fn record_count_mismatch_rejection_is_preserved_for_both_versions() {
+    let v2168_records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let error = read_physics_registry_for_protocol(
+        PREG_V2168,
+        BREG_V2168,
+        &v2168_records[..v2168_records.len() - 1],
+        2168,
+    )
+    .unwrap_err();
+    assert_physics_error(&error, "does not match BREG records");
+
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error = read_physics_registry_for_protocol(
+        &preg1001,
+        BREG,
+        &v1001_records[..v1001_records.len() - 1],
+        1001,
+    )
+    .unwrap_err();
+    assert_physics_error(&error, "does not match BREG records");
+}
+
+#[test]
+fn legacy_alias_decodes_to_identity_protocol_1001() {
+    let records = read_registry(BREG).unwrap();
+    let preg = valid_preg(&records);
+    let registry = read_physics_registry(&preg, BREG, &records).unwrap();
+    assert_eq!(registry.protocol(), 1001);
+    let parameterized = read_physics_registry_for_protocol(&preg, BREG, &records, 1001).unwrap();
+    assert_eq!(parameterized.protocol(), 1001);
+    assert_eq!(parameterized.sha256(), registry.sha256());
 }
