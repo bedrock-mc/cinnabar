@@ -10,7 +10,7 @@
     "biome_registry": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c",
     "physics_registry": "e7631b3c6ac01cfdc558c574ebccda54832e736a8cd09c180f188b3d6b3863d4",
     "fallback_inventory": "31cfbf7b51dd1f37a904f73092212f209029570abead458db10ace05a16064b2",
-    "block_item_routes": "e1c95cbbd8e6b66f38372e6029bd047cb02b6ab8174a990e5121de9840681dba"
+    "block_item_routes": "55f890655f707b938228b9d2e1e94d083c16273bc8dcb15a3fd7a2faa92134d1"
   },
   "artifacts": {
     "block_registry": "crates/assets/data/block-registry-v2168.bin",

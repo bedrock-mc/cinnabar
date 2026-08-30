@@ -98,11 +98,10 @@ func assertCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T, protocol u
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.MarshalIndent(table, "", "  ")
+	encoded, err := encodeBlockItemRouteTable(table, protocol)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded = append(encoded, '\n')
 	want, err := os.ReadFile(fmt.Sprintf("../../crates/assets/data/block-item-routes-v%d.json", protocol))
 	if err != nil {
 		t.Fatal(err)
