@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - dev-ox-alpha
   pull_request:
 
 concurrency:
