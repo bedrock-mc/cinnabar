@@ -415,7 +415,7 @@ func newUpstreamDialerForAdmission(
 ) minecraft.Dialer {
 	dialer := minecraft.Dialer{
 		ClientData:           downstream.ClientData(),
-		DownloadResourcePack: acceptResourcePack,
+		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
 		// The Dialer field itself stays false in every configuration:
@@ -454,7 +454,11 @@ func newUpstreamDialerForAdmission(
 	return dialer
 }
 
-func acceptResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return true }
+// Returning false uses the pinned public gophertunnel ignore path: the offer
+// and selected stack remain observable, but no URL or local chunk acquisition
+// is attempted and login may continue even when the upstream required bit is
+// set.
+func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 
 func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 	return minecraft.ResourcePackDownloadConfig{

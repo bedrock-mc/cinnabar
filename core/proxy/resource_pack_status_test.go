@@ -80,9 +80,9 @@ func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *te
 		wantResult       ResourcePackDownstreamOutcome
 	}{
 		{name: "none", wantOffer: ResourcePackOfferNone, wantResult: ResourcePackDownstreamNone},
-		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamOfferedOptional},
-		{name: "required compatibility", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamOfferedOptional},
-		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamNone},
+		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamStrippedIgnored},
+		{name: "required compatibility", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamStrippedIgnored},
+		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamStrippedIgnored},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var snapshots []ResourcePackAdmissionSnapshot
@@ -138,29 +138,35 @@ func TestOptionalStatusChangesOnlyAfterLocalNegotiationCompletes(t *testing.T) {
 		updates = append(updates, snapshot)
 	})
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}}
+	upstream := newFakeUpstream(nil)
+	upstream.packs = stack.packs
+	telemetry.observeOffer(upstream)
 	telemetry.observePolicyOutcome(stack, true)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedOptional {
-		t.Fatalf("configured outcome = %q, want offered_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamStrippedIgnored {
+		t.Fatalf("configured outcome = %q, want stripped_ignored", got)
 	}
 	telemetry.observeLocalHandoff(stack)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffOptional {
-		t.Fatalf("accepted outcome = %q, want handed_off_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamStrippedIgnored {
+		t.Fatalf("accepted outcome = %q, want stable stripped_ignored", got)
 	}
-	if len(updates) != 3 || updates[1].DownstreamOutcome != ResourcePackDownstreamOfferedOptional || updates[2].DownstreamOutcome != ResourcePackDownstreamHandedOffOptional {
-		t.Fatalf("status updates = %#v, want reset, offered, then handed-off transitions", updates)
+	if len(updates) != 2 || updates[1].DownstreamOutcome != ResourcePackDownstreamStrippedIgnored {
+		t.Fatalf("status updates = %#v, want reset then stable stripped outcome", updates)
 	}
 }
 
 func TestRequiredCompatibilityStatusReachesLocalHandoff(t *testing.T) {
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}, required: true}
+	upstream := newFakeUpstream(nil)
+	upstream.packs, upstream.required = stack.packs, true
+	telemetry.observeOffer(upstream)
 	telemetry.observePolicyOutcome(stack, true)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedOptional {
-		t.Fatalf("configured required compatibility outcome = %q, want offered_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamStrippedIgnored {
+		t.Fatalf("configured required compatibility outcome = %q, want stripped_ignored", got)
 	}
 	telemetry.observeLocalHandoff(stack)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffOptional {
-		t.Fatalf("accepted required compatibility outcome = %q, want handed_off_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamStrippedIgnored {
+		t.Fatalf("accepted required compatibility outcome = %q, want stable stripped_ignored", got)
 	}
 }
 
@@ -228,8 +234,8 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 	telemetry.mu.Lock()
 	telemetry.offer = ResourcePackOfferOptional
 	telemetry.packCount = 2
-	telemetry.acquisition = ResourcePackAcquisitionComplete
-	telemetry.downstream = ResourcePackDownstreamOfferedOptional
+	telemetry.acquisition = ResourcePackAcquisitionIgnored
+	telemetry.downstream = ResourcePackDownstreamStrippedIgnored
 	telemetry.mu.Unlock()
 	telemetry.reportFinal()
 
@@ -239,7 +245,7 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 	if reset := updates[0]; reset.AttemptID != 11 || reset.Offer != ResourcePackOfferNone || reset.Application != ResourcePackApplicationUnavailable {
 		t.Fatalf("reset = %+v", reset)
 	}
-	if final := updates[1]; final.AttemptID != 11 || final.Offer != ResourcePackOfferOptional || final.PackCount != 2 || final.DownstreamOutcome != ResourcePackDownstreamOfferedOptional {
+	if final := updates[1]; final.AttemptID != 11 || final.Offer != ResourcePackOfferOptional || final.PackCount != 2 || final.DownstreamOutcome != ResourcePackDownstreamStrippedIgnored {
 		t.Fatalf("final = %+v", final)
 	}
 }

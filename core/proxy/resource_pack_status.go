@@ -26,6 +26,7 @@ type ResourcePackAcquisition string
 const (
 	ResourcePackAcquisitionNone      ResourcePackAcquisition = "none"
 	ResourcePackAcquisitionComplete  ResourcePackAcquisition = "complete"
+	ResourcePackAcquisitionIgnored   ResourcePackAcquisition = "ignored"
 	ResourcePackAcquisitionFailed    ResourcePackAcquisition = "failed"
 	ResourcePackAcquisitionCancelled ResourcePackAcquisition = "cancelled"
 )
@@ -37,6 +38,7 @@ const (
 	ResourcePackDownstreamOfferedOptional   ResourcePackDownstreamOutcome = "offered_optional"
 	ResourcePackDownstreamHandedOffOptional ResourcePackDownstreamOutcome = "handed_off_optional"
 	ResourcePackDownstreamRejectedRequired  ResourcePackDownstreamOutcome = "rejected_required"
+	ResourcePackDownstreamStrippedIgnored   ResourcePackDownstreamOutcome = "stripped_ignored"
 )
 
 const ResourcePackApplicationUnavailable = "unavailable"
@@ -101,27 +103,47 @@ func newResourcePackAdmissionTelemetry(id uint64, callback func(ResourcePackAdmi
 func (telemetry *resourcePackAdmissionTelemetry) observeOffer(upstream upstreamSession) {
 	packs := upstream.ResourcePacks()
 	count := len(packs)
+	required := upstream.TexturePacksRequired()
+	acquisition := ResourcePackAcquisitionComplete
+	var total uint64
+	if source, ok := upstream.(resourcePackStackSource); ok {
+		if offer, available := source.ResourcePackOffer(); available {
+			entries := offer.TexturePacks()
+			count = len(entries)
+			required = required || offer.TexturePackRequired()
+			acquisition = ResourcePackAcquisitionIgnored
+			for _, entry := range entries {
+				size := entry.Info().Size
+				if size > math.MaxUint64-total {
+					total = math.MaxUint64
+					break
+				}
+				total += size
+			}
+		}
+	}
 	if count > math.MaxUint32 {
 		count = math.MaxUint32
 	}
-	var total uint64
-	for _, pack := range packs {
-		if pack == nil {
-			continue
+	if total == 0 && len(packs) != 0 {
+		for _, pack := range packs {
+			if pack == nil {
+				continue
+			}
+			size := uint64(pack.Size())
+			if size > math.MaxUint64-total {
+				total = math.MaxUint64
+				break
+			}
+			total += size
 		}
-		size := uint64(pack.Size())
-		if size > math.MaxUint64-total {
-			total = math.MaxUint64
-			break
-		}
-		total += size
 	}
 	offer := ResourcePackOfferNone
-	acquisition := ResourcePackAcquisitionNone
-	if len(packs) != 0 {
+	if count == 0 {
+		acquisition = ResourcePackAcquisitionNone
+	} else {
 		offer = ResourcePackOfferOptional
-		acquisition = ResourcePackAcquisitionComplete
-		if upstream.TexturePacksRequired() {
+		if required {
 			offer = ResourcePackOfferRequired
 		}
 	}
@@ -157,27 +179,18 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 	}
 	telemetry.mu.Lock()
 	switch {
-	case stack == nil || len(stack.packs) == 0:
+	case stack == nil || !configured || telemetry.offer == ResourcePackOfferNone:
 		telemetry.downstream = ResourcePackDownstreamNone
 	default:
-		if configured {
-			telemetry.downstream = ResourcePackDownstreamOfferedOptional
-		}
+		telemetry.downstream = ResourcePackDownstreamStrippedIgnored
 	}
 	telemetry.mu.Unlock()
 	telemetry.publishUpdate()
 }
 
-func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(stack *selectedResourcePackStack) {
-	if telemetry == nil || stack == nil || len(stack.packs) == 0 {
-		return
-	}
-	telemetry.mu.Lock()
-	if telemetry.downstream == ResourcePackDownstreamOfferedOptional {
-		telemetry.downstream = ResourcePackDownstreamHandedOffOptional
-	}
-	telemetry.mu.Unlock()
-	telemetry.publishUpdate()
+func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(_ *selectedResourcePackStack) {
+	// The compatibility handoff is deliberately empty and one-shot. Keep the
+	// policy outcome stable instead of implying any content was transferred.
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) snapshot() ResourcePackAdmissionSnapshot {
