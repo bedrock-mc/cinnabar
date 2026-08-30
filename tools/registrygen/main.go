@@ -688,11 +688,10 @@ func writeBlockItemRouteTable(output, bregPath string) error {
 	if err != nil {
 		return err
 	}
-	encoded, err := json.MarshalIndent(table, "", "  ")
+	encoded, err := encodeBlockItemRouteTable(table, protocol)
 	if err != nil {
 		return fmt.Errorf("encode block-item routes: %w", err)
 	}
-	encoded = append(encoded, '\n')
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		return fmt.Errorf("create block-item output directory: %w", err)
 	}
@@ -700,6 +699,20 @@ func writeBlockItemRouteTable(output, bregPath string) error {
 		return fmt.Errorf("write block-item routes: %w", err)
 	}
 	return nil
+}
+
+func encodeBlockItemRouteTable(table BlockItemRouteTable, protocol uint32) ([]byte, error) {
+	encoded, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	encoded = append(encoded, '\n')
+	if protocol == v2168BlockProtocol {
+		// This semantic-neutral byte revision forces existing autocrlf checkouts
+		// to rematerialize the active carrier after its tracked-LF pin lands.
+		encoded = bytes.Replace(encoded, []byte(`"schema":`), []byte(`"schema" :`), 1)
+	}
+	return encoded, nil
 }
 
 func generateBlockItemRouteTable(items []world.Item, records []bregLightIdentity, breg []byte, registry world.BlockRegistry, protocol uint32) (BlockItemRouteTable, error) {
