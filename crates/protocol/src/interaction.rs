@@ -59,6 +59,8 @@ pub enum BlockUsePacketError {
     NonFinitePlayerPosition,
     #[error("relative hit position must contain only finite values")]
     NonFiniteRelativeHit,
+    #[error("relative hit position must stay within the block-local [0, 1] range")]
+    RelativeHitOutOfRange,
     #[error("block runtime ID {0} exceeds protocol-2168's uint32 wire range")]
     BlockRuntimeIdOutOfRange(u64),
     #[error(transparent)]
@@ -132,6 +134,13 @@ fn block_use_packet(
     if !request.relative_hit.into_iter().all(f32::is_finite) {
         return Err(BlockUsePacketError::NonFiniteRelativeHit);
     }
+    if !request
+        .relative_hit
+        .into_iter()
+        .all(|component| (0.0..=1.0).contains(&component))
+    {
+        return Err(BlockUsePacketError::RelativeHitOutOfRange);
+    }
     let wire_runtime_id = u32::try_from(request.block_runtime_id)
         .map_err(|_| BlockUsePacketError::BlockRuntimeIdOutOfRange(request.block_runtime_id))?;
     let target_block_id = wire_runtime_id;
@@ -163,9 +172,9 @@ fn block_use_packet(
                         z: from_z,
                     },
                     click_position: Vec3 {
-                        x: click_x.clamp(0.0, 1.0),
-                        y: click_y.clamp(0.0, 1.0),
-                        z: click_z.clamp(0.0, 1.0),
+                        x: click_x,
+                        y: click_y,
+                        z: click_z,
                     },
                     target_block_id,
                     client_interact_prediction:
