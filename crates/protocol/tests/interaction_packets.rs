@@ -370,6 +370,13 @@ fn click_block_builder_rejects_invalid_face_slot_position_and_runtime_id() {
     );
 
     let mut request = base_request();
+    request.relative_hit[0] = f32::INFINITY;
+    assert_eq!(
+        click_block_packet(request, &session()).unwrap_err(),
+        BlockUsePacketError::NonFiniteRelativeHit
+    );
+
+    let mut request = base_request();
     request.block_runtime_id = u64::from(u32::MAX) + 1;
     assert_eq!(
         click_block_packet(request, &session()).unwrap_err(),
@@ -457,10 +464,29 @@ fn destroy_block_builder_shares_block_use_validation() {
 }
 
 #[test]
-fn click_block_builder_clamps_finite_relative_hit_to_block_bounds() {
+fn block_use_builders_reject_finite_relative_hits_outside_block_bounds() {
+    for relative_hit in [
+        [-f32::EPSILON, 0.375, 1.0],
+        [0.0, 0.375, 1.0 + f32::EPSILON],
+    ] {
+        let mut request = base_request();
+        request.relative_hit = relative_hit;
+        assert_eq!(
+            click_block_packet(request.clone(), &session()).unwrap_err(),
+            BlockUsePacketError::RelativeHitOutOfRange
+        );
+        assert_eq!(
+            destroy_block_packet(request, &session()).unwrap_err(),
+            BlockUsePacketError::RelativeHitOutOfRange
+        );
+    }
+}
+
+#[test]
+fn click_block_builder_preserves_exact_relative_hit_boundaries() {
     let mut request = base_request();
-    request.relative_hit = [-0.25, 0.375, 1.5];
-    let packet = click_block_packet(request, &session()).expect("finite request");
+    request.relative_hit = [0.0, 1.0, 0.0];
+    let packet = click_block_packet(request, &session()).expect("boundary request");
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
@@ -469,9 +495,9 @@ fn click_block_builder_clamps_finite_relative_hit_to_block_bounds() {
     else {
         panic!("expected item-use transaction");
     };
-    assert_eq!(transaction.click_position.x, 0.0);
-    assert_eq!(transaction.click_position.y, 0.375);
-    assert_eq!(transaction.click_position.z, 1.0);
+    assert_eq!(transaction.click_position.x.to_bits(), 0.0_f32.to_bits());
+    assert_eq!(transaction.click_position.y.to_bits(), 1.0_f32.to_bits());
+    assert_eq!(transaction.click_position.z.to_bits(), 0.0_f32.to_bits());
 }
 
 fn base_actor_request() -> ActorUseRequest {
