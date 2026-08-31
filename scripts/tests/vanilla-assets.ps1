@@ -11,6 +11,14 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $fetcher -PathType Leaf)) {
     throw "fetcher missing: $fetcher"
 }
+$bashFetcher = Join-Path $repoRoot "scripts\fetch-vanilla-assets.sh"
+$bashFetcherSource = Get-Content -Raw -LiteralPath $bashFetcher
+if ($bashFetcherSource -match '(?m)^\s*declare\s+-[^\r\n]*l') {
+    throw 'Bash fetcher uses the Bash-4-only lowercase variable attribute'
+}
+if (-not $bashFetcherSource.Contains("LC_ALL=C tr '[:upper:]' '[:lower:]'")) {
+    throw 'Bash fetcher lacks portable deterministic reserved-name normalization'
+}
 
 $source = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 

@@ -433,11 +433,11 @@ validate_entry_name() {
             fatal "invalid filename component '$part'"
         fi
         # e. reserved Windows device names (base name before any extension).
-        # declare -l lowercases on assignment without a subprocess spawn;
-        # this loop runs once per archive entry.
+        # Normalize deterministically with POSIX utilities so the system Bash
+        # 3.2 shipped by macOS can enforce the same reserved-name contract.
         local base lower
         base="${part%%.*}"
-        declare -l lower="$base"
+        lower="$(printf '%s' "$base" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
         if [[ "$lower" =~ ^(con|prn|aux|nul|com[1-9]|lpt[1-9])$ ]]; then
             fatal "unsafe ZIP entry '$raw': reserved filename component '$part'"
         fi

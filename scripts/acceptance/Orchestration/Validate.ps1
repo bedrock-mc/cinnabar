@@ -129,8 +129,8 @@ $script:AcceptanceValidationPhase = {
     $ProjectRoot = (Resolve-Path (Join-Path $script:AcceptanceEntryRoot '..')).Path
     $null = Assert-ProtocolDependencyProvenance `
         -ProjectRoot $ProjectRoot `
-        -ExpectedForkRevision $PinnedValentineForkCommit `
-        -ExpectedUpstreamRevision $PinnedValentineUpstreamCommit `
+        -ExpectedAxolotlStackRevision $PinnedAxolotlStackCommit `
+        -ExpectedProtocolgenRevision $PinnedProtocolgenCommit `
         -ExpectedLicenseSha256 $PinnedValentineLicenseSha256
     $BedrockTarget = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
     $BlockRegistryPath = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot -Target $BedrockTarget -Artifact block_registry

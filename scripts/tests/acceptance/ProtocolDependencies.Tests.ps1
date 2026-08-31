@@ -2,6 +2,17 @@ $expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
 $expectedProtocolgenRevision = '870bb549c701a0c03472c66441449c4b70a8454a'
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
+$validationSource = Get-Content -Raw -LiteralPath `
+    (Join-Path $ProjectRoot 'scripts\acceptance\Orchestration\Validate.ps1')
+Assert-True $validationSource.Contains('-ExpectedAxolotlStackRevision $PinnedAxolotlStackCommit') `
+    'acceptance validation does not pass its owned Axolotl Stack pin to protocol provenance'
+Assert-True $validationSource.Contains('-ExpectedProtocolgenRevision $PinnedProtocolgenCommit') `
+    'acceptance validation does not pass its owned protocolgen pin to protocol provenance'
+Assert-True (-not $validationSource.Contains('$PinnedValentineForkCommit')) `
+    'acceptance validation references the removed Valentine fork pin'
+Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) `
+    'acceptance validation references the removed Valentine upstream pin'
+
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
 
 $resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
