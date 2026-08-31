@@ -110,8 +110,9 @@ impl AudioOutcome {
 ///
 /// A session-generation change or a dimension change clears the retained
 /// outcomes whenever that identity mismatch is next observed, including idle
-/// drains with no incoming audio traffic; lifetime counters survive so
-/// overflow evidence is never lost.
+/// drains with no incoming audio traffic. Losing the live world stream clears
+/// both the outcomes and their bound identity immediately; lifetime counters
+/// survive every reset so overflow evidence is never lost.
 ///
 /// Bounded accepted window (mirroring the reviewed server-camera semantics):
 /// identity is sampled once per drain from the caller's current world state
@@ -301,9 +302,16 @@ impl SessionAudio {
         self.level_transport_only_total
     }
 
-    /// Drops every retained outcome without touching lifetime counters.
-    pub fn clear(&mut self) {
+    /// Ends the bound session without touching lifetime counters.
+    ///
+    /// Clearing the identity lets a replacement stream bind as a fresh
+    /// session instead of counting the same disconnect twice. Repeated idle
+    /// frames remain idempotent.
+    fn end_session(&mut self) {
         self.entries.clear();
+        if self.identity.take().is_some() {
+            self.resets = self.resets.saturating_add(1);
+        }
     }
 }
 
@@ -372,8 +380,12 @@ pub(crate) fn drain_sequenced_audio_into_session(
     mut session: ResMut<SessionAudio>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
-        // Mirrors reconcile_world_stream_before_physics: without a live world
-        // stream no writer ran this frame, so identity stays unsampled.
+        // A writer from an earlier system or frame can still have left unread
+        // messages in Bevy's retained message buffers. Consume them while the
+        // stream is absent so they cannot be attributed to a replacement
+        // session on its first frame.
+        messages.clear();
+        session.end_session();
         return;
     };
     let events: Vec<_> = messages.read().cloned().collect();

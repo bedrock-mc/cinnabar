@@ -2,19 +2,30 @@ use std::sync::Arc;
 
 use assets::{AudioAlternative, AudioDefinition, RuntimeAudioCatalog, encode_audio_catalog};
 use bevy::prelude::{
-    App, IntoScheduleConfigs, IntoSystemSet, MessageWriter, ResMut, Resource, SystemSet, Update,
+    App, AppExit, IntoScheduleConfigs, IntoSystemSet, MessageWriter, ResMut, Resource, SystemSet,
+    Update,
 };
 use protocol::{AudioEvent, PlayAudioEvent, StopAudioEvent};
 
 use super::*;
 use crate::runtime::audio::drain_committed_audio;
 use crate::{
-    app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+    app::ClientBlobCacheOwner,
+    app::{
+        configure_acceptance_finish_system, configure_client_frame_schedule,
+        configure_client_production_frame_systems,
+    },
+    menu::{
+        CoreProcessGuard, MenuAction, MenuRuntime, drive_menu_connection, follow_server_transfer,
+        recover_menu_session_failure,
+    },
     runtime::{
         audio::SequencedAudioEvent,
-        world::{ClientWorld, reconcile_world_stream_before_physics},
+        network::{NetworkHandle, ResourcePackAdmissionState},
+        world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
     },
     session_audio::{SessionAudio, SessionAudioCatalog, drain_sequenced_audio_into_session},
+    ui_runtime::UiRuntime,
 };
 
 fn audio_event(name: &str) -> WorldEvent {
@@ -169,10 +180,161 @@ fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
 }
 
 #[test]
+fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
+    let mut app = App::new();
+    app.add_message::<SequencedAudioEvent>()
+        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<SessionAudio>()
+        .insert_resource(SessionAudioCatalog(Some(Arc::new(fixture_catalog()))))
+        .insert_resource(connected_client_world())
+        .insert_resource(PendingAudio(vec![sequenced_play(1, "random.orb")]))
+        .add_systems(
+            Update,
+            (write_pending_audio, drain_sequenced_audio_into_session).chain(),
+        );
+
+    app.update();
+    assert_eq!(app.world().resource::<SessionAudio>().len(), 1);
+
+    app.world_mut().resource_mut::<ClientWorld>().stream = None;
+    app.world_mut()
+        .resource_mut::<PendingAudio>()
+        .0
+        .push(sequenced_play(2, "random.orb"));
+    app.update();
+
+    let disconnected = app.world().resource::<SessionAudio>();
+    assert!(
+        disconnected.is_empty(),
+        "disconnect must clear old outcomes"
+    );
+    assert_eq!(disconnected.resets(), 1);
+
+    app.update();
+    assert_eq!(
+        app.world().resource::<SessionAudio>().resets(),
+        1,
+        "repeated disconnected frames must remain idempotent"
+    );
+
+    app.world_mut().resource_mut::<ClientWorld>().stream = connected_client_world().stream;
+    app.update();
+
+    let replacement = app.world().resource::<SessionAudio>();
+    assert!(
+        replacement.is_empty(),
+        "audio written after teardown must not replay in the replacement session"
+    );
+    assert_eq!(
+        replacement.resets(),
+        1,
+        "replacement binding is not a second reset"
+    );
+    assert_eq!(replacement.admitted_total(), 1);
+}
+
+fn retained_session_audio() -> SessionAudio {
+    let mut audio = SessionAudio::default();
+    audio.admit(1, 0, [sequenced_stop(1)], None);
+    audio
+}
+
+fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: MenuRuntime) {
+    app.add_message::<SequencedAudioEvent>()
+        .init_resource::<crate::environment::WorldClock>()
+        .insert_resource(SessionAudioCatalog(None))
+        .insert_resource(retained_session_audio())
+        .insert_resource(client_world)
+        .insert_resource(menu)
+        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(UiRuntime::new(1));
+}
+
+#[test]
+fn menu_disconnect_clears_audio_in_its_production_frame() {
+    let mut app = App::new();
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.activate(MenuAction::PauseDisconnect);
+    add_audio_teardown_resources(&mut app, connected_client_world(), menu);
+    app.add_message::<AppExit>()
+        .insert_resource(ClientBlobCacheOwner::default())
+        .add_systems(
+            Update,
+            (
+                drive_menu_connection,
+                drain_sequenced_audio_into_session.after(drive_menu_connection),
+            ),
+        );
+
+    app.update();
+
+    assert!(app.world().resource::<ClientWorld>().stream.is_none());
+    assert!(app.world().resource::<SessionAudio>().is_empty());
+    assert_eq!(app.world().resource::<SessionAudio>().resets(), 1);
+}
+
+#[test]
+fn failure_recovery_clears_audio_in_its_production_frame() {
+    let mut app = App::new();
+    let mut client_world = connected_client_world();
+    client_world.fatal_error = Some("session failed".to_owned());
+    add_audio_teardown_resources(
+        &mut app,
+        client_world,
+        MenuRuntime::new(true, 2, "Player".to_owned()),
+    );
+    app.add_systems(
+        Update,
+        (
+            recover_menu_session_failure,
+            drain_sequenced_audio_into_session.after(recover_menu_session_failure),
+        ),
+    );
+
+    app.update();
+
+    assert!(app.world().resource::<ClientWorld>().stream.is_none());
+    assert!(app.world().resource::<SessionAudio>().is_empty());
+    assert_eq!(app.world().resource::<SessionAudio>().resets(), 1);
+}
+
+#[test]
+fn rejected_transfer_clears_audio_in_its_production_frame() {
+    let mut app = App::new();
+    let mut client_world = connected_client_world();
+    client_world.transfer_notice = Some(TransferNotice {
+        host: " ".to_owned(),
+        port: 19132,
+    });
+    add_audio_teardown_resources(
+        &mut app,
+        client_world,
+        MenuRuntime::new(true, 2, "Player".to_owned()),
+    );
+    app.insert_resource(ClientBlobCacheOwner::default())
+        .add_systems(
+            Update,
+            (
+                follow_server_transfer,
+                drain_sequenced_audio_into_session.after(follow_server_transfer),
+            ),
+        );
+
+    app.update();
+
+    assert!(app.world().resource::<ClientWorld>().stream.is_none());
+    assert!(app.world().resource::<SessionAudio>().is_empty());
+    assert_eq!(app.world().resource::<SessionAudio>().resets(), 1);
+}
+
+#[test]
 fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
+    configure_acceptance_finish_system(&mut app);
     let schedules = app.world().resource::<bevy::ecs::schedule::Schedules>();
     let graph = schedules
         .get(Update)
@@ -196,6 +358,31 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
         graph.dependency().graph().contains_edge(writer_set, reader),
         "the audio reader must run after the world-stream writer"
     );
+    for (teardown, label) in [
+        (
+            IntoSystemSet::into_system_set(drive_menu_connection).intern(),
+            "menu disconnect",
+        ),
+        (
+            IntoSystemSet::into_system_set(follow_server_transfer).intern(),
+            "server transfer",
+        ),
+        (
+            IntoSystemSet::into_system_set(recover_menu_session_failure).intern(),
+            "failure recovery",
+        ),
+    ] {
+        let teardown = bevy::ecs::schedule::NodeId::Set(
+            graph
+                .system_sets
+                .get_key(teardown)
+                .expect("teardown set key"),
+        );
+        assert!(
+            graph.dependency().graph().contains_edge(teardown, reader),
+            "the audio reader must run after {label}"
+        );
+    }
 }
 
 fn system_node<M>(
