@@ -72,6 +72,26 @@ func TestCheckOpenedCacheFileSecurityAcceptsProtectedTrustedACL(t *testing.T) {
 	}
 }
 
+func TestReopenCacheSecurityHandleAcceptsGoFileHandle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "microsoft-token.json")
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	securityHandle, err := reopenCacheSecurityHandle(file)
+	if err != nil {
+		t.Fatalf("reopenCacheSecurityHandle() error = %v", err)
+	}
+	if err := windows.CloseHandle(securityHandle); err != nil {
+		t.Fatalf("CloseHandle(reopened security handle) error = %v", err)
+	}
+	if _, err := file.Write([]byte("still-open")); err != nil {
+		t.Fatalf("original Go file handle was disturbed: %v", err)
+	}
+}
+
 func TestCheckCacheSecurityRejectsEveryoneGrantWithoutAdminRights(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "microsoft-token.json")
 	writeFile(t, path, []byte(`{"refresh_token":"sentinel"}`))

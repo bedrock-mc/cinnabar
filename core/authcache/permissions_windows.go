@@ -3,7 +3,7 @@
 package authcache
 
 import (
-	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"syscall"
@@ -141,13 +141,15 @@ func reopenCacheSecurityHandle(file *os.File) (windows.Handle, error) {
 		file.Fd(),
 		uintptr(windows.WRITE_DAC|windows.READ_CONTROL),
 		uintptr(windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE),
-		uintptr(windows.FILE_ATTRIBUTE_NORMAL),
+		// Preserve the file's existing attributes. ReOpenFile accepts zero or
+		// supported FILE_FLAG_* values here, not FILE_ATTRIBUTE_NORMAL.
+		0,
 	)
 	if handle == uintptr(syscall.InvalidHandle) {
 		if callErr == nil {
 			callErr = syscall.EINVAL
 		}
-		return windows.InvalidHandle, errors.New("reopen auth cache security handle")
+		return windows.InvalidHandle, fmt.Errorf("reopen auth cache security handle: %w", callErr)
 	}
 	return windows.Handle(handle), nil
 }
