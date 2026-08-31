@@ -49,24 +49,22 @@ func (err *PackAdmissionError) Error() string {
 
 type resourcePackOfferConnection interface {
 	dialerDownstream
-	ConfigureResourcePackOfferSnapshot(minecraft.ResourcePackOfferSnapshot, bool) error
+	ConfigureResourcePackOffer([]*resource.Pack, bool) error
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 }
 
-// configureResourcePackOffer downloads the upstream-selected stack under
-// explicit bounds and forwards it in exact selected order for local capture.
-// Until pack application is complete, the local hop is deliberately optional:
-// a required upstream bit must not make otherwise joinable servers unavailable.
-// The upstream connection has already completed its own required negotiation;
-// this override applies only to the private core-to-client handoff.
+// configureResourcePackOffer advertises one empty optional offer and stack on
+// the private core-to-client hop. The pinned upstream Dialer has already
+// ignored the advertised packs using its supported DownloadResourcePack hook,
+// so no content exists to hand off until application is implemented.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, false); err != nil {
+	if err := downstream.ConfigureResourcePackOffer(nil, false); err != nil {
 		return err
 	}
-	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
+	return downstream.ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot{}, false)
 }
 
 var (

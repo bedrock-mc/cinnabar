@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
-use bridge::{Lifecycle, PackApplication, PackOffer};
+use bridge::{Lifecycle, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer};
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -48,6 +48,48 @@ async fn go_status_endpoint_returns_the_strict_initialized_snapshot() -> Result<
     Ok(())
 }
 
+#[tokio::test]
+async fn live_go_status_compatibility_outcome_decodes_as_schema_v1() -> Result<()> {
+    let bridge_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let core_dir = bridge_dir
+        .join("../../core")
+        .canonicalize()
+        .context("locate Go core module")?;
+    let temp = tempfile::tempdir().context("create integration-test directory")?;
+    let socket_dir = temp.path().join("socket");
+    let executable = temp.path().join(if cfg!(windows) {
+        "control.test.exe"
+    } else {
+        "control.test"
+    });
+
+    build_control_test(&core_dir, &executable)?;
+    let mut child = ChildGuard::spawn_status_helper(&executable, &socket_dir)?;
+    let endpoint = bridge::control_endpoint_path(&socket_dir);
+    wait_for_publication(&mut child, &endpoint).await?;
+
+    let status = tokio::time::timeout(IO_TIMEOUT, bridge::read_status(&socket_dir))
+        .await
+        .context("timed out reading compatibility Status v1")??;
+    assert_eq!(status.schema_version, 1);
+    assert_eq!(status.lifecycle, Lifecycle::Running);
+    assert_eq!(status.pack_admission.attempt_id, 17);
+    assert_eq!(status.pack_admission.offer, PackOffer::Required);
+    assert_eq!(status.pack_admission.acquisition, PackAcquisition::Ignored);
+    assert_eq!(
+        status.pack_admission.downstream_outcome,
+        PackDownstreamOutcome::StrippedIgnored
+    );
+    assert_eq!(
+        status.pack_admission.application,
+        PackApplication::Unavailable
+    );
+
+    child.terminate();
+    wait_for_cleanup(&endpoint).await?;
+    Ok(())
+}
+
 fn build_core(core_dir: &Path, executable: &Path) -> Result<()> {
     let output = Command::new("go")
         .current_dir(core_dir)
@@ -60,6 +102,27 @@ fn build_core(core_dir: &Path, executable: &Path) -> Result<()> {
     if !output.status.success() {
         bail!(
             "go build bedrock-core failed with {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn build_control_test(core_dir: &Path, executable: &Path) -> Result<()> {
+    let output = Command::new("go")
+        .current_dir(core_dir)
+        .arg("test")
+        .arg("-c")
+        .arg("-o")
+        .arg(executable)
+        .arg("./control")
+        .output()
+        .context("build Go control test helper")?;
+    if !output.status.success() {
+        bail!(
+            "go test -c control failed with {}\nstdout:\n{}\nstderr:\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
@@ -114,17 +177,32 @@ struct ChildGuard {
 
 impl ChildGuard {
     fn spawn(executable: &Path, socket_dir: &Path) -> Result<Self> {
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .arg("-socket-dir")
             .arg(socket_dir)
             .arg("-upstream")
             .arg("127.0.0.1:19132")
-            .arg("-control-status")
+            .arg("-control-status");
+        Self::spawn_command(command, "spawn bedrock-core")
+    }
+
+    fn spawn_status_helper(executable: &Path, socket_dir: &Path) -> Result<Self> {
+        let mut command = Command::new(executable);
+        command
+            .arg("-test.run=^TestBridgeCompatibilityStatusHelper$")
+            .env("RUST_MCBE_BRIDGE_STATUS_HELPER", "1")
+            .env("RUST_MCBE_BRIDGE_STATUS_SOCKET_DIR", socket_dir);
+        Self::spawn_command(command, "spawn Go status compatibility helper")
+    }
+
+    fn spawn_command(mut command: Command, context: &'static str) -> Result<Self> {
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .context("spawn bedrock-core")?;
+            .context(context)?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().context("capture bedrock-core stdout")?;
         let stderr = child.stderr.take().context("capture bedrock-core stderr")?;

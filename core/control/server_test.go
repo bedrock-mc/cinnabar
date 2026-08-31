@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,15 +14,38 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
+func TestBridgeCompatibilityStatusHelper(t *testing.T) {
+	if os.Getenv("RUST_MCBE_BRIDGE_STATUS_HELPER") != "1" {
+		t.Skip("bridge cross-language helper")
+	}
+	dir := os.Getenv("RUST_MCBE_BRIDGE_STATUS_SOCKET_DIR")
+	if dir == "" {
+		t.Fatal("RUST_MCBE_BRIDGE_STATUS_SOCKET_DIR is required")
+	}
+	store := NewStore()
+	store.SetLifecycle(LifecycleRunning)
+	latest := snapshot(17, proxy.ResourcePackOfferRequired)
+	latest.PackCount, latest.TotalBytes = 1, 512
+	latest.Acquisition = proxy.ResourcePackAcquisitionIgnored
+	latest.DownstreamOutcome = proxy.ResourcePackDownstreamStrippedIgnored
+	store.Observe(latest)
+	server, err := Start(dir, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
 func TestStatusV1RoundTripAndSecretSafeWireShape(t *testing.T) {
 	store := NewStore()
 	store.SetLifecycle(LifecycleRunning)
 	latest := snapshot(9, proxy.ResourcePackOfferOptional)
 	latest.PackCount, latest.TotalBytes = 2, 4096
-	latest.Acquisition = proxy.ResourcePackAcquisitionComplete
+	latest.Acquisition = proxy.ResourcePackAcquisitionIgnored
 	latest.CacheLoads, latest.CacheHits, latest.CacheMisses = 2, 1, 1
 	latest.CacheStores = 1
-	latest.DownstreamOutcome = proxy.ResourcePackDownstreamOfferedOptional
+	latest.DownstreamOutcome = proxy.ResourcePackDownstreamStrippedIgnored
 	store.Observe(latest)
 
 	dir := t.TempDir()
@@ -31,7 +55,7 @@ func TestStatusV1RoundTripAndSecretSafeWireShape(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = server.Close() })
 	payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"status.v1"}`))
-	for _, want := range []string{`"schema_version":1`, `"lifecycle":"running"`, `"attempt_id":9`, `"pack_count":2`, `"total_bytes":4096`, `"application":"unavailable"`} {
+	for _, want := range []string{`"schema_version":1`, `"lifecycle":"running"`, `"attempt_id":9`, `"pack_count":2`, `"total_bytes":4096`, `"acquisition":"ignored"`, `"downstream_outcome":"stripped_ignored"`, `"application":"unavailable"`} {
 		if !strings.Contains(string(payload), want) {
 			t.Fatalf("response %s does not contain %s", payload, want)
 		}

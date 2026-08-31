@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -25,19 +26,33 @@ import (
 
 type offerTestDownstream struct {
 	dialerTestDownstream
-	configured      bool
-	configuredOffer bool
-	configuredStack bool
-	stack           minecraft.ResourcePackStackSnapshot
-	required        bool
-	err             error
-	writes          []packet.Packet
-	writeErr        error
-	writePanic      any
-	configPanic     any
-	writeStarted    chan struct{}
-	writeUnblock    <-chan struct{}
-	writeStartOnce  sync.Once
+	configured         bool
+	configuredOffer    bool
+	configuredSnapshot bool
+	configuredStack    bool
+	stack              minecraft.ResourcePackStackSnapshot
+	required           bool
+	err                error
+	writes             []packet.Packet
+	writeErr           error
+	writePanic         any
+	configPanic        any
+	writeStarted       chan struct{}
+	writeUnblock       <-chan struct{}
+	writeStartOnce     sync.Once
+}
+
+func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resource.Pack, required bool) error {
+	if downstream.configPanic != nil {
+		panic(downstream.configPanic)
+	}
+	downstream.configured = true
+	downstream.configuredOffer = true
+	downstream.required = required
+	if len(packs) != 0 {
+		return errors.New("test downstream received a non-empty compatibility offer")
+	}
+	return downstream.err
 }
 
 func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(_ minecraft.ResourcePackOfferSnapshot, required bool) error {
@@ -46,6 +61,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(_ mine
 	}
 	downstream.configured = true
 	downstream.configuredOffer = true
+	downstream.configuredSnapshot = true
 	downstream.required = required
 	return downstream.err
 }
@@ -81,7 +97,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackStack(stack minecraf
 	return downstream.err
 }
 
-func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
+func TestConfigureResourcePackOfferStripsOptionalSelectedStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack), new(resource.Pack)}
 	downstream := new(offerTestDownstream)
@@ -93,8 +109,8 @@ func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
 	if !downstream.configured {
 		t.Fatal("downstream offer was not configured")
 	}
-	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (offer=%t, stack=%t, required=%t), want exact optional offer and stack", downstream.configuredOffer, downstream.configuredStack, downstream.required)
+	if !downstream.configuredOffer || downstream.configuredSnapshot || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
+		t.Fatalf("downstream offer = (offer=%t, snapshot=%t, stack=%t, entries=%d, required=%t), want direct empty optional offer and stack", downstream.configuredOffer, downstream.configuredSnapshot, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
 	}
 	if got := len(upstream.ResourcePacks()); got != 2 {
 		t.Fatalf("retained upstream pack count = %d, want 2", got)
@@ -124,7 +140,7 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 }
 
-func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibilityStack(t *testing.T) {
+func TestConfigureResourcePackOfferStripsRequiredSelectionAsEmptyOptionalCompatibilityStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack)}
 	upstream.required = true
@@ -133,8 +149,8 @@ func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibil
 	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, entries=%d, required=%t), want empty optional compatibility stack", downstream.configured, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
 	}
 	if len(downstream.writes) != 0 {
 		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
@@ -209,7 +225,7 @@ func TestSelectedStackCompatibilityDoesNotSubstituteOfferOrderOrCounts(t *testin
 	}
 }
 
-func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsForwarded(t *testing.T) {
+func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsStripped(t *testing.T) {
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t)}}
 	downstream := new(offerTestDownstream)
 	if err := configureResourcePackOffer(downstream, stack); err != nil {
@@ -218,8 +234,8 @@ func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsForwarded(t *testi
 	if len(stack.packs) != 2 {
 		t.Fatalf("retained selected count = %d, want 2", len(stack.packs))
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want selected optional handoff", downstream.configured, downstream.configuredStack, downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, entries=%d, required=%t), want empty optional handoff", downstream.configured, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
 	}
 }
 
@@ -385,6 +401,15 @@ func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testin
 		t.Fatalf("client dial: %v", clientResult.err)
 	}
 	defer clientResult.conn.Close()
+	if len(clientResult.conn.ResourcePacks()) != 0 {
+		t.Fatal("private compatibility hop exposed pack content")
+	}
+	if offer, ok := clientResult.conn.ResourcePackOffer(); !ok || len(offer.TexturePacks()) != 0 || offer.TexturePackRequired() {
+		t.Fatalf("private compatibility offer = (available=%t, entries=%d, required=%t), want empty optional", ok, len(offer.TexturePacks()), offer.TexturePackRequired())
+	}
+	if stack, ok := clientResult.conn.ResourcePackStack(); !ok || len(stack.Entries()) != 0 || stack.Required() {
+		t.Fatalf("private compatibility stack = (available=%t, entries=%d, required=%t), want empty optional", ok, len(stack.Entries()), stack.Required())
+	}
 	eventsMu.Lock()
 	gotEvents := slices.Clone(events)
 	eventsMu.Unlock()
@@ -817,6 +842,117 @@ func newAdmissionTestListener(t *testing.T, prepare func(context.Context, *minec
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	return listener, network
+}
+
+func TestPinnedDialerIgnorePolicyAllowsOptionalAndRequiredOffersToReachStartGame(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		offer    bool
+		required bool
+	}{
+		{name: "no-pack"},
+		{name: "optional", offer: true},
+		{name: "required", offer: true, required: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pack := testAdmissionPack(t)
+			var packs []*resource.Pack
+			if test.offer {
+				packs = []*resource.Pack{pack}
+			}
+			listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+				return conn.ConfigureResourcePackOffer(packs, test.required)
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var packetsMu sync.Mutex
+			var packetIDs []uint32
+			clientDone := make(chan admissionDialResult, 1)
+			go func() {
+				client, err := (minecraft.Dialer{
+					IdentityData: login.IdentityData{DisplayName: "IgnorePolicy"},
+					Protocol:     minecraft.DefaultProtocol,
+					DownloadResourcePack: func(uuid.UUID, string, int, int) bool {
+						return false
+					},
+					PacketFunc: func(header packet.Header, _ []byte, _, _ net.Addr) {
+						packetsMu.Lock()
+						packetIDs = append(packetIDs, header.PacketID)
+						packetsMu.Unlock()
+					},
+				}).DialContextNetwork(ctx, network, "")
+				clientDone <- admissionDialResult{conn: client, err: err}
+			}()
+
+			acceptedRaw, err := listener.Accept()
+			if err != nil {
+				t.Fatalf("listener Accept: %v", err)
+			}
+			accepted := acceptedRaw.(*minecraft.Conn)
+			defer accepted.Close()
+			if err := accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9}); err != nil {
+				t.Fatalf("start game: %v", err)
+			}
+			result := <-clientDone
+			if result.err != nil {
+				t.Fatalf("dial through ignored offer: %v", result.err)
+			}
+			defer result.conn.Close()
+			if result.conn.GameData().EntityRuntimeID != 9 {
+				t.Fatal("dial did not reach StartGame")
+			}
+			offer, ok := result.conn.ResourcePackOffer()
+			wantCount := 0
+			if test.offer {
+				wantCount = 1
+			}
+			if !ok || len(offer.TexturePacks()) != wantCount || offer.TexturePackRequired() != test.required {
+				t.Fatalf("observed offer = (available=%t, count=%d, required=%t)", ok, len(offer.TexturePacks()), offer.TexturePackRequired())
+			}
+			if len(result.conn.ResourcePacks()) != 0 {
+				t.Fatal("ignored offer acquired local pack content")
+			}
+			telemetry := newResourcePackAdmissionTelemetry(1, nil)
+			telemetry.observeOffer(result.conn)
+			telemetry.observePolicyOutcome(&selectedResourcePackStack{required: test.required}, true)
+			snapshot := telemetry.snapshot()
+			wantOffer := ResourcePackOfferNone
+			wantAcquisition := ResourcePackAcquisitionNone
+			wantOutcome := ResourcePackDownstreamNone
+			if test.offer {
+				wantOffer = ResourcePackOfferOptional
+				wantAcquisition = ResourcePackAcquisitionIgnored
+				wantOutcome = ResourcePackDownstreamStrippedIgnored
+			}
+			if test.required {
+				wantOffer = ResourcePackOfferRequired
+			}
+			wantBytes := uint64(0)
+			if test.offer {
+				wantBytes = uint64(pack.Size())
+			}
+			if snapshot.Offer != wantOffer || snapshot.PackCount != uint32(wantCount) || snapshot.TotalBytes != wantBytes || snapshot.Acquisition != wantAcquisition || snapshot.DownstreamOutcome != wantOutcome || snapshot.Application != ResourcePackApplicationUnavailable {
+				t.Fatalf("compatibility telemetry = %#v", snapshot)
+			}
+			stack, ok := result.conn.ResourcePackStack()
+			ignoredEntry := false
+			for _, entry := range stack.Entries() {
+				if entry.UUID() == pack.UUID().String() && entry.Version() == pack.Version() && entry.Pack() == nil {
+					ignoredEntry = true
+					break
+				}
+			}
+			if !ok || ignoredEntry != test.offer {
+				t.Fatalf("ignored stack = (available=%t, entries=%d), want advertised pack as metadata-only entry", ok, len(stack.Entries()))
+			}
+			packetsMu.Lock()
+			gotPackets := slices.Clone(packetIDs)
+			packetsMu.Unlock()
+			if slices.Contains(gotPackets, packet.IDResourcePackDataInfo) || slices.Contains(gotPackets, packet.IDResourcePackChunkData) {
+				t.Fatalf("ignored offer transferred local pack data: packet IDs %v", gotPackets)
+			}
+		})
+	}
 }
 
 func TestPreparedConnectionsUsesExactDownstreamIdentityAndTakesOnce(t *testing.T) {

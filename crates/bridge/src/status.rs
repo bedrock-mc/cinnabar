@@ -35,6 +35,7 @@ pub enum PackOffer {
 pub enum PackAcquisition {
     None,
     Complete,
+    Ignored,
     Failed,
     Cancelled,
 }
@@ -47,6 +48,7 @@ pub enum PackDownstreamOutcome {
     OfferedOptional,
     HandedOffOptional,
     RejectedRequired,
+    StrippedIgnored,
 }
 
 /// Resource-pack application capability of this client build.
@@ -234,6 +236,28 @@ mod tests {
                 PackApplication::Unavailable
             );
         }
+    }
+
+    #[test]
+    fn parses_nonblocking_compatibility_outcome_without_claiming_application() {
+        let payload = VALID_RESULT
+            .replace(r#""acquisition":"complete""#, r#""acquisition":"ignored""#)
+            .replace(
+                r#""downstream_outcome":"rejected_required""#,
+                r#""downstream_outcome":"stripped_ignored""#,
+            );
+        let status = parse_status_response(payload.as_bytes()).expect("compatibility status");
+        assert_eq!(status.schema_version, 1);
+        assert_eq!(status.pack_admission.offer, PackOffer::Required);
+        assert_eq!(status.pack_admission.acquisition, PackAcquisition::Ignored);
+        assert_eq!(
+            status.pack_admission.downstream_outcome,
+            PackDownstreamOutcome::StrippedIgnored
+        );
+        assert_eq!(
+            status.pack_admission.application,
+            PackApplication::Unavailable
+        );
     }
 
     #[test]
