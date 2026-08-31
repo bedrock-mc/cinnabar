@@ -208,11 +208,16 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ClientFrameSet::Physics),
         )
         // The session-audio reader consumes exactly what the world-stream
-        // writer above produced, so it must order after that writer.
+        // writer above produced. It also owns teardown of retained outcomes,
+        // so it must observe every system that can remove or replace the
+        // active stream in this frame.
         .add_systems(
             Update,
             crate::session_audio::drain_sequenced_audio_into_session
-                .after(reconcile_world_stream_before_physics),
+                .after(reconcile_world_stream_before_physics)
+                .after(drive_menu_connection)
+                .after(follow_server_transfer)
+                .after(recover_menu_session_failure),
         )
         .add_systems(
             Update,
