@@ -11,6 +11,10 @@ trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 
 grep -Fq 'mktemp -d "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX"' "$fetcher_path"
 grep -Fq 'publisher_binary="$publisher_work/publisher"' "$fetcher_path"
+if grep -Fq 'chmod 700 -- "$publisher_work"' "$fetcher_path"; then
+    printf '%s\n' 'fetcher uses a GNU-only chmod option terminator' >&2
+    exit 1
+fi
 if grep -Fq 'rm -f -- "$publisher_binary"' "$fetcher_path"; then
     printf '%s\n' 'fetcher removes and reuses the atomic publisher leaf path' >&2
     exit 1
@@ -36,5 +40,17 @@ set -e
 [[ -f "$scratch/source-race/staged.txt" ]]
 [[ -f "$scratch/destination-race/winner.txt" ]]
 [[ ! -e "$scratch/destination-race/source-race" ]]
+
+mkdir "$scratch/source-file-race"
+printf '%s\n' staged > "$scratch/source-file-race/staged.txt"
+printf '%s\n' winner > "$scratch/destination-file-race"
+set +e
+file_race_output="$("$scratch/publisher" "$scratch/source-file-race" "$scratch/destination-file-race" 2>&1)"
+file_race_status=$?
+set -e
+[[ "$file_race_status" -eq 3 ]]
+[[ "$file_race_output" == *'cache directory appeared during extraction'* ]]
+[[ -f "$scratch/source-file-race/staged.txt" ]]
+[[ "$(cat "$scratch/destination-file-race")" == winner ]]
 
 printf '%s\n' 'rename-directory-no-replace tests passed'

@@ -364,7 +364,7 @@ if [[ ! -f "$publisher_source" ]]; then
 fi
 publisher_work="$(mktemp -d "${TMPDIR:-/tmp}/cinnabar-rename-no-replace.XXXXXX")" ||
     fatal 'temporary atomic publication helper workspace unavailable'
-chmod 700 -- "$publisher_work" || fatal 'atomic publication helper workspace permissions failed'
+chmod 700 "$publisher_work" || fatal 'atomic publication helper workspace permissions failed'
 publisher_work_identity="$(directory_identity "$publisher_work")" ||
     fatal 'atomic publication helper workspace identity unavailable'
 publisher_binary="$publisher_work/publisher"
