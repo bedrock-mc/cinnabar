@@ -22,7 +22,7 @@ use crate::{
     app::{
         ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
     },
-    menu::{MenuRuntime, drive_menu_input},
+    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     runtime::network::receive_network_events,
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input,
@@ -190,6 +190,7 @@ fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
         .add_message::<KeyboardInput>()
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))

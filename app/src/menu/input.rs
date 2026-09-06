@@ -6,12 +6,12 @@ use bevy::{
         touch::Touches,
     },
     prelude::{
-        AppExit, ButtonInput, KeyCode, MessageReader, MessageWriter, MouseButton, Query, Res,
-        ResMut, Single, With,
+        AppExit, ButtonInput, KeyCode, Local, MessageReader, MessageWriter, MouseButton, Query,
+        Res, ResMut, Resource, Single, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::UiPoint;
+use ui::{ChatClipboard, UiPoint};
 
 use crate::{
     runtime::{
@@ -19,10 +19,212 @@ use crate::{
         world::ClientWorld,
     },
     session_cleanup::SessionDirectoryGuard,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime},
 };
 
-use super::{CoreProcessGuard, MenuRuntime, MenuScreen, spawn_core_for_address, wait_for_core};
+use super::{
+    CoreProcessGuard, MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuField, MenuRuntime,
+    spawn_core_for_address, wait_for_core,
+};
+
+#[derive(Resource)]
+pub(crate) struct MenuClipboard(
+    Box<dyn FnMut(usize) -> Option<String> + Send + Sync + 'static>,
+    Box<dyn FnMut(String) + Send + Sync + 'static>,
+);
+
+impl MenuClipboard {
+    pub(crate) fn with_access(
+        reader: impl FnMut(usize) -> Option<String> + Send + Sync + 'static,
+        writer: impl FnMut(String) + Send + Sync + 'static,
+    ) -> Self {
+        Self(Box::new(reader), Box::new(writer))
+    }
+
+    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Option<String> {
+        (self.0)(maximum_bytes)
+    }
+
+    fn write_text(&mut self, text: String) {
+        (self.1)(text);
+    }
+}
+
+impl Default for MenuClipboard {
+    fn default() -> Self {
+        let mut reader = PlatformClipboard;
+        let mut writer = PlatformClipboard;
+        Self::with_access(
+            move |maximum_bytes| {
+                reader
+                    .read_text_bounded(maximum_bytes)
+                    .ok()
+                    .flatten()
+                    .map(|text| text.to_string())
+            },
+            move |text| {
+                let _ = writer.write_text(text);
+            },
+        )
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct MenuModifiers(u8);
+
+impl MenuModifiers {
+    const CONTROL_LEFT: u8 = 1 << 0;
+    const CONTROL_RIGHT: u8 = 1 << 1;
+    const SUPER_LEFT: u8 = 1 << 2;
+    const SUPER_RIGHT: u8 = 1 << 3;
+    const ALT_LEFT: u8 = 1 << 4;
+    const ALT_RIGHT: u8 = 1 << 5;
+    const SHIFT_LEFT: u8 = 1 << 6;
+    const SHIFT_RIGHT: u8 = 1 << 7;
+
+    fn capture_pressed(&mut self, keys: &ButtonInput<KeyCode>) {
+        for key in [
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::SuperLeft,
+            KeyCode::SuperRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+        ] {
+            if keys.pressed(key) {
+                self.0 |= Self::mask(key);
+            }
+        }
+    }
+
+    fn observe(&mut self, input: &KeyboardInput) {
+        let mask = Self::mask(input.key_code);
+        if input.state == ButtonState::Pressed {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+    }
+
+    fn shortcut(&self) -> bool {
+        self.0 & 0b0000_1111 != 0 && self.0 & 0b0011_0000 == 0
+    }
+
+    fn shift(&self) -> bool {
+        self.0 & 0b1100_0000 != 0
+    }
+
+    const fn mask(key: KeyCode) -> u8 {
+        match key {
+            KeyCode::ControlLeft => Self::CONTROL_LEFT,
+            KeyCode::ControlRight => Self::CONTROL_RIGHT,
+            KeyCode::SuperLeft => Self::SUPER_LEFT,
+            KeyCode::SuperRight => Self::SUPER_RIGHT,
+            KeyCode::AltLeft => Self::ALT_LEFT,
+            KeyCode::AltRight => Self::ALT_RIGHT,
+            KeyCode::ShiftLeft => Self::SHIFT_LEFT,
+            KeyCode::ShiftRight => Self::SHIFT_RIGHT,
+            _ => 0,
+        }
+    }
+}
+
+impl MenuRuntime {
+    pub(super) fn focus_field(&mut self, field: MenuField) {
+        self.field = Some(field);
+        self.text_selected = false;
+    }
+
+    fn has_focused_field(&self) -> bool {
+        self.field.is_some()
+    }
+
+    fn selected_text_target(&self) -> Option<&str> {
+        match self.field? {
+            MenuField::Name => Some(&self.name),
+            MenuField::Address => Some(&self.address),
+        }
+    }
+
+    fn select_all_text(&mut self) {
+        self.text_selected = self
+            .selected_text_target()
+            .is_some_and(|text| !text.is_empty());
+    }
+
+    fn selected_text(&self) -> Option<&str> {
+        self.text_selected
+            .then(|| self.selected_text_target())
+            .flatten()
+    }
+
+    fn remaining_text_capacity(&self) -> usize {
+        let Some(field) = self.field else {
+            return 0;
+        };
+        let maximum = match field {
+            MenuField::Name => MAX_SERVER_NAME_BYTES,
+            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        };
+        if self.text_selected {
+            maximum
+        } else {
+            maximum.saturating_sub(self.selected_text_target().map_or(0, str::len))
+        }
+    }
+
+    fn edit_text(&mut self, text: &str) {
+        let Some(field) = self.field else {
+            return;
+        };
+        let target = match field {
+            MenuField::Name => &mut self.name,
+            MenuField::Address => &mut self.address,
+        };
+        let maximum = match field {
+            MenuField::Name => MAX_SERVER_NAME_BYTES,
+            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        };
+        let mut insertion = String::new();
+        let base_length = if self.text_selected { 0 } else { target.len() };
+        for character in text.chars().filter(|character| !character.is_control()) {
+            if base_length
+                .saturating_add(insertion.len())
+                .saturating_add(character.len_utf8())
+                > maximum
+            {
+                break;
+            }
+            insertion.push(character);
+        }
+        if insertion.is_empty() {
+            return;
+        }
+        if self.text_selected {
+            target.clear();
+        }
+        target.push_str(&insertion);
+        self.text_selected = false;
+    }
+
+    fn backspace_text(&mut self) {
+        let Some(field) = self.field else {
+            return;
+        };
+        let target = match field {
+            MenuField::Name => &mut self.name,
+            MenuField::Address => &mut self.address,
+        };
+        if self.text_selected {
+            target.clear();
+        } else {
+            let _ = target.pop();
+        }
+        self.text_selected = false;
+    }
+}
 
 /// Spawns a fresh core and network session for one address, replacing any
 /// previous session.
@@ -124,21 +326,26 @@ pub(crate) fn drive_menu_input(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     presentation: Res<UiPresentationRuntime>,
+    mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
+    mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
     menu.pressed = None;
     if !window.focused {
+        *modifiers = MenuModifiers::default();
         menu.pointer_down = false;
         return;
     }
     if !menu.is_visible() {
         // Gameplay/chat handled these messages already. In particular, do not
         // replay the Escape that opens pause as "back" on the following frame.
+        *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
         menu.hovered = None;
         menu.pointer_down = false;
         if keys.just_pressed(KeyCode::Escape) {
+            modifiers.capture_pressed(&keys);
             menu.open_pause();
             cursor.grab_mode = CursorGrabMode::None;
             cursor.visible = true;
@@ -147,6 +354,7 @@ pub(crate) fn drive_menu_input(
         return;
     }
 
+    modifiers.capture_pressed(&keys);
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
     menu.hovered = window
@@ -187,16 +395,43 @@ pub(crate) fn drive_menu_input(
         }
     }
     for input in keyboard_messages.read() {
+        modifiers.observe(input);
         if input.state != ButtonState::Pressed {
             continue;
+        }
+        if modifiers.shortcut() && menu.has_focused_field() {
+            match input.key_code {
+                KeyCode::KeyA => {
+                    menu.select_all_text();
+                    continue;
+                }
+                KeyCode::KeyC => {
+                    if let Some(text) = menu.selected_text() {
+                        clipboard.write_text(text.to_owned());
+                    }
+                    continue;
+                }
+                KeyCode::KeyV => {
+                    let maximum = menu.remaining_text_capacity();
+                    if let Some(text) = clipboard.read_text_bounded(maximum) {
+                        menu.edit_text(&text);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            if input.text.is_some() {
+                continue;
+            }
         }
         match input.key_code {
             KeyCode::Escape => menu.go_back_from_input(),
             KeyCode::ArrowUp | KeyCode::ArrowLeft => menu.move_focus(-1),
-            KeyCode::ArrowDown | KeyCode::ArrowRight | KeyCode::Tab => menu.move_focus(1),
+            KeyCode::ArrowDown | KeyCode::ArrowRight => menu.move_focus(1),
+            KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
             KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
             KeyCode::Backspace if menu.field.is_some() => menu.backspace_text(),
-            _ if menu.field.is_some() => {
+            _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);
                 }
@@ -257,9 +492,7 @@ pub(crate) fn drive_menu_connection(
         resource_packs.begin_generation(generation);
         runtime.begin_session(generation);
         client_world.stream = None;
-        menu.visible = true;
-        menu.screen = MenuScreen::Home;
-        menu.connecting = false;
+        menu.mark_disconnected();
     }
     if menu.take_exit_request() {
         network.shutdown();

@@ -694,6 +694,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.display_name.clone(),
             layout,
         ))
+        .init_resource::<crate::menu::MenuClipboard>()
         .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())
