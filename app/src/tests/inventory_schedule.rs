@@ -185,6 +185,44 @@ fn scheduled_mouse_press_uses_same_frame_complete_and_partial_inventory_ingress(
 }
 
 #[test]
+fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .add_message::<KeyboardInput>()
+        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Escape,
+        logical_key: Key::Escape,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    app.update();
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+}
+
+#[test]
 fn same_frame_storage_open_and_content_drive_real_button_input_before_network_send() {
     let current = stack(6, 3, 91);
     let mut runtime = UiRuntime::new(1);

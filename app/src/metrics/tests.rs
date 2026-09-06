@@ -14,6 +14,29 @@ fn empty_percentiles_are_zero() {
 }
 
 #[test]
+fn session_clear_removes_all_diagnostic_counts_and_advances_revision() {
+    let mut tracker = DiagnosticQuadTracker::with_identity_capacity(1);
+    for id in 1..=2 {
+        tracker.upsert(
+            SubChunkKey::new(0, id, 0, 0),
+            DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+                Some(id as u32),
+                id as u32,
+                5,
+            )]),
+        );
+    }
+    let revision = tracker.revision();
+    tracker.clear();
+    assert_ne!(tracker.revision(), revision);
+    assert_eq!(tracker.total(), 0);
+    let snapshot = tracker.snapshot();
+    assert!(snapshot.top.is_empty());
+    assert_eq!(snapshot.omitted_identity_count, 0);
+    assert_eq!(snapshot.omitted_quad_count, 0);
+}
+
+#[test]
 fn globally_folded_identity_removal_cannot_subtract_a_later_tracked_contribution() {
     let tracked_first = SubChunkKey::new(0, 0, 0, 0);
     let folded_first = SubChunkKey::new(0, 1, 0, 0);

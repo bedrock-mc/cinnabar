@@ -143,6 +143,16 @@ impl DiagnosticQuadTracker {
         }
     }
 
+    /// Clears resident-world attribution without reusing an observed revision.
+    pub fn clear(&mut self) {
+        self.by_sub_chunk.clear();
+        self.totals.clear();
+        self.total = 0;
+        self.explicit_omitted_identity_count = 0;
+        self.explicit_omitted_quad_count = 0;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     #[must_use]
     pub const fn total(&self) -> u64 {
         self.total

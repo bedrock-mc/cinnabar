@@ -364,8 +364,8 @@ pub(crate) fn drive_chat_keyboard_input(
     let (window, mut cursor) = window.into_inner();
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         keyboard_messages.clear();
-        keys.reset_all();
-        mouse_buttons.reset_all();
+        // The menu system runs next and must see the original button state.
+        // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
         cursor.grab_mode = CursorGrabMode::None;
         cursor.visible = true;

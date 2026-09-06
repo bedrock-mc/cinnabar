@@ -244,6 +244,10 @@ pub(crate) fn biome_blend_diagnostics_enabled(acceptance: &AcceptanceRun) -> boo
     acceptance.enabled()
 }
 
+pub(crate) fn publication_diagnostics_enabled(acceptance: &AcceptanceRun) -> bool {
+    acceptance.enabled() || acceptance.metrics_out.is_some()
+}
+
 pub(crate) fn biome_blend_diagnostic_marker_if_changed(
     last_emitted: &mut Option<CommittedBiomeBlendIdentity>,
     snapshot: CommittedBiomeBlendSnapshot,
@@ -509,11 +513,15 @@ pub(crate) fn record_metrics_and_title(
         info!("{marker}");
     }
     let visibility_snapshot = visibility_diagnostics.snapshot();
-    if let (Some(stream), Some(local_frame), Some(graphics)) = (
-        client_world.stream.as_ref(),
-        render_metrics.local_player.snapshot(),
-        visibility_diagnostics.graphics_adapter(),
-    ) && local_frame.eye().is_finite()
+    // Full-cohort manifests and their JSON/timing markers are acceptance
+    // evidence, not gameplay work. Gate the collection as well as the output.
+    if publication_diagnostics_enabled(&acceptance)
+        && let (Some(stream), Some(local_frame), Some(graphics)) = (
+            client_world.stream.as_ref(),
+            render_metrics.local_player.snapshot(),
+            visibility_diagnostics.graphics_adapter(),
+        )
+        && local_frame.eye().is_finite()
     {
         let player_column = local_subject_column(stream.current_dimension(), local_frame.eye())
             .expect("finite local-player eyes have a subject column");

@@ -93,6 +93,36 @@ fn authoritative_server_motion_ticks_preserve_ordered_future_impulses() {
 }
 
 #[test]
+fn untimed_server_motion_replaces_velocity_now_and_applies_once_at_the_next_tick() {
+    let mut untimed = LocalPhysicsController::default();
+    untimed.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut timed = untimed.clone();
+    let motion = [0.45, 0.42, -0.35];
+    untimed.queue_server_motion(motion, 0);
+    timed.queue_server_motion(motion, 101);
+    assert_eq!(untimed.state().unwrap().tick, 100);
+    assert_eq!(untimed.state().unwrap().velocity.x, f64::from(motion[0]));
+    for _ in 0..3 {
+        let immediate = run_one_tick(&mut untimed, &VersionedFloor(1));
+        let explicit = run_one_tick(&mut timed, &VersionedFloor(1));
+        assert_eq!(immediate.position, explicit.position);
+        assert_eq!(immediate.velocity, explicit.velocity);
+    }
+}
+
+#[test]
+fn untimed_server_motion_is_discarded_by_session_reanchor() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.queue_server_motion([0.45, 0.42, -0.35], 0);
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut baseline = LocalPhysicsController::default();
+    baseline.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    assert_eq!(run_one_tick(&mut physics, &VersionedFloor(1)).position,
+        run_one_tick(&mut baseline, &VersionedFloor(1)).position);
+}
+
+#[test]
 fn non_finite_server_motion_is_ignored_and_inactive_controllers_drop_it() {
     let mut physics = LocalPhysicsController::default();
     physics.queue_server_motion([f32::NAN, 0.0, 0.0], 1);

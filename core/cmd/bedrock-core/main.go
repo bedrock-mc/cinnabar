@@ -169,10 +169,14 @@ func runWithResourcePackCacheFactory(
 	if opts.resourcePackCacheDir != "" {
 		cache, cacheErr := openCache(opts.resourcePackCacheDir, packcache.WithQuota(opts.resourcePackCacheQuota))
 		if cacheErr != nil {
-			return errors.New("initialize resource pack cache: unavailable")
+			// Persistence is optional. Keep the cache's permission and integrity
+			// checks fail-closed without turning a cache miss into a join failure.
+			// The underlying error may contain private paths; do not log it.
+			logger.Warn("resource pack cache unavailable; continuing without persistent cache")
+		} else {
+			resourcePackCache = cache
+			closeResourcePackCache = cache.Close
 		}
-		resourcePackCache = cache
-		closeResourcePackCache = cache.Close
 	}
 	var statusStore *control.Store
 	var controlServer *control.Server

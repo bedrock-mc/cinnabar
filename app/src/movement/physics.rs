@@ -275,18 +275,29 @@ impl LocalPhysicsController {
     /// The overlay is keyed by that tick so a correction rewind covering it
     /// re-applies the same replacement deterministically. Non-finite impulses
     /// are ignored; when inactive there is no prediction timeline to enter.
+    /// A zero wire tick is untimed: replace the current velocity immediately
+    /// and retain the replacement at the next simulation boundary for replay.
     pub fn queue_server_motion(&mut self, motion: [f32; 3], applies_at_tick: u64) {
         if !motion.into_iter().all(f32::is_finite) {
             return;
         }
-        if self.state.is_none() {
+        let Some(state) = self.state.as_mut() else {
             return;
-        }
+        };
         let velocity = Vec3::new(
             f64::from(motion[0]),
             f64::from(motion[1]),
             f64::from(motion[2]),
         );
+        let applies_at_tick = if applies_at_tick == 0 {
+            let Some(next_tick) = state.tick.checked_add(1) else {
+                return;
+            };
+            state.velocity = velocity;
+            next_tick
+        } else {
+            applies_at_tick
+        };
         if self.server_motions.len() == LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
             self.server_motions.pop_front();
         }

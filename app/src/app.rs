@@ -442,24 +442,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // every startup `?` before the app takes ownership of the guard.
     let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
     let mut core_process = CoreProcessGuard::default();
-    if let Some(address) = args.address.as_deref() {
-        let child = spawn_core_for_address(
-            &layout,
-            &socket_dir,
-            address,
-            None,
-            client_blob_cache.enables_upstream_client_cache(),
-        )
-        .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
-        core_process.replace(child);
-        if let Err(error) = wait_for_core(&socket_dir) {
-            crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
-            return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
-        }
-    } else if connection_requested {
-        preflight_bridge_endpoint(&socket_dir)?;
-    }
-
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
     let loaded_assets =
@@ -580,6 +562,26 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
+
+    // Validate local carriers before starting a connection: an asset failure
+    // must not launch the core or wait on a server the client cannot render.
+    if let Some(address) = args.address.as_deref() {
+        let child = spawn_core_for_address(
+            &layout,
+            &socket_dir,
+            address,
+            None,
+            client_blob_cache.enables_upstream_client_cache(),
+        )
+        .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
+        core_process.replace(child);
+        if let Err(error) = wait_for_core(&socket_dir) {
+            crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
+            return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
+        }
+    } else if connection_requested {
+        preflight_bridge_endpoint(&socket_dir)?;
+    }
 
     let network = if connection_requested {
         match spawn_network(NetworkConfig {

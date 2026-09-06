@@ -17,7 +17,7 @@ if (-not $bashFetcherSource.Contains("LC_ALL=C tr '[:upper:]' '[:lower:]'")) { t
 
 $source = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-. (Join-Path $PSScriptRoot "vanilla-assets-helpers.ps1")
+. (Join-Path $PSScriptRoot 'vanilla-assets/OutputMatching.Tests.ps1')
 
 $downloadDirectory = Join-Path $repoRoot ".local\assets\downloads"
 $cacheDirectory = [System.IO.Path]::GetFullPath(

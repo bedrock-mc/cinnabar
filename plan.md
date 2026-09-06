@@ -1,5 +1,8 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
+This preserves the full scope below; historical snapshots are not current runtime acceptance.
+
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
 > comes, executed via superpowers:subagent-driven-development or superpowers:executing-plans.

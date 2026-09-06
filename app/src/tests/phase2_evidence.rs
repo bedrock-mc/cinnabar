@@ -16,6 +16,22 @@ use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
 
 use crate::runtime::telemetry::local_subject_column;
 
+#[test]
+fn publication_diagnostics_require_an_explicit_acceptance_or_metrics_run() {
+    use crate::{acceptance::AcceptanceRun, runtime::telemetry::publication_diagnostics_enabled};
+    for (seconds, output, expected) in [
+        (None, None, false),
+        (Some(30), None, true),
+        (None, Some("metrics.json".into()), true),
+        (Some(30), Some("metrics.json".into()), true),
+    ] {
+        assert_eq!(
+            publication_diagnostics_enabled(&AcceptanceRun::new(seconds, output, false, false)),
+            expected
+        );
+    }
+}
+
 fn combined_snapshot() -> CombinedPhase2Snapshot {
     let cohort = CohortManifestIdentity {
         session_generation: 7,

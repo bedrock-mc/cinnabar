@@ -30,10 +30,13 @@ function Test-OutputContains {
         [string]$Needle
     )
 
-    # Console rendering wraps long diagnostics mid-token, so compare the
-    # whitespace-free forms instead of the literal rendered text.
+    # PowerShell 7's ConciseView adds ANSI styling and a leading gutter to
+    # continuation lines. Remove only that presentation markup before joining
+    # wrapped diagnostics; do not strip literal pipes inside an error message.
+    $plain = [regex]::Replace($Output, ([char]27 + '\[[0-9;]*m'), '')
+    $plain = [regex]::Replace($plain, '(?m)^[\t ]*\|[\t ]?', '')
     $whitespace = [regex]"\s+"
-    return $whitespace.Replace($Output, "").Contains($whitespace.Replace($Needle, ""))
+    return $whitespace.Replace($plain, "").Contains($whitespace.Replace($Needle, ""))
 }
 
 function Get-TestSha256Hex {

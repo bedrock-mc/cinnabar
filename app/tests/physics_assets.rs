@@ -69,11 +69,13 @@ fn make_physics_assets_installs_the_pinned_registry_once() {
     fs::write(&manifest, b"{}").unwrap();
     fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(pinned))).unwrap();
     let install = if cfg!(windows) {
+        // Make targets use forward slashes, but cmd.exe's COPY builtin needs
+        // native Windows paths. Do not reuse make_path inside the recipe.
         format!(
             "echo invocation >> \"{}\" && copy /Y \"{}\" \"{}\" >NUL",
-            make_path(&invocation_log),
-            make_path(&source),
-            make_path(&physics)
+            invocation_log.display(),
+            source.display(),
+            physics.display()
         )
     } else {
         format!(

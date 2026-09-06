@@ -16,6 +16,23 @@
     $flowerBedPlans = @('FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite') | ForEach-Object {
         New-FlowerBedGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry
     }
+    # Reject stale or malformed registry headers before reading gallery entries.
+    foreach ($headerCase in @(
+        @{ name = 'stale protocol'; offset = 8; value = 1001 },
+        @{ name = 'stale cardinality'; offset = 16; value = 16913 },
+        @{ name = 'excess cardinality'; offset = 16; value = 17500 }
+    )) {
+        $invalidRegistry = Join-Path $TempRoot ("$($headerCase.name).bin")
+        $invalidRegistryBytes = [IO.File]::ReadAllBytes($BlockRegistry)
+        [BitConverter]::GetBytes([uint32]$headerCase.value).CopyTo($invalidRegistryBytes, $headerCase.offset)
+        [IO.File]::WriteAllBytes($invalidRegistry, $invalidRegistryBytes)
+        Assert-ThrowsLike {
+            Get-SlabStairCoverageEvidence -RegistryPath $invalidRegistry -AssetsPath $SlabStairAssets
+        } 'slab/stair registry target changed:*' "slab/stair accepted $($headerCase.name)"
+        Assert-ThrowsLike {
+            Get-VineCoverageEvidence -RegistryPath $invalidRegistry -AssetsPath $SlabStairAssets
+        } 'vine registry target changed:*' "vine accepted $($headerCase.name)"
+    }
     # slab_stair_gallery_covers_all_variants
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
         New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
@@ -258,8 +275,8 @@
         Assert-Equal 64 @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' }).Count 'flowerbed plan did not issue exactly one placement per canonical state'
         Assert-Equal 64 @($flowerBedPlan.Manifest.reference_cubes).Count 'flowerbed plan did not pair every state with a reference cube'
         Assert-Equal 5 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
-        Assert-Equal 'a2fe82092cb22835a0553091ecfcdd67cedcddc9e791feb2d0ddeff9fe091f15' ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
-        Assert-Equal 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763' ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
+        Assert-Equal 'f1a0e249b34f67e9ff6196ed9a910feae4cb3493e124ac2cd381c71c720b2dd2' ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
+        Assert-Equal '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6' ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
         Assert-Equal $expectedFirstFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[0]) 'flowerbed first canonical identity drifted'
         Assert-Equal $expectedLastFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[-1]) 'flowerbed last canonical identity drifted'
         Assert-Equal ($expectedFlowerBedStates -join "`n") (@($flowerBedPlan.Manifest.gallery_states) -join "`n") 'flowerbed exact ordered 64-state manifest drifted'
@@ -288,15 +305,15 @@
     ) -join ',') 'flowerbed opposite oblique camera lost its symmetric offset'
     Assert-Equal '138,92,238' (@($oppositeFlowerBedPlan.Manifest.camera.position.x, $oppositeFlowerBedPlan.Manifest.camera.position.y, $oppositeFlowerBedPlan.Manifest.camera.position.z) -join ',') 'flowerbed opposite oblique camera lost its exact position'
     Assert-Equal 'tp @a[name=RustMCBE] 138 92 238 facing 100 66 200' ([string]$oppositeFlowerBedPlan.TeleportCommand) 'flowerbed opposite oblique camera command drifted'
-    Assert-Equal 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763' ([string]$oppositeFlowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed opposite oblique camera changed canonical layout identity'
-    Assert-Equal 'a2fe82092cb22835a0553091ecfcdd67cedcddc9e791feb2d0ddeff9fe091f15' ([string]$oppositeFlowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed opposite oblique camera changed exact state-set identity'
+    Assert-Equal '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6' ([string]$oppositeFlowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed opposite oblique camera changed canonical layout identity'
+    Assert-Equal 'f1a0e249b34f67e9ff6196ed9a910feae4cb3493e124ac2cd381c71c720b2dd2' ([string]$oppositeFlowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed opposite oblique camera changed exact state-set identity'
     Assert-Equal 1 @($flowerBedPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'flowerbed camera pose changed canonical layout identity'
     $movedFlowerBedPlan = New-FlowerBedGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose FlowerBedGalleryTop -RegistryPath $BlockRegistry
     Assert-Equal $flowerBedPlans[0].Manifest.fixture_layout_hash $movedFlowerBedPlan.Manifest.fixture_layout_hash 'flowerbed absolute coordinate changed canonical layout identity'
     Assert-Equal ($flowerBedPlans[0].Manifest.gallery_states -join "`n") ($movedFlowerBedPlan.Manifest.gallery_states -join "`n") 'flowerbed BREG state manifest was not deterministic'
     $tamperedFlowerBedLayout = $flowerBedPlans[0].Manifest.relative_layout | ConvertTo-Json -Depth 12 | ConvertFrom-Json
     $tamperedFlowerBedLayout.spacing[0] = 5
-    Assert-True ((Get-CanonicalObjectHash -Value $tamperedFlowerBedLayout) -cne 'e6eb62b75661d8de7508bbb40095e105301051d22462ef39f82f4226528ef763') 'flowerbed pinned layout hash did not detect spacing drift'
+    Assert-True ((Get-CanonicalObjectHash -Value $tamperedFlowerBedLayout) -cne '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6') 'flowerbed pinned layout hash did not detect spacing drift'
     $reorderedFlowerBedStates = @($expectedFlowerBedStates)
     [array]::Reverse($reorderedFlowerBedStates)
     Assert-True (($reorderedFlowerBedStates -join "`n") -cne ($flowerBedPlans[0].Manifest.gallery_states -join "`n")) 'flowerbed exact ordered manifest assertion cannot detect reordering'
@@ -314,8 +331,8 @@
         Assert-Equal 512 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_state_count) 'stair coverage count drifted'
         Assert-Equal 64 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_name_count) 'stair identifier count drifted'
         Assert-Equal 0 ([int]$slabStairPlan.Manifest.coverage_evidence.diagnostic_slab_stair) 'slab/stair compiled coverage retained diagnostics'
-        Assert-Equal '860f1e5629d7d6f390d554cedcef16546237f9f9df9f24a2abaa5a22c785fbc8' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
-        Assert-Equal '8c035c430d72ce4e62df32a99d126608e2b476bb155f941c89671500f91f4448' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
+        Assert-Equal '35d1e83f88a97acb03fe8bf9afacd809254e3d0663254cfa9c2294cac4b1ca43' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
+        Assert-Equal '093714e0c48c86d44bda5c1b4a1359fad577ad197a8560498fe4f1804780188d' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
         Assert-True ($slabStairPlan.LoadAreaCommand -match '^tickingarea add ') 'slab/stair gallery omitted bounded preload'
         Assert-True ($slabStairPlan.CleanupCommand -match '^tickingarea remove ') 'slab/stair gallery omitted ticking-area cleanup'
         Assert-Equal (Get-CanonicalObjectHash -Value $slabStairPlan.Manifest.relative_layout) $slabStairPlan.Manifest.fixture_layout_hash 'slab/stair layout hash was not derived from its complete relative layout'

@@ -219,6 +219,35 @@ func (cache *closingResourcePackCacheStub) Close() error {
 	return nil
 }
 
+func TestRunUnavailableResourcePackCacheStillStartsProxy(t *testing.T) {
+	for _, cacheErr := range []error{packcache.ErrInUse, errors.New("private-cache-permission-detail")} {
+		t.Run(cacheErr.Error(), func(t *testing.T) {
+			var logs strings.Builder
+			serveCalls := 0
+			err := runWithResourcePackCacheFactory(context.Background(), []string{
+				"-socket-dir", "run", "-upstream", "localhost:19132", "-resource-pack-cache-dir", "cache",
+			}, io.Discard, &logs,
+				func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+				func(_ context.Context, cfg proxy.Config) error {
+					serveCalls++
+					if cfg.ResourcePackCache != nil {
+						t.Fatal("failed cache reached the proxy")
+					}
+					return nil
+				},
+				func(string, ...packcache.Option) (ownedResourcePackCache, error) {
+					return nil, cacheErr
+				})
+			if err != nil || serveCalls != 1 {
+				t.Fatalf("run = %v, serve calls = %d; want one uncached session", err, serveCalls)
+			}
+			if !strings.Contains(logs.String(), "continuing without persistent cache") || strings.Contains(logs.String(), cacheErr.Error()) {
+				t.Fatal("cache fallback must be visible without exposing the underlying error")
+			}
+		})
+	}
+}
+
 func TestRunAuthFailureDoesNotStartProxy(t *testing.T) {
 	wantErr := errors.New("auth failed")
 	serveCalls := 0

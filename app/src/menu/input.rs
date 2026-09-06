@@ -133,6 +133,9 @@ pub(crate) fn drive_menu_input(
         return;
     }
     if !menu.is_visible() {
+        // Gameplay/chat handled these messages already. In particular, do not
+        // replay the Escape that opens pause as "back" on the following frame.
+        keyboard_messages.clear();
         menu.hovered = None;
         menu.pointer_down = false;
         if keys.just_pressed(KeyCode::Escape) {
@@ -151,7 +154,8 @@ pub(crate) fn drive_menu_input(
         .and_then(|position| UiPoint::new(position.x, position.y).ok())
         .and_then(|position| presentation.hit_test_menu(position));
     let pointer_pressed = mouse_buttons.pressed(MouseButton::Left);
-    let pointer_just_pressed = pointer_pressed && !menu.pointer_down;
+    let pointer_just_pressed =
+        mouse_buttons.just_pressed(MouseButton::Left) || (pointer_pressed && !menu.pointer_down);
     menu.pointer_down = pointer_pressed;
     if pointer_just_pressed && let Some(action) = menu.hovered {
         menu.activate(action);

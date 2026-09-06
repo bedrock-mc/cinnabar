@@ -168,6 +168,8 @@ mod gpu_models;
 mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
+#[path = "gpu/session_tests.rs"]
+mod gpu_session;
 #[path = "presentation/tests.rs"]
 mod presentation;
 #[path = "presentation/command_tests.rs"]

@@ -241,7 +241,9 @@ function Get-SlabStairCoverageEvidence {
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
-        if ($recordCount -ne 16913) { throw "slab/stair registry record count changed: $recordCount" }
+        if ($registryProtocol -ne 2168 -or $recordCount -ne 17499) {
+            throw "slab/stair registry target changed: protocol=$registryProtocol records=$recordCount (expected 2168/17499)"
+        }
         $entries = [Collections.Generic.List[object]]::new()
         for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
             $sequentialId = $reader.ReadUInt32(); $null = $reader.ReadUInt32(); $null = $reader.ReadByte()

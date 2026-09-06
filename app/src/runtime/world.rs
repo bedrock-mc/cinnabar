@@ -19,7 +19,7 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
     log::{debug, info, warn},
-    prelude::{MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+    prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
 use client_world::{
@@ -57,7 +57,7 @@ use crate::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
-        visibility::{AppMetrics, DiagnosticQuads},
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
     },
     ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
@@ -551,6 +551,8 @@ pub(crate) fn drive_world_stream(
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
+    mut rendered_session: Local<Option<u64>>,
+    mut visibility: ResMut<CaveVisibilityCache>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
@@ -565,6 +567,17 @@ pub(crate) fn drive_world_stream(
         time,
         ..
     } = state;
+    let active_session = client_world
+        .stream
+        .as_ref()
+        .map(WorldStream::actor_session_id);
+    if *rendered_session != active_session {
+        render_queue.reset_session();
+        acknowledgements.clear();
+        *visibility = CaveVisibilityCache::default();
+        diagnostic_quads.0.clear();
+        *rendered_session = active_session;
+    }
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
