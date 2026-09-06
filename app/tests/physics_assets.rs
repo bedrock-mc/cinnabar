@@ -664,10 +664,41 @@ fn temporary_directory(label: &str) -> PathBuf {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path =
-        std::env::temp_dir().join(format!("rust-mcbe-{label}-{}-{nonce}", std::process::id()));
-    fs::create_dir_all(&path).unwrap();
-    path
+    temporary_directory_with_nonce(label, nonce)
+}
+
+fn temporary_directory_with_nonce(label: &str, nonce: u128) -> PathBuf {
+    for attempt in 0..1024 {
+        let path = std::env::temp_dir().join(format!(
+            "rust-mcbe-{label}-{}-{nonce}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return path,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!(
+                "cannot create fixture directory {}: {error}",
+                path.display()
+            ),
+        }
+    }
+    panic!("cannot claim a unique fixture directory for {label}");
+}
+
+#[test]
+fn temporary_directories_do_not_alias_when_clock_samples_repeat() {
+    let nonce = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = temporary_directory_with_nonce("repeated-clock-sample", nonce);
+    let second = temporary_directory_with_nonce("repeated-clock-sample", nonce);
+    assert_ne!(
+        first, second,
+        "concurrent fixtures must own different directories"
+    );
+    fs::remove_dir_all(first).unwrap();
+    fs::remove_dir_all(second).unwrap();
 }
 
 fn make_path(path: &Path) -> String {
