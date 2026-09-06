@@ -208,6 +208,21 @@ func fixtures() []fixture {
 			pk:   playerAuthInputFixture(),
 		},
 		{
+			name: "PlayerAuthInputBlockActions",
+			file: "player_auth_input_block_actions.bin",
+			pk:   playerAuthInputBlockActionsFixture(),
+		},
+		{
+			name: "PlayerAuthInputBreakBlock",
+			file: "player_auth_input_break_block.bin",
+			pk:   playerAuthInputBreakBlockFixture(),
+		},
+		{
+			name: "PlayerAuthInputBlockActionsAndBreakBlock",
+			file: "player_auth_input_block_actions_and_break_block.bin",
+			pk:   playerAuthInputBlockActionsAndBreakBlockFixture(),
+		},
+		{
 			name: "AddActor",
 			file: "add_actor.bin",
 			pk: &packet.AddActor{
@@ -579,6 +594,76 @@ func playerAuthInputFixture() *packet.PlayerAuthInput {
 		CameraOrientation:  mgl32.Vec3{0.25, -0.5, -0.75},
 		RawMoveVector:      mgl32.Vec2{-1, 1},
 	}
+}
+
+// playerAuthInputBlockActionsFixture is the movement fixture plus the
+// PerformBlockActions flag and two block actions: the survival start of a
+// destroy and the local prediction that finishes one. Every block action
+// writes its action, block position, and face unconditionally
+// (protocol/player.go PlayerBlockAction.Marshal), which is the exact shape the
+// Rust encoder must reproduce.
+func playerAuthInputBlockActionsFixture() *packet.PlayerAuthInput {
+	pk := playerAuthInputFixture()
+	pk.InputData.Set(packet.InputFlagPerformBlockActions)
+	pk.BlockActions = protocol.Option([]protocol.PlayerBlockAction{
+		{
+			Action:   protocol.PlayerActionStartBreak,
+			BlockPos: protocol.BlockPos{13, 71, -29},
+			Face:     5,
+		},
+		{
+			Action:   protocol.PlayerActionPredictDestroyBlock,
+			BlockPos: protocol.BlockPos{-8, 63, 21},
+			Face:     1,
+		},
+	})
+	return pk
+}
+
+// playerAuthInputBreakBlockFixture is the movement fixture plus the
+// PerformItemInteraction flag and an embedded break-block item-use
+// transaction, the creative instant-destroy carrier. Its field values mirror
+// the standalone InventoryTransactionDestroyBlock fixture so both carriers are
+// cross-checkable byte for byte.
+func playerAuthInputBreakBlockFixture() *packet.PlayerAuthInput {
+	pk := playerAuthInputFixture()
+	pk.InputData.Set(packet.InputFlagPerformItemInteraction)
+	pk.ItemInteractionData = protocol.Option(protocol.UseItemTransactionData{
+		ActionType:          protocol.UseItemActionBreakBlock,
+		TriggerType:         protocol.TriggerTypePlayerInput,
+		BlockPosition:       protocol.BlockPos{24, 68, -41},
+		BlockFace:           3,
+		HotBarSlot:          5,
+		HeldItem:            inventoryItem(9, 3, 15),
+		Position:            mgl32.Vec3{24.625, 69.5, -40.125},
+		ClickedPosition:     mgl32.Vec3{0.625, 0.375, 0.875},
+		BlockRuntimeID:      654_321,
+		ClientPrediction:    protocol.ClientPredictionFailure,
+		ClientCooldownState: protocol.ClientCooldownStateOff,
+	})
+	return pk
+}
+
+// playerAuthInputBlockActionsAndBreakBlockFixture carries both optional
+// interaction payloads in one tick so the flag order (PerformItemInteraction
+// before PerformBlockActions) and the field order (item-use transaction
+// before block actions) are pinned byte for byte.
+func playerAuthInputBlockActionsAndBreakBlockFixture() *packet.PlayerAuthInput {
+	pk := playerAuthInputBreakBlockFixture()
+	pk.InputData.Set(packet.InputFlagPerformBlockActions)
+	pk.BlockActions = protocol.Option([]protocol.PlayerBlockAction{
+		{
+			Action:   protocol.PlayerActionStartBreak,
+			BlockPos: protocol.BlockPos{13, 71, -29},
+			Face:     5,
+		},
+		{
+			Action:   protocol.PlayerActionPredictDestroyBlock,
+			BlockPos: protocol.BlockPos{-8, 63, 21},
+			Face:     1,
+		},
+	})
+	return pk
 }
 
 func availableCommandsFixture() *packet.AvailableCommands {

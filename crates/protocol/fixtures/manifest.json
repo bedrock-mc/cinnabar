@@ -35,6 +35,27 @@
     "sha256": "f0f721cac5f16327adcc0ded8adeb6b955bf981967e031654b226f041b64df89"
   },
   {
+    "name": "PlayerAuthInputBlockActions",
+    "file": "player_auth_input_block_actions.bin",
+    "id": 144,
+    "byte_length": 118,
+    "sha256": "267e8048fc09460d3b8c49ac483474bc6080de1eed7e884cfa24c82430593187"
+  },
+  {
+    "name": "PlayerAuthInputBreakBlock",
+    "file": "player_auth_input_break_block.bin",
+    "id": 144,
+    "byte_length": 186,
+    "sha256": "20b89fd20d493a5bfdd2d7e726f1eece06054b9727892c8cbfd93322e2567853"
+  },
+  {
+    "name": "PlayerAuthInputBlockActionsAndBreakBlock",
+    "file": "player_auth_input_block_actions_and_break_block.bin",
+    "id": 144,
+    "byte_length": 199,
+    "sha256": "a03477e262b56d3c0dc9984333f7aa42c47b4f7d214dddbbb1a1a7017ab9bfed"
+  },
+  {
     "name": "AddActor",
     "file": "add_actor.bin",
     "id": 13,

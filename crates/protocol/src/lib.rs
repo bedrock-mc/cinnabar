@@ -79,8 +79,10 @@ pub use jolyne::GameData;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
-    PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags,
-    PlayerInputMode, player_auth_input, player_auth_input_trace_sample,
+    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, InteractionEncodeError,
+    MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputError, PlayerAuthInputInteractions,
+    PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
 };
 pub use packet::Packet;
 pub use raw_text::{

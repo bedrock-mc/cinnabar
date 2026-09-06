@@ -120,6 +120,35 @@ fn block_use_packet(
     session: &BedrockSession,
     action_type: ItemUseInventoryTransactionActionType,
 ) -> Result<crate::Packet, BlockUsePacketError> {
+    // The pinned 1.26.40 item descriptor carries its user data opaquely, so
+    // no session state participates in item encoding; the session parameter
+    // is retained only for the public builder signature.
+    let _ = session;
+    let transaction = item_use_transaction(request, action_type, Some(Vec::new()))?;
+    Ok(InventoryTransactionPacket {
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_set_item_slots: None,
+        transaction: Some(
+            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+                transaction,
+            )),
+        ),
+    }
+    .into())
+}
+
+/// Validates one block-use request and encodes it as the shared item-use
+/// transaction body used by both the standalone `InventoryTransaction` packet
+/// and the transaction embedded in `PlayerAuthInput`.
+///
+/// `actions` is the optional inventory action list: the standalone packet
+/// always writes a (possibly empty) list, while the embedded carrier writes
+/// it behind a second presence layer that the break-block use leaves absent.
+pub(crate) fn item_use_transaction(
+    request: BlockUseRequest,
+    action_type: ItemUseInventoryTransactionActionType,
+    actions: Option<Vec<valentine::bedrock::version::v1_26_44::InventoryAction>>,
+) -> Result<ItemUseInventoryTransaction, BlockUsePacketError> {
     if request.face > 5 {
         return Err(BlockUsePacketError::InvalidFace(request.face));
     }
@@ -147,44 +176,33 @@ fn block_use_packet(
     let [x, y, z] = request.block_position;
     let [from_x, from_y, from_z] = request.player_position;
     let [click_x, click_y, click_z] = request.relative_hit;
-    let item = request
-        .selected_item
-        .into_vendor_item(session.shield_item_id)?;
+    // The 1.26.40 item descriptor never consults session state (see
+    // `VerifiedNetworkItemStack::into_vendor_item`), so no shield or session
+    // identity is fabricated here.
+    let item = request.selected_item.into_vendor_item(0)?;
 
-    Ok(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
-        legacy_set_item_slots: None,
-        transaction: Some(
-            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
-                ItemUseInventoryTransaction {
-                    actions: InventoryTransaction {
-                        actions: Some(Vec::new()),
-                    },
-                    action_type,
-                    trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
-                    position: BlockPos { x, y, z },
-                    face: request.face,
-                    slot: i32::from(request.selected_slot),
-                    item,
-                    from_position: Vec3 {
-                        x: from_x,
-                        y: from_y,
-                        z: from_z,
-                    },
-                    click_position: Vec3 {
-                        x: click_x,
-                        y: click_y,
-                        z: click_z,
-                    },
-                    target_block_id,
-                    client_interact_prediction:
-                        ItemUseInventoryTransactionClientInteractPrediction::Failure,
-                    client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
-                },
-            )),
-        ),
-    }
-    .into())
+    Ok(ItemUseInventoryTransaction {
+        actions: InventoryTransaction { actions },
+        action_type,
+        trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
+        position: BlockPos { x, y, z },
+        face: request.face,
+        slot: i32::from(request.selected_slot),
+        item,
+        from_position: Vec3 {
+            x: from_x,
+            y: from_y,
+            z: from_z,
+        },
+        click_position: Vec3 {
+            x: click_x,
+            y: click_y,
+            z: click_z,
+        },
+        target_block_id,
+        client_interact_prediction: ItemUseInventoryTransactionClientInteractPrediction::Failure,
+        client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
+    })
 }
 
 /// Builds a protocol-2168 attack or interact transaction for an already-selected actor.

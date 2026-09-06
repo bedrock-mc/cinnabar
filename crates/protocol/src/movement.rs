@@ -6,8 +6,13 @@ use valentine::bedrock::version::v1_26_44::{
     EnumsPlayerAuthInputPacketPayloadInputData, PlayerAuthInputPacket, PlayerInputTick, Vec2, Vec3,
 };
 
+mod interactions;
 mod trace;
 
+pub use interactions::{
+    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, InteractionEncodeError,
+    MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
+};
 pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
 use crate::Packet;
@@ -35,6 +40,14 @@ impl PlayerInputFlags {
     pub const START_SNEAKING: Self = Self(1 << 27);
     pub const STOP_SNEAKING: Self = Self(1 << 28);
     pub const START_JUMPING: Self = Self(1 << 31);
+    /// Wire ordinal 34 (`PerformItemInteraction`): the packet carries an
+    /// embedded item-use transaction. Derived from payload presence by the
+    /// encoder; callers never assert it directly.
+    pub const PERFORM_ITEM_INTERACTION: Self = Self(1 << 34);
+    /// Wire ordinal 35 (`PerformBlockActions`): the packet carries a
+    /// block-action list. Derived from payload presence by the encoder;
+    /// callers never assert it directly.
+    pub const PERFORM_BLOCK_ACTIONS: Self = Self(1 << 35);
     /// Wire ordinal 37 of the input-data list (`HandledTeleport`). The app
     /// asserts this flag on the first transmitted sample after a qualifying
     /// server teleport; see the movement `teleport_ack` module.
@@ -104,15 +117,32 @@ pub struct PlayerAuthInputSnapshot {
 }
 
 /// Invalid app-owned state that cannot be represented safely on the wire.
-#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum PlayerAuthInputError {
     #[error("PlayerAuthInput contains a non-finite position, rotation, delta, or input vector")]
     NonFiniteState,
+    #[error("PlayerAuthInput interactions are invalid: {0}")]
+    Interaction(#[from] InteractionEncodeError),
 }
 
-/// Converts an app-owned movement snapshot to the pinned protocol-2168 packet.
+/// Converts an app-owned movement snapshot to the pinned protocol-2168 packet
+/// without any interaction payload.
 pub fn player_auth_input(
     snapshot: PlayerAuthInputSnapshot,
+) -> Result<Packet, PlayerAuthInputError> {
+    player_auth_input_with_interactions(snapshot, &PlayerAuthInputInteractions::default())
+}
+
+/// Converts an app-owned movement snapshot plus the interactions of the same
+/// tick to the pinned protocol-2168 packet.
+///
+/// The `PerformBlockActions` and `PerformItemInteraction` flags are derived
+/// exclusively from payload presence so the flag list and the optional
+/// payloads can never disagree on the wire; a snapshot that asserts either
+/// flag itself is rejected.
+pub fn player_auth_input_with_interactions(
+    snapshot: PlayerAuthInputSnapshot,
+    interactions: &PlayerAuthInputInteractions,
 ) -> Result<Packet, PlayerAuthInputError> {
     let tick = snapshot.tick;
     let finite = snapshot
@@ -128,6 +158,25 @@ pub fn player_auth_input(
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
     }
+    let derived_flag_bits = PlayerInputFlags::PERFORM_ITEM_INTERACTION.bits()
+        | PlayerInputFlags::PERFORM_BLOCK_ACTIONS.bits();
+    if snapshot.flags.bits() & derived_flag_bits != 0 {
+        return Err(InteractionEncodeError::InconsistentInteractionFlags.into());
+    }
+    let mut flags = snapshot.flags;
+    let player_block_actions = if interactions.block_actions.is_empty() {
+        None
+    } else {
+        flags |= PlayerInputFlags::PERFORM_BLOCK_ACTIONS;
+        Some(interactions.block_actions.vendor()?)
+    };
+    let item_use_transaction = match &interactions.block_destroy {
+        None => None,
+        Some(request) => {
+            flags |= PlayerInputFlags::PERFORM_ITEM_INTERACTION;
+            Some(interactions::packed_block_destroy(request.clone())?)
+        }
+    };
 
     Ok(PlayerAuthInputPacket {
         player_rotation: Vec2 {
@@ -137,7 +186,7 @@ pub fn player_auth_input(
         position: vec3(snapshot.position),
         move_vector: vec2(snapshot.move_vector),
         player_head_rotation: snapshot.head_yaw,
-        input_data: Some(input_data_items(snapshot.flags)),
+        input_data: Some(input_data_items(flags)),
         input_mode: match snapshot.input_mode {
             PlayerInputMode::Mouse => EnumsInputMode::Mouse,
             PlayerInputMode::Touch => EnumsInputMode::Touch,
@@ -161,9 +210,9 @@ pub fn player_auth_input(
         // if outer { OptionalFunc(...) }`. A Go writer can never emit false
         // here -- it is hardcoded true -- and the generated Option's own
         // presence byte is the inner flag that actually says "no payload".
-        item_use_transaction: Some(None),
+        item_use_transaction: Some(item_use_transaction),
         item_stack_request: Some(None),
-        player_block_actions: Some(None),
+        player_block_actions: Some(player_block_actions),
         vehicle_rotation: Some(None),
         client_predicted_vehicle: Some(None),
         analog_move_vector: vec2(snapshot.analogue_move_vector),
