@@ -249,8 +249,16 @@ fn attempt_connect(
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.settings_return_to_pause = false;
+    network.shutdown();
+    guard.stop();
+    menu.release_session_directory();
     let generation = menu.next_session_generation();
     resource_packs.begin_generation(generation);
+    runtime.begin_session(generation);
+    client_world.stream = None;
+    client_world.pending_surface_spawn = None;
+    client_world.fatal_error = None;
+    client_world.transfer_notice = None;
     // Namespaced by process id like the `--address` path: a bare
     // generation counter restarts at the same value every launch, so a
     // previous run's directory would be reused for this session.
@@ -295,7 +303,6 @@ fn attempt_connect(
         return;
     }
     menu.bind_session_directory(session_directory);
-    network.shutdown();
     match crate::runtime::network::spawn_network(NetworkConfig {
         session_generation: generation,
         socket_dir,
@@ -303,11 +310,6 @@ fn attempt_connect(
         client_blob_cache: client_blob_cache.cache(),
     }) {
         Ok(replacement) => {
-            runtime.begin_session(generation);
-            client_world.stream = None;
-            client_world.pending_surface_spawn = None;
-            client_world.fatal_error = None;
-            client_world.transfer_notice = None;
             commands.insert_resource(replacement.movement_ticker());
             commands.insert_resource(replacement);
             menu.mark_connecting();
@@ -601,13 +603,8 @@ pub(crate) fn follow_server_transfer(
         );
         return;
     }
-    // Old-session teardown first: stop the network pump and the old core,
-    // release the old session directory, then rejoin through the same
-    // machinery as an ordinary user join (fresh generation, fresh core,
-    // fresh session directory, shared verified blob cache).
-    network.shutdown();
-    guard.stop();
-    menu.release_session_directory();
+    // The shared replacement path tears down old transport and world/UI state
+    // before provisioning, so every early failure leaves no stale session.
     attempt_connect(
         &mut commands,
         &mut menu,
@@ -814,18 +811,30 @@ mod transfer_follow_tests {
             "Player".to_owned(),
             missing_core_layout(root.path()),
         );
+        let old_generation = menu.next_session_generation();
         menu.mark_connected();
         menu.open_pause();
         menu.activate(MenuAction::PauseSettings);
 
-        let mut client_world = ClientWorld {
+        let client_world = ClientWorld {
+            stream: Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.0, 64.0, 0.0],
+                world_spawn_position: [0, 64, 0],
+                air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                block_network_ids_are_hashes: false,
+            })),
             transfer_notice: Some(TransferNotice {
                 host: "transfer.example.net".to_owned(),
                 port: 19132,
             }),
             ..ClientWorld::default()
         };
-        client_world.stream = None;
+        let mut runtime = UiRuntime::new(old_generation);
+        let _ = runtime.open_chat();
+        runtime.insert_chat_text("old session draft").unwrap();
 
         let mut app = App::new();
         app.insert_resource(menu)
@@ -833,10 +842,16 @@ mod transfer_follow_tests {
             .insert_resource(NetworkHandle::disconnected())
             .insert_resource(ClientBlobCacheOwner::default())
             .insert_resource(ResourcePackAdmissionState::default())
-            .insert_resource(UiRuntime::new(1))
+            .insert_resource(runtime)
             .insert_resource(client_world)
             .add_systems(Update, follow_server_transfer);
         app.update();
+
+        assert!(app.world().resource::<ClientWorld>().stream.is_none());
+        let runtime = app.world().resource::<UiRuntime>();
+        assert_ne!(runtime.session_id(), old_generation);
+        assert!(!runtime.chat_focused());
+        assert!(runtime.chat_editor().as_str().is_empty());
 
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         assert_eq!(menu.view().screen, MenuScreen::Settings);
