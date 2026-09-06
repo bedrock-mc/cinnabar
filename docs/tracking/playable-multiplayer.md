@@ -106,6 +106,16 @@ This CLI-mode test does not close launcher return-screen or hidden-screen UI
 behavior. The relay's additional distinct-pump-error regression passed 100
 repetitions; the full Go core tests/vet also passed after the follow-up.
 
+A signed-in launcher repeat on the Lifeboat catalog endpoint also released the
+loading cover, rendered the 25-column cohort, and drained the queues: 4,711
+accepted light jobs, including 2,952 value changes and 1,719 no-ops. One Escape
+opened Pause; Disconnect returned to Home with zero rendered chunks, and normal
+Quit exited successfully. This repeats the small-scene acceptance only; the
+server-reported version was not captured, and intermittent-stall, full-view,
+movement, and release-performance gates remain open. Hosted verification at
+`e175556d` passed all jobs, including Windows workspace tests/lint, Go checks,
+registry checks, and the native PowerShell harnesses.
+
 Menu input and provisional Creative mining remain isolated, review-blocked work,
 not integrated features. Their required corrections cover editor/highlight
 agreement, refocus input replay, failed replacement navigation, post-admission
