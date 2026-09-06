@@ -390,6 +390,122 @@ fn face_adjacent_initial_light_jobs_are_dispatched_independently() {
 }
 
 #[test]
+fn mixed_vertical_batches_propagate_emission_into_air_above() {
+    for (dimension, base_y, expected_sky) in [(1, 0, 0), (0, 17, 15)] {
+        let mut stream = lit_stream(dimension);
+        let emitter = SubChunkKey::new(dimension, 0, base_y, 0);
+        let middle = SubChunkKey::new(dimension, 0, base_y + 1, 0);
+        let top = SubChunkKey::new(dimension, 0, base_y + 2, 0);
+        stream
+            .store
+            .commit_sub_chunk(emitter, super::uniform_sub_chunk(1))
+            .unwrap();
+        stream.resident.insert(emitter);
+        stream.record_known_air(middle);
+        stream.record_known_air(top);
+        stream.mark_light_changed_sources([emitter, middle, top]);
+        settle_light(&mut stream, [8.0, (base_y * 16 + 40) as f32, 8.0]);
+        for key in [emitter, middle, top] {
+            assert!(stream.light_is_current(key));
+        }
+        let light = stream.light_store.light(middle).unwrap();
+        assert_eq!(
+            light.get(LightChannel::Block, 0, 0, 0),
+            Some(14),
+            "dimension {dimension}"
+        );
+        assert_eq!(
+            light.get(LightChannel::Sky, 0, 0, 0),
+            Some(expected_sky),
+            "dimension {dimension}"
+        );
+        assert!(stream.light_waiters.is_empty());
+    }
+}
+
+#[test]
+fn mutually_dependent_lit_air_regions_converge() {
+    let mut stream = lit_stream(1);
+    let emitter = SubChunkKey::new(1, 0, 0, 0);
+    let air = [
+        SubChunkKey::new(1, 1, 0, 0),
+        SubChunkKey::new(1, 0, 0, 1),
+        SubChunkKey::new(1, 1, 0, 1),
+    ];
+    stream
+        .store
+        .commit_sub_chunk(emitter, super::uniform_sub_chunk(1))
+        .unwrap();
+    stream.resident.insert(emitter);
+    for key in air {
+        stream.record_known_air(key);
+    }
+    stream.mark_light_changed_sources(std::iter::once(emitter).chain(air));
+    let mut completions = 0;
+    while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+        stream.dispatch_light_jobs([24.0, 8.0, 24.0], usize::MAX);
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("light dependencies must make progress");
+        stream.accept_light_completion(completion);
+        completions += 1;
+        assert!(
+            completions <= 128,
+            "stationary light dependencies did not converge"
+        );
+    }
+    for key in std::iter::once(emitter).chain(air) {
+        assert!(stream.light_is_current(key));
+    }
+    assert!(stream.light_waiters.is_empty());
+}
+
+#[test]
+fn mixed_roof_and_air_columns_converge() {
+    for roof_mask in [1_u8, 3, 5, 7] {
+        let mut stream = lit_stream(0);
+        let mut keys = Vec::new();
+        for x in 0..2 {
+            for z in 0..2 {
+                for y in 17..=19 {
+                    let key = SubChunkKey::new(0, x, y, z);
+                    let roof = y == 19 && roof_mask & (1 << (x * 2 + z)) != 0;
+                    if roof || (y == 18 && x == z) {
+                        stream
+                            .store
+                            .commit_sub_chunk(
+                                key,
+                                super::uniform_sub_chunk(if roof { 2 } else { 3 }),
+                            )
+                            .unwrap();
+                        stream.resident.insert(key);
+                    } else {
+                        stream.record_known_air(key);
+                    }
+                    keys.push(key);
+                }
+            }
+        }
+        stream.mark_light_changed_sources(keys.iter().copied());
+        let mut completions = 0;
+        while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+            stream.dispatch_light_jobs([24.0, 280.0, 24.0], usize::MAX);
+            let completion = stream
+                .light_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("roof light dependencies must make progress");
+            stream.accept_light_completion(completion);
+            completions += 1;
+            assert!(completions <= 512, "roof mask {roof_mask} did not converge");
+        }
+        for key in keys {
+            assert!(stream.light_is_current(key));
+        }
+    }
+}
+
+#[test]
 fn adjacent_initial_emitter_and_air_converge_without_stale_completions() {
     let mut stream = lit_stream(1);
     let emitter = SubChunkKey::new(1, 0, 0, 0);

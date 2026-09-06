@@ -331,6 +331,14 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             })
             .collect();
     }
+    // Mixed columns must be solved together: a lower resident sub-chunk may
+    // illuminate air above it, including air that otherwise looks uniform.
+    let all_known_air = jobs.iter().all(|job| {
+        matches!(
+            job.blocks.blocks.get(&job.key),
+            Some(SnapshotBlock::KnownAir)
+        )
+    });
     let mut solved_prefix = Vec::new();
     let mut remaining = Vec::new();
     let mut solved_above = None::<(SubChunkKey, Arc<SubChunkLight>, Arc<DirectSkyMask>)>;
@@ -348,7 +356,10 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             );
             job.prior.trusted_boundaries.insert(*key);
         }
-        let Some((replacement, direct_sky)) = uniform_known_air_light(&job) else {
+        let uniform = all_known_air
+            .then(|| uniform_known_air_light(&job))
+            .flatten();
+        let Some((replacement, direct_sky)) = uniform else {
             remaining.push(job);
             remaining.extend(candidates);
             break;
