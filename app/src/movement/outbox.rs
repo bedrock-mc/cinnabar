@@ -7,6 +7,7 @@
 //! and withheld instead.
 
 use protocol::{Packet, PlayerAuthInputError, player_auth_input_with_interactions};
+use tokio::sync::watch;
 
 use crate::mining::FrozenCreativeMining;
 
@@ -68,11 +69,63 @@ use super::{
 /// sent-history confirmations, and retained tick evidence.
 pub const OUTBOX_CAPACITY: usize = 32;
 
+/// A movement-only replacement for an admitted mining packet whose authority
+/// is revoked before its socket write begins.
+#[derive(Debug)]
+pub(crate) struct MiningPacketGuard {
+    authority_epoch: u64,
+    authority: watch::Receiver<u64>,
+    movement_packet: Packet,
+}
+
+impl MiningPacketGuard {
+    pub(crate) fn sanitize(self, packet: Packet) -> Packet {
+        if *self.authority.borrow() == self.authority_epoch {
+            packet
+        } else {
+            self.movement_packet
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_current(&self) -> bool {
+        *self.authority.borrow() == self.authority_epoch
+    }
+
+    #[cfg(test)]
+    pub(crate) fn testing(
+        authority_epoch: u64,
+        authority: watch::Receiver<u64>,
+        movement_packet: Packet,
+    ) -> Self {
+        Self {
+            authority_epoch,
+            authority,
+            movement_packet,
+        }
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn flush_player_auth_inputs<E>(
     ticker: &mut MovementTicker,
     budget: usize,
     evidence_context: Option<PhysicsTickEvidenceContext>,
     mut send: impl FnMut(PhysicsSendIdentity, Packet) -> Result<(), E>,
+) -> Result<usize, MovementSendError<E>> {
+    flush_player_auth_inputs_guarded(
+        ticker,
+        budget,
+        evidence_context,
+        |identity, packet, _guard| send(identity, packet),
+    )
+}
+
+pub(crate) fn flush_player_auth_inputs_guarded<E>(
+    ticker: &mut MovementTicker,
+    budget: usize,
+    evidence_context: Option<PhysicsTickEvidenceContext>,
+    mut send: impl FnMut(PhysicsSendIdentity, Packet, Option<MiningPacketGuard>) -> Result<(), E>,
 ) -> Result<usize, MovementSendError<E>> {
     if !ticker.physics_is_authorized() {
         ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
@@ -111,6 +164,22 @@ pub(crate) fn flush_player_auth_inputs<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
+        let mining_guard = sample
+            .mining
+            .as_ref()
+            .map(|_| {
+                let movement_packet = player_auth_input_with_interactions(
+                    sample.snapshot,
+                    &protocol::PlayerAuthInputInteractions::default(),
+                )?;
+                Ok::<_, PlayerAuthInputError>(MiningPacketGuard {
+                    authority_epoch: *ticker.mining_epoch_publisher.borrow(),
+                    authority: ticker.mining_epoch_publisher.subscribe(),
+                    movement_packet,
+                })
+            })
+            .transpose()
+            .map_err(MovementSendError::Encode)?;
         let interactions = sample
             .mining
             .as_ref()
@@ -125,7 +194,7 @@ pub(crate) fn flush_player_auth_inputs<E>(
             sample,
             evidence_context.expect("nonempty outbox requires staged evidence context"),
         );
-        if let Err(error) = send(identity, packet) {
+        if let Err(error) = send(identity, packet, mining_guard) {
             let sample = ticker
                 .restore_admitted(identity)
                 .map_err(|_| MovementSendError::RestoreOverflow)?;
@@ -148,15 +217,18 @@ impl MovementTicker {
     /// Drops interaction payloads whose frozen target, selection, ability, or
     /// session is no longer authorized. Movement samples remain queued.
     pub(crate) fn retain_creative_mining(&mut self, current: Option<&FrozenCreativeMining>) {
-        for sample in &mut self.outbox {
-            let keep = sample
-                .mining
-                .as_ref()
-                .zip(current)
-                .is_some_and(|(mining, current)| mining.still_authorized_by(current));
-            if !keep {
-                sample.mining = None;
-            }
+        let stale = self
+            .outbox
+            .iter()
+            .filter_map(|sample| sample.mining.as_ref())
+            .chain(
+                self.pending_sends
+                    .iter()
+                    .filter_map(|pending| pending.sample.mining.as_ref()),
+            )
+            .any(|mining| current.is_none_or(|current| !mining.still_authorized_by(current)));
+        if stale {
+            self.invalidate_creative_mining();
         }
     }
 
@@ -178,7 +250,7 @@ impl MovementTicker {
         if frozen.frame.position_authority_generation != self.reanchor_epoch
             || sample.session_generation != frozen.frame.session_generation
             || sample.snapshot.input_mode != frozen.input_mode
-            || sample.world_identity != frozen.ray.world_identity
+            || sample.world_identity != frozen.ray.movement_world_identity
             || sample.mining.is_some()
         {
             return None;
@@ -189,24 +261,31 @@ impl MovementTicker {
 
     pub(crate) fn has_queued_creative_mining(&self) -> bool {
         self.outbox.iter().any(|sample| sample.mining.is_some())
+            || self
+                .pending_sends
+                .iter()
+                .any(|pending| pending.sample.mining.is_some())
     }
 
     pub(crate) const fn mining_authority_identity(&self) -> (u64, u64) {
         (self.session_generation, self.reanchor_epoch)
     }
 
-    /// Invalidates every transport-owned sample after a position-authority
-    /// change and publishes the new epoch atomically with that invalidation.
-    pub(super) fn position_authority_changed(&mut self) {
-        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
+    fn invalidate_creative_mining(&mut self) {
+        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
+        self.mining_epoch_publisher.send_replace(next);
         for queued in &mut self.outbox {
             queued.mining = None;
         }
         for pending in &mut self.pending_sends {
-            pending.retry_after_cancellation = false;
             pending.sample.mining = None;
         }
-        self.sent_history.clear();
+    }
+
+    /// Invalidates every transport-owned sample after a position-authority
+    /// change and publishes the new epoch atomically with that invalidation.
+    pub(super) fn position_authority_changed(&mut self) {
+        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
         self.epoch_publisher.send_if_modified(|published| {
             if *published == self.reanchor_epoch {
                 false
@@ -215,6 +294,11 @@ impl MovementTicker {
                 true
             }
         });
+        self.invalidate_creative_mining();
+        for pending in &mut self.pending_sends {
+            pending.retry_after_cancellation = false;
+        }
+        self.sent_history.clear();
         self.refresh_outbox_reconciliation();
     }
 }

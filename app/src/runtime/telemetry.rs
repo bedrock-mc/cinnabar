@@ -48,8 +48,8 @@ use crate::{
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
-        MovementSendError, MovementTicker, PhysicsTickEvidenceContext, flush_player_auth_inputs,
-        pending_trace_line, write_trace_line,
+        MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
+        flush_player_auth_inputs_guarded, pending_trace_line, write_trace_line,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -346,17 +346,20 @@ pub(crate) fn send_player_auth_inputs(
                 free_camera_packet_count: movement.sent_free_camera_packet_count(),
             }
         });
-    let result = flush_player_auth_inputs(
+    let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet| {
-            // Opt-in diagnostic trace of the exact outbound movement stream.
+        |identity, packet, mining_guard| {
+            // Opt-in diagnostic trace of the exact unguarded movement stream.
             // The line is formatted before the send attempt and written only
             // after the transport accepted the packet, so retried samples are
             // traced exactly once, at their successful hand-off.
-            let trace_line = pending_trace_line(identity.session_generation, &packet);
-            let sent = network.send_physics_packet(identity, packet);
+            let trace_line = mining_guard
+                .is_none()
+                .then(|| pending_trace_line(identity.session_generation, &packet))
+                .flatten();
+            let sent = network.send_physics_packet(identity, packet, mining_guard);
             if sent.is_ok()
                 && let Some(line) = trace_line
             {

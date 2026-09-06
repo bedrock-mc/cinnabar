@@ -125,6 +125,95 @@ fn full_cube_hit_reports_authoritative_contract() {
 }
 
 #[test]
+fn ray_identity_covers_a_reachable_target_across_a_chunk_boundary() {
+    let (mut store, _) = loaded_air_store(ChunkKey::new(0, 0, 0));
+    set_block(&mut store, [16, 0, 0], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+    let origin = Vec3::new(14.5, 0.5, 0.5);
+    let direction = Vec3::new(1.0, 0.0, 0.0);
+
+    let hit = world
+        .block_interaction_ray_current(origin, direction, 3.0)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(hit.block_pos, [16, 0, 0]);
+    assert!(
+        hit.identity
+            .chunks
+            .iter()
+            .any(|revision| revision.chunk == ChunkKey::new(0, 1, 0))
+    );
+}
+
+#[test]
+fn unloaded_columns_strictly_beyond_a_near_hit_do_not_veto_it() {
+    let mut store = ChunkStore::new();
+    for z in -1..=0 {
+        let chunk = ChunkKey::new(0, 0, z);
+        for y in -1..=1 {
+            let key = SubChunkKey::from_chunk(chunk, y);
+            store.apply_request_mode_air(key).unwrap();
+            store.mark_sub_chunk_loaded(key).unwrap();
+        }
+    }
+    set_block(&mut store, [14, 0, 0], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+
+    let hit = PaletteWorld::new(&store, &registry, 0)
+        .block_interaction_ray_current(Vec3::new(13.5, 0.5, 0.5), Vec3::new(1.0, 0.0, 0.0), 5.0)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(hit.block_pos, [14, 0, 0]);
+    assert!(
+        hit.identity
+            .chunks
+            .iter()
+            .all(|revision| revision.chunk.x == 0)
+    );
+}
+
+#[test]
+fn unloaded_column_before_a_farther_target_still_fails_closed() {
+    let mut store = ChunkStore::new();
+    for x in [0, 2] {
+        for z in -1..=0 {
+            let chunk = ChunkKey::new(0, x, z);
+            for y in -1..=1 {
+                let key = SubChunkKey::from_chunk(chunk, y);
+                store.apply_request_mode_air(key).unwrap();
+                store.mark_sub_chunk_loaded(key).unwrap();
+            }
+        }
+    }
+    set_block(&mut store, [32, 0, 0], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+
+    assert!(matches!(
+        PaletteWorld::new(&store, &registry, 0).block_interaction_ray_current(
+            Vec3::new(14.5, 0.5, 0.5),
+            Vec3::new(1.0, 0.0, 0.0),
+            20.0,
+        ),
+        Err(WorldQueryError::UnloadedChunk(chunk)) if chunk.dimension == 0 && chunk.x == 1
+    ));
+}
+
+#[test]
 fn all_six_faces_use_the_bedrock_numeric_mapping() {
     let (store, registry, expected) = fixture(7);
     let world = PaletteWorld::new(&store, &registry, 0);

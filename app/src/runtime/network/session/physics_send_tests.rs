@@ -55,6 +55,141 @@ impl NetworkSession for CountingSendSession {
     }
 }
 
+struct RecordingSendSession {
+    sent: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+impl NetworkSession for RecordingSendSession {
+    type Error = &'static str;
+
+    async fn receive_world_event(
+        &mut self,
+        _current_dimension: i32,
+    ) -> Result<WorldEvent, Self::Error> {
+        future::pending().await
+    }
+
+    async fn send_packet(&mut self, packet: protocol::Packet) -> Result<(), Self::Error> {
+        let bytes = protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
+            .unwrap()
+            .to_vec();
+        self.sent.lock().unwrap().push(bytes);
+        Ok(())
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+}
+
+#[tokio::test]
+async fn revoked_mining_is_removed_before_write_without_suppressing_its_movement_tick() {
+    let identity = crate::movement::PhysicsSendIdentity {
+        session_generation: 7,
+        tick: 101,
+        admission_id: 3,
+        reanchor_epoch: 0,
+    };
+    let combined = protocol::request_sub_chunk_column(0, 7, 8, -4, 1).unwrap();
+    let movement = test_packet();
+    let expected = protocol::encode(&movement, &protocol::BedrockSession { shield_item_id: 0 })
+        .unwrap()
+        .to_vec();
+    let (mining_authority, mining_authority_rx) = watch::channel(0);
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: combined,
+            sub_chunk: None,
+            chat: None,
+            physics: Some(identity),
+            physics_reanchor: None,
+            mining: Some(crate::movement::MiningPacketGuard::testing(
+                0,
+                mining_authority_rx,
+                movement,
+            )),
+        })
+        .unwrap();
+    mining_authority.send_replace(1);
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        RecordingSendSession {
+            sent: Arc::clone(&sent),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::PhysicsPacketSent { identity: observed }))
+            if observed == identity
+    ));
+    assert_eq!(sent.lock().unwrap().as_slice(), [expected]);
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn current_mining_command_reaches_the_write_byte_exact() {
+    let identity = crate::movement::PhysicsSendIdentity {
+        session_generation: 7,
+        tick: 101,
+        admission_id: 3,
+        reanchor_epoch: 0,
+    };
+    let combined = protocol::request_sub_chunk_column(0, 7, 8, -4, 1).unwrap();
+    let expected = protocol::encode(&combined, &protocol::BedrockSession { shield_item_id: 0 })
+        .unwrap()
+        .to_vec();
+    let (_mining_authority, mining_authority_rx) = watch::channel(0);
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: combined,
+            sub_chunk: None,
+            chat: None,
+            physics: Some(identity),
+            physics_reanchor: None,
+            mining: Some(crate::movement::MiningPacketGuard::testing(
+                0,
+                mining_authority_rx,
+                test_packet(),
+            )),
+        })
+        .unwrap();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        RecordingSendSession {
+            sent: Arc::clone(&sent),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::PhysicsPacketSent { identity: observed }))
+            if observed == identity
+    ));
+    assert_eq!(sent.lock().unwrap().as_slice(), [expected]);
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+}
+
 #[tokio::test]
 async fn reanchor_cancels_an_admitted_but_unstarted_physics_send_before_socket_write() {
     let identity = crate::movement::PhysicsSendIdentity {
@@ -64,6 +199,7 @@ async fn reanchor_cancels_an_admitted_but_unstarted_physics_send_before_socket_w
         reanchor_epoch: 0,
     };
     let (reanchor, reanchor_rx) = watch::channel(0);
+    let (_mining_authority, mining_authority_rx) = watch::channel(0);
     let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
     commands
@@ -73,6 +209,11 @@ async fn reanchor_cancels_an_admitted_but_unstarted_physics_send_before_socket_w
             chat: None,
             physics: Some(identity),
             physics_reanchor: Some(reanchor_rx),
+            mining: Some(crate::movement::MiningPacketGuard::testing(
+                0,
+                mining_authority_rx,
+                test_packet(),
+            )),
         })
         .unwrap();
     reanchor.send_replace(1);
@@ -119,6 +260,7 @@ async fn physics_send_ack_is_emitted_only_after_successful_socket_write() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
+            mining: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -162,6 +304,7 @@ async fn failed_physics_socket_write_never_emits_success_ack() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
+            mining: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -207,6 +350,7 @@ async fn cancelled_pending_physics_socket_write_never_emits_success_ack() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
+            mining: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -253,6 +397,7 @@ async fn reanchor_during_an_in_flight_physics_send_preserves_the_socket_result()
             chat: None,
             physics: Some(identity),
             physics_reanchor: Some(reanchor_rx),
+            mining: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);

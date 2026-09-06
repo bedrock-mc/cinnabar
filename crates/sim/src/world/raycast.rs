@@ -40,6 +40,17 @@ struct Candidate {
 }
 
 impl PaletteWorld<'_> {
+    /// Finds the nearest hit and freezes the exact registry and column
+    /// revisions inspected through that hit.
+    pub fn block_interaction_ray_current(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        self.block_interaction_ray_with_identity(origin, direction, max_distance, None)
+    }
+
     /// Finds the nearest collision-shape intercept along a caller-bounded ray.
     ///
     /// `expected_identity` must cover every column whose collision data could
@@ -51,10 +62,25 @@ impl PaletteWorld<'_> {
         max_distance: f64,
         expected_identity: &WorldCollisionIdentity,
     ) -> Result<Option<BlockHit>, WorldQueryError> {
-        let direction = validate_ray(origin, direction, max_distance)?;
         if expected_identity.registry != self.registry.identity() {
             return Err(WorldQueryError::RegistryIdentityMismatch);
         }
+        self.block_interaction_ray_with_identity(
+            origin,
+            direction,
+            max_distance,
+            Some(expected_identity),
+        )
+    }
+
+    fn block_interaction_ray_with_identity(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+        expected_identity: Option<&WorldCollisionIdentity>,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let direction = validate_ray(origin, direction, max_distance)?;
         let inspection_limit = inspection_limit(direction, max_distance)?;
         let mut state = TraversalState::new(origin, direction)?;
         let mut inspected = BTreeSet::new();
@@ -122,7 +148,7 @@ impl PaletteWorld<'_> {
         origin: Vec3,
         direction: Vec3,
         max_distance: f64,
-        expected: &WorldCollisionIdentity,
+        expected: Option<&WorldCollisionIdentity>,
         inspected: &mut BTreeSet<[i32; 3]>,
         inspected_count: &mut usize,
         inspection_limit: usize,
@@ -164,7 +190,7 @@ impl PaletteWorld<'_> {
         origin: Vec3,
         direction: Vec3,
         max_distance: f64,
-        expected: &WorldCollisionIdentity,
+        expected: Option<&WorldCollisionIdentity>,
         revisions: &mut BTreeMap<ChunkKey, ChunkCollisionRevision>,
         best: &mut Option<Candidate>,
     ) -> Result<(), WorldQueryError> {
@@ -173,13 +199,15 @@ impl PaletteWorld<'_> {
             .store
             .collision_revision(chunk)
             .ok_or(WorldQueryError::UnloadedChunk(chunk))?;
-        let expected_revision = expected
-            .chunks
-            .binary_search_by_key(&chunk, |revision| revision.chunk)
-            .ok()
-            .map(|index| expected.chunks[index]);
-        if expected_revision != Some(current) {
-            return Err(WorldQueryError::StaleCollisionIdentity { chunk });
+        if let Some(expected) = expected {
+            let expected_revision = expected
+                .chunks
+                .binary_search_by_key(&chunk, |revision| revision.chunk)
+                .ok()
+                .map(|index| expected.chunks[index]);
+            if expected_revision != Some(current) {
+                return Err(WorldQueryError::StaleCollisionIdentity { chunk });
+            }
         }
         revisions.insert(chunk, current);
 

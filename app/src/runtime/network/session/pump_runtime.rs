@@ -106,6 +106,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     chat,
                     physics,
                     physics_reanchor,
+                    mining,
                 }) => {
                     if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
                         && *reanchor.borrow() != identity.reanchor_epoch
@@ -124,6 +125,10 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                         }
                         continue;
                     }
+                    let packet = match mining {
+                        Some(guard) => guard.sanitize(packet),
+                        None => packet,
+                    };
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
                         session.begin_packet_id_trace();

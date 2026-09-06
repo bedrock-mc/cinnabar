@@ -43,6 +43,7 @@ pub(crate) struct FrozenMiningFrame {
 pub(crate) struct FrozenMiningRay {
     pub(crate) origin: [f32; 3],
     pub(crate) direction: [f32; 3],
+    pub(crate) movement_world_identity: WorldCollisionIdentity,
     pub(crate) world_identity: WorldCollisionIdentity,
 }
 
@@ -83,6 +84,8 @@ impl FrozenCreativeMining {
             && self.frame.pose_generation <= current.frame.pose_generation
             && self.ray.origin.into_iter().all(f32::is_finite)
             && self.ray.direction.into_iter().all(f32::is_finite)
+            && self.ray.movement_world_identity == current.ray.movement_world_identity
+            && self.ray.world_identity == current.ray.world_identity
             && self.reach == current.reach
             && self.input_mode == current.input_mode
             && self.ability == current.ability
@@ -237,18 +240,14 @@ pub(crate) fn produce_creative_mining(
         return;
     }
     let position_authority_generation = movement.mining_authority_identity().1;
-    let current = (!ui.ui_focused())
-        .then(|| {
-            creative_observation(
-                &origin,
-                &ui,
-                &client_world,
-                &collisions,
-                input_snapshot.input_mode,
-                position_authority_generation,
-            )
-        })
-        .flatten();
+    let current = creative_observation(
+        &origin,
+        &ui,
+        &client_world,
+        &collisions,
+        input_snapshot.input_mode,
+        position_authority_generation,
+    );
     let _ = runtime.update_press(
         attack_pressed,
         input_snapshot.authority_generation,
@@ -265,7 +264,7 @@ fn creative_observation(
     input_mode: InputMode,
     position_authority_generation: u64,
 ) -> Option<FrozenCreativeMining> {
-    let ability = creative_mining_ability(ui.player_game_mode()?)?;
+    let ability = creative_mining_ui_ability(ui.ui_focused(), ui.player_game_mode()?)?;
     let ray = origin.outbound_ray()?;
     let stream = client_world.stream.as_ref()?;
     if ray.session_generation() != ui.session_id()
@@ -285,20 +284,16 @@ fn creative_observation(
         stream.current_dimension(),
     );
     let hit = world
-        .block_interaction_ray(
-            sim_vec(ray.origin()),
-            sim_vec(ray.direction()),
-            reach,
-            ray.world_collision_identity(),
-        )
+        .block_interaction_ray_current(sim_vec(ray.origin()), sim_vec(ray.direction()), reach)
         .ok()??;
+    let ray_world_identity = hit.identity.clone();
     let selection = verified_selection(ui)?;
     Some(frozen_observation(
         ray,
         input_mode,
         reach,
         selection,
-        hit,
+        (ray_world_identity, hit),
         position_authority_generation,
         ability,
     ))
@@ -323,10 +318,11 @@ fn frozen_observation(
     input_mode: PlayerInputMode,
     reach: f64,
     selection: FrozenMiningSelection,
-    hit: BlockHit,
+    ray_hit: (WorldCollisionIdentity, BlockHit),
     position_authority_generation: u64,
     ability: CreativeMiningAbility,
 ) -> FrozenCreativeMining {
+    let (ray_world_identity, hit) = ray_hit;
     FrozenCreativeMining {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
@@ -338,7 +334,8 @@ fn frozen_observation(
         ray: FrozenMiningRay {
             origin: ray.origin().to_array(),
             direction: ray.direction().to_array(),
-            world_identity: ray.world_collision_identity().clone(),
+            movement_world_identity: ray.world_collision_identity().clone(),
+            world_identity: ray_world_identity,
         },
         reach,
         input_mode,
@@ -367,6 +364,17 @@ const fn creative_mining_ability(
         | protocol::PlayerGameMode::Adventure
         | protocol::PlayerGameMode::Spectator
         | protocol::PlayerGameMode::Unknown => None,
+    }
+}
+
+const fn creative_mining_ui_ability(
+    ui_focused: bool,
+    game_mode: protocol::PlayerGameMode,
+) -> Option<CreativeMiningAbility> {
+    if ui_focused {
+        None
+    } else {
+        creative_mining_ability(game_mode)
     }
 }
 

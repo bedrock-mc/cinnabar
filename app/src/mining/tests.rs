@@ -7,11 +7,11 @@ use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 use super::{
     CreativeMiningAbility, FrozenCreativeMining, FrozenMiningFrame, FrozenMiningRay,
     FrozenMiningSelection, FrozenMiningTarget, MiningRuntime, creative_mining_ability,
-    creative_reach,
+    creative_mining_ui_ability, creative_reach,
 };
 use crate::movement::{
     MovementSource, MovementTicker, PhysicsMovementSample, PhysicsTickEvidenceContext,
-    ProcessedMovementState, flush_player_auth_inputs,
+    ProcessedMovementState, flush_player_auth_inputs, flush_player_auth_inputs_guarded,
 };
 
 fn world_identity(revision: u64) -> WorldCollisionIdentity {
@@ -25,6 +25,27 @@ fn world_identity(revision: u64) -> WorldCollisionIdentity {
             chunk: world::ChunkKey::new(0, 0, 0),
             revision,
         }],
+    )
+    .unwrap()
+}
+
+fn cross_chunk_world_identity(revision: u64) -> WorldCollisionIdentity {
+    WorldCollisionIdentity::new(
+        CollisionRegistryIdentity {
+            protocol: 2168,
+            id_space: CollisionIdSpace::Sequential,
+            preg_sha256: [7; 32],
+        },
+        [
+            world::ChunkCollisionRevision {
+                chunk: world::ChunkKey::new(0, 0, 0),
+                revision,
+            },
+            world::ChunkCollisionRevision {
+                chunk: world::ChunkKey::new(0, 1, 0),
+                revision,
+            },
+        ],
     )
     .unwrap()
 }
@@ -60,6 +81,7 @@ fn observation(tick: u64, target: [i32; 3], item_id: i32) -> FrozenCreativeMinin
         ray: FrozenMiningRay {
             origin: [0.5, 2.62, 0.5],
             direction: [0.0, 0.0, -1.0],
+            movement_world_identity: world_identity(3),
             world_identity: world_identity(3),
         },
         reach: 5.7,
@@ -190,6 +212,18 @@ fn only_explicit_creative_mode_grants_the_first_slice_ability() {
 }
 
 #[test]
+fn ui_ownership_revokes_even_an_explicit_creative_ability() {
+    assert_eq!(
+        creative_mining_ui_ability(true, protocol::PlayerGameMode::Creative),
+        None
+    );
+    assert_eq!(
+        creative_mining_ui_ability(false, protocol::PlayerGameMode::Creative),
+        Some(CreativeMiningAbility::InstantBreak)
+    );
+}
+
+#[test]
 fn creative_reach_is_frozen_per_input_mode() {
     assert_eq!(creative_reach(PlayerInputMode::Mouse), 5.7);
     assert_eq!(creative_reach(PlayerInputMode::GamePad), 5.6);
@@ -267,13 +301,24 @@ fn transport_full_retry_preserves_the_exact_combined_payload_once() {
 
     runtime.update_press(false, authority, Some(current), &mut ticker);
     let mut retry = None;
-    let sent = flush_player_auth_inputs(&mut ticker, 1, Some(evidence()), |_identity, packet| {
-        retry = Some(encoded(&packet));
-        Ok::<_, &str>(())
-    })
+    let mut retry_identity = None;
+    let sent = flush_player_auth_inputs_guarded(
+        &mut ticker,
+        1,
+        Some(evidence()),
+        |identity, packet, guard| {
+            retry_identity = Some(identity);
+            let guard = guard.expect("the retried combined packet remains guarded");
+            assert!(guard.is_current());
+            retry = Some(encoded(&guard.sanitize(packet)));
+            Ok::<_, &str>(())
+        },
+    )
     .unwrap();
     assert_eq!(sent, 1);
     assert_eq!(first, retry);
+    assert!(ticker.has_queued_creative_mining());
+    assert!(ticker.acknowledge_physics_send(retry_identity.unwrap()));
     assert!(!ticker.has_queued_creative_mining());
 }
 
@@ -300,7 +345,7 @@ fn mismatched_tick_collision_identity_cannot_receive_the_break() {
     let mut ticker = ticker_with_ticks(1);
     let authority = NonZeroU64::new(5).unwrap();
     let mut current = observation(101, [0, 1, -3], 2);
-    current.ray.world_identity = world_identity(4);
+    current.ray.movement_world_identity = world_identity(4);
     let mut runtime = MiningRuntime::default();
 
     assert_eq!(
@@ -309,6 +354,22 @@ fn mismatched_tick_collision_identity_cannot_receive_the_break() {
     );
     assert!(!ticker.has_queued_creative_mining());
     assert_eq!(ticker.pending_count(), 1);
+}
+
+#[test]
+fn cross_chunk_ray_identity_attaches_to_its_distinct_local_movement_tick() {
+    let mut ticker = ticker_with_ticks(1);
+    let authority = NonZeroU64::new(5).unwrap();
+    let mut current = observation(101, [16, 1, 0], 2);
+    current.ray.world_identity = cross_chunk_world_identity(3);
+    current.target.identity = current.ray.world_identity.clone();
+    let mut runtime = MiningRuntime::default();
+
+    assert_eq!(
+        runtime.update_press(true, authority, Some(current), &mut ticker),
+        Some(101)
+    );
+    assert!(ticker.has_queued_creative_mining());
 }
 
 #[test]
@@ -389,6 +450,62 @@ fn unavailable_current_authority_strips_only_the_unsent_break() {
     assert!(!ticker.has_queued_creative_mining());
     assert_eq!(ticker.pending_count(), 1);
     assert!(!runtime.has_pending_press());
+}
+
+#[test]
+fn post_admission_ui_ability_selection_target_and_world_revocation_keep_pure_movement() {
+    let authority = NonZeroU64::new(5).unwrap();
+    let original = observation(101, [0, 1, -3], 2);
+    let mut changed_selection = original.clone();
+    changed_selection.selection.item = verified_item(3);
+    let mut changed_target = original.clone();
+    changed_target.target.position = [1, 1, -3];
+    let mut changed_world = original.clone();
+    changed_world.ray.world_identity = world_identity(4);
+
+    let mut pure_ticker = ticker_with_ticks(1);
+    let mut pure = None;
+    flush_player_auth_inputs(
+        &mut pure_ticker,
+        1,
+        Some(evidence()),
+        |_identity, packet| {
+            pure = Some(encoded(&packet));
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    let pure = pure.unwrap();
+
+    for current in [
+        None,
+        Some(changed_selection),
+        Some(changed_target),
+        Some(changed_world),
+    ] {
+        let mut ticker = ticker_with_ticks(1);
+        let mut runtime = MiningRuntime::default();
+        runtime.update_press(true, authority, Some(original.clone()), &mut ticker);
+        let mut admitted = None;
+        flush_player_auth_inputs_guarded(
+            &mut ticker,
+            1,
+            Some(evidence()),
+            |_identity, packet, guard| {
+                admitted = Some((packet, guard.unwrap()));
+                Ok::<_, &str>(())
+            },
+        )
+        .unwrap();
+        assert!(admitted.as_ref().unwrap().1.is_current());
+
+        runtime.update_press(false, authority, current, &mut ticker);
+        let (combined, guard) = admitted.unwrap();
+        assert!(!guard.is_current());
+        assert_eq!(encoded(&guard.sanitize(combined)), pure);
+        assert!(!ticker.has_queued_creative_mining());
+        assert_eq!(ticker.pending_count(), 1);
+    }
 }
 
 #[test]

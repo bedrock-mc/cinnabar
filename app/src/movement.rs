@@ -32,7 +32,11 @@ use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
-pub(crate) use outbox::{MovementOutboxReconciliation, flush_player_auth_inputs};
+#[cfg(test)]
+pub(crate) use outbox::flush_player_auth_inputs;
+pub(crate) use outbox::{
+    MiningPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+};
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
@@ -124,6 +128,7 @@ pub struct MovementTicker {
     replayed_corrections_observed: u64,
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
+    mining_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -136,6 +141,7 @@ impl Default for MovementTicker {
 
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
+        let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -163,6 +169,7 @@ impl MovementTicker {
             replayed_corrections_observed: 0,
             unmarked_move_players_observed: 0,
             epoch_publisher,
+            mining_epoch_publisher,
         }
     }
 

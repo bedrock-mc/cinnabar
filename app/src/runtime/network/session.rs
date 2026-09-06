@@ -21,7 +21,7 @@ use world::ChunkKey;
 
 use crate::{
     acceptance::mutation::write_stdout_marker,
-    movement::{MovementTicker, PhysicsSendIdentity},
+    movement::{MiningPacketGuard, MovementTicker, PhysicsSendIdentity},
     ui_runtime::FastTransferAction,
 };
 
@@ -251,6 +251,7 @@ enum NetworkCommand {
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<u64>>,
+        mining: Option<MiningPacketGuard>,
     },
 }
 
@@ -376,13 +377,14 @@ impl NetworkHandle {
 
     #[cfg(test)]
     pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
     pub(crate) fn send_physics_packet(
         &self,
         identity: PhysicsSendIdentity,
         packet: Packet,
+        mining: Option<MiningPacketGuard>,
     ) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(
             packet,
@@ -390,15 +392,16 @@ impl NetworkHandle {
             None,
             Some(identity),
             Some(self.physics_reanchor.subscribe()),
+            mining,
         )
     }
 
     pub(crate) fn send_hotbar_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
     pub(crate) fn send_inventory_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
     pub fn send_chat_packet(
@@ -416,6 +419,7 @@ impl NetworkHandle {
                 sequence,
                 fast_transfer_action,
             }),
+            None,
             None,
             None,
         )
@@ -438,6 +442,7 @@ impl NetworkHandle {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -448,6 +453,7 @@ impl NetworkHandle {
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<u64>>,
+        mining: Option<MiningPacketGuard>,
     ) -> Result<(), PacketSendError> {
         self.commands
             .try_send(NetworkCommand::Send {
@@ -456,6 +462,7 @@ impl NetworkHandle {
                 chat,
                 physics,
                 physics_reanchor,
+                mining,
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
