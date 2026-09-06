@@ -514,6 +514,14 @@ impl MenuRuntime {
         {
             self.focused = index;
         }
+        match action {
+            MenuAction::AddName => self.focus_field(MenuField::Name),
+            MenuAction::AddAddress => self.focus_field(MenuField::Address),
+            _ => {
+                self.field = None;
+                self.text_selected = false;
+            }
+        }
         self.pressed = Some(action);
         self.message = None;
         match action {
@@ -613,8 +621,7 @@ impl MenuRuntime {
                     }
                 }
             }
-            MenuAction::AddName => self.focus_field(MenuField::Name),
-            MenuAction::AddAddress => self.focus_field(MenuField::Address),
+            MenuAction::AddName | MenuAction::AddAddress => {}
             MenuAction::AddSave => {
                 if self.save_draft() {
                     self.enter(MenuScreen::Play);

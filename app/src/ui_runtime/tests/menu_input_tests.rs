@@ -72,6 +72,20 @@ fn release_key(app: &mut App, window: Entity, key_code: KeyCode) {
     app.update();
 }
 
+fn queue_key(app: &mut App, window: Entity, key_code: KeyCode, text: Option<&str>) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(key_code);
+    app.world_mut().write_message(KeyboardInput {
+        key_code,
+        logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: text.map(Into::into),
+        repeat: false,
+        window,
+    });
+}
+
 #[test]
 fn tab_focus_and_edit_destination_stay_in_lockstep() {
     let (mut app, window) = menu_input_app(MenuClipboard::default());
@@ -85,6 +99,18 @@ fn tab_focus_and_edit_destination_stay_in_lockstep() {
         app.world().resource::<MenuRuntime>().view().field,
         Some(MenuField::Name)
     );
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::AddSave);
+    press_key(&mut app, window, KeyCode::KeyZ, Some("z"));
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(MenuAction::AddSave));
+    assert_eq!(view.field, None);
+    assert_eq!(view.name, "a");
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::AddName);
+
     press_key(&mut app, window, KeyCode::Tab, None);
     press_key(&mut app, window, KeyCode::KeyB, Some("b"));
     let view = app.world().resource::<MenuRuntime>().view();
@@ -104,6 +130,9 @@ fn tab_focus_and_edit_destination_stay_in_lockstep() {
     assert_eq!(view.field, Some(MenuField::Name));
     assert_eq!(view.name, "ac");
 
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::AddName);
     press_key(&mut app, window, KeyCode::Tab, None);
     press_key(&mut app, window, KeyCode::Tab, None);
     let view = app.world().resource::<MenuRuntime>().view();
@@ -145,26 +174,49 @@ fn modifier_selection_and_paste_are_bounded_unicode_safe_and_input_owned() {
     assert_eq!(read_count.load(Ordering::Relaxed), 1);
     assert_eq!(requested_maximum.load(Ordering::Relaxed), 64);
 
+    press_key(&mut app, window, KeyCode::ControlRight, None);
+    release_key(&mut app, window, KeyCode::ControlLeft);
     press_key(&mut app, window, KeyCode::KeyA, Some("a"));
     press_key(&mut app, window, KeyCode::KeyC, Some("c"));
     assert_eq!(copied.lock().unwrap().as_deref(), Some("server-🌍"));
     press_key(&mut app, window, KeyCode::Backspace, None);
     assert_eq!(app.world().resource::<MenuRuntime>().view().name, "");
 
-    release_key(&mut app, window, KeyCode::ControlLeft);
+    release_key(&mut app, window, KeyCode::ControlRight);
     press_key(&mut app, window, KeyCode::KeyE, Some("\u{1}é"));
     assert_eq!(app.world().resource::<MenuRuntime>().view().name, "é");
+
+    press_key(&mut app, window, KeyCode::SuperLeft, None);
+    press_key(&mut app, window, KeyCode::KeyA, Some("a"));
+    press_key(&mut app, window, KeyCode::KeyV, Some("v"));
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().name,
+        "server-🌍"
+    );
+    assert_eq!(read_count.load(Ordering::Relaxed), 2);
+    release_key(&mut app, window, KeyCode::SuperLeft);
 
     app.world_mut()
         .entity_mut(window)
         .get_mut::<Window>()
         .unwrap()
         .focused = false;
+    queue_key(&mut app, window, KeyCode::ControlLeft, None);
+    queue_key(&mut app, window, KeyCode::KeyV, Some("v"));
+    queue_key(&mut app, window, KeyCode::Enter, None);
+    queue_key(&mut app, window, KeyCode::Escape, None);
+    app.update();
+    assert_eq!(read_count.load(Ordering::Relaxed), 2);
     app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::ControlLeft);
-    press_key(&mut app, window, KeyCode::KeyV, Some("v"));
-    assert_eq!(read_count.load(Ordering::Relaxed), 1);
+        .entity_mut(window)
+        .get_mut::<Window>()
+        .unwrap()
+        .focused = true;
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.screen, MenuScreen::AddServer);
+    assert_eq!(view.name, "server-🌍");
+    assert_eq!(read_count.load(Ordering::Relaxed), 2);
 }
 
 #[test]

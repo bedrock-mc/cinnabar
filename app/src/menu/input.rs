@@ -246,6 +246,9 @@ fn attempt_connect(
     address: String,
     auth_cache: Option<std::path::PathBuf>,
 ) {
+    // A replacement owns no route back into the old session, even when
+    // provisioning the new endpoint fails before the connecting screen opens.
+    menu.settings_return_to_pause = false;
     let generation = menu.next_session_generation();
     resource_packs.begin_generation(generation);
     // Namespaced by process id like the `--address` path: a bare
@@ -334,6 +337,7 @@ pub(crate) fn drive_menu_input(
     menu.pressed = None;
     if !window.focused {
         *modifiers = MenuModifiers::default();
+        keyboard_messages.clear();
         menu.pointer_down = false;
         return;
     }
@@ -679,7 +683,72 @@ mod session_failure_message_tests {
 
 #[cfg(test)]
 mod transfer_follow_tests {
-    use super::super::{MAX_TRANSFER_CHAIN_HOPS, MenuRuntime, format_transfer_address};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bevy::prelude::{App, Update};
+
+    use super::{
+        super::{
+            CoreProcessGuard, MAX_TRANSFER_CHAIN_HOPS, MenuAction, MenuRuntime, MenuScreen,
+            format_transfer_address,
+        },
+        follow_server_transfer,
+    };
+    use crate::{
+        app::ClientBlobCacheOwner,
+        install_layout::{InstallEnvironment, InstallLayout, Platform},
+        runtime::{
+            network::{NetworkHandle, ResourcePackAdmissionState},
+            world::{ClientWorld, TransferNotice},
+        },
+        ui_runtime::UiRuntime,
+    };
+
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "cinnabar-menu-transfer-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("create isolated transfer root");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn missing_core_layout(root: &Path) -> InstallLayout {
+        InstallLayout::resolve(
+            Platform::Linux,
+            &InstallEnvironment {
+                executable: root.join("target/debug/bedrock-client"),
+                home: Some(root.join("home")),
+                local_app_data: None,
+                xdg_config_home: None,
+                xdg_data_home: None,
+                xdg_runtime_dir: None,
+            },
+        )
+        .expect("isolated development layout")
+    }
 
     #[test]
     fn transfer_addresses_bracket_ipv6_and_leave_ordinary_hosts_untouched() {
@@ -734,5 +803,50 @@ mod transfer_follow_tests {
         // And another user join renews it after exhaustion.
         menu.begin_fresh_transfer_chain();
         assert!(menu.consume_transfer_chain_hop());
+    }
+
+    #[test]
+    fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
+        let root = TempRoot::new();
+        let mut menu = MenuRuntime::new_with_layout(
+            true,
+            2,
+            "Player".to_owned(),
+            missing_core_layout(root.path()),
+        );
+        menu.mark_connected();
+        menu.open_pause();
+        menu.activate(MenuAction::PauseSettings);
+
+        let mut client_world = ClientWorld {
+            transfer_notice: Some(TransferNotice {
+                host: "transfer.example.net".to_owned(),
+                port: 19132,
+            }),
+            ..ClientWorld::default()
+        };
+        client_world.stream = None;
+
+        let mut app = App::new();
+        app.insert_resource(menu)
+            .insert_resource(CoreProcessGuard::default())
+            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(client_world)
+            .add_systems(Update, follow_server_transfer);
+        app.update();
+
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        assert_eq!(menu.view().screen, MenuScreen::Settings);
+        assert!(
+            menu.view()
+                .message
+                .as_deref()
+                .is_some_and(|message| message.starts_with("Could not start transfer.example.net"))
+        );
+        menu.go_back_from_input();
+        assert_eq!(menu.view().screen, MenuScreen::Home);
     }
 }

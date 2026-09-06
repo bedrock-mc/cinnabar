@@ -121,6 +121,7 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
