@@ -12,6 +12,15 @@ or parity checkbox is closed. See the execution track for verification status.
 Follow-up repairs normalize failed upstream connection cleanup (including a
 fresh native rejection test) and cover both Windows attribute line endings in
 the carrier-upgrade test. The new stationary lighting/startup stall remains open.
+Later independently reviewed repairs through `e175556d` fix mixed vertical light
+propagation and upstream disconnect delivery. A native BDS 1.26.40.8 run drained
+the lighting/mesh queues for 314 columns, but does not close the intermittent
+Lifeboat stall or performance gates. It exposed a separate Disconnect wire-format
+bug, now repaired locally in `24db95be` with full protocol tests green,
+independent approval, and a fresh native kick preserving the exact message and
+reason with zero decode errors. Launcher return-screen validation remains open.
+Menu and Creative mining tranches remain isolated pending review corrections
+and native testing.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn

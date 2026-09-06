@@ -70,6 +70,48 @@ acceptance. Its registry-sensitive snapshots must also follow protocol 2168.
 
 ## First complete interaction
 
+### Server diagnostics and lighting follow-up, 2026-09-06
+
+Published through `e175556d61a09b8aa9d3d847712a3d273169fe9f`:
+
+- Physics-install tests claim temporary directories atomically, including a
+  deterministic repeated-clock regression; all eight native tests passed.
+- Mixed vertical lighting batches use the combined solver instead of publishing
+  an air prefix before accounting for emission below it. The new regression
+  failed before the repair; the client-world suite passed 352 tests, with one
+  ignored. Independent review approved the complete lighting change.
+- The relay preserves upstream disconnect details even when the reverse writer
+  observes closure first. Delivery precedes teardown, cancellation unblocks a
+  stalled delivery, and both pump errors remain inspectable. Independent review
+  approved the repair; repeated ordering/cancellation tests passed.
+
+A fresh Windows/DX12 run against BDS 1.26.40.8 rendered a 314-column cohort and
+drained pending/in-flight lighting, meshing, and upload work. The optimized debug
+client SHA-256 was
+`5b4fb031fca9fe30fb476b5b093aa58c2d23efc0a45ad4a37884f59a4a0079ec`;
+client size was 1280x720 with GUI scale 2 and a 60 FPS cap. This is not release
+performance acceptance or proof that the intermittent Lifeboat stall is cured.
+
+The same live run exposed a separate decoder bug when the server kicked the
+client: Disconnect lacked its conditional-message flag. Local repair
+`24db95be904fc50dc63e5ee154fe36184b978881` adds visible, filtered, and hidden wire
+fixtures from the pinned Go codec. Both new tests failed before the repair and
+passed afterward; the full protocol suite, strict protocol lint, formatting,
+architecture, and fixture-generator tests/vet passed. Independent review approved
+the complete wire repair. A fresh native BDS 1.26.40.8 kick reached the client
+with the exact message and `Kicked` reason, with zero decode errors. The rebuilt
+optimized debug client SHA-256 was
+`b81c554afe835712f74f2f15d0b039995676e335f56dd0dc1b72deb83a3c4407`.
+This CLI-mode test does not close launcher return-screen or hidden-screen UI
+behavior. The relay's additional distinct-pump-error regression passed 100
+repetitions; the full Go core tests/vet also passed after the follow-up.
+
+Menu input and provisional Creative mining remain isolated, review-blocked work,
+not integrated features. Their required corrections cover editor/highlight
+agreement, refocus input replay, failed replacement navigation, post-admission
+mining invalidation, and cross-chunk ray authority. No gameplay or parity
+checkbox is closed by these checkpoints.
+
 ### Connection cleanup and Windows verification follow-up, 2026-09-06
 
 The concrete upstream dial adapter now normalizes a nil connection before

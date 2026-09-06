@@ -1,7 +1,7 @@
 //! Disconnect wire fixtures emitted by the pinned public Go packet codec.
 use bytes::{Buf, Bytes};
 use protocol::{BedrockSession, decode_batch, encode};
-use valentine::bedrock::version::v1_26_44::{BorrowedMcpePacket, McpePacketData};
+use valentine::bedrock::version::v1_26_44::{BorrowedMcpePacket, McpePacketArgs, McpePacketData};
 
 const VISIBLE: &[u8] = include_bytes!("../fixtures/disconnect_visible.bin");
 const FILTERED: &[u8] = include_bytes!("../fixtures/disconnect_filtered.bin");
@@ -26,8 +26,14 @@ fn server_disconnect_wire_preserves_conditional_messages() {
         assert_eq!(disconnect.messages.filtered_message, filtered);
         assert_eq!(encode(&packets[0], &session).unwrap().as_ref(), wire);
         let mut frame = Bytes::from_static(wire).slice(1..);
-        BorrowedMcpePacket::decode_inner(&mut frame).expect("borrowed server wire decodes");
+        let borrowed =
+            BorrowedMcpePacket::decode_inner(&mut frame).expect("borrowed frame decodes");
         assert!(!frame.has_remaining());
+        // Disconnect is retained raw until materialization on this path.
+        let owned = borrowed
+            .into_owned(McpePacketArgs)
+            .expect("raw disconnect decodes");
+        assert_eq!(owned.data, packets[0].data);
     }
 }
 
