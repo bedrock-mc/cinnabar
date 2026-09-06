@@ -9,6 +9,9 @@ plus the Windows physics-install shell-test correction. Independent reviews appr
 the complete tranche without blocking findings. App-side mining production, live
 server acceptance, break timing and crack rendering remain open; no interaction
 or parity checkbox is closed. See the execution track for verification status.
+Follow-up repairs normalize failed upstream connection cleanup (including a
+fresh native rejection test) and cover both Windows attribute line endings in
+the carrier-upgrade test. The new stationary lighting/startup stall remains open.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn

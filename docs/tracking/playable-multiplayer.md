@@ -70,6 +70,28 @@ acceptance. Its registry-sensitive snapshots must also follow protocol 2168.
 
 ## First complete interaction
 
+### Connection cleanup and Windows verification follow-up, 2026-09-06
+
+The concrete upstream dial adapter now normalizes a nil connection before
+converting it to the session interface. Failed dials keep their original errors;
+real partial connections still follow the existing cleanup path. Independent
+review approved `eb42a00da68d4628b9f14d91aed753fdd2b8898b` without findings.
+A fresh Windows executable test against BDS 1.26.32.2 reproduced the original
+version rejection without the former secondary abort/close panics. This does
+not add support for that older server version.
+
+The previous hosted run passed Rust and core checks but failed the registry
+upgrade test on CRLF `.gitattributes`. Local correction `844f03df` now exercises
+both LF and CRLF attribute files while retaining exact carrier-byte and hash
+validation. Registry-tool tests/vet and independent review passed. Fresh
+post-integration Go core tests/vet and architecture checks also passed.
+Replacement hosted CI remains pending publication.
+
+The latest stationary Lifeboat run exposed a separate startup stall: the required
+25-column cohort was complete, but lighting repeatedly invalidated meshes and
+the loading cover did not release. This remains an open runtime defect; do not
+hide the cover or weaken readiness checks to claim a successful join workflow.
+
 ### Protocol infrastructure checkpoint, 2026-09-06
 
 Locally integrated `9bbeeca762fe3310d87dc6d297babb4e7440dfae` from
