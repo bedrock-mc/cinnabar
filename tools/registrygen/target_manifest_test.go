@@ -67,6 +67,15 @@ func TestEffectiveTrackedAttributesHonorLaterOverride(t *testing.T) {
 }
 
 func TestBedrockTargetCarrierAutocrlfUpgrade(t *testing.T) {
+	for _, lineEnding := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(lineEnding.name, func(t *testing.T) {
+			testBedrockTargetCarrierAutocrlfUpgrade(t, lineEnding.value)
+		})
+	}
+}
+
+func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding string) {
+	t.Helper()
 	sourceRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +93,8 @@ func TestBedrockTargetCarrierAutocrlfUpgrade(t *testing.T) {
 	}
 	candidateCarrier := readSource(carrierPath)
 	candidateManifest := readSource(manifestPath)
-	candidateAttributes := readSource(attributePath)
+	candidateAttributes := bytes.ReplaceAll(readSource(attributePath), []byte("\r\n"), []byte("\n"))
+	candidateAttributes = bytes.ReplaceAll(candidateAttributes, []byte("\n"), []byte(attributeLineEnding))
 	baseCarrier := bytes.Replace(candidateCarrier, []byte(`"schema" :`), []byte(`"schema":`), 1)
 	if bytes.Equal(baseCarrier, candidateCarrier) {
 		t.Fatal("active carrier lacks the semantic-neutral upgrade byte revision")
@@ -99,8 +109,8 @@ func TestBedrockTargetCarrierAutocrlfUpgrade(t *testing.T) {
 	if !bytes.Equal(baseSemantic.Bytes(), candidateSemantic.Bytes()) {
 		t.Fatal("active carrier upgrade byte revision changed JSON semantics")
 	}
-	const attributePin = "crates/assets/data/block-item-routes-v*.json text eol=lf\n"
-	baseAttributes := bytes.Replace(candidateAttributes, []byte(attributePin), nil, 1)
+	const attributePin = "crates/assets/data/block-item-routes-v*.json text eol=lf"
+	baseAttributes := bytes.Replace(candidateAttributes, []byte(attributePin+attributeLineEnding), nil, 1)
 	if bytes.Equal(baseAttributes, candidateAttributes) {
 		t.Fatal("active carrier tracked-LF pin is absent")
 	}
