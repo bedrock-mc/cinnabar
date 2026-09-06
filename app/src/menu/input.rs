@@ -248,7 +248,7 @@ fn attempt_connect(
 ) {
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
-    menu.settings_return_to_pause = false;
+    menu.mark_disconnected();
     network.shutdown();
     guard.stop();
     menu.release_session_directory();
@@ -804,6 +804,55 @@ mod transfer_follow_tests {
 
     #[test]
     fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
+        failed_automatic_replacement(true);
+    }
+
+    #[test]
+    fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
+        for remove_saved in [false, true] {
+            let root = TempRoot::new();
+            let mut menu = MenuRuntime::new_with_layout(
+                true,
+                2,
+                "Player".to_owned(),
+                missing_core_layout(root.path()),
+            );
+            menu.servers.push(super::super::SavedServer {
+                name: "Local".to_owned(),
+                address: "127.0.0.1:19132".to_owned(),
+                favorite: false,
+                last_joined_unix: 0,
+            });
+            menu.focused = 6;
+            let (open, confirm) = if remove_saved {
+                (
+                    MenuAction::RemoveSavedDialog(0),
+                    MenuAction::ConfirmRemoveSaved(0),
+                )
+            } else {
+                (MenuAction::OpenExitDialog, MenuAction::ConfirmExit)
+            };
+            menu.activate(open);
+            assert_eq!(menu.view().focused_action, Some(confirm));
+            menu.move_focus(1);
+            assert_eq!(menu.view().focused_action, Some(MenuAction::DismissDialog));
+            menu.move_focus(-1);
+            menu.activate_focused();
+            assert!(menu.dialog.is_none());
+            if remove_saved {
+                assert!(menu.servers.is_empty());
+            } else {
+                assert!(menu.exit_requested);
+            }
+        }
+    }
+
+    #[test]
+    fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
+        failed_automatic_replacement(false);
+    }
+
+    fn failed_automatic_replacement(from_settings: bool) {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
@@ -813,8 +862,10 @@ mod transfer_follow_tests {
         );
         let old_generation = menu.next_session_generation();
         menu.mark_connected();
-        menu.open_pause();
-        menu.activate(MenuAction::PauseSettings);
+        if from_settings {
+            menu.open_pause();
+            menu.activate(MenuAction::PauseSettings);
+        }
 
         let client_world = ClientWorld {
             stream: Some(client_world::WorldStream::new(protocol::WorldBootstrap {
@@ -854,7 +905,8 @@ mod transfer_follow_tests {
         assert!(runtime.chat_editor().as_str().is_empty());
 
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
-        assert_eq!(menu.view().screen, MenuScreen::Settings);
+        assert!(menu.is_visible());
+        assert_eq!(menu.view().screen, MenuScreen::Home);
         assert!(
             menu.view()
                 .message

@@ -529,7 +529,10 @@ impl MenuRuntime {
                 self.settings_return_to_pause = false;
                 self.enter(screen);
             }
-            MenuAction::OpenExitDialog => self.dialog = Some(MenuDialog::Exit),
+            MenuAction::OpenExitDialog => {
+                self.dialog = Some(MenuDialog::Exit);
+                self.focused = 0;
+            }
             MenuAction::ConfirmExit => {
                 self.dialog = None;
                 self.exit_requested = true;
@@ -601,6 +604,7 @@ impl MenuRuntime {
             MenuAction::RemoveSavedDialog(index) => {
                 if index < self.servers.len() {
                     self.dialog = Some(MenuDialog::RemoveSaved(index));
+                    self.focused = 0;
                 }
             }
             MenuAction::ConfirmRemoveSaved(index) => {
