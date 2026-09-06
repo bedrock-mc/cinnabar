@@ -70,6 +70,50 @@ acceptance. Its registry-sensitive snapshots must also follow protocol 2168.
 
 ## First complete interaction
 
+### Protocol infrastructure checkpoint, 2026-09-06
+
+Locally integrated `9bbeeca762fe3310d87dc6d297babb4e7440dfae` from
+`3b7f5dc3137ebe18c494965006a368601534cff7`: PlayerAuthInput now has a
+bounded eight-action block-action list and optional embedded creative-break
+payload. Interaction flags derive from validated payloads, the selected stack
+retains its verified representation, and legacy movement fixture bytes remain
+unchanged. Independent review approved the full range without Critical or
+Important findings; 25 protocol fixture tests passed independently. The Windows
+physics-install harness also passed all seven tests, including actual shell
+detection, apostrophe paths and timeout coverage.
+
+Post-integration Rust workspace tests passed (3,387 passed, zero failed, 13
+ignored), as did Go core and fixture-generator tests/vet, formatting and the
+Windows PowerShell acceptance dry-run harness. The Rust suite required a scoped
+dependency rebuild and serial compilation after build-artifact and Windows
+resource errors. Strict workspace lint, architecture and the PowerShell asset
+harness also passed. The latter skipped deeper Bash extraction checks because
+the discovered Bash lacked unzip or cc. This is a local checkpoint, not a
+publication or hosted CI result.
+
+Review disposition: corrected the comment explaining the omitted stop action
+(the wire codec can represent it); no runtime behavior changed. The minor
+test-output drain deadline edge under continuous descendant output remains open.
+Neither was classified as blocking. This checkpoint has no app mining action producer,
+transport integration, measured break timing or crack-visual acceptance.
+
+### Native stabilization follow-up, 2026-09-06
+
+Windows/DX12 testing of baseline `3b7f5dc3` at 1280x720 found reproducible
+launcher field-focus and shortcut problems: Tab changed the highlight but text
+still edited the previous field, and Ctrl+A appended text instead of selecting
+it. Returning from in-session Settings reached launcher Home without the pause
+actions. Closing chat then clicking to recapture the mouse produced a downward
+camera snap; capture-warp handling still needs investigation. Larger GUI-scale
+text also needs layout correction. These findings remain open.
+
+Lifeboat disconnect under queued terrain work returned to zero rendered chunks,
+and rejoin rendered terrain again. A separate diagnostic received the complete
+25-column publisher cohort but did not establish full-view parity. Joining with
+required resource-pack offers remained possible, while runtime pack application
+was unavailable. Neither debug frame rates nor these smoke checks close release
+performance, full inventory, movement or pack-loading gates.
+
 Join with authoritative physics, select a tool, target a block, mine it, and
 reconcile the server-confirmed result. Implement the actual app action producer
 and its shared immutable pose/target/selected-stack authority. Include delayed

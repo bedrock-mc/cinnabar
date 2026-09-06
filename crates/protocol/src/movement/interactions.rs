@@ -26,10 +26,9 @@ pub const MAX_BLOCK_ACTIONS_PER_INPUT: usize = 8;
 
 /// The block-action kinds a client may place inside `PlayerAuthInput`.
 ///
-/// These are exactly the destroy-family values accepted inside the packet's
-/// block-action list. `StopDestroyBlock` is deliberately absent: its wire form
-/// carries no position or face, which the generated codec cannot express, and
-/// the current client finishes a destroy with [`Self::PredictDestroy`].
+/// This bounded API exposes the destroy actions used by the intended mining
+/// workflow, with completion represented by [`Self::PredictDestroy`]. The wire
+/// codec can also represent `StopDestroyBlock`; this API does not expose it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockActionKind {
     /// Wire value 0: the player started destroying the block.

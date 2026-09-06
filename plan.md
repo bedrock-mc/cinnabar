@@ -3,6 +3,13 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
+adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
+plus the Windows physics-install shell-test correction. Independent reviews approved
+the complete tranche without blocking findings. App-side mining production, live
+server acceptance, break timing and crack rendering remain open; no interaction
+or parity checkbox is closed. See the execution track for verification status.
+
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
 > comes, executed via superpowers:subagent-driven-development or superpowers:executing-plans.
