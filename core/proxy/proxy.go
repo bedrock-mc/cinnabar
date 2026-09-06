@@ -726,6 +726,13 @@ func pumpPacketsWithCacheTelemetry(
 					return errors.Join(err, flushErr)
 				}
 			}
+			// The upstream connection consumes Disconnect packets and returns their
+			// fields as an error. Deliver those fields before relay teardown so the
+			// local client receives the server's reason instead of a bare EOF.
+			var disconnect *minecraft.DisconnectPacketError
+			if !fromDownstream && errors.As(err, &disconnect) && disconnect != nil {
+				return errors.Join(err, destination.WritePacketImmediate(disconnect.Packet()))
+			}
 			return err
 		}
 		if pendingInitialStart != nil {
