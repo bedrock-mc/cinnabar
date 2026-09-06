@@ -7,6 +7,7 @@ mod install_layout;
 pub mod local_player;
 mod menu;
 pub mod metrics;
+mod mining;
 pub mod movement;
 mod present_mode;
 pub mod semantic_controls;

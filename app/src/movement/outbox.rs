@@ -6,7 +6,9 @@
 //! while the provisional spawn-settle gate suppresses transmission, drained
 //! and withheld instead.
 
-use protocol::{Packet, PlayerAuthInputError, player_auth_input};
+use protocol::{Packet, PlayerAuthInputError, player_auth_input_with_interactions};
+
+use crate::mining::FrozenCreativeMining;
 
 /// Failure taxonomy of one bounded outbound movement flush.
 ///
@@ -109,7 +111,14 @@ pub(crate) fn flush_player_auth_inputs<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
-        let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
+        let interactions = sample
+            .mining
+            .as_ref()
+            .map_or_else(protocol::PlayerAuthInputInteractions::default, |mining| {
+                mining.interactions.clone()
+            });
+        let packet = player_auth_input_with_interactions(sample.snapshot, &interactions)
+            .map_err(MovementSendError::Encode)?;
         let identity = ticker.next_send_identity(&sample);
         ticker.note_command_admitted(
             identity,
@@ -133,4 +142,79 @@ pub(crate) fn flush_player_auth_inputs<E>(
     }
     ticker.refresh_outbox_reconciliation();
     Ok(sent)
+}
+
+impl MovementTicker {
+    /// Drops interaction payloads whose frozen target, selection, ability, or
+    /// session is no longer authorized. Movement samples remain queued.
+    pub(crate) fn retain_creative_mining(&mut self, current: Option<&FrozenCreativeMining>) {
+        for sample in &mut self.outbox {
+            let keep = sample
+                .mining
+                .as_ref()
+                .zip(current)
+                .is_some_and(|(mining, current)| mining.still_authorized_by(current));
+            if !keep {
+                sample.mining = None;
+            }
+        }
+    }
+
+    /// Attaches one complete creative break only to its exact unsent physics
+    /// tick. `None` leaves the caller's input edge pending for a later tick.
+    pub(crate) fn attach_creative_mining(&mut self, frozen: FrozenCreativeMining) -> Option<u64> {
+        if !self.physics_is_authorized()
+            || self.terminal_drain
+            || self.has_unresolved_position_authority_change()
+            || self.tx_gate.suppressing()
+        {
+            return None;
+        }
+        let tick = frozen.frame.physics_tick;
+        let sample = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)?;
+        if frozen.frame.position_authority_generation != self.reanchor_epoch
+            || sample.session_generation != frozen.frame.session_generation
+            || sample.snapshot.input_mode != frozen.input_mode
+            || sample.world_identity != frozen.ray.world_identity
+            || sample.mining.is_some()
+        {
+            return None;
+        }
+        sample.mining = Some(frozen.into_tick_payload(sample.snapshot.position));
+        Some(tick)
+    }
+
+    pub(crate) fn has_queued_creative_mining(&self) -> bool {
+        self.outbox.iter().any(|sample| sample.mining.is_some())
+    }
+
+    pub(crate) const fn mining_authority_identity(&self) -> (u64, u64) {
+        (self.session_generation, self.reanchor_epoch)
+    }
+
+    /// Invalidates every transport-owned sample after a position-authority
+    /// change and publishes the new epoch atomically with that invalidation.
+    pub(super) fn position_authority_changed(&mut self) {
+        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
+        for queued in &mut self.outbox {
+            queued.mining = None;
+        }
+        for pending in &mut self.pending_sends {
+            pending.retry_after_cancellation = false;
+            pending.sample.mining = None;
+        }
+        self.sent_history.clear();
+        self.epoch_publisher.send_if_modified(|published| {
+            if *published == self.reanchor_epoch {
+                false
+            } else {
+                *published = self.reanchor_epoch;
+                true
+            }
+        });
+        self.refresh_outbox_reconciliation();
+    }
 }

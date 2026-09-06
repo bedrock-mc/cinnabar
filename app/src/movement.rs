@@ -65,6 +65,7 @@ struct QueuedPhysicsSample {
     snapshot: PlayerAuthInputSnapshot,
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
+    mining: Option<crate::mining::QueuedMiningInteraction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -329,6 +330,7 @@ impl MovementTicker {
             snapshot,
             world_identity: completed.world_identity,
             evidence,
+            mining: None,
         });
         Ok(())
     }
@@ -613,28 +615,6 @@ impl MovementTicker {
         self.accepting_physics_admissions()
             && self.pending_count()
                 <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
-    }
-
-    /// Records the explicit event that the server-authoritative local position
-    /// changed. Every transport admission from the prior epoch becomes
-    /// obsolete regardless of whether its packet fields happen to compare
-    /// equal after reconciliation. Publishing here keeps worker invalidation
-    /// inseparable from advancing the epoch.
-    fn position_authority_changed(&mut self) {
-        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
-        for pending in &mut self.pending_sends {
-            pending.retry_after_cancellation = false;
-        }
-        self.sent_history.clear();
-        self.epoch_publisher.send_if_modified(|published| {
-            if *published == self.reanchor_epoch {
-                false
-            } else {
-                *published = self.reanchor_epoch;
-                true
-            }
-        });
-        self.refresh_outbox_reconciliation();
     }
 
     fn has_unresolved_position_authority_change(&self) -> bool {
