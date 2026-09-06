@@ -624,7 +624,28 @@ func relayPacketsWithCacheTelemetry(
 	case <-ctx.Done():
 		first = result{direction: "relay context", err: ctx.Err()}
 	}
-	closeErr := errors.Join(shutdownSession(downstream), shutdownSession(upstream))
+	var delivery <-chan error
+	var deliveryErr error
+	var disconnect *upstreamRelayDisconnect
+	if errors.As(first.err, &disconnect) {
+		completed := make(chan error, 1)
+		delivery = completed
+		go func() {
+			completed <- callWithoutPanic(func() error {
+				return downstream.WritePacketImmediate(&disconnect.value)
+			})
+		}()
+		select {
+		case deliveryErr = <-delivery:
+			delivery = nil
+		case <-ctx.Done():
+			deliveryErr = ctx.Err()
+		}
+	}
+	closeErr := errors.Join(deliveryErr, shutdownSession(downstream), shutdownSession(upstream))
+	if delivery != nil {
+		closeErr = errors.Join(closeErr, <-delivery)
+	}
 
 	var second result
 	if first.direction == "relay context" {
@@ -638,12 +659,13 @@ func relayPacketsWithCacheTelemetry(
 	if ctx.Err() != nil {
 		return errors.Join(ctx.Err(), closeErr)
 	}
+	var relayErr error
 	for _, result := range []result{first, second} {
 		if result.err != nil && !isOrdinaryClose(result.err) {
-			return errors.Join(fmt.Errorf("proxy: relay %s: %w", result.direction, result.err), closeErr)
+			relayErr = errors.Join(relayErr, fmt.Errorf("proxy: relay %s: %w", result.direction, result.err))
 		}
 	}
-	return closeErr
+	return errors.Join(relayErr, closeErr)
 }
 
 func closeSession(session packetSession) (err error) {
@@ -696,7 +718,7 @@ func pumpPacketsWithCacheTelemetry(
 		}
 	}
 	if err := destination.Flush(); err != nil {
-		return err
+		return attributeRelayError(err, fromDownstream)
 	}
 	outputBatch := make([]packet.Packet, 0, localRelayBatchPacketLimit)
 	flushOutputBatch := func() error {
@@ -705,7 +727,7 @@ func pumpPacketsWithCacheTelemetry(
 		}
 		err := destination.WritePacketImmediate(outputBatch...)
 		outputBatch = outputBatch[:0]
-		return err
+		return attributeRelayError(err, fromDownstream)
 	}
 	writePacket := func(value packet.Packet) error {
 		outputBatch = append(outputBatch, value)
@@ -718,6 +740,7 @@ func pumpPacketsWithCacheTelemetry(
 	for {
 		batch, err := source.ReadBatch()
 		if err != nil {
+			err = attributeRelayError(err, !fromDownstream)
 			if pendingInitialStart != nil {
 				if writeErr := writePacket(pendingInitialStart); writeErr != nil {
 					return errors.Join(err, writeErr)
@@ -725,13 +748,6 @@ func pumpPacketsWithCacheTelemetry(
 				if flushErr := flushOutputBatch(); flushErr != nil {
 					return errors.Join(err, flushErr)
 				}
-			}
-			// The upstream connection consumes Disconnect packets and returns their
-			// fields as an error. Deliver those fields before relay teardown so the
-			// local client receives the server's reason instead of a bare EOF.
-			var disconnect *minecraft.DisconnectPacketError
-			if !fromDownstream && errors.As(err, &disconnect) && disconnect != nil {
-				return errors.Join(err, destination.WritePacketImmediate(disconnect.Packet()))
 			}
 			return err
 		}
