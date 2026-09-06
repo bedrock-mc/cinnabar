@@ -1259,6 +1259,37 @@ func TestConnectUpstreamConnectedLogPanicClosesLiveUpstreamTypeOnly(t *testing.T
 	}
 }
 
+func TestDialMinecraftUpstreamNormalizesNilConnectionAndPreservesError(t *testing.T) {
+	dialErr := errors.New("dial failed")
+	upstream, err := dialMinecraftUpstream(
+		context.Background(),
+		minecraft.RakNet{},
+		"unused.invalid:19132",
+		func(context.Context, minecraft.Network, string) (*minecraft.Conn, error) {
+			return nil, dialErr
+		},
+	)
+	if upstream != nil || !errors.Is(err, dialErr) {
+		t.Fatalf("dialMinecraftUpstream = (%v, %v), want nil and original dial error", upstream, err)
+	}
+}
+
+func TestDialMinecraftUpstreamPreservesPartialConnectionAndError(t *testing.T) {
+	dialErr := errors.New("dial failed after allocating connection")
+	connection := new(minecraft.Conn)
+	upstream, err := dialMinecraftUpstream(
+		context.Background(),
+		minecraft.RakNet{},
+		"unused.invalid:19132",
+		func(context.Context, minecraft.Network, string) (*minecraft.Conn, error) {
+			return connection, dialErr
+		},
+	)
+	if upstream != connection || !errors.Is(err, dialErr) {
+		t.Fatalf("dialMinecraftUpstream = (%p, %v), want original connection %p and dial error", upstream, err, connection)
+	}
+}
+
 func TestConnectUpstreamClosesNonNilDialResultWithError(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	dialErr := errors.New("dial returned session and error")

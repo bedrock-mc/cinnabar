@@ -291,11 +291,24 @@ func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSour
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialer.DialContextNetwork(ctx, target.network, address)
+			return dialMinecraftUpstream(ctx, target.network, address, dialer.DialContextNetwork)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
 	return connections
+}
+
+func dialMinecraftUpstream(
+	ctx context.Context,
+	network minecraft.Network,
+	address string,
+	dial func(context.Context, minecraft.Network, string) (*minecraft.Conn, error),
+) (upstreamSession, error) {
+	connection, err := dial(ctx, network, address)
+	if connection == nil {
+		return nil, err
+	}
+	return connection, err
 }
 
 func (connections *preparedConnections) prepare(ctx context.Context, downstream *minecraft.Conn) error {
