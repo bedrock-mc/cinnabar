@@ -43,6 +43,14 @@ lint and architecture checks passed. The Windows acceptance dry-run and
 PowerShell asset-acquisition harness passed. Platform-specific shell extraction
 legs were not rerun, and no hosted CI result is implied.
 
+Publication review on 2026-09-06: independent review approved the complete range
+`0d182c105d7860685f6944cc8ad883c1c7ed96fe..25256816743c9884a2761c0e24b0ab6b57d8dc09`
+with no findings. Fresh workspace-wide strict lint, architecture and formatting
+checks, Go core tests/vet, Windows acceptance dry runs, and PowerShell
+asset-acquisition tests passed. The implementation commit was verified on
+`origin/dev-ox-alpha`; hosted CI was still running at this checkpoint. These
+checks do not close the remaining native or feature gates.
+
 Native Windows/DX12 checks used the optimized debug executable based on
 `0d182c105d7860685f6944cc8ad883c1c7ed96fe` plus local changes, SHA-256
 `70eb16c739d3032a9b9e869563e21bf927b4050e156951d3982398d8c6462aad`.
