@@ -103,6 +103,18 @@ func TestRelayPreservesDisconnectWhenReverseWriterFinishesFirst(t *testing.T) {
 	}
 }
 
+func TestRelayRetainsDistinctErrorsFromBothPumps(t *testing.T) {
+	down := newFakeDownstream(nil)
+	downErr := errors.New("downstream read failed")
+	upErr := errors.New("upstream read failed after teardown")
+	up := &reverseFirstDisconnectSession{fakeUpstream: newFakeUpstream(nil), reason: upErr}
+	down.reads <- packetResult{err: downErr}
+	err := relayPackets(context.Background(), down, up)
+	if !errors.Is(err, downErr) || !errors.Is(err, upErr) {
+		t.Fatalf("relay error = %v, want both independent pump failures", err)
+	}
+}
+
 type blockedDisconnectDestination struct {
 	*fakeDownstream
 	started chan struct{}
