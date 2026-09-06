@@ -223,8 +223,11 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"InventoryTransactionInteractActor",
 		"InventoryTransactionInteractActorEmptyHand",
 		"ContainerClose",
+		"DisconnectVisible",
+		"DisconnectFiltered",
+		"DisconnectHidden",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -258,6 +261,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0xaf, 0x48},
+		{0x85, 0x48},
+		{0x85, 0x48},
+		{0x85, 0x48},
 	}
 	if len(manifest) != len(wantNames) {
 		t.Fatalf("manifest entries = %d, want %d", len(manifest), len(wantNames))

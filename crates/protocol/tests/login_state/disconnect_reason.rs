@@ -149,6 +149,7 @@ pub(super) fn boundary_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePacke
         PlayEpilogue::ServerDisconnect => vec![
             McpePacket::from(DisconnectPacket {
                 reason: EnumsConnectionDisconnectFailReason::Kicked,
+                hide_disconnection_screen: false,
                 messages: DisconnectPacketMessages {
                     message: "We've detected movement cheats".into(),
                     filtered_message: String::new(),

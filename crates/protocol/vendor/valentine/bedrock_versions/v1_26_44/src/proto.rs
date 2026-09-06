@@ -171,13 +171,17 @@ impl crate::bedrock::codec::BedrockCodec for ClientToServerHandshakePacket {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DisconnectPacket {
     pub reason: EnumsConnectionDisconnectFailReason,
+    pub hide_disconnection_screen: bool,
     pub messages: DisconnectPacketMessages,
 }
 impl crate::bedrock::codec::BedrockSized for DisconnectPacket {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.reason);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.messages);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.hide_disconnection_screen);
+        if !self.hide_disconnection_screen {
+            size += crate::bedrock::codec::BedrockSized::encoded_size(&self.messages);
+        }
         size
     }
 }
@@ -186,7 +190,10 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacket {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         self.reason.encode(buf)?;
-        self.messages.encode(buf)?;
+        self.hide_disconnection_screen.encode(buf)?;
+        if !self.hide_disconnection_screen {
+            self.messages.encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -199,9 +206,18 @@ impl crate::bedrock::codec::BedrockCodec for DisconnectPacket {
                 buf,
                 (),
             )?;
-        let messages =
-            <DisconnectPacketMessages as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self { reason, messages })
+        let hide_disconnection_screen =
+            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let messages = if hide_disconnection_screen {
+            DisconnectPacketMessages::default()
+        } else {
+            <DisconnectPacketMessages as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+        };
+        Ok(Self {
+            reason,
+            hide_disconnection_screen,
+            messages,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]

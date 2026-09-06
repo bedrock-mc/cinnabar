@@ -255,5 +255,26 @@
     "sha256": "dab6026965440281c5e7456a297d6ef2015411a4b40371631b9c042567560cec",
     "wire_authority": "hashimthearab/gophertunnel",
     "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+  },
+  {
+    "name": "DisconnectVisible",
+    "file": "disconnect_visible.bin",
+    "id": 5,
+    "byte_length": 22,
+    "sha256": "2a8da841f2867ae1b786e8c67fc8083be8b58eda2eeee7f9ed98554474dc2c60"
+  },
+  {
+    "name": "DisconnectFiltered",
+    "file": "disconnect_filtered.bin",
+    "id": 5,
+    "byte_length": 40,
+    "sha256": "467671e15982beb06e446b184b5b61b874591d664f95aeed9471a272dc7cc93a"
+  },
+  {
+    "name": "DisconnectHidden",
+    "file": "disconnect_hidden.bin",
+    "id": 5,
+    "byte_length": 6,
+    "sha256": "831ce5579d3d16f3eb455725dd811c2b5ee98a8a1abc60fd9932b6fb2fee8d12"
   }
 ]

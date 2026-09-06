@@ -64,6 +64,7 @@ mod tests {
     ) -> McpePacketData {
         McpePacketData::DisconnectPacket(Box::new(DisconnectPacket {
             reason,
+            hide_disconnection_screen: false,
             messages: DisconnectPacketMessages {
                 message: message.to_owned(),
                 filtered_message: filtered_message.to_owned(),

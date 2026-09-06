@@ -545,6 +545,21 @@ func fixtures() []fixture {
 				ServerSide:    false,
 			},
 		},
+		{
+			name: "DisconnectVisible",
+			file: "disconnect_visible.bin",
+			pk:   &packet.Disconnect{Reason: packet.DisconnectReasonKicked, Message: "Server closing"},
+		},
+		{
+			name: "DisconnectFiltered",
+			file: "disconnect_filtered.bin",
+			pk:   &packet.Disconnect{Reason: -7, Message: "Original message", FilteredMessage: "Filtered message"},
+		},
+		{
+			name: "DisconnectHidden",
+			file: "disconnect_hidden.bin",
+			pk:   &packet.Disconnect{Reason: packet.DisconnectReasonKicked, HideDisconnectionScreen: true},
+		},
 	}
 }
 
