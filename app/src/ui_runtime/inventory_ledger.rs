@@ -7,6 +7,9 @@
 use std::collections::VecDeque;
 
 mod admission;
+mod gesture;
+#[cfg(test)]
+mod gesture_tests;
 mod helpers;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -16,7 +19,7 @@ mod response;
 use personal::PersonalWindow;
 pub use response::StackResponseOverlay;
 
-use helpers::{cell_surface, request_slot, valid_raw_window_id};
+use helpers::{cell_surface, valid_raw_window_id};
 
 use protocol::{
     ContainerIdentity, InventoryAuthority, NetworkItemStack, Packet, StackRequestAction,
@@ -127,6 +130,10 @@ struct Prediction {
     /// stack keeps its retained identity until the server restates it.
     source_overlay: Option<StackResponseOverlay>,
     destination_overlay: Option<StackResponseOverlay>,
+    /// A partial transfer temporarily presents two halves with the source's
+    /// retained identity. An accepted response must separate those
+    /// identities before either half becomes reusable authority.
+    requires_distinct_stack_ids: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -330,172 +337,6 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub const fn skipped_unknown_containers(&self) -> u64 {
         self.skipped_unknown_containers
-    }
-
-    pub fn begin_click(&mut self, slot: u8) -> Result<i32, InventoryGestureError> {
-        self.begin_cell_click(Cell::Inventory(slot))
-    }
-
-    pub fn begin_storage_click(&mut self, slot: u8) -> Result<i32, InventoryGestureError> {
-        self.begin_cell_click(Cell::Storage(slot))
-    }
-
-    fn begin_cell_click(&mut self, target: Cell) -> Result<i32, InventoryGestureError> {
-        if self.authority != Some(InventoryAuthority::Server) {
-            return Err(InventoryGestureError::AuthorityUnavailable);
-        }
-        if self.resync_required() {
-            return Err(InventoryGestureError::ResyncRequired);
-        }
-        if self.pending.is_some() {
-            return Err(InventoryGestureError::Busy);
-        }
-        let personal_generation = if matches!(target, Cell::Inventory(_)) && self.storage.is_none()
-        {
-            Some(
-                self.personal_generation_for_gesture()
-                    .ok_or(InventoryGestureError::PersonalInventoryUnavailable)?,
-            )
-        } else {
-            None
-        };
-        let (target_stack, target_revision) = match target {
-            Cell::Inventory(slot) => {
-                let index = usize::from(slot);
-                if index >= PLAYER_INVENTORY_SLOT_COUNT {
-                    return Err(InventoryGestureError::InvalidSlot(slot));
-                }
-                if !self.known[index] {
-                    return Err(InventoryGestureError::UnknownSlot(slot));
-                }
-                (self.slots[index].clone(), self.slot_revisions[index])
-            }
-            Cell::Storage(slot) => {
-                let storage = self
-                    .storage
-                    .as_ref()
-                    .ok_or(InventoryGestureError::InvalidStorageSlot(slot))?;
-                if storage.identity.is_none() || storage.resync_required {
-                    return Err(InventoryGestureError::ResyncRequired);
-                }
-                let index = usize::from(slot);
-                if index >= storage.slots.len() {
-                    return Err(InventoryGestureError::InvalidStorageSlot(slot));
-                }
-                (storage.slots[index].clone(), storage.revisions[index])
-            }
-            Cell::Cursor => unreachable!("cursor is not a click target"),
-        };
-        let inventory = target_stack
-            .as_ref()
-            .filter(|stack| !stack.is_empty())
-            .cloned();
-        let cursor = self
-            .cursor
-            .as_ref()
-            .filter(|stack| !stack.is_empty())
-            .cloned();
-        let inventory_cell = target;
-        let inventory_revision = target_revision;
-        let cursor_revision = self.cell_revision(Cell::Cursor);
-        let storage_identity = self.storage_identity();
-        let target_overlay = self.cell_overlay(inventory_cell).cloned();
-        let cursor_overlay = self.cell_overlay(Cell::Cursor).cloned();
-        let (action, prediction) = match (inventory, cursor) {
-            (Some(stack), None) => {
-                let amount = u8::try_from(stack.count)
-                    .ok()
-                    .filter(|amount| *amount != 0)
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                (
-                    StackRequestAction::Take {
-                        amount,
-                        source: request_slot(
-                            inventory_cell,
-                            stack.stack_network_id,
-                            storage_identity,
-                        )?,
-                        destination: request_slot(Cell::Cursor, 0, storage_identity)?,
-                    },
-                    Prediction {
-                        source: inventory_cell,
-                        source_stack: None,
-                        source_revision: inventory_revision,
-                        destination: Cell::Cursor,
-                        destination_stack: Some(stack),
-                        destination_revision: cursor_revision,
-                        source_overlay: None,
-                        destination_overlay: target_overlay,
-                    },
-                )
-            }
-            (None, Some(stack)) => {
-                let amount = u8::try_from(stack.count)
-                    .ok()
-                    .filter(|amount| *amount != 0)
-                    .ok_or(InventoryGestureError::InvalidRequest)?;
-                (
-                    StackRequestAction::Place {
-                        amount,
-                        source: request_slot(
-                            Cell::Cursor,
-                            stack.stack_network_id,
-                            storage_identity,
-                        )?,
-                        destination: request_slot(inventory_cell, 0, storage_identity)?,
-                    },
-                    Prediction {
-                        source: Cell::Cursor,
-                        source_stack: None,
-                        source_revision: cursor_revision,
-                        destination: inventory_cell,
-                        destination_stack: Some(stack),
-                        destination_revision: inventory_revision,
-                        source_overlay: None,
-                        destination_overlay: cursor_overlay,
-                    },
-                )
-            }
-            (Some(inventory), Some(cursor)) => (
-                StackRequestAction::Swap {
-                    source: request_slot(Cell::Cursor, cursor.stack_network_id, storage_identity)?,
-                    destination: request_slot(
-                        inventory_cell,
-                        inventory.stack_network_id,
-                        storage_identity,
-                    )?,
-                },
-                Prediction {
-                    source: Cell::Cursor,
-                    source_stack: Some(inventory),
-                    source_revision: cursor_revision,
-                    destination: inventory_cell,
-                    destination_stack: Some(cursor),
-                    destination_revision: inventory_revision,
-                    source_overlay: target_overlay,
-                    destination_overlay: cursor_overlay,
-                },
-            ),
-            (None, None) => return Err(InventoryGestureError::EmptyGesture),
-        };
-        let request_id = self.next_request_id;
-        self.next_request_id = self
-            .next_request_id
-            .checked_sub(2)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
-        self.pending = Some(PendingRequest {
-            request_id,
-            action,
-            prediction,
-            state: InventoryPendingState::AwaitingTransport,
-            transport_deadline_millis: None,
-            deadline_millis: None,
-            session_generation: self.session_generation,
-            storage_generation: self.storage.as_ref().map(|storage| storage.generation),
-            personal_generation,
-            storage_identity: self.storage.as_ref().and_then(|storage| storage.identity),
-        });
-        Ok(request_id)
     }
 
     pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {

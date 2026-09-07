@@ -140,6 +140,12 @@ impl PlayerInventoryLedger {
             self.require_authoritative_recovery();
             return;
         }
+        if prediction.requires_distinct_stack_ids
+            && !self.response_separates_split_identities(response, prediction)
+        {
+            self.require_authoritative_recovery();
+            return;
+        }
         let prediction = self
             .pending
             .take()
@@ -173,6 +179,47 @@ impl PlayerInventoryLedger {
                     self.mark_cell_recovery(cell);
                 }
                 self.bump_cell_revision(cell);
+            }
+        }
+    }
+
+    fn response_separates_split_identities(
+        &self,
+        response: &protocol::StackResponse,
+        prediction: &super::Prediction,
+    ) -> bool {
+        let mut source = prediction
+            .source_stack
+            .as_ref()
+            .map(|stack| stack.stack_network_id);
+        let mut destination = prediction
+            .destination_stack
+            .as_ref()
+            .map(|stack| stack.stack_network_id);
+        for container in response.containers.iter() {
+            for correction in container.slots.iter() {
+                let Some(cell) =
+                    self.retained_response_cell(&container.container, u16::from(correction.slot))
+                else {
+                    continue;
+                };
+                let identity = match cell {
+                    cell if cell == prediction.source => &mut source,
+                    cell if cell == prediction.destination => &mut destination,
+                    _ => continue,
+                };
+                if correction.count == 0 {
+                    *identity = None;
+                } else if correction.item_stack_id > 0 {
+                    *identity = Some(correction.item_stack_id);
+                }
+            }
+        }
+        match (source, destination) {
+            (None, None) => true,
+            (Some(identity), None) | (None, Some(identity)) => identity > 0,
+            (Some(source), Some(destination)) => {
+                source > 0 && destination > 0 && source != destination
             }
         }
     }
