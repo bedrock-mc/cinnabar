@@ -13,6 +13,7 @@ use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
 use crate::menu::recover_menu_session_failure;
+use crate::mining::produce_creative_mining;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
@@ -143,9 +144,22 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, emit_phase3_evidence, "emit_phase3_evidence"),
+            system_node(graph, produce_creative_mining, "produce_creative_mining"),
+        ),
+        "the exact build/session/PREG/BREG identity marker must precede mining production",
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(graph, produce_creative_mining, "produce_creative_mining"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "the exact build/session/PREG/BREG identity marker must precede every candidate packet",
+        "mining must attach its interaction before the candidate packet is sent",
+    );
+    assert_system_in_stage(
+        graph,
+        produce_creative_mining,
+        "produce_creative_mining",
+        ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(
         graph,

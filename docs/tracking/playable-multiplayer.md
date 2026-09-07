@@ -188,6 +188,46 @@ required resource-pack offers remained possible, while runtime pack application
 was unavailable. Neither debug frame rates nor these smoke checks close release
 performance, full inventory, movement or pack-loading gates.
 
+### Live Creative break checkpoint, 2026-09-06
+
+Local integration `38c4bd730754f660126bd618f3048b8ab0961c88` includes independently
+reviewed Creative action production and the default inventory-descriptor routing
+repair. Before the routing repair, a valid physical attack was rejected because
+the selected stack remained unknown. Full protocol verification passed 435 tests;
+nine client container-address tests cover decoded updates reaching selected-stack
+authority. Default-descriptor Content was observed directly from BDS; matching Slot
+coverage is constructed, not a claimed live packet capture.
+
+A fresh Windows/DX12 run against BDS 1.26.40.8 used the production client SHA-256
+`323040d042894ffac4d5e49c059e4d2fd57d3be713ce1519dc78926f9fd0294e` and the normal
+Go core, at 1280x720, platform scale 1 and GUI scale 2. One captured mouse click
+emitted a combined block/item interaction at tick 825. A server-side block query
+confirmed air at the stone target; the rendered hole and the player's one-block
+fall corroborated reconciliation. There was no local block deletion in the action
+producer. A later server assignment displayed a 32-item hotbar count. The run
+drained its world-processing queues and exited cleanly.
+
+This is one Creative break witness, not survival, held-attack, placement, movement,
+performance or full inventory parity. Item artwork was absent, the inventory panel
+did not display the known stack/count, and a two-click inventory transfer did not
+establish successful management. Menu keyboard/clipboard and bounded HUD toast
+checks passed earlier; a later kick retest exposed a closed-send/recovery race.
+The independently approved repair is integrated in `4f4c335c`. A fresh Windows/DX12
+run at the same size/scales used production client SHA-256
+`e8bd10aeada174f57808c435c792a1266e2c242bfcc800b641a6f268f1ac8283` and the normal
+Go core. It survived two BDS kicks with a successful rejoin between them, showed
+both complete three-line server reasons inside their expanded panels, reset to zero
+chunks, and exited cleanly through keyboard confirmation. Both disconnects had zero
+decode errors. Full post-integration Rust verification passed 3,444 tests with 13
+ignored, including all 867 client-library tests. A stale direct-edge scheduling
+assertion was corrected to verify evidence-marker → mining-production → movement-send;
+production ordering did not change. Go core tests and vet, strict workspace all-target
+Clippy, formatting, and architecture checks passed. Independent final batch and
+publication review approved the complete range without findings.
+The preceding published checkpoint `706d2b10` has complete hosted CI green; this
+batch needs its own hosted run after publication. Separate follow-up repairs address
+inventory click ownership and stack counts hidden by missing optional artwork.
+
 Join with authoritative physics, select a tool, target a block, mine it, and
 reconcile the server-confirmed result. Implement the actual app action producer
 and its shared immutable pose/target/selected-stack authority. Include delayed

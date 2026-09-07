@@ -16,11 +16,46 @@ Later independently reviewed repairs through `e175556d` fix mixed vertical light
 propagation and upstream disconnect delivery. A native BDS 1.26.40.8 run drained
 the lighting/mesh queues for 314 columns, but does not close the intermittent
 Lifeboat stall or performance gates. It exposed a separate Disconnect wire-format
-bug, now repaired locally in `24db95be` with full protocol tests green,
+bug, repaired in `24db95be` with full protocol tests green,
 independent approval, and a fresh native kick preserving the exact message and
-reason with zero decode errors. Launcher return-screen validation remains open.
-Menu and Creative mining tranches remain isolated pending review corrections
-and native testing.
+reason with zero decode errors. Those repairs and the cleanup-test synchronization
+fix are pushed through `706d2b10`, whose complete CI run passed. The later local
+menu and mining state is recorded below.
+
+Later local integration through `c7b8184e` includes independently approved menu
+input/session teardown and bounded toast placement. A fresh Windows/DX12 rendered
+pass at 1280x720, platform scale 1 and GUI scale 2 verified editor Tab/Shift-Tab,
+select-all replacement and clipboard round-trip, local-server join, eight top-aligned
+toast rows from a synthetic packet fixture, Pause/Settings return, stable Home with
+zero chunks after disconnect, and keyboard-confirmed clean exit. No full feature,
+arbitrary-DPI, transfer-failure, or performance gate is closed by this pass.
+Creative mining is locally integrated through `47f8668d` after independent review,
+including ordered successful-write traces. Native testing then exposed selected-slot
+state remaining unknown despite full server inventory updates. Independently reviewed
+default-descriptor routing is integrated in `38c4bd73`; full protocol tests passed.
+A fresh production-client/core run against BDS 1.26.40.8 sent one combined Creative
+break at tick 825, the server confirmed air at the target, and the client rendered
+the hole and fell into it. Server-assigned stack counts now appear in the hotbar.
+This closes only that narrow live break witness, not survival timing, repeated/held
+attacks, placement, full interaction parity, or inventory management. Item artwork
+and inventory-panel stack presentation remain visibly incomplete; an attempted
+inventory transfer did not establish a successful management workflow.
+Post-integration workspace verification passed 3,444 tests with 13 ignored, including
+all 867 client-library tests. The scheduling witness now checks the explicit
+evidence-marker → mining-production → movement-send chain.
+An additional native launcher kick retained the complete server reason and returned
+to Play with zero chunks, but exposed a separate fixed-height launcher message panel:
+three wrapped rows extend below its background. The independently approved bounded
+layout repair is integrated in `4923ac5e`. Its native retest exposed a separate
+disconnect race: a late movement send could close the app before launcher recovery.
+The independently approved repair is integrated in `4f4c335c`. A fresh Windows run
+survived two server kicks with a successful rejoin between them, displayed both
+complete three-line reasons within their panels, reset to zero chunks, and exited
+cleanly by keyboard confirmation. Go core tests and vet, strict workspace all-target
+Clippy, formatting, and architecture checks also passed. Independent final batch
+and publication review approved the complete range without findings.
+The next isolated repairs address inventory click ownership and counts hidden when
+optional item artwork is missing; neither is part of this accepted native checkpoint.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
@@ -2492,6 +2527,12 @@ Owner-designated inventory reference (2026-09-06): use Lunar's inventory-managem
 implementation when establishing these contracts. Pin the inspected source revision
 and verify Cinnabar's end-to-end request/response behavior; the reference designation
 does not itself close Cinnabar's inventory implementation or native acceptance gates.
+The inspected Lunar revision is `f8cccf30a296c82e2af95161b856587937c3a0b6`:
+`lunar/internal/inventory` owns packet/action-level prediction and reconciliation,
+not physical mouse or drag input. The native ingress blocker is repaired; first
+establish visible stacks and a working basic inventory transfer, then add right-click
+one-item transfer through the existing Cinnabar ledger. Drag
+requires multi-action requests.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
