@@ -929,14 +929,21 @@ func TestPinnedDialerIgnorePolicyAllowsOptionalAndRequiredOffersToReachStartGame
 			}
 			accepted := acceptedRaw.(*minecraft.Conn)
 			defer accepted.Close()
-			if err := accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9}); err != nil {
-				t.Fatalf("start game: %v", err)
-			}
+			startGameDone := make(chan error, 1)
+			go func() {
+				startGameDone <- accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9})
+			}()
 			result := <-clientDone
 			if result.err != nil {
 				t.Fatalf("dial through ignored offer: %v", result.err)
 			}
 			defer result.conn.Close()
+			if err := result.conn.Flush(); err != nil {
+				t.Fatalf("flush final client admission acknowledgement: %v", err)
+			}
+			if err := <-startGameDone; err != nil {
+				t.Fatalf("start game after client admission: %v", err)
+			}
 			if result.conn.GameData().EntityRuntimeID != 9 {
 				t.Fatal("dial did not reach StartGame")
 			}
