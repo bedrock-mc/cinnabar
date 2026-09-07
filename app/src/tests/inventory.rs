@@ -1,15 +1,19 @@
 use protocol::{
-    EquipmentEvent, InventoryAuthority, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
+    CONTAINER_NAME_CURSOR, ContainerIdentity, ContainerOpenEvent, EquipmentEvent,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
     ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, WorldBootstrap, WorldEvent,
 };
 
 use crate::{
     runtime::network::{
         BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
-        publish_equipment_identity, route_equipment_ingress, route_inventory_ingress,
-        route_item_registry_ingress, session::SequencedWorldEvent,
+        publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
+        route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
     },
-    ui_runtime::{InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
+    ui_runtime::{
+        InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime,
+        inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
+    },
 };
 
 fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
@@ -21,6 +25,63 @@ fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
         window_id: 0,
         handedness: None,
     }
+}
+
+#[test]
+fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
+    let mut runtime = UiRuntime::new(7);
+    let registry = ItemRegistryEvent {
+        entries: std::sync::Arc::from([ItemRegistryEntry {
+            identifier: "minecraft:apple".into(),
+            network_id: 878,
+            component_based: true,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [8; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: false,
+        }]),
+    };
+    assert!(publish_bootstrap_inventory(
+        &mut runtime,
+        Some(registry),
+        InventoryEvent::Authority(InventoryAuthority::Server),
+    ));
+
+    let stack = |stack_network_id, count| NetworkItemStack {
+        network_id: 878,
+        stack_network_id,
+        count,
+        ..NetworkItemStack::default()
+    };
+    let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = stack(60, 60);
+    let ledger = runtime.inventory_ledger_mut();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(-1),
+            slot_type: Some(CONTAINER_NAME_CURSOR),
+            dynamic_id: None,
+        },
+        slots: std::sync::Arc::from([stack(33, 33)]),
+        storage_item: NetworkItemStack::default(),
+    }));
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+
+    assert_eq!(ledger.begin_click(0), Ok(-3));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 29);
 }
 
 #[test]

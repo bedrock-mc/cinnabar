@@ -1,8 +1,23 @@
-use protocol::WorldEvent;
+use protocol::{InventoryEvent, ItemRegistryEvent, WorldEvent};
 
 use crate::ui_runtime::{UiRuntime, UiRuntimeError};
 
 use super::session;
+
+pub(crate) fn publish_bootstrap_inventory(
+    runtime: &mut UiRuntime,
+    registry: Option<ItemRegistryEvent>,
+    inventory: InventoryEvent,
+) -> bool {
+    let InventoryEvent::Authority(authority) = inventory else {
+        return false;
+    };
+    if let Some(registry) = registry {
+        runtime.inventory_ledger_mut().apply_registry(&registry);
+    }
+    runtime.publish_inventory_authority(authority);
+    true
+}
 
 pub(crate) fn route_inventory_ingress(
     runtime: &mut UiRuntime,

@@ -23,9 +23,10 @@ use super::{
     SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due,
     run_network_pump, run_network_pump_with_trace, send_control_event_or_cancel,
     send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
-    session_failure_display, start_game_inventory_authority, wait_for_login_or_cancel,
-    wait_for_network_work_or_cancel, wait_for_send_or_cancel, wrap_readiness_tracked_event,
-    write_network_pump_terminal_marker, write_network_pump_transfer_marker,
+    session_failure_display, start_game_inventory_authority, start_game_item_registry,
+    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    write_network_pump_transfer_marker,
 };
 
 #[path = "close_race_tests.rs"]
@@ -911,6 +912,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             world: bootstrap,
             environment,
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
+            item_registry: None,
             player_game_mode: PlayerGameMode::Survival,
             world_default_game_mode: PlayerGameMode::Survival,
             player_game_mode_uses_world_default: false,
