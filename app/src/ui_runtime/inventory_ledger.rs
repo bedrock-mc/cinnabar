@@ -4,7 +4,7 @@
 //! the two touched cells and never queues a second gesture behind an in-flight
 //! request.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod gesture;
@@ -13,7 +13,10 @@ mod gesture_tests;
 mod helpers;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod merge_tests;
 mod personal;
+mod registry;
 mod response;
 
 use personal::PersonalWindow;
@@ -22,9 +25,9 @@ pub use response::StackResponseOverlay;
 use helpers::{cell_surface, valid_raw_window_id};
 
 use protocol::{
-    ContainerIdentity, InventoryAuthority, NetworkItemStack, Packet, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
-    open_inventory_packet,
+    ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    item_stack_request_packet, open_inventory_packet,
 };
 use thiserror::Error;
 
@@ -134,6 +137,8 @@ struct Prediction {
     /// retained identity. An accepted response must separate those
     /// identities before either half becomes reusable authority.
     requires_distinct_stack_ids: bool,
+    /// This prediction merged two occupied stacks using the session registry.
+    registry_bound_merge: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +187,7 @@ pub struct PlayerInventoryLedger {
     cursor: Option<NetworkItemStack>,
     cursor_overlay: Option<StackResponseOverlay>,
     cursor_revision: u64,
+    item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
     next_authority_revision: u64,
     pending: Option<PendingRequest>,
     next_request_id: i32,
@@ -212,6 +218,7 @@ impl Default for PlayerInventoryLedger {
             cursor: None,
             cursor_overlay: None,
             cursor_revision: 0,
+            item_registry: None,
             next_authority_revision: 1,
             pending: None,
             next_request_id: -3,

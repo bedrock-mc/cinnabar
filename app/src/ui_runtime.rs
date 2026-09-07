@@ -7,6 +7,7 @@ pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
+mod inventory_ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;
 pub(crate) mod item_facts;
@@ -33,6 +34,7 @@ pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
     flush_chat_network, flush_inventory_network,
 };
+pub use inventory_ingress::{InventoryAuthorityEvent, SequencedInventoryEvent};
 
 use std::{collections::VecDeque, sync::Arc};
 
@@ -98,13 +100,6 @@ pub struct SequencedLocalEquipment {
     pub session_id: u64,
     pub fifo_sequence: u64,
     pub event: EquipmentEvent,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SequencedInventoryEvent {
-    pub session_generation: u64,
-    pub fifo_sequence: u64,
-    pub event: InventoryEvent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -298,44 +293,6 @@ impl UiRuntime {
     /// local player in outbound packets such as the hotbar-selection `MobEquipment`.
     pub(crate) fn local_runtime_id(&self) -> Option<u64> {
         self.equipment_router.local_runtime_id()
-    }
-
-    pub(crate) fn enqueue_inventory_event(
-        &mut self,
-        session_generation: u64,
-        fifo_sequence: u64,
-        event: InventoryEvent,
-    ) -> Result<(), UiRuntimeError> {
-        if session_generation != self.session_id {
-            return Err(UiRuntimeError::WrongSession {
-                expected: self.session_id,
-                actual: session_generation,
-            });
-        }
-        if let Some(previous) = self.last_inventory_sequence
-            && fifo_sequence <= previous
-        {
-            return Err(UiRuntimeError::StaleFifoSequence {
-                previous,
-                actual: fifo_sequence,
-            });
-        }
-        if self.pending_inventory.len() >= MAX_PENDING_INVENTORY_EVENTS {
-            return Err(UiRuntimeError::InventoryQueueFull {
-                maximum: MAX_PENDING_INVENTORY_EVENTS,
-            });
-        }
-        self.pending_inventory.push_back(SequencedInventoryEvent {
-            session_generation,
-            fifo_sequence,
-            event,
-        });
-        self.last_inventory_sequence = Some(fifo_sequence);
-        Ok(())
-    }
-
-    pub fn pop_inventory_event(&mut self) -> Option<SequencedInventoryEvent> {
-        self.pending_inventory.pop_front()
     }
 
     pub(crate) fn publish_local_runtime_id(

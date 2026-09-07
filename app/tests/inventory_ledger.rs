@@ -8,9 +8,11 @@ use bedrock_client::ui_runtime::inventory_ledger::{
 use bedrock_client::ui_runtime::{UiRuntime, flush_inventory_send};
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    InventoryEvent, InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity,
-    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    InventoryEvent, InventorySlotEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
+    ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer,
+    StackResponseSlot, StackResponseStatus,
 };
+use sha2::{Digest, Sha256};
 
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
@@ -44,6 +46,27 @@ fn ready(
     }));
     open_personal_inventory(&mut ledger);
     ledger
+}
+
+fn merge_stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
+    NetworkItemStack {
+        nbt_digest: Sha256::digest([]).into(),
+        ..stack(network_id, count, stack_network_id)
+    }
+}
+
+fn apple_registry() -> ItemRegistryEvent {
+    ItemRegistryEvent {
+        entries: Arc::from([ItemRegistryEntry {
+            identifier: Arc::from("minecraft:apple"),
+            network_id: 6,
+            component_based: true,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [6; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: false,
+        }]),
+    }
 }
 
 fn open_personal_inventory(ledger: &mut PlayerInventoryLedger) {
@@ -583,4 +606,25 @@ fn player_slot_state_distinguishes_unknown_empty_and_present() {
         Some(PlayerInventorySlot::Present(&present))
     );
     assert_eq!(ledger.slot_state(PLAYER_INVENTORY_SLOT_COUNT as u8), None);
+}
+
+#[test]
+fn negotiated_occupied_merge_retries_exactly_and_rejection_rolls_back() {
+    let target = merge_stack(6, 60, 60);
+    let cursor = merge_stack(6, 33, 33);
+    let mut ledger = ready(Some(target.clone()), None);
+    ledger.apply_registry(&apple_registry());
+    ledger.apply(&cursor_content(cursor.clone()));
+
+    let request = ledger.begin_place_count(0, 4).unwrap();
+    let first = ledger.pending_packet().unwrap().unwrap();
+    assert_eq!(ledger.pending_packet().unwrap(), Some(first));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 29);
+
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    assert_eq!(ledger.displayed_stack(0), Some(&target));
+    assert_eq!(ledger.cursor_stack(), Some(&cursor));
+    assert!(!ledger.resync_required());
 }

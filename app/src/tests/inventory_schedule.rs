@@ -14,7 +14,7 @@ use bevy::{
 };
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    InventoryEvent, NetworkItemStack,
+    InventoryEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
 };
 use semantic_input::Action;
 
@@ -707,6 +707,88 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
     );
 }
 
+#[test]
+fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_inventory_authority(InventoryAuthority::Server);
+    open_personal_inventory(&mut runtime);
+    let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let physical_size = [1280, 720];
+    let pointer = (0..physical_size[1])
+        .find_map(|y| {
+            (0..physical_size[0]).find_map(|x| {
+                let point = UiPoint::new(x as f32, y as f32).unwrap();
+                let gui = presentation.inventory_gui_point(point, physical_size, 1.0)?;
+                (presentation.inventory_slot_hit(gui, physical_size, 1.0) == Some(0))
+                    .then_some(bevy::math::Vec2::new(x as f32, y as f32))
+            })
+        })
+        .expect("slot zero has a physical hit point");
+    let mut window = Window {
+        focused: true,
+        resolution: bevy::window::WindowResolution::new(1280, 720),
+        ..Default::default()
+    };
+    window.set_cursor_position(Some(pointer));
+    let ingress = SameFrameMergeIngress {
+        registry: Some(ItemRegistryEvent {
+            entries: Arc::from([ItemRegistryEntry {
+                identifier: Arc::from("minecraft:apple"),
+                network_id: 6,
+                component_based: true,
+                version: ItemRegistryVersion::DataDriven,
+                component_digest: [6; 32],
+                negotiated_max_stack_size: Some(64),
+                canonical_empty_component_data: false,
+            }]),
+        }),
+        inventory: vec![content(stack(6, 60, 60)), cursor_content(stack(6, 33, 33))],
+    };
+
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
+        .insert_resource(ingress)
+        .init_resource::<AdmissionObserved>()
+        .add_systems(
+            Update,
+            (
+                route_same_frame_merge_ingress,
+                drain_inventory_authority,
+                drive_chat_keyboard_input,
+                drive_menu_input,
+                drive_inventory_ui_actions,
+            )
+                .chain()
+                .in_set(ClientFrameSet::UiAuthority),
+        )
+        .add_systems(
+            Update,
+            admit_inventory_request.in_set(ClientFrameSet::NetworkSend),
+        );
+    app.world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+
+    app.update();
+
+    assert!(app.world().resource::<AdmissionObserved>().0);
+    let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(29));
+}
+
 fn run_scheduled_ingress_click(complete: bool) {
     let stale = stack(5, 1, 44);
     let current = stack(6, 2, 55);
@@ -797,6 +879,12 @@ struct SameFrameIngress(Option<InventoryEvent>);
 #[derive(Resource)]
 struct SameFrameStorageIngress(Vec<InventoryEvent>);
 
+#[derive(Resource)]
+struct SameFrameMergeIngress {
+    registry: Option<ItemRegistryEvent>,
+    inventory: Vec<InventoryEvent>,
+}
+
 #[derive(Default, Resource)]
 struct AdmissionObserved(bool);
 
@@ -826,6 +914,20 @@ fn route_same_frame_storage_ingress(
     for (index, event) in ingress.0.drain(..).enumerate() {
         runtime
             .enqueue_inventory_event(1, index as u64 + 1, event)
+            .unwrap();
+    }
+}
+
+fn route_same_frame_merge_ingress(
+    mut ingress: ResMut<SameFrameMergeIngress>,
+    mut runtime: ResMut<UiRuntime>,
+) {
+    if let Some(registry) = ingress.registry.take() {
+        runtime.enqueue_item_registry_event(1, 1, registry).unwrap();
+    }
+    for (index, event) in ingress.inventory.drain(..).enumerate() {
+        runtime
+            .enqueue_inventory_event(1, index as u64 + 2, event)
             .unwrap();
     }
 }
@@ -876,6 +978,18 @@ fn partial_content(first: NetworkItemStack) -> InventoryEvent {
     InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(0),
         slots: Arc::from([first]),
+        storage_item: NetworkItemStack::default(),
+    })
+}
+
+fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
+    InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(-1),
+            slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+            dynamic_id: None,
+        },
+        slots: Arc::from([stack]),
         storage_item: NetworkItemStack::default(),
     })
 }
