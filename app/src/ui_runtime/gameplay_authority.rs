@@ -316,8 +316,15 @@ impl UiRuntime {
     /// container store takes over this drain.
     pub(crate) fn drain_pending_inventory(&mut self) {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
-            self.inventory_ledger.apply(&sequenced.event);
-            match &sequenced.event {
+            let event = match sequenced.event {
+                super::InventoryAuthorityEvent::Inventory(event) => event,
+                super::InventoryAuthorityEvent::Registry(registry) => {
+                    self.inventory_ledger.apply_registry(&registry);
+                    continue;
+                }
+            };
+            self.inventory_ledger.apply(&event);
+            match &event {
                 InventoryEvent::Authority(_) => {
                     self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
                         || self.inventory_ledger.storage_generation().is_some();
@@ -347,7 +354,7 @@ impl UiRuntime {
                 }
                 _ => {}
             }
-            if let InventoryEvent::SelectedSlot(selected) = &sequenced.event
+            if let InventoryEvent::SelectedSlot(selected) = &event
                 && selected.select_slot
                 && selected.slot < protocol::HOTBAR_SLOT_COUNT
             {
@@ -357,7 +364,7 @@ impl UiRuntime {
                 self.local_selected_slot = None;
                 self.pending_hotbar_selection = None;
             }
-            self.gameplay_hud.apply_inventory(&sequenced.event);
+            self.gameplay_hud.apply_inventory(&event);
         }
     }
 

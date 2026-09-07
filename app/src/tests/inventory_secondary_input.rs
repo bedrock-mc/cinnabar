@@ -14,7 +14,8 @@ use bevy::{
 };
 use protocol::{
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemRegistryEntry,
+    ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
 };
 use semantic_input::Action;
 use ui::UiPoint;
@@ -41,6 +42,56 @@ use crate::{
 };
 
 const PHYSICAL_SIZE: [u32; 2] = [1280, 720];
+
+#[test]
+fn primary_merges_an_occupied_compatible_stack_up_to_capacity() {
+    let mut runtime = personal_runtime(Some(stack(60, 60)), Some(stack(33, 33)));
+    apply_apple_registry(&mut runtime);
+    let mut app = pointer_app(runtime, InventoryCellHit::Player(0), false, true);
+
+    press(&mut app, MouseButton::Left);
+    app.update();
+
+    let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(29));
+    assert_eq!(
+        ledger.pending_state(),
+        Some(InventoryPendingState::AwaitingTransport)
+    );
+
+    let mut full = personal_runtime(Some(stack(64, 60)), Some(stack(1, 33)));
+    apply_apple_registry(&mut full);
+    let mut full = pointer_app(full, InventoryCellHit::Player(0), false, true);
+    press(&mut full, MouseButton::Left);
+    full.update();
+    let ledger = full.world().resource::<UiRuntime>().inventory_ledger();
+    assert_eq!(ledger.pending_state(), None);
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(1));
+}
+
+#[test]
+fn secondary_places_one_into_occupied_compatible_stack_without_gameplay_use() {
+    let mut runtime = personal_runtime(Some(stack(60, 60)), Some(stack(33, 33)));
+    apply_apple_registry(&mut runtime);
+    let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let pointer = hit_point(&presentation, InventoryCellHit::Player(0), None);
+    let (mut app, _) = semantic_app(runtime, presentation, pointer);
+
+    press(&mut app, MouseButton::Right);
+    app.update();
+
+    let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(61));
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
+    assert_eq!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Use),
+        Default::default()
+    );
+}
 
 #[test]
 fn secondary_player_take_uses_ceiling_half_for_odd_even_and_single_stacks() {
@@ -544,6 +595,22 @@ fn cursor_content(cursor: Option<NetworkItemStack>) -> InventoryEvent {
         slots: Arc::from([cursor.unwrap_or_default()]),
         storage_item: NetworkItemStack::default(),
     })
+}
+
+fn apply_apple_registry(runtime: &mut UiRuntime) {
+    runtime
+        .inventory_ledger_mut()
+        .apply_registry(&ItemRegistryEvent {
+            entries: Arc::from([ItemRegistryEntry {
+                identifier: Arc::from("minecraft:apple"),
+                network_id: 6,
+                component_based: true,
+                version: ItemRegistryVersion::DataDriven,
+                component_digest: [6; 32],
+                negotiated_max_stack_size: Some(64),
+                canonical_empty_component_data: false,
+            }]),
+        });
 }
 
 fn stack(count: u16, stack_network_id: i32) -> NetworkItemStack {

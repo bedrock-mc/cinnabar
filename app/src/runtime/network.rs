@@ -50,13 +50,14 @@ use crate::{
         world::{AppWorldState, ClientWorld},
     },
     ui_runtime::{
-        UiRuntime, UiRuntimeError,
+        UiRuntime,
         inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
     },
 };
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
+pub(crate) use inventory::{route_inventory_ingress, route_item_registry_ingress};
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
 };
@@ -204,22 +205,6 @@ pub(crate) fn route_equipment_ingress(
             Ok(consume_equipment_route(runtime, session_id, route))
         }
     }
-}
-
-pub(crate) fn route_inventory_ingress(
-    runtime: &mut UiRuntime,
-    sequenced: session::SequencedWorldEvent,
-) -> Result<u64, UiRuntimeError> {
-    let session::SequencedWorldEvent {
-        session_generation,
-        sequence,
-        event: WorldEvent::Inventory(event),
-    } = sequenced
-    else {
-        unreachable!("inventory routing accepts only inventory world events")
-    };
-    runtime.enqueue_inventory_event(session_generation, sequence, event)?;
-    Ok(sequence)
 }
 
 fn consume_equipment_route(
@@ -729,6 +714,17 @@ pub(crate) fn receive_network_events(
             }
             continue;
         } else {
+            if matches!(
+                &sequenced.event,
+                WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))
+            ) && let Err(error) = route_item_registry_ingress(&mut ui_runtime, &sequenced)
+            {
+                record_fatal_error(
+                    &mut client_world.fatal_error,
+                    format!("item registry ingress rejected: {error:?}"),
+                );
+                continue;
+            }
             sequenced
         };
         let observed_at = Instant::now();
@@ -977,6 +973,7 @@ pub(crate) fn publish_actor_render_frame(
     });
 }
 mod drain;
+mod inventory;
 mod resource_packs;
 pub(crate) mod session;
 

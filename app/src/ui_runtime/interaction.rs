@@ -318,7 +318,7 @@ pub(crate) fn drive_inventory_ui_actions(
                     let target_count = ledger.displayed_stack(slot).map(|stack| stack.count);
                     match (cursor_occupied, target_count) {
                         (false, Some(count)) => ledger.begin_take_count(slot, count.div_ceil(2)),
-                        (true, None) => ledger.begin_place_count(slot, 1),
+                        (true, _) => ledger.begin_place_count(slot, 1),
                         _ => return,
                     }
                 }
@@ -328,7 +328,7 @@ pub(crate) fn drive_inventory_ui_actions(
                         (false, Some(count)) => {
                             ledger.begin_storage_take_count(slot, count.div_ceil(2))
                         }
-                        (true, None) => ledger.begin_storage_place_count(slot, 1),
+                        (true, _) => ledger.begin_storage_place_count(slot, 1),
                         _ => return,
                     }
                 }

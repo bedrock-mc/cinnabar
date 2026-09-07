@@ -1,15 +1,15 @@
 use protocol::{
-    EquipmentEvent, InventoryAuthority, InventoryEvent, NetworkItemStack, WorldBootstrap,
-    WorldEvent,
+    EquipmentEvent, InventoryAuthority, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
+    ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, WorldBootstrap, WorldEvent,
 };
 
 use crate::{
     runtime::network::{
         BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
         publish_equipment_identity, route_equipment_ingress, route_inventory_ingress,
-        session::SequencedWorldEvent,
+        route_item_registry_ingress, session::SequencedWorldEvent,
     },
-    ui_runtime::{MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
+    ui_runtime::{InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
 };
 
 fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
@@ -222,6 +222,47 @@ fn inventory_ingress_is_retained_while_global_fifo_advances() {
     let retained = runtime.pop_inventory_event().expect("inventory handoff");
     assert_eq!(retained.session_generation, 7);
     assert_eq!(retained.fifo_sequence, 1);
+}
+
+#[test]
+fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
+    let mut runtime = UiRuntime::new(7);
+    runtime
+        .enqueue_inventory_event(7, 1, InventoryEvent::Authority(InventoryAuthority::Server))
+        .unwrap();
+    let registry = ItemRegistryEvent {
+        entries: std::sync::Arc::from([ItemRegistryEntry {
+            identifier: "minecraft:apple".into(),
+            network_id: 6,
+            component_based: true,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [6; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: false,
+        }]),
+    };
+    let sequenced = SequencedWorldEvent {
+        session_generation: 7,
+        sequence: 2,
+        event: WorldEvent::ItemActor(ItemActorEvent::Registry(registry.clone())),
+    };
+    route_item_registry_ingress(&mut runtime, &sequenced).unwrap();
+    runtime
+        .enqueue_inventory_event(7, 3, InventoryEvent::Authority(InventoryAuthority::Client))
+        .unwrap();
+
+    assert!(matches!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Server))
+    ));
+    assert_eq!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Registry(registry)
+    );
+    assert!(matches!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Client))
+    ));
 }
 
 #[test]

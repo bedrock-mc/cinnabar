@@ -1,6 +1,7 @@
 use protocol::{ContainerIdentity, NetworkItemStack, StackRequestAction};
 
 use super::helpers::request_slot;
+use super::registry::OccupiedStackRelation;
 use super::{
     Cell, InventoryGestureError, InventoryPendingState, PLAYER_INVENTORY_SLOT_COUNT,
     PendingRequest, PlayerInventoryLedger, Prediction, StackResponseOverlay,
@@ -71,8 +72,85 @@ fn counted_transfer(
             source_overlay: if partial { overlay.clone() } else { None },
             destination_overlay: overlay,
             requires_distinct_stack_ids: partial,
+            registry_bound_merge: false,
         },
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn counted_merge(
+    kind: StackRequestActionKind,
+    source: Cell,
+    destination: Cell,
+    source_stack: NetworkItemStack,
+    destination_stack: NetworkItemStack,
+    source_overlay: Option<StackResponseOverlay>,
+    destination_overlay: Option<StackResponseOverlay>,
+    source_revision: u64,
+    destination_revision: u64,
+    storage_identity: Option<ContainerIdentity>,
+    amount: u16,
+    capacity: u16,
+) -> Result<(StackRequestAction, Prediction), InventoryGestureError> {
+    let wire_amount = u8::try_from(amount)
+        .ok()
+        .filter(|amount| *amount != 0)
+        .filter(|amount| u16::from(*amount) <= source_stack.count)
+        .ok_or(InventoryGestureError::InvalidRequest)?;
+    let destination_count = destination_stack
+        .count
+        .checked_add(amount)
+        .filter(|count| *count <= capacity)
+        .ok_or(InventoryGestureError::InvalidRequest)?;
+    let partial = amount < source_stack.count;
+    let residual = partial.then(|| {
+        let mut residual = source_stack.clone();
+        residual.count -= amount;
+        residual
+    });
+    let mut merged = destination_stack.clone();
+    merged.count = destination_count;
+    let source_slot = request_slot(source, source_stack.stack_network_id, storage_identity)?;
+    let destination_slot = request_slot(
+        destination,
+        destination_stack.stack_network_id,
+        storage_identity,
+    )?;
+    let action = match kind {
+        StackRequestActionKind::Take => StackRequestAction::Take {
+            amount: wire_amount,
+            source: source_slot,
+            destination: destination_slot,
+        },
+        StackRequestActionKind::Place => StackRequestAction::Place {
+            amount: wire_amount,
+            source: source_slot,
+            destination: destination_slot,
+        },
+    };
+    Ok((
+        action,
+        Prediction {
+            source,
+            source_stack: residual,
+            source_revision,
+            destination,
+            destination_stack: Some(merged),
+            destination_revision,
+            source_overlay: partial.then_some(source_overlay).flatten(),
+            destination_overlay,
+            requires_distinct_stack_ids: partial,
+            registry_bound_merge: true,
+        },
+    ))
+}
+
+fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> bool {
+    overlay.is_some_and(|overlay| {
+        overlay.custom_name.is_some()
+            || overlay.filtered_custom_name.is_some()
+            || overlay.durability_correction.is_some()
+    })
 }
 
 impl PlayerInventoryLedger {
@@ -205,66 +283,143 @@ impl PlayerInventoryLedger {
                     storage_identity,
                     None,
                 )?,
-                (Some(inventory), Some(cursor)) => (
-                    StackRequestAction::Swap {
-                        source: request_slot(
-                            Cell::Cursor,
-                            cursor.stack_network_id,
-                            storage_identity,
-                        )?,
-                        destination: request_slot(
-                            inventory_cell,
-                            inventory.stack_network_id,
-                            storage_identity,
-                        )?,
-                    },
-                    Prediction {
-                        source: Cell::Cursor,
-                        source_stack: Some(inventory),
-                        source_revision: cursor_revision,
-                        destination: inventory_cell,
-                        destination_stack: Some(cursor),
-                        destination_revision: inventory_revision,
-                        source_overlay: target_overlay,
-                        destination_overlay: cursor_overlay,
-                        requires_distinct_stack_ids: false,
-                    },
-                ),
+                (Some(inventory), Some(cursor)) => {
+                    match self.occupied_stack_relation(&cursor, &inventory) {
+                        OccupiedStackRelation::Compatible { capacity }
+                            if !has_meaningful_overlay(cursor_overlay.as_ref())
+                                && !has_meaningful_overlay(target_overlay.as_ref()) =>
+                        {
+                            let amount = cursor.count.min(capacity.saturating_sub(inventory.count));
+                            counted_merge(
+                                StackRequestActionKind::Place,
+                                Cell::Cursor,
+                                inventory_cell,
+                                cursor,
+                                inventory,
+                                cursor_overlay,
+                                target_overlay,
+                                cursor_revision,
+                                inventory_revision,
+                                storage_identity,
+                                amount,
+                                capacity,
+                            )?
+                        }
+                        OccupiedStackRelation::Incompatible => (
+                            StackRequestAction::Swap {
+                                source: request_slot(
+                                    Cell::Cursor,
+                                    cursor.stack_network_id,
+                                    storage_identity,
+                                )?,
+                                destination: request_slot(
+                                    inventory_cell,
+                                    inventory.stack_network_id,
+                                    storage_identity,
+                                )?,
+                            },
+                            Prediction {
+                                source: Cell::Cursor,
+                                source_stack: Some(inventory),
+                                source_revision: cursor_revision,
+                                destination: inventory_cell,
+                                destination_stack: Some(cursor),
+                                destination_revision: inventory_revision,
+                                source_overlay: target_overlay,
+                                destination_overlay: cursor_overlay,
+                                requires_distinct_stack_ids: false,
+                                registry_bound_merge: false,
+                            },
+                        ),
+                        OccupiedStackRelation::Compatible { .. }
+                        | OccupiedStackRelation::Unsupported => {
+                            return Err(InventoryGestureError::InvalidRequest);
+                        }
+                    }
+                }
                 (None, None) => return Err(InventoryGestureError::EmptyGesture),
             },
             CellGesture::TakeCount(amount) => {
                 let stack = inventory.ok_or(InventoryGestureError::EmptyGesture)?;
-                if cursor.is_some() {
-                    return Err(InventoryGestureError::InvalidRequest);
+                if let Some(cursor) = cursor {
+                    let OccupiedStackRelation::Compatible { capacity } =
+                        self.occupied_stack_relation(&stack, &cursor)
+                    else {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    };
+                    if has_meaningful_overlay(target_overlay.as_ref())
+                        || has_meaningful_overlay(cursor_overlay.as_ref())
+                    {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    }
+                    counted_merge(
+                        StackRequestActionKind::Take,
+                        inventory_cell,
+                        Cell::Cursor,
+                        stack,
+                        cursor,
+                        target_overlay,
+                        cursor_overlay,
+                        inventory_revision,
+                        cursor_revision,
+                        storage_identity,
+                        amount,
+                        capacity,
+                    )?
+                } else {
+                    counted_transfer(
+                        StackRequestActionKind::Take,
+                        inventory_cell,
+                        Cell::Cursor,
+                        stack,
+                        target_overlay,
+                        inventory_revision,
+                        cursor_revision,
+                        storage_identity,
+                        Some(amount),
+                    )?
                 }
-                counted_transfer(
-                    StackRequestActionKind::Take,
-                    inventory_cell,
-                    Cell::Cursor,
-                    stack,
-                    target_overlay,
-                    inventory_revision,
-                    cursor_revision,
-                    storage_identity,
-                    Some(amount),
-                )?
             }
             CellGesture::PlaceCount(amount) => {
                 let stack = cursor.ok_or(InventoryGestureError::EmptyGesture)?;
-                if inventory.is_some() {
-                    return Err(InventoryGestureError::InvalidRequest);
+                if let Some(inventory) = inventory {
+                    let OccupiedStackRelation::Compatible { capacity } =
+                        self.occupied_stack_relation(&stack, &inventory)
+                    else {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    };
+                    if has_meaningful_overlay(cursor_overlay.as_ref())
+                        || has_meaningful_overlay(target_overlay.as_ref())
+                    {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    }
+                    counted_merge(
+                        StackRequestActionKind::Place,
+                        Cell::Cursor,
+                        inventory_cell,
+                        stack,
+                        inventory,
+                        cursor_overlay,
+                        target_overlay,
+                        cursor_revision,
+                        inventory_revision,
+                        storage_identity,
+                        amount,
+                        capacity,
+                    )?
+                } else {
+                    counted_transfer(
+                        StackRequestActionKind::Place,
+                        Cell::Cursor,
+                        inventory_cell,
+                        stack,
+                        cursor_overlay,
+                        cursor_revision,
+                        inventory_revision,
+                        storage_identity,
+                        Some(amount),
+                    )?
                 }
-                counted_transfer(
-                    StackRequestActionKind::Place,
-                    Cell::Cursor,
-                    inventory_cell,
-                    stack,
-                    cursor_overlay,
-                    cursor_revision,
-                    inventory_revision,
-                    storage_identity,
-                    Some(amount),
-                )?
             }
         };
         let request_id = self.next_request_id;
