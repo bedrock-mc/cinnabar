@@ -2637,23 +2637,72 @@ it does not enable occupied merging or supply negotiated session authority.
 The separately reviewed normalized-evidence tranche `c35a9f46` retains the exact
 positive server component stack limit and canonical-empty-component marker,
 preserves the original digest, and treats unsupported semantic evidence as absent.
-It is also locally integrated, with no runtime merge consumer yet. Fresh generator
-tests and vet passed after integration. Combined workspace tests passed with
+That foundation added no runtime merge consumer. Fresh generator tests and vet
+passed after integration. Combined foundation workspace tests passed with
 3,499 tests, zero failures, and 13 ignored; formatting, strict workspace lint,
 architecture validation, and the normal client build passed. Both exact source
 heads received independent approval with no findings. These checks validate the
-capacity foundations, not the still-unimplemented runtime merge behavior.
-Runtime binding and occupied-transfer acceptance remain open.
+capacity foundations, not runtime merge acceptance.
+The pushed foundation checkpoint `bd5c3354` passed all six hosted CI jobs in
+run `34105977898`, including Windows acceptance.
+The occupied-transfer implementation `343902db` is locally integrated after fresh
+independent approval with no findings. Registry markers and inventory updates share
+the bounded UI FIFO; session registry binding supplies negotiated or verified bare
+retail capacities. Primary compatible clicks merge up to free capacity, secondary
+compatible clicks place one, and incompatible primary swaps remain available.
+The bounded compatibility subset is metadata-zero retail items with no retained
+block identity, verified empty item data, and no meaningful response overlay.
+Unknown or ambiguous same-item shapes do not merge; this is not full semantic
+compatibility. Identity replacement and capacity-only updates have distinct
+recovery behavior, and residual source/destination identities must remain distinct.
+The exact implementation passed 929 client-library tests, 17 inventory integration
+tests, focused merge/input/FIFO witnesses, strict lint, formatting, and architecture
+checks. Combined post-integration workspace verification passed 3,531 tests with
+zero failures and 13 ignored; formatting, strict workspace lint, architecture,
+and the normal Windows build passed. Native acceptance then found that a 33-apple
+source did not merge into a 60-apple destination; BDS retained 60 and 33 after the
+source was placed in an empty cell. The captured login registry was not propagated
+to runtime inventory authority. The corrected bootstrap fix `14393c06` is now
+locally integrated after fresh independent approval with no findings: captured
+registry data reaches the ledger before authority and gestures, malformed wire
+fails startup, and semantic rejection remains nonfatal with a redacted warning.
+Its routing tests passed 9/9 and client-library tests passed 942/942, with strict
+lint, formatting, and architecture checks green. Combined verification passed
+943 client-library tests and 20 inventory integration tests, strict app lint,
+formatting, architecture, and the normal Windows build. Native BDS 1.26.40.8
+then confirmed primary apples 33 + 60 became 64 + 29, empty buckets 3 + 15 became
+16 + 2, and secondary apple placement moved exactly one (29 to 30, remainder 63).
+All observed totals were conserved. Full-target no-ops, incompatible swaps, and
+27/54-slot storage acceptance still require native checks; not pushed.
 The 2026-09-07 native storage diagnostic used the existing normal Windows/DX12
 build at `3eff46cf`, 1280x720 and GUI scale 2, against the isolated BDS 1.26.40.8
 world. Test chests rendered, but normal gameplay right-click did not open storage.
-Code inspection found no production consumer of the click-block packet builder;
-the gameplay Use action has no block-interaction producer. Implement and verify
-that ingress before claiming native storage acceptance. The diagnostic ended
+Code inspection at that checkpoint found no production consumer of the click-block
+packet builder. The diagnostic ended
 with clean client/server shutdown and restored the original local server runtime.
-A bounded empty-hand creative keyboard/mouse block-use implementation is planned
-as provisional functionality, using the existing checked protocol encoding and
-immutable movement-tick authority. The native click carrier, optional envelope,
+A bounded empty-hand creative keyboard/mouse block-use implementation `614134e5`
+is now locally integrated after fresh independent approval with no findings.
+It attaches one initial Use edge to the completed movement tick, mutually exclusive
+with mining, and revokes stale queued interactions without dropping movement.
+Pending inventory recovery or hotbar changes suppress use; the server alone opens
+storage. Independent focused checks passed: protocol use 3, movement fixtures 7,
+runtime use 9, mining 23, and network revocation 1. Combined post-integration
+checks passed as recorded above. Native empty-hand use opened a server-driven
+inventory surface, but chest contents were not displayed: the personal layout
+appeared without the player preview, then eventually closed. Container-content
+identity/admission needs a live diagnostic witness before any broader routing
+change. Native storage acceptance remains open; this tranche is not pushed.
+A separately reviewed diagnostic `2f7a7535` is locally integrated to record a
+bounded, opt-in prefix of storage-sized content identities and their ordering
+relative to an open window. It does not change admission or log item payloads.
+Its focused regression, strict app lint, formatting, and architecture checks
+passed. The native witness showed 27-slot content carrying container-name code 0
+after the matching generic-storage window opened; the projection left it
+unrouted. Unrelated 54-slot traffic on window 124 used the same code and must
+not become storage authority. A narrow contextual routing fix is in progress;
+this evidence does not establish a global container-name alias. A real 54-slot
+chest fixture is prepared, but its native content/transfer gate is still open.
+This remains provisional functionality. The native click carrier, optional envelope,
 reach, simultaneous-action priority, and repeat cadence are not yet established;
 generated encoder fixtures do not close those reference gaps. Server acceptance
 and a real chest interaction are required before shipping even this bounded path,
@@ -2664,6 +2713,15 @@ the canonical route to an identifier. Preserve the visual route and design a
 bounded thumbnail path from exact compiled geometry/materials; do not infer a
 generic block icon from an item name. Projection, shading, all visible surfaces,
 and native rendered acceptance remain open.
+The same native run also exposed a separate sprite crosswalk gap: the modern
+water-bucket identifier has no alias to its existing water sprite. A verified
+modern-name-to-atlas mapping, compiler/resolver/icon tests, and native icon
+acceptance remain open; this does not require a block-thumbnail renderer.
+Initial negotiated item-registry binding for world item visuals is also separate
+from the inventory-ledger bootstrap fix. The visual resolver still starts from
+built-in mappings and only replaces them on a later registry event. Preserve
+session/FIFO ordering when adding that initial binding; do not claim custom-item
+visual authority from the merge fix alone.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
