@@ -1,26 +1,17 @@
 use super::*;
 use crate::movement::{pending_trace_line, write_trace_line};
 
-pub(super) fn finalize_mining_packet(
-    packet: Packet,
-    mining: Option<MiningPacketGuard>,
-) -> (Packet, bool) {
+fn finalize_mining_packet(packet: Packet, mining: Option<MiningPacketGuard>) -> Packet {
     match mining {
-        Some(guard) => (guard.sanitize(packet), true),
-        None => (packet, false),
+        Some(guard) => guard.sanitize(packet),
+        None => packet,
     }
 }
 
-pub(super) fn guarded_physics_trace_line_with(
-    physics: Option<PhysicsSendIdentity>,
-    mining_guarded: bool,
-    packet: &Packet,
-    format: impl FnOnce(u64, &Packet) -> Option<String>,
-) -> Option<String> {
-    if !mining_guarded {
-        return None;
-    }
-    physics.and_then(|identity| format(identity.session_generation, packet))
+struct NetworkPumpRuntime<F, W> {
+    readiness_ingress: Arc<ReadinessIngressCounter>,
+    trace_line: F,
+    write_trace: W,
 }
 
 #[cfg(test)]
@@ -44,15 +35,80 @@ pub(super) async fn run_network_pump<S: NetworkSession>(
     .await;
 }
 
+#[cfg(test)]
+pub(super) async fn run_network_pump_with_trace<S, F, W>(
+    session: S,
+    sequencer: NetworkSequencer,
+    command_rx: mpsc::Receiver<NetworkCommand>,
+    control_event_tx: mpsc::Sender<NetworkControlEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
+    shutdown_rx: watch::Receiver<bool>,
+    trace: (F, W),
+) where
+    S: NetworkSession,
+    F: FnMut(u64, &Packet) -> Option<String>,
+    W: FnMut(&str),
+{
+    let (trace_line, write_trace) = trace;
+    run_network_pump_with_readiness_ingress_and_trace(
+        session,
+        sequencer,
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+        NetworkPumpRuntime {
+            readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+            trace_line,
+            write_trace,
+        },
+    )
+    .await;
+}
+
 pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
+    session: S,
+    sequencer: NetworkSequencer,
+    command_rx: mpsc::Receiver<NetworkCommand>,
+    control_event_tx: mpsc::Sender<NetworkControlEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
+    shutdown_rx: watch::Receiver<bool>,
+    readiness_ingress: Arc<ReadinessIngressCounter>,
+) {
+    run_network_pump_with_readiness_ingress_and_trace(
+        session,
+        sequencer,
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+        NetworkPumpRuntime {
+            readiness_ingress,
+            trace_line: pending_trace_line,
+            write_trace: write_trace_line,
+        },
+    )
+    .await;
+}
+
+async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
     mut session: S,
     mut sequencer: NetworkSequencer,
     mut command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
-    readiness_ingress: Arc<ReadinessIngressCounter>,
-) {
+    runtime: NetworkPumpRuntime<F, W>,
+) where
+    S: NetworkSession,
+    F: FnMut(u64, &Packet) -> Option<String>,
+    W: FnMut(&str),
+{
+    let NetworkPumpRuntime {
+        readiness_ingress,
+        mut trace_line,
+        mut write_trace,
+    } = runtime;
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
     let mut last_blob_cache_stats = None;
@@ -149,16 +205,12 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                         }
                         continue;
                     }
-                    let (packet, mining_guarded) = finalize_mining_packet(packet, mining);
-                    // A mining guard can replace the packet at this final
-                    // provably-unsent point. Format that exact result here and
-                    // publish it only after the socket accepts the write.
-                    let mining_trace_line = guarded_physics_trace_line_with(
-                        physics,
-                        mining_guarded,
-                        &packet,
-                        pending_trace_line,
-                    );
+                    let packet = finalize_mining_packet(packet, mining);
+                    // Every physics trace is formatted from the final packet
+                    // after mining sanitization and published in socket-write
+                    // order only after that write succeeds.
+                    let movement_trace_line = physics
+                        .and_then(|identity| trace_line(identity.session_generation, &packet));
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
                         session.begin_packet_id_trace();
@@ -181,8 +233,8 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
-                            if let Some(line) = mining_trace_line {
-                                write_trace_line(&line);
+                            if let Some(line) = movement_trace_line {
+                                write_trace(&line);
                             }
                             if trace_armed {
                                 session.arm_blob_cache_reset_for_fast_transfer();

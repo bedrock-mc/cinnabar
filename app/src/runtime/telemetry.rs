@@ -49,7 +49,7 @@ use crate::{
     },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
-        flush_player_auth_inputs_guarded, pending_trace_line, write_trace_line,
+        flush_player_auth_inputs_guarded,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -351,22 +351,7 @@ pub(crate) fn send_player_auth_inputs(
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
         |identity, packet, mining_guard| {
-            // Opt-in diagnostic trace of the exact unguarded movement stream.
-            // The line is formatted before the send attempt and written only
-            // after the transport accepted the packet, so retried samples are
-            // traced exactly once, at their successful hand-off. Mining-guarded
-            // packets are traced by the network worker after final sanitization.
-            let trace_line = mining_guard
-                .is_none()
-                .then(|| pending_trace_line(identity.session_generation, &packet))
-                .flatten();
-            let sent = network.send_physics_packet(identity, packet, mining_guard);
-            if sent.is_ok()
-                && let Some(line) = trace_line
-            {
-                write_trace_line(&line);
-            }
-            sent
+            network.send_physics_packet(identity, packet, mining_guard)
         },
     );
     match result {

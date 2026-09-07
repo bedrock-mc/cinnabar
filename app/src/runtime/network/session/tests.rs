@@ -21,12 +21,11 @@ use super::{
     NetworkFailureOrigin, NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer,
     NetworkSession, PacketSendError, ReadinessIngressCounter, SequencedWorldEvent,
     SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due,
-    finalize_mining_packet, guarded_physics_trace_line_with, run_network_pump,
-    send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
-    send_world_event_or_cancel, session_failure_display, start_game_inventory_authority,
-    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
-    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
-    write_network_pump_transfer_marker,
+    run_network_pump, run_network_pump_with_trace, send_control_event_or_cancel,
+    send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
+    session_failure_display, start_game_inventory_authority, wait_for_login_or_cancel,
+    wait_for_network_work_or_cancel, wait_for_send_or_cancel, wrap_readiness_tracked_event,
+    write_network_pump_terminal_marker, write_network_pump_transfer_marker,
 };
 
 #[path = "disconnect_tests.rs"]
