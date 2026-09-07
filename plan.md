@@ -15,8 +15,10 @@ review approved; its tests, vet, and published CI passed. Cinnabar's Go tests,
 vet and build, Rust workspace tests, clippy, formatting, release build, architecture
 check, and shell acceptance tests passed. Independent review found that the
 listener also accepted the dependency's newer default; a pre-preparation check
-now rejects unsupported local protocols. Its hermetic regression failed before
-the fix and passed afterward. Final review of this correction is pending.
+now rejects unsupported local protocol IDs and advertised game versions,
+including 1.26.40 sharing ID 2168. Both hermetic regressions failed before their
+fixes and passed afterward, including repeated race-enabled runs. Final review
+of these corrections is pending.
 No live vanilla or native acceptance gate is closed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
