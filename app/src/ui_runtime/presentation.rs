@@ -520,6 +520,19 @@ impl UiPresentationRuntime {
                 .layouts
                 .layout(metrics.request(text, wrap_width, &self.font))
                 .map_err(UiPresentationError::Text)?;
+            if is_toast {
+                let shadow = match metrics.shadow() {
+                    TextShadow::None => 0.0,
+                    TextShadow::Offset64(offset) => metrics.scale.get() * offset as f32 / 64.0,
+                };
+                if layout
+                    .glyphs()
+                    .iter()
+                    .any(|glyph| y + glyph.bounds_64[3] as f32 / 64.0 + shadow > content_height)
+                {
+                    continue;
+                }
+            }
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),

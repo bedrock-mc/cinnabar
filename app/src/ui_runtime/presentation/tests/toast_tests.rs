@@ -1,5 +1,5 @@
 //! Toast rows remain independent from the gameplay HUD node count and fail
-//! closed when the safe content viewport cannot contain their top edge.
+//! closed when the safe content viewport cannot contain their full extent.
 
 use std::sync::Arc;
 
@@ -93,5 +93,54 @@ fn toast_rows_below_safe_content_height_are_omitted_at_each_dpi() {
         assert_eq!(input.vertices.len(), 4 * 8);
         assert_row_top(&input.vertices[..8], (20.0 + 12.0) * dpi);
         assert_row_top(&input.vertices[3 * 8..], (20.0 + 66.0) * dpi);
+    }
+}
+
+#[test]
+fn partially_visible_toast_rows_are_omitted_at_each_dpi() {
+    for (physical_size, dpi) in [([640, 110], 1.0), ([1280, 220], 2.0)] {
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.set_safe_area(SafeArea::new(0.0, 20.0, 0.0, 20.0).unwrap());
+        let mut runtime = UiRuntime::new(1);
+        for fifo_sequence in 1..=4 {
+            push_toast(&mut runtime, fifo_sequence);
+        }
+        let input = presentation
+            .build(&runtime, 0, physical_size, DpiScale::new(dpi).unwrap())
+            .unwrap();
+        assert_eq!(input.vertices.len(), 3 * 8);
+        assert_row_top(&input.vertices[2 * 8..], (20.0 + 48.0) * dpi);
+        let (_, bottom) = vertical_bounds(&input.vertices);
+        assert!(bottom <= (20.0 + 70.0) * dpi);
+    }
+}
+
+#[test]
+fn wrapped_toast_text_must_fit_completely_inside_the_safe_height() {
+    for (physical_size, dpi) in [([90, 110], 1.0), ([180, 220], 2.0)] {
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.set_safe_area(SafeArea::new(0.0, 20.0, 0.0, 20.0).unwrap());
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Hud(HudEvent::Toast {
+                    title: Arc::from("0 ".repeat(128)),
+                    message: Arc::from("2"),
+                }),
+            })
+            .unwrap();
+        let input = presentation
+            .build(&runtime, 0, physical_size, DpiScale::new(dpi).unwrap())
+            .unwrap();
+        assert_eq!(
+            input.vertices.len(),
+            8,
+            "omit the oversized title, retain the fitting message"
+        );
+        assert_row_top(&input.vertices, (20.0 + 30.0) * dpi);
     }
 }
