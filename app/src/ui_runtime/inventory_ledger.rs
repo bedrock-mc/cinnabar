@@ -45,6 +45,10 @@ pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
 const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
+/// Maximum opt-in storage-content identity diagnostics emitted per ledger
+/// session. This bounds even adversarial streams while retaining enough early
+/// events to diagnose Open/Content ordering and identity mismatches.
+const MAX_STORAGE_CONTENT_TRACES: u8 = 8;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum InventoryPendingState {
@@ -199,6 +203,7 @@ pub struct PlayerInventoryLedger {
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
+    storage_content_traces_remaining: u8,
     /// Well-formed authoritative inventory traffic whose container identity
     /// did not resolve onto a retained canonical ledger cell: unknown
     /// container codes, unreviewed surfaces (armor, offhand), or indices
@@ -230,6 +235,7 @@ impl Default for PlayerInventoryLedger {
             pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
+            storage_content_traces_remaining: MAX_STORAGE_CONTENT_TRACES,
             skipped_unknown_containers: 0,
         }
     }
