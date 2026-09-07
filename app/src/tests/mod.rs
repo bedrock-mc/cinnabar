@@ -272,6 +272,7 @@ mod core_process;
 mod finish;
 mod inventory;
 mod inventory_schedule;
+mod inventory_secondary_input;
 mod phase2_evidence;
 mod phase4_presentation;
 mod publication;
