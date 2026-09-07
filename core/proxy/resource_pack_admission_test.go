@@ -537,6 +537,24 @@ func TestListenerBoundaryShutdownDuringPreparationJoinsHook(t *testing.T) {
 func TestListenerBoundaryDisconnectBetweenAcceptAndTakeIsPerClient(t *testing.T) {
 	connections := newTestPreparedConnections()
 	prepared, targetCloses := newTrackedPreparedConnection()
+	allowUpstreamClose := make(chan struct{})
+	defer func() {
+		select {
+		case <-allowUpstreamClose:
+		default:
+			close(allowUpstreamClose)
+		}
+		select {
+		case <-targetCloses.done:
+		case <-time.After(time.Second):
+		}
+	}()
+	upstream := &gatedCloseUpstream{
+		fakeUpstream: prepared.upstream.(*fakeUpstream),
+		closeStarted: make(chan struct{}),
+		allowClose:   allowUpstreamClose,
+	}
+	prepared.upstream = upstream
 	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
 		return prepared, nil
 	}
@@ -567,12 +585,33 @@ func TestListenerBoundaryDisconnectBetweenAcceptAndTakeIsPerClient(t *testing.T)
 	case <-time.After(time.Second):
 		t.Fatal("accepted connection context was not cancelled")
 	}
-	waitForPreparedClose(t, prepared)
+	select {
+	case <-upstream.closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("prepared connection cleanup did not reach upstream Close")
+	}
+	if lifecycle := upstream.lifecycleEvents(); !slices.Equal(lifecycle, []string{"abort"}) || targetCloses.Load() != 0 {
+		t.Fatalf("paused cleanup = (lifecycle=%v, target closes=%d), want ([abort], 0)", lifecycle, targetCloses.Load())
+	}
 	taken, err := takePreparedAfterAccept(connections, accepted)
 	if err != nil || taken != nil {
 		t.Fatalf("takePreparedAfterAccept = (%p, %v), want ordinary per-client teardown", taken, err)
 	}
+	close(allowUpstreamClose)
+	waitForPreparedTransportCleanup(t, prepared, targetCloses)
 	assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
+}
+
+type gatedCloseUpstream struct {
+	*fakeUpstream
+	closeStarted chan struct{}
+	allowClose   <-chan struct{}
+}
+
+func (upstream *gatedCloseUpstream) Close() error {
+	close(upstream.closeStarted)
+	<-upstream.allowClose
+	return upstream.fakeUpstream.Close()
 }
 
 func TestListenerBoundaryContainsDialPanicBeforeLoginPackets(t *testing.T) {
@@ -995,7 +1034,7 @@ func TestPreparedConnectionsCancellationBeforeTakeClosesExactlyOnce(t *testing.T
 	}
 	cancel()
 
-	waitForPreparedClose(t, prepared)
+	waitForPreparedTransportCleanup(t, prepared, targetCloses)
 	if got, ok := connections.take(downstream); ok || got != nil {
 		t.Fatalf("take after cancellation = (%p, %t), want (nil, false)", got, ok)
 	}
@@ -1040,7 +1079,7 @@ func TestPreparedConnectionsTakeCancellationRaceHasOneOwner(t *testing.T) {
 				t.Fatalf("iteration %d close taken: %v", iteration, err)
 			}
 		} else {
-			waitForPreparedClose(t, prepared)
+			waitForPreparedTransportCleanup(t, prepared, targetCloses)
 		}
 		assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
 	}
@@ -1520,6 +1559,8 @@ func lifecycleEvents(upstream upstreamSession) []string {
 		return upstream.lifecycleEvents()
 	case *panicOfferUpstream:
 		return upstream.lifecycleEvents()
+	case *gatedCloseUpstream:
+		return upstream.lifecycleEvents()
 	default:
 		return nil
 	}
@@ -1617,32 +1658,42 @@ func (handler *selectivePanicHandler) snapshot() map[string]int {
 	return result
 }
 
-func newTrackedPreparedConnection() (*preparedConnection, *atomic.Int32) {
-	targetCloses := new(atomic.Int32)
+type trackedTargetClose struct {
+	calls atomic.Int32
+	done  chan struct{}
+}
+
+func (tracker *trackedTargetClose) Load() int32 {
+	return tracker.calls.Load()
+}
+
+func (tracker *trackedTargetClose) Close() error {
+	if tracker.calls.Add(1) == 1 {
+		close(tracker.done)
+	}
+	return nil
+}
+
+func newTrackedPreparedConnection() (*preparedConnection, *trackedTargetClose) {
+	targetCloses := &trackedTargetClose{done: make(chan struct{})}
 	return &preparedConnection{
-		upstream:  newFakeUpstream(nil),
-		packStack: &selectedResourcePackStack{},
-		releaseTarget: func() error {
-			targetCloses.Add(1)
-			return nil
-		},
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		upstream:      newFakeUpstream(nil),
+		packStack:     &selectedResourcePackStack{},
+		releaseTarget: targetCloses.Close,
+		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, targetCloses
 }
 
-func waitForPreparedClose(t *testing.T, prepared *preparedConnection) {
+func waitForPreparedTransportCleanup(t *testing.T, prepared *preparedConnection, targetCloses *trackedTargetClose) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if len(lifecycleEvents(prepared.upstream)) != 0 {
-			return
-		}
-		time.Sleep(time.Millisecond)
+	select {
+	case <-targetCloses.done:
+	case <-time.After(time.Second):
+		t.Fatalf("prepared connection cleanup did not complete; upstream lifecycle = %v, target closes = %d", lifecycleEvents(prepared.upstream), targetCloses.Load())
 	}
-	t.Fatal("prepared connection was not closed")
 }
 
-func assertPreparedClosedExactlyOnce(t *testing.T, prepared *preparedConnection, targetCloses *atomic.Int32) {
+func assertPreparedClosedExactlyOnce(t *testing.T, prepared *preparedConnection, targetCloses *trackedTargetClose) {
 	t.Helper()
 	if got := lifecycleEvents(prepared.upstream); !slices.Equal(got, []string{"abort", "close"}) {
 		t.Fatalf("upstream lifecycle = %v, want [abort close]", got)
