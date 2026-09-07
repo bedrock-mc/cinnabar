@@ -283,6 +283,9 @@ impl UiRuntime {
         self.inventory_authority = Some(authority);
         self.inventory_ledger
             .apply(&InventoryEvent::Authority(authority));
+        if authority != InventoryAuthority::Server {
+            self.inventory_open = false;
+        }
     }
 
     /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
@@ -423,6 +426,19 @@ impl UiRuntime {
 
     pub fn inventory_ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
         &mut self.inventory_ledger
+    }
+
+    pub(crate) fn poll_inventory_timeout(&mut self, now_millis: u64) {
+        if self.inventory_ledger.poll_timeout(now_millis) {
+            self.inventory_open = self.inventory_ledger.storage_generation().is_some();
+            self.inventory_pointer_gui = None;
+        }
+    }
+
+    pub(crate) fn inventory_transport_closed(&mut self) {
+        self.inventory_ledger.transport_closed();
+        self.inventory_open = false;
+        self.inventory_pointer_gui = None;
     }
 
     pub const fn inventory_pointer_gui(&self) -> Option<[f32; 2]> {
@@ -714,6 +730,8 @@ impl UiRuntime {
     }
 
     pub fn open_chat(&mut self) -> UiAuthorityTransition {
+        self.inventory_ledger.request_storage_close();
+        self.inventory_ledger.request_personal_close();
         self.inventory_open = false;
         self.chat_focused = true;
         UiAuthorityTransition {
@@ -739,8 +757,13 @@ impl UiRuntime {
         if self.inventory_ledger.storage_generation().is_some() {
             self.inventory_ledger.request_storage_close();
             self.inventory_open = false;
+        } else if self.inventory_open {
+            self.inventory_ledger.request_personal_close();
+            self.inventory_open = false;
         } else {
-            self.inventory_open = !self.inventory_open;
+            self.inventory_open = self
+                .local_runtime_id()
+                .is_some_and(|runtime_id| self.inventory_ledger.request_personal_open(runtime_id));
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -754,6 +777,7 @@ impl UiRuntime {
 
     pub fn close_inventory(&mut self) -> UiAuthorityTransition {
         self.inventory_ledger.request_storage_close();
+        self.inventory_ledger.request_personal_close();
         self.inventory_open = false;
         UiAuthorityTransition {
             consumes_text: false,

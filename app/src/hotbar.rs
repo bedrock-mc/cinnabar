@@ -168,6 +168,12 @@ mod tests {
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
     fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
+        if runtime.inventory_authority() == Some(InventoryAuthority::Server)
+            && !runtime.inventory_ledger().personal_inventory_desired_open()
+        {
+            assert!(runtime.inventory_ledger_mut().request_personal_open(42));
+            assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+        }
         runtime
             .inventory_ledger_mut()
             .apply(&InventoryEvent::Slot(InventorySlotEvent {

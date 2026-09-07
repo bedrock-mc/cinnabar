@@ -54,6 +54,8 @@ fn player_preview_only_renders_in_the_personal_inventory() {
         .expect("the fixture texture array has room for the player preview");
     presentation.hud_frame_mut().player_preview = Some(preview);
     let mut runtime = UiRuntime::new(1);
+    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
 
     let gameplay = build(&mut presentation, &runtime, 0);
     assert!(

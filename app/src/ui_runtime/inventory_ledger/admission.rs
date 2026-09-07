@@ -15,10 +15,11 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
-use super::helpers::{bare_storage_window_matches, valid_storage_window_id};
+use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
     Cell, CellSurface, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT,
-    PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner, PlayerInventoryLedger,
+    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
@@ -28,21 +29,36 @@ impl PlayerInventoryLedger {
                 self.authority = Some(*authority);
                 if *authority != InventoryAuthority::Server {
                     self.pending = None;
+                    self.personal = None;
                     self.cursor = None;
                     self.cursor_overlay = None;
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
                     self.storage = None;
-                    self.pending_close = None;
+                    self.pending_closes.clear();
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
             InventoryEvent::Close(close) => {
-                if self.pending_close.is_some_and(|pending| {
-                    close.container.window_id == Some(pending.window_id)
-                        && close.window_type == pending.window_type
+                if let Some(window_id) = close.container.window_id {
+                    self.remove_pending_close(window_id, close.window_type);
+                }
+                if self.personal.as_ref().is_some_and(|personal| {
+                    matches!(
+                        personal,
+                        super::PersonalWindow::Open {
+                            window_id,
+                            window_type,
+                            ..
+                        } | super::PersonalWindow::Closing {
+                            window_id,
+                            window_type,
+                            ..
+                        } if close.container.window_id == Some(*window_id)
+                            && close.window_type == *window_type
+                    )
                 }) {
-                    self.pending_close = None;
+                    self.finish_personal_close();
                 }
                 if self.storage.as_ref().is_some_and(|storage| {
                     close.container.window_id == Some(storage.window_id)
@@ -176,6 +192,16 @@ impl PlayerInventoryLedger {
     }
 
     fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
+        if open.window_type == super::PERSONAL_INVENTORY_WINDOW_TYPE {
+            self.apply_personal_open(open);
+            return;
+        }
+        if self.personal.is_some() {
+            if let Some(window_id) = open.container.window_id {
+                self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            }
+            return;
+        }
         if self
             .pending
             .as_ref()
@@ -191,15 +217,11 @@ impl PlayerInventoryLedger {
             return;
         };
         if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
-            self.queue_close(window_id, open.window_type);
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.storage = None;
             return;
         }
-        if self.pending_close.is_some_and(|close| {
-            close.window_id == window_id && close.window_type == open.window_type
-        }) {
-            self.pending_close = None;
-        }
+        self.remove_pending_close(window_id, open.window_type);
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
@@ -212,6 +234,52 @@ impl PlayerInventoryLedger {
             resync_required: false,
             closing: false,
         });
+    }
+
+    fn apply_personal_open(&mut self, open: protocol::ContainerOpenEvent) {
+        let Some(window_id) = open.container.window_id else {
+            self.note_unrouted_container();
+            return;
+        };
+        let Some(super::PersonalWindow::Opening {
+            generation,
+            admitted: true,
+            desired_open,
+            ..
+        }) = self.personal
+        else {
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            self.note_unrouted_container();
+            return;
+        };
+        if !valid_raw_window_id(window_id) {
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            self.personal = None;
+            self.personal_lifecycle_failed = true;
+            self.note_unrouted_container();
+            return;
+        }
+        if desired_open {
+            self.personal = Some(super::PersonalWindow::Open {
+                generation,
+                window_id,
+                window_type: open.window_type,
+            });
+        } else {
+            self.queue_close(
+                window_id,
+                open.window_type,
+                PendingCloseOwner::Personal(generation),
+            );
+            self.personal = Some(super::PersonalWindow::Closing {
+                generation,
+                window_id,
+                window_type: open.window_type,
+                // The acknowledgement completed the Open wait. Start the
+                // distinct Close wait only after its packet is admitted.
+                deadline_millis: None,
+            });
+        }
     }
 
     fn apply_storage_content(&mut self, identity: ContainerIdentity, slots: &[NetworkItemStack]) {
@@ -231,7 +299,11 @@ impl PlayerInventoryLedger {
             return;
         }
         if !valid_len {
-            self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE);
+            self.queue_close(
+                window_id,
+                GENERIC_STORAGE_WINDOW_TYPE,
+                PendingCloseOwner::Storage,
+            );
             self.close_storage(false);
             return;
         }

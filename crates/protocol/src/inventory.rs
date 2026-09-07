@@ -26,9 +26,8 @@ pub use address::{
 };
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
-    container_close_packet, item_stack_request_packet,
+    container_close_packet, item_stack_request_packet, open_inventory_packet,
 };
-
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
 pub const MAX_STACK_RESPONSES: usize = 512;
@@ -170,6 +169,8 @@ pub enum InventoryPacketError {
     },
     #[error("item stack request network ID {0} is invalid")]
     InvalidRequestStackNetworkId(i32),
+    #[error("personal inventory target runtime ID must be nonzero")]
+    InvalidInventoryTargetRuntimeId,
     #[error("container close window ID {0} is outside 0..=255")]
     InvalidContainerCloseWindowId(i32),
     #[error("armor equipment actor runtime ID {0} is invalid")]

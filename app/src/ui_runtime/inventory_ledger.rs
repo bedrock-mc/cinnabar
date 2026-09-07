@@ -4,10 +4,16 @@
 //! the two touched cells and never queues a second gesture behind an in-flight
 //! request.
 
+use std::collections::VecDeque;
+
 mod admission;
 mod helpers;
+#[cfg(test)]
+mod lifecycle_tests;
+mod personal;
 mod response;
 
+use personal::PersonalWindow;
 pub use response::StackResponseOverlay;
 
 use helpers::{cell_surface, request_slot, valid_raw_window_id};
@@ -15,15 +21,20 @@ use helpers::{cell_surface, request_slot, valid_raw_window_id};
 use protocol::{
     ContainerIdentity, InventoryAuthority, NetworkItemStack, Packet, StackRequestAction,
     StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
+    open_inventory_packet,
 };
 use thiserror::Error;
 
 pub const PLAYER_INVENTORY_SLOT_COUNT: usize = 36;
 pub const INVENTORY_REQUEST_TIMEOUT_MILLIS: u64 = 1_500;
+/// Remote window churn is retained only far enough to close the newest
+/// observed surface, while the current personal close can never be evicted.
+const MAX_PENDING_CLOSES: usize = 8;
 /// The decoded generic-storage container name
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
+pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 
@@ -68,6 +79,31 @@ struct StorageWindow {
 struct PendingClose {
     window_id: i32,
     window_type: i8,
+    owner: PendingCloseOwner,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum PendingCloseOwner {
+    Cleanup,
+    Storage,
+    Personal(u64),
+}
+
+impl PendingCloseOwner {
+    const fn priority(self) -> u8 {
+        match self {
+            Self::Cleanup => 0,
+            Self::Storage => 1,
+            Self::Personal(_) => 2,
+        }
+    }
+
+    const fn personal_generation(self) -> Option<u64> {
+        match self {
+            Self::Personal(generation) => Some(generation),
+            Self::Cleanup | Self::Storage => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -101,6 +137,7 @@ struct PendingRequest {
     deadline_millis: Option<u64>,
     session_generation: u64,
     storage_generation: Option<u64>,
+    personal_generation: Option<u64>,
     storage_identity: Option<ContainerIdentity>,
 }
 
@@ -108,6 +145,8 @@ struct PendingRequest {
 pub enum InventoryGestureError {
     #[error("server-authoritative inventory is not active")]
     AuthorityUnavailable,
+    #[error("personal inventory open has not been admitted")]
+    PersonalInventoryUnavailable,
     #[error("player inventory slot {0} is outside 0..36")]
     InvalidSlot(u8),
     #[error("generic storage slot {0} is outside the authoritative window")]
@@ -139,8 +178,10 @@ pub struct PlayerInventoryLedger {
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
+    personal: Option<PersonalWindow>,
+    personal_lifecycle_failed: bool,
     storage: Option<StorageWindow>,
-    pending_close: Option<PendingClose>,
+    pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
     /// Well-formed authoritative inventory traffic whose container identity
@@ -167,8 +208,10 @@ impl Default for PlayerInventoryLedger {
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
+            personal: None,
+            personal_lifecycle_failed: false,
             storage: None,
-            pending_close: None,
+            pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
             skipped_unknown_containers: 0,
@@ -305,6 +348,15 @@ impl PlayerInventoryLedger {
         if self.pending.is_some() {
             return Err(InventoryGestureError::Busy);
         }
+        let personal_generation = if matches!(target, Cell::Inventory(_)) && self.storage.is_none()
+        {
+            Some(
+                self.personal_generation_for_gesture()
+                    .ok_or(InventoryGestureError::PersonalInventoryUnavailable)?,
+            )
+        } else {
+            None
+        };
         let (target_stack, target_revision) = match target {
             Cell::Inventory(slot) => {
                 let index = usize::from(slot);
@@ -361,7 +413,7 @@ impl PlayerInventoryLedger {
                             stack.stack_network_id,
                             storage_identity,
                         )?,
-                        destination: request_slot(Cell::Cursor, -1, storage_identity)?,
+                        destination: request_slot(Cell::Cursor, 0, storage_identity)?,
                     },
                     Prediction {
                         source: inventory_cell,
@@ -388,7 +440,7 @@ impl PlayerInventoryLedger {
                             stack.stack_network_id,
                             storage_identity,
                         )?,
-                        destination: request_slot(inventory_cell, -1, storage_identity)?,
+                        destination: request_slot(inventory_cell, 0, storage_identity)?,
                     },
                     Prediction {
                         source: Cell::Cursor,
@@ -438,14 +490,25 @@ impl PlayerInventoryLedger {
             deadline_millis: None,
             session_generation: self.session_generation,
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
+            personal_generation,
             storage_identity: self.storage.as_ref().and_then(|storage| storage.identity),
         });
         Ok(request_id)
     }
 
     pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
-        if let Some(close) = self.pending_close {
+        if let Some(close) = self.pending_closes.front().copied() {
             return container_close_packet(close.window_id, close.window_type)
+                .map(Some)
+                .map_err(|_| InventoryGestureError::InvalidRequest);
+        }
+        if let Some(PersonalWindow::Opening {
+            target_runtime_id,
+            admitted: false,
+            ..
+        }) = self.personal
+        {
+            return open_inventory_packet(target_runtime_id)
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
         }
@@ -460,7 +523,29 @@ impl PlayerInventoryLedger {
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
-        if self.pending_close.take().is_some() {
+        if let Some(close) = self.pending_closes.pop_front() {
+            if let Some(generation) = close.owner.personal_generation()
+                && let Some(PersonalWindow::Closing {
+                    generation: current,
+                    deadline_millis,
+                    ..
+                }) = self.personal.as_mut()
+                && *current == generation
+            {
+                *deadline_millis =
+                    Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
+            }
+            return true;
+        }
+        if let Some(PersonalWindow::Opening {
+            admitted,
+            deadline_millis,
+            ..
+        }) = self.personal.as_mut()
+            && !*admitted
+        {
+            *admitted = true;
+            *deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
             return true;
         }
         let Some(pending) = self.pending.as_mut() else {
@@ -476,7 +561,15 @@ impl PlayerInventoryLedger {
     }
 
     pub fn note_transport_pressure(&mut self, now_millis: u64) {
-        if self.pending_close.is_some() {
+        if !self.pending_closes.is_empty()
+            || matches!(
+                self.personal,
+                Some(PersonalWindow::Opening {
+                    admitted: false,
+                    ..
+                })
+            )
+        {
             return;
         }
         let Some(pending) = self.pending.as_mut() else {
@@ -496,23 +589,73 @@ impl PlayerInventoryLedger {
     /// Fails closed once transport admission no longer proves whether the
     /// server observed the request. Retransmitting an admitted mutation could
     /// apply it twice; retry is limited to pre-admission queue pressure.
+    /// Returns `true` only when the personal Open/Close lifecycle expired.
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
+        let personal_expired = self.poll_personal_timeout(now_millis);
         let Some(pending) = self.pending.as_mut() else {
-            return false;
+            return personal_expired;
         };
         if pending.state != InventoryPendingState::AwaitingResponse
             || pending
                 .deadline_millis
                 .is_none_or(|deadline| now_millis < deadline)
         {
-            return false;
+            return personal_expired;
         }
         self.require_authoritative_recovery();
-        false
+        personal_expired
+    }
+
+    fn poll_personal_timeout(&mut self, now_millis: u64) -> bool {
+        let Some(personal) = self.personal else {
+            return false;
+        };
+        let expired = match personal {
+            PersonalWindow::Opening {
+                admitted: true,
+                deadline_millis: Some(deadline),
+                ..
+            }
+            | PersonalWindow::Closing {
+                deadline_millis: Some(deadline),
+                ..
+            } => now_millis >= deadline,
+            _ => false,
+        };
+        if !expired {
+            return false;
+        }
+        let generation = personal.generation();
+        self.pending_closes
+            .retain(|close| close.owner.personal_generation() != Some(generation));
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.personal_generation == Some(generation))
+        {
+            match self.pending_state() {
+                Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
+                Some(InventoryPendingState::AwaitingResponse) => {
+                    self.require_authoritative_recovery();
+                }
+                None => {}
+            }
+        }
+        self.personal = None;
+        self.personal_lifecycle_failed = true;
+        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
+            self.cursor = None;
+            self.cursor_overlay = None;
+            self.bump_cell_revision(Cell::Cursor);
+            self.player_resync_required = true;
+            self.cursor_resync_required = true;
+        }
+        true
     }
 
     pub fn transport_closed(&mut self) {
-        self.pending_close = None;
+        self.pending_closes.clear();
+        self.personal = None;
         match self.pending_state() {
             Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
             Some(InventoryPendingState::AwaitingResponse) => {
@@ -651,7 +794,11 @@ impl PlayerInventoryLedger {
             return;
         }
         let (window_id, generation) = (storage.window_id, storage.generation);
-        self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE);
+        self.queue_close(
+            window_id,
+            GENERIC_STORAGE_WINDOW_TYPE,
+            PendingCloseOwner::Storage,
+        );
         let awaiting_response = self.pending.as_ref().is_some_and(|pending| {
             pending.state == InventoryPendingState::AwaitingResponse
                 && pending.storage_generation == Some(generation)
@@ -706,13 +853,74 @@ impl PlayerInventoryLedger {
         }
     }
 
-    fn queue_close(&mut self, window_id: i32, window_type: i8) {
-        if valid_raw_window_id(window_id) {
-            self.pending_close = Some(PendingClose {
-                window_id,
-                window_type,
-            });
+    fn finish_personal_close(&mut self) {
+        let generation = match self.personal {
+            Some(
+                PersonalWindow::Open { generation, .. }
+                | PersonalWindow::Closing { generation, .. },
+            ) => generation,
+            _ => return,
+        };
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.personal_generation == Some(generation))
+        {
+            match self.pending_state() {
+                Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
+                Some(InventoryPendingState::AwaitingResponse) => {
+                    self.require_authoritative_recovery();
+                }
+                None => {}
+            }
         }
+        self.personal = None;
+        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
+            self.cursor = None;
+            self.cursor_overlay = None;
+            self.bump_cell_revision(Cell::Cursor);
+            self.player_resync_required = true;
+            self.cursor_resync_required = true;
+        }
+    }
+
+    fn queue_close(&mut self, window_id: i32, window_type: i8, owner: PendingCloseOwner) {
+        if !valid_raw_window_id(window_id) {
+            return;
+        }
+        if let Some(existing) = self
+            .pending_closes
+            .iter_mut()
+            .find(|close| close.window_id == window_id && close.window_type == window_type)
+        {
+            if owner.priority() > existing.owner.priority() {
+                existing.owner = owner;
+            }
+            return;
+        }
+        if self.pending_closes.len() >= MAX_PENDING_CLOSES {
+            let current_personal = self.personal.as_ref().map(PersonalWindow::generation);
+            // Old cleanup and storage closes describe superseded server
+            // windows. Evict the oldest such control, but preserve the close
+            // that owns the still-current personal generation.
+            let Some(eviction) = self.pending_closes.iter().position(|close| {
+                current_personal
+                    .is_none_or(|generation| close.owner.personal_generation() != Some(generation))
+            }) else {
+                return;
+            };
+            self.pending_closes.remove(eviction);
+        }
+        self.pending_closes.push_back(PendingClose {
+            window_id,
+            window_type,
+            owner,
+        });
+    }
+
+    fn remove_pending_close(&mut self, window_id: i32, window_type: i8) {
+        self.pending_closes
+            .retain(|close| close.window_id != window_id || close.window_type != window_type);
     }
 
     fn cancel_pending_for_authority(

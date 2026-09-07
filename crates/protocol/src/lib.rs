@@ -65,7 +65,7 @@ pub use inventory::{
     StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
     container_close_packet, item_stack_request_packet, normalize_authority,
     normalize_container_close, normalize_container_data, normalize_container_open,
-    normalize_content, normalize_hotbar, normalize_response, normalize_slot,
+    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
     project_container_cell, validate_item_nbt_size,
 };
 pub use item::{

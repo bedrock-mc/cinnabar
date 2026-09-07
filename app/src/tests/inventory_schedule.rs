@@ -121,6 +121,7 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
 fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_menu() {
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time<Real>>()
@@ -197,6 +198,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
     let current = stack(6, 2, 55);
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
     runtime
         .inventory_ledger_mut()
         .apply(&content(current.clone()));
@@ -295,6 +297,15 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         Default::default(),
         "the inventory-opening click cannot become gameplay attack"
     );
+    assert!(
+        flush_inventory_send(
+            &mut app.world_mut().resource_mut::<UiRuntime>(),
+            10,
+            |_| Ok::<_, ()>(())
+        )
+        .unwrap(),
+        "the personal open notification is admitted before a gesture"
+    );
 
     {
         let mut cursor = app.world_mut().get_mut::<CursorOptions>(window).unwrap();
@@ -325,7 +336,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
 
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
-    assert!(runtime.inventory_open());
+    assert!(!runtime.inventory_open());
     assert_eq!(runtime.inventory_ledger().pending_state(), None);
     assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
     assert_eq!(
@@ -342,6 +353,31 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         "a close-and-reopen frame must consume its pointer edge"
     );
 
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(2),
+                window_type: -1,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }));
+        assert!(
+            flush_inventory_send(&mut runtime, 20, |_| Ok::<_, ()>(())).unwrap(),
+            "the close uses the acknowledged personal window"
+        );
+        runtime.inventory_ledger_mut().apply(&InventoryEvent::Close(
+            protocol::ContainerCloseEvent {
+                container: ContainerIdentity::window(2),
+                window_type: -1,
+                server_initiated: true,
+            },
+        ));
+        runtime.toggle_inventory();
+        assert!(runtime.inventory_open());
+        assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(30));
+    }
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
@@ -365,7 +401,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
     for key_code in [KeyCode::KeyE, KeyCode::Escape] {
         let mut runtime = UiRuntime::new(1);
         runtime.publish_inventory_authority(InventoryAuthority::Server);
-        runtime.toggle_inventory();
+        open_personal_inventory(&mut runtime);
 
         let mut app = App::new();
         configure_client_frame_schedule(&mut app);
@@ -472,7 +508,7 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
         let mut runtime = UiRuntime::new(1);
         runtime.publish_inventory_authority(InventoryAuthority::Server);
         runtime.inventory_ledger_mut().apply(&content(current));
-        runtime.toggle_inventory();
+        open_personal_inventory(&mut runtime);
 
         let mut app = App::new();
         app.init_resource::<Time<Real>>()
@@ -512,7 +548,14 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
         assert_eq!(runtime.inventory_ledger().pending_state(), None);
         assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
         if menu_visible {
-            assert!(runtime.inventory_open());
+            assert!(
+                !runtime.inventory_open(),
+                "the visible menu tears down personal inventory ownership"
+            );
+            assert!(
+                !runtime.inventory_ledger().personal_inventory_desired_open(),
+                "menu authority cannot leave a personal window desired"
+            );
             assert!(
                 !app.world()
                     .resource::<ButtonInput<MouseButton>>()
@@ -670,7 +713,7 @@ fn run_scheduled_ingress_click(complete: bool) {
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(InventoryAuthority::Server);
     runtime.inventory_ledger_mut().apply(&content(stale));
-    runtime.toggle_inventory();
+    open_personal_inventory(&mut runtime);
 
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let physical_size = [1280, 720];
@@ -792,6 +835,23 @@ fn admit_inventory_request(
     mut observed: ResMut<AdmissionObserved>,
 ) {
     observed.0 = flush_inventory_send(&mut runtime, 10, |_| Ok::<_, ()>(())).unwrap();
+}
+
+fn open_personal_inventory(runtime: &mut UiRuntime) {
+    runtime
+        .publish_local_runtime_id(runtime.session_id(), 42)
+        .unwrap();
+    runtime.toggle_inventory();
+    assert!(runtime.inventory_open());
+    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(2),
+            window_type: -1,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
 }
 
 fn content(first: NetworkItemStack) -> InventoryEvent {

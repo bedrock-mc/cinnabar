@@ -318,8 +318,13 @@ impl UiRuntime {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
             self.inventory_ledger.apply(&sequenced.event);
             match &sequenced.event {
+                InventoryEvent::Authority(_) => {
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
+                }
                 InventoryEvent::Open(_) => {
-                    self.inventory_open = self.inventory_ledger.storage_generation().is_some();
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
                     if self.inventory_open {
                         self.chat_focused = false;
                     }
@@ -330,15 +335,15 @@ impl UiRuntime {
                         Some(CanonicalCell::GenericStorage { .. })
                     ) =>
                 {
-                    self.inventory_open = self.inventory_ledger.storage_slot_count().is_some();
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_slot_count().is_some();
                     if self.inventory_open {
                         self.chat_focused = false;
                     }
                 }
                 InventoryEvent::Close(_) => {
-                    if self.inventory_ledger.storage_generation().is_none() {
-                        self.inventory_open = false;
-                    }
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
                 }
                 _ => {}
             }

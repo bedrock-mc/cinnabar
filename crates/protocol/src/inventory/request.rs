@@ -1,16 +1,34 @@
 use valentine::bedrock::version::v1_26_44::{
-    ContainerClosePacket, EnumsContainerEnumName as FullContainerNameContainerName,
+    ActorRuntimeId, ContainerClosePacket, EnumsContainerEnumName as FullContainerNameContainerName,
+    EnumsInteractPacketPayloadAction as InteractAction,
     EnumsItemStackRequestActionType as ItemStackRequestCerealActionType,
-    EnumsTextProcessingEventOrigin, FullContainerName, ItemStackRequestCerealPlaceActionData,
-    ItemStackRequestCerealSlotInfoData, ItemStackRequestCerealSwapActionData,
-    ItemStackRequestCerealTakeActionData, ItemStackRequestPacket,
-    ItemStackRequestPacketDataRequestData, ItemStackRequestPacketDataRequestDataActionsItem,
+    EnumsTextProcessingEventOrigin, FullContainerName, InteractPacket,
+    ItemStackRequestCerealPlaceActionData, ItemStackRequestCerealSlotInfoData,
+    ItemStackRequestCerealSwapActionData, ItemStackRequestCerealTakeActionData,
+    ItemStackRequestPacket, ItemStackRequestPacketDataRequestData,
+    ItemStackRequestPacketDataRequestDataActionsItem,
     TypedClientNetIdstructItemStackRequestIdTagint32T0,
 };
 
 use super::InventoryPacketError;
 
 pub const PLAYER_INVENTORY_SLOTS: u8 = 36;
+
+pub fn open_inventory_packet(
+    target_runtime_id: u64,
+) -> Result<crate::Packet, InventoryPacketError> {
+    if target_runtime_id == 0 {
+        return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
+    }
+    Ok(InteractPacket {
+        action: InteractAction::OpenInventory,
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: target_runtime_id,
+        },
+        position: None,
+    }
+    .into())
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum StackRequestContainer {
@@ -170,4 +188,26 @@ pub fn container_close_packet(
         server_initiated_close: false,
     }
     .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use valentine::bedrock::version::v1_26_44::McpePacketData;
+
+    use super::*;
+
+    #[test]
+    fn personal_inventory_open_targets_self_without_a_position() {
+        let packet = open_inventory_packet(42).unwrap();
+        let McpePacketData::InteractPacket(interact) = packet.data else {
+            panic!("expected Interact packet");
+        };
+        assert_eq!(interact.action, InteractAction::OpenInventory);
+        assert_eq!(interact.target_runtime_id.actor_runtime_id, 42);
+        assert_eq!(interact.position, None);
+        assert_eq!(
+            open_inventory_packet(0).unwrap_err(),
+            InventoryPacketError::InvalidInventoryTargetRuntimeId
+        );
+    }
 }

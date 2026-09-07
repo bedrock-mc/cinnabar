@@ -651,6 +651,8 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
             stack(network_id),
         ));
     }
+    assert!(runtime.inventory_ledger_mut().request_personal_open(42));
+    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
     // One in-flight gesture so an accepted response can reconcile at all.
     let request = runtime.inventory_ledger_mut().begin_click(5).unwrap();
     runtime
