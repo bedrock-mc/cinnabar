@@ -274,9 +274,10 @@ pub(crate) fn drive_inventory_ui_actions(
         return;
     }
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
+    let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
     // The inventory owns pointer buttons while open. Preserve the primary
-    // edge long enough to resolve its cell, then clear every button before
-    // gameplay systems can observe this frame.
+    // and secondary edges long enough to resolve their cell, then clear every
+    // button before gameplay systems can observe this frame.
     mouse_buttons.reset_all();
     let Some(position) = window.cursor_position() else {
         runtime.set_inventory_pointer_gui(None);
@@ -297,16 +298,42 @@ pub(crate) fn drive_inventory_ui_actions(
             runtime.inventory_ledger().storage_slot_count(),
         )
     });
-    if primary_pressed && let Some(slot) = hit {
+    if let Some(slot) = hit {
         let ledger = runtime.inventory_ledger_mut();
-        let _ = match slot {
-            presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
-                ledger.begin_click(slot)
-            }
-            presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
-                ledger.begin_storage_click(slot)
-            }
-        };
+        if primary_pressed {
+            // When both physical edges arrive together, preserve the existing
+            // primary operation as a deterministic local policy.
+            let _ = match slot {
+                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
+                    ledger.begin_click(slot)
+                }
+                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
+                    ledger.begin_storage_click(slot)
+                }
+            };
+        } else if secondary_pressed {
+            let cursor_occupied = ledger.cursor_stack().is_some();
+            let _ = match slot {
+                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
+                    let target_count = ledger.displayed_stack(slot).map(|stack| stack.count);
+                    match (cursor_occupied, target_count) {
+                        (false, Some(count)) => ledger.begin_take_count(slot, count.div_ceil(2)),
+                        (true, None) => ledger.begin_place_count(slot, 1),
+                        _ => return,
+                    }
+                }
+                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
+                    let target_count = ledger.storage_stack(slot).map(|stack| stack.count);
+                    match (cursor_occupied, target_count) {
+                        (false, Some(count)) => {
+                            ledger.begin_storage_take_count(slot, count.div_ceil(2))
+                        }
+                        (true, None) => ledger.begin_storage_place_count(slot, 1),
+                        _ => return,
+                    }
+                }
+            };
+        }
     }
 }
 
