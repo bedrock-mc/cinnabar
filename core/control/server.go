@@ -5,14 +5,22 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 )
 
-const MaxFrameLen = 64 * 1024
+const (
+	MaxFrameLen = 64 * 1024
+
+	// requestIOTimeout bounds each read and write phase on the local, serial
+	// status endpoint so one stalled tool cannot deny service to later clients.
+	requestIOTimeout = 2 * time.Second
+)
 
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -34,26 +42,39 @@ type responseError struct {
 }
 
 type Server struct {
-	listener net.Listener
-	store    *Store
-	done     chan struct{}
-	once     sync.Once
-	mu       sync.Mutex
-	active   net.Conn
-	closing  bool
-	err      error
+	listener         net.Listener
+	store            *Store
+	done             chan struct{}
+	once             sync.Once
+	mu               sync.Mutex
+	active           net.Conn
+	closing          bool
+	err              error
+	requestIOTimeout time.Duration
 }
 
 // Start binds the distinct control endpoint before returning.
 func Start(socketDir string, store *Store) (*Server, error) {
+	return startWithRequestIOTimeout(socketDir, store, requestIOTimeout)
+}
+
+func startWithRequestIOTimeout(socketDir string, store *Store, timeout time.Duration) (*Server, error) {
 	if store == nil {
 		return nil, errors.New("control: status store is required")
+	}
+	if timeout <= 0 {
+		return nil, errors.New("control: request I/O timeout must be positive")
 	}
 	listener, err := streamnet.ListenControl(socketDir)
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{listener: listener, store: store, done: make(chan struct{})}
+	server := &Server{
+		listener:         listener,
+		store:            store,
+		done:             make(chan struct{}),
+		requestIOTimeout: timeout,
+	}
 	go server.serve()
 	return server, nil
 }
@@ -89,31 +110,41 @@ func (server *Server) serve() {
 }
 
 func (server *Server) serveOne(conn net.Conn) error {
+	if err := conn.SetReadDeadline(time.Now().Add(server.requestIOTimeout)); err != nil {
+		return fmt.Errorf("control: set request read deadline: %w", err)
+	}
 	payload, err := readFrame(conn)
 	if err != nil {
 		return err
 	}
 	if !json.Valid(payload) {
-		return writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32700, Message: "Parse error"}})
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32700, Message: "Parse error"}})
 	}
 	var call request
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&call); err != nil || decoder.Decode(new(any)) != io.EOF {
-		return writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
 	}
 	if call.JSONRPC != "2.0" || call.ID == nil || call.Method == "" {
-		return writeResponse(conn, response{JSONRPC: "2.0", ID: call.ID, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: call.ID, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
 	}
 	id := *call.ID
 	if len(call.Params) != 0 {
-		return writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
 	}
 	if call.Method != "status.v1" {
-		return writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32601, Message: "Method not found"}})
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32601, Message: "Method not found"}})
 	}
 	status := server.store.Status()
-	return writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
+	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
+}
+
+func (server *Server) writeResponse(conn net.Conn, value response) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(server.requestIOTimeout)); err != nil {
+		return fmt.Errorf("control: set response write deadline: %w", err)
+	}
+	return writeResponse(conn, value)
 }
 
 func (server *Server) Close() error {
