@@ -2,7 +2,11 @@
 
 use std::num::NonZeroU64;
 
-use bevy::prelude::{Res, ResMut, Resource};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Query, Res, ResMut, Resource, Window, With},
+    window::PrimaryWindow,
+};
 use protocol::{
     BlockAction, BlockActionKind, BlockActions, BlockUseRequest, PlayerAuthInputInteractions,
     PlayerInputMode, VerifiedNetworkItemStack,
@@ -12,6 +16,7 @@ use sim::{BlockHit, PaletteWorld, Vec3, WorldCollisionIdentity};
 
 use crate::{
     local_player::{FrozenInteractionOrigin, InteractionOriginSnapshot},
+    menu::MenuRuntime,
     movement::{MovementTicker, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
@@ -34,6 +39,7 @@ pub(crate) enum CreativeMiningAbility {
 pub(crate) struct FrozenMiningFrame {
     pub(crate) session_generation: u64,
     pub(crate) position_authority_generation: u64,
+    pub(crate) input_authority_generation: NonZeroU64,
     pub(crate) fifo_sequence: u64,
     pub(crate) physics_tick: u64,
     pub(crate) pose_generation: u64,
@@ -79,6 +85,7 @@ impl FrozenCreativeMining {
         self.frame.session_generation == current.frame.session_generation
             && self.frame.position_authority_generation
                 == current.frame.position_authority_generation
+            && self.frame.input_authority_generation == current.frame.input_authority_generation
             && self.frame.fifo_sequence <= current.frame.fifo_sequence
             && self.frame.physics_tick <= current.frame.physics_tick
             && self.frame.pose_generation <= current.frame.pose_generation
@@ -214,38 +221,54 @@ impl MiningRuntime {
     }
 }
 
+#[derive(SystemParam)]
+pub(crate) struct CreativeMiningContext<'w, 's> {
+    input: Res<'w, SemanticInputSnapshot>,
+    origin: Res<'w, InteractionOriginSnapshot>,
+    ui: Res<'w, UiRuntime>,
+    menu: Res<'w, MenuRuntime>,
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    client_world: Res<'w, ClientWorld>,
+    collisions: Res<'w, PhysicsCollisionRegistries>,
+}
+
 /// Produces at most one instant creative break per fresh attack press.
 ///
 /// This runs after committed world publication and immediately before the
 /// movement flush. It never mutates the local world; inbound server block
 /// updates remain the sole block-change authority.
 pub(crate) fn produce_creative_mining(
-    input: Res<SemanticInputSnapshot>,
-    origin: Res<InteractionOriginSnapshot>,
-    ui: Res<UiRuntime>,
-    client_world: Res<ClientWorld>,
-    collisions: Res<PhysicsCollisionRegistries>,
+    context: CreativeMiningContext,
     mut runtime: ResMut<MiningRuntime>,
     mut movement: ResMut<MovementTicker>,
 ) {
     let position_authority_changed = runtime.synchronize_position_authority(&mut movement);
-    let Some(input_snapshot) = input.snapshot() else {
+    if !creative_mining_input_authorized(
+        context.menu.is_visible(),
+        context.windows.single().is_ok_and(|window| window.focused),
+    ) {
+        runtime.pending_press = None;
+        movement.retain_creative_mining(None);
+        return;
+    }
+    let Some(input_snapshot) = context.input.snapshot() else {
         runtime.pending_press = None;
         movement.retain_creative_mining(None);
         return;
     };
-    let attack_pressed = !position_authority_changed && input.phase(Action::Attack).pressed;
+    let attack_pressed = !position_authority_changed && context.input.phase(Action::Attack).pressed;
     if !attack_pressed && runtime.pending_press.is_none() && !movement.has_queued_creative_mining()
     {
         return;
     }
     let position_authority_generation = movement.mining_authority_identity().1;
     let current = creative_observation(
-        &origin,
-        &ui,
-        &client_world,
-        &collisions,
+        &context.origin,
+        &context.ui,
+        &context.client_world,
+        &context.collisions,
         input_snapshot.input_mode,
+        input_snapshot.authority_generation,
         position_authority_generation,
     );
     let _ = runtime.update_press(
@@ -262,6 +285,7 @@ fn creative_observation(
     client_world: &ClientWorld,
     collisions: &PhysicsCollisionRegistries,
     input_mode: InputMode,
+    input_authority_generation: NonZeroU64,
     position_authority_generation: u64,
 ) -> Option<FrozenCreativeMining> {
     let ability = creative_mining_ui_ability(ui.ui_focused(), ui.player_game_mode()?)?;
@@ -294,7 +318,7 @@ fn creative_observation(
         reach,
         selection,
         (ray_world_identity, hit),
-        position_authority_generation,
+        (input_authority_generation, position_authority_generation),
         ability,
     ))
 }
@@ -319,14 +343,16 @@ fn frozen_observation(
     reach: f64,
     selection: FrozenMiningSelection,
     ray_hit: (WorldCollisionIdentity, BlockHit),
-    position_authority_generation: u64,
+    generations: (NonZeroU64, u64),
     ability: CreativeMiningAbility,
 ) -> FrozenCreativeMining {
     let (ray_world_identity, hit) = ray_hit;
+    let (input_authority_generation, position_authority_generation) = generations;
     FrozenCreativeMining {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
             position_authority_generation,
+            input_authority_generation,
             fifo_sequence: ray.fifo_sequence(),
             physics_tick: ray.physics_tick(),
             pose_generation: ray.pose_generation(),
@@ -376,6 +402,10 @@ const fn creative_mining_ui_ability(
     } else {
         creative_mining_ability(game_mode)
     }
+}
+
+const fn creative_mining_input_authorized(menu_visible: bool, window_focused: bool) -> bool {
+    !menu_visible && window_focused
 }
 
 const fn protocol_input_mode(input_mode: InputMode) -> PlayerInputMode {

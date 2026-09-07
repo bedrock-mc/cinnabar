@@ -1,5 +1,10 @@
 use std::{num::NonZeroU64, sync::Arc};
 
+use assets::{BlockPhysicsFlags, RegistryRecord, read_registry_for_protocol};
+use bevy::{
+    prelude::{App, Update, Window},
+    window::PrimaryWindow,
+};
 use protocol::{BedrockSession, NetworkItemStack, PlayerInputMode, VerifiedNetworkItemStack};
 use sha2::Digest;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
@@ -7,11 +12,16 @@ use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 use super::{
     CreativeMiningAbility, FrozenCreativeMining, FrozenMiningFrame, FrozenMiningRay,
     FrozenMiningSelection, FrozenMiningTarget, MiningRuntime, creative_mining_ability,
-    creative_mining_ui_ability, creative_reach,
+    creative_mining_input_authorized, creative_mining_ui_ability, creative_reach,
 };
 use crate::movement::{
-    MovementSource, MovementTicker, PhysicsMovementSample, PhysicsTickEvidenceContext,
-    ProcessedMovementState, flush_player_auth_inputs, flush_player_auth_inputs_guarded,
+    MovementSource, MovementTicker, PhysicsCollisionRegistries, PhysicsMovementSample,
+    PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
+    flush_player_auth_inputs_guarded,
+};
+use crate::{
+    local_player::InteractionOriginSnapshot, menu::MenuRuntime, runtime::world::ClientWorld,
+    semantic_controls::SemanticInputSnapshot, ui_runtime::UiRuntime,
 };
 
 fn world_identity(revision: u64) -> WorldCollisionIdentity {
@@ -74,6 +84,7 @@ fn observation(tick: u64, target: [i32; 3], item_id: i32) -> FrozenCreativeMinin
         frame: FrozenMiningFrame {
             session_generation: 7,
             position_authority_generation: 2,
+            input_authority_generation: NonZeroU64::new(5).unwrap(),
             fifo_sequence: 19,
             physics_tick: tick,
             pose_generation: 23,
@@ -157,10 +168,97 @@ fn evidence() -> PhysicsTickEvidenceContext {
     }
 }
 
+fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PREG1001");
+    bytes
+        .extend_from_slice(&crate::asset_startup::active_content_registry_protocol().to_le_bytes());
+    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&sha2::Sha256::digest(breg));
+    for record in records {
+        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
+        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
+        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
+        bytes.push(if record.collision_seed.boxes.is_empty() {
+            BlockPhysicsFlags::PASSABLE.bits()
+        } else {
+            0
+        });
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&0_i32.to_le_bytes());
+        for shape in &record.collision_seed.boxes {
+            for coordinate in [
+                shape.min_x,
+                shape.min_y,
+                shape.min_z,
+                shape.max_x,
+                shape.max_y,
+                shape.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+    }
+    let digest = sha2::Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
+
+fn fixture_registries() -> PhysicsCollisionRegistries {
+    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
+    let records = read_registry_for_protocol(breg, 2168).unwrap();
+    let preg = synthetic_preg(breg, &records);
+    PhysicsCollisionRegistries::from_assets(
+        breg,
+        &records,
+        &preg,
+        crate::asset_startup::active_content_registry_protocol(),
+    )
+    .unwrap()
+}
+
+fn production_context_app(
+    menu_visible: bool,
+    window_focused: bool,
+    ticker: MovementTicker,
+    runtime: MiningRuntime,
+) -> App {
+    let window = Window {
+        focused: window_focused,
+        ..Window::default()
+    };
+    let mut app = App::new();
+    app.world_mut().spawn((window, PrimaryWindow));
+    app.insert_resource(SemanticInputSnapshot::default())
+        .insert_resource(InteractionOriginSnapshot::default())
+        .insert_resource(UiRuntime::new(7))
+        .insert_resource(MenuRuntime::new(menu_visible, 2, "Player".to_owned()))
+        .insert_resource(ClientWorld::default())
+        .insert_resource(fixture_registries())
+        .insert_resource(runtime)
+        .insert_resource(ticker)
+        .add_systems(Update, super::produce_creative_mining);
+    app
+}
+
 fn encoded(packet: &protocol::Packet) -> Vec<u8> {
     protocol::encode(packet, &BedrockSession { shield_item_id: 0 })
         .unwrap()
         .to_vec()
+}
+
+fn pure_movement_wire() -> Vec<u8> {
+    let mut ticker = ticker_with_ticks(1);
+    let mut packet = None;
+    flush_player_auth_inputs(&mut ticker, 1, Some(evidence()), |_identity, movement| {
+        packet = Some(encoded(&movement));
+        Ok::<_, &str>(())
+    })
+    .unwrap();
+    packet.unwrap()
 }
 
 #[test]
@@ -221,6 +319,13 @@ fn ui_ownership_revokes_even_an_explicit_creative_ability() {
         creative_mining_ui_ability(false, protocol::PlayerGameMode::Creative),
         Some(CreativeMiningAbility::InstantBreak)
     );
+}
+
+#[test]
+fn menu_and_window_ownership_are_required_for_creative_mining_input() {
+    assert!(creative_mining_input_authorized(false, true));
+    assert!(!creative_mining_input_authorized(true, true));
+    assert!(!creative_mining_input_authorized(false, false));
 }
 
 #[test]
@@ -450,6 +555,112 @@ fn unavailable_current_authority_strips_only_the_unsent_break() {
     assert!(!ticker.has_queued_creative_mining());
     assert_eq!(ticker.pending_count(), 1);
     assert!(!runtime.has_pending_press());
+}
+
+#[test]
+fn production_pause_or_settings_schedule_strips_a_queued_break_and_resume_accepts_fresh_press() {
+    let authority = NonZeroU64::new(5).unwrap();
+    let mut ticker = ticker_with_ticks(1);
+    let mut runtime = MiningRuntime::default();
+    runtime.update_press(
+        true,
+        authority,
+        Some(observation(101, [0, 1, -3], 2)),
+        &mut ticker,
+    );
+    let mut app = production_context_app(true, true, ticker, runtime);
+
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<MovementTicker>()
+            .has_queued_creative_mining()
+    );
+    assert_eq!(app.world().resource::<MovementTicker>().pending_count(), 1);
+
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .set_visible(false);
+    let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
+    let mut runtime = app.world_mut().remove_resource::<MiningRuntime>().unwrap();
+    ticker.enqueue_completed_physics(completed(102)).unwrap();
+    assert_eq!(
+        runtime.update_press(
+            true,
+            authority,
+            Some(observation(102, [0, 1, -3], 2)),
+            &mut ticker,
+        ),
+        Some(102)
+    );
+}
+
+#[test]
+fn production_pause_or_focus_loss_sanitizes_an_already_admitted_break() {
+    let authority = NonZeroU64::new(5).unwrap();
+    for (menu_visible, window_focused) in [(true, true), (false, false)] {
+        let mut ticker = ticker_with_ticks(1);
+        let mut runtime = MiningRuntime::default();
+        runtime.update_press(
+            true,
+            authority,
+            Some(observation(101, [0, 1, -3], 2)),
+            &mut ticker,
+        );
+        let mut admitted = None;
+        flush_player_auth_inputs_guarded(
+            &mut ticker,
+            1,
+            Some(evidence()),
+            |_identity, packet, guard| {
+                admitted = Some((packet, guard.unwrap()));
+                Ok::<_, &str>(())
+            },
+        )
+        .unwrap();
+        let mut app = production_context_app(menu_visible, window_focused, ticker, runtime);
+
+        app.update();
+        let (combined, guard) = admitted.unwrap();
+        assert!(!guard.is_current());
+        assert_eq!(encoded(&guard.sanitize(combined)), pure_movement_wire());
+        assert_eq!(app.world().resource::<MovementTicker>().pending_count(), 1);
+    }
+}
+
+#[test]
+fn changed_semantic_input_authority_revokes_an_admitted_break() {
+    let authority = NonZeroU64::new(5).unwrap();
+    let replacement_authority = NonZeroU64::new(6).unwrap();
+    let mut ticker = ticker_with_ticks(1);
+    let mut runtime = MiningRuntime::default();
+    runtime.update_press(
+        true,
+        authority,
+        Some(observation(101, [0, 1, -3], 2)),
+        &mut ticker,
+    );
+    let mut admitted = None;
+    flush_player_auth_inputs_guarded(
+        &mut ticker,
+        1,
+        Some(evidence()),
+        |_identity, packet, guard| {
+            admitted = Some((packet, guard.unwrap()));
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    let mut current = observation(101, [0, 1, -3], 2);
+    current.frame.input_authority_generation = replacement_authority;
+
+    runtime.update_press(false, replacement_authority, Some(current), &mut ticker);
+
+    let (combined, guard) = admitted.unwrap();
+    assert!(!guard.is_current());
+    assert_eq!(encoded(&guard.sanitize(combined)), pure_movement_wire());
+    assert!(!ticker.has_queued_creative_mining());
+    assert_eq!(ticker.pending_count(), 1);
 }
 
 #[test]
