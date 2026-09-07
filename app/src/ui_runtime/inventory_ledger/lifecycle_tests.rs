@@ -245,6 +245,52 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
 }
 
 #[test]
+fn none_type_client_ack_only_completes_an_admitted_personal_close() {
+    let close = |window_id, window_type, server_initiated| {
+        InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(window_id),
+            window_type,
+            server_initiated,
+        })
+    };
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    assert!(ledger.personal_inventory_desired_open());
+
+    ledger.request_personal_close();
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    assert!(ledger.personal.is_some(), "a queued close is not admitted");
+    assert!(ledger.pending_packet().unwrap().is_some());
+
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&close(3, NO_CONTAINER_WINDOW_TYPE, false));
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, true));
+    assert!(
+        ledger.personal.is_some(),
+        "unmatched close shapes stay isolated"
+    );
+
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    assert!(ledger.personal.is_none());
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(30));
+
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    assert!(ledger.personal_inventory_desired_open());
+    ledger.apply(&InventoryEvent::Open(personal_open(2)));
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    assert!(ledger.personal_inventory_desired_open());
+
+    ledger.apply(&close(2, PERSONAL_INVENTORY_WINDOW_TYPE, true));
+    assert!(
+        ledger.personal.is_none(),
+        "exact typed server close remains valid"
+    );
+}
+
+#[test]
 fn personal_window_zero_and_non_sentinel_actor_complete_the_same_lifecycle() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));

@@ -35,6 +35,8 @@ const MAX_PENDING_CLOSES: usize = 8;
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
+/// A close acknowledgement sent after the addressed window no longer exists.
+const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 
