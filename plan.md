@@ -134,8 +134,10 @@ Independently approved test-only synchronization is locally integrated through
 acknowledgement, then join server StartGame. The old failure did not reproduce
 locally, so periodic final flushing is a hypothesis, not a proven root cause.
 The admission and no-pack-data assertions are unchanged; repeated focused tests,
-fresh full Go core tests, and vet passed. Replacement macOS CI remains required;
-this checkpoint is not CI-green. Pack-server joining policy is unchanged.
+fresh full Go core tests, and vet passed. The replacement checkpoint was pushed
+through `529d8450`; hosted run `34097979449` completed successfully across Windows
+acceptance, main verification, macOS bootstrap, and all three desktop compile
+jobs. Pack-server joining policy is unchanged.
 The same local batch includes independently approved artwork redirect validation
 in `bc5aa862`: redirects retain the initial HTTPS requirement, allow HTTPS CDN
 hosts, and remain bounded. Focused and full Go tests passed.
@@ -2627,6 +2629,35 @@ universal limit. Explicit-count requests should retain their checked amount;
 any whole-stack selector computes available capacity before making the request.
 Full compatibility also needs semantic item-data comparison, not equality of
 counts or stack network IDs.
+The independently reviewed capacity foundation `8839da37` is locally integrated:
+1,485 exact retail identifiers have measured metadata-zero capacities from
+public BDS 1.26.40.8, with deterministic generation and pinned provenance.
+Its lookup returns no capacity for unknown identifiers or metadata variants;
+it does not enable occupied merging or supply negotiated session authority.
+The separately reviewed normalized-evidence tranche `c35a9f46` retains the exact
+positive server component stack limit and canonical-empty-component marker,
+preserves the original digest, and treats unsupported semantic evidence as absent.
+It is also locally integrated, with no runtime merge consumer yet. Fresh generator
+tests and vet passed after integration. Combined workspace tests passed with
+3,499 tests, zero failures, and 13 ignored; formatting, strict workspace lint,
+architecture validation, and the normal client build passed. Both exact source
+heads received independent approval with no findings. These checks validate the
+capacity foundations, not the still-unimplemented runtime merge behavior.
+Runtime binding and occupied-transfer acceptance remain open.
+The 2026-09-07 native storage diagnostic used the existing normal Windows/DX12
+build at `3eff46cf`, 1280x720 and GUI scale 2, against the isolated BDS 1.26.40.8
+world. Test chests rendered, but normal gameplay right-click did not open storage.
+Code inspection found no production consumer of the click-block packet builder;
+the gameplay Use action has no block-interaction producer. Implement and verify
+that ingress before claiming native storage acceptance. The diagnostic ended
+with clean client/server shutdown and restored the original local server runtime.
+A bounded empty-hand creative keyboard/mouse block-use implementation is planned
+as provisional functionality, using the existing checked protocol encoding and
+immutable movement-tick authority. The native click carrier, optional envelope,
+reach, simultaneous-action priority, and repeat cadence are not yet established;
+generated encoder fixtures do not close those reference gaps. Server acceptance
+and a real chest interaction are required before shipping even this bounded path,
+and full native interaction parity remains open afterward.
 Missing block-item artwork is a separate route gap: compiled block visuals exist,
 but the icon carrier emits only sprite routes and inventory publication reduces
 the canonical route to an identifier. Preserve the visual route and design a
