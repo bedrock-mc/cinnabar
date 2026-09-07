@@ -14,6 +14,8 @@ use valentine::bedrock::{
 
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 
+mod registry_capacity;
+
 /// The single item shape 1.26.40 puts on the wire.
 ///
 /// Protocol 1001 modelled three separate item encodings (`Item`, `ItemNew`,
@@ -250,6 +252,13 @@ pub struct ItemRegistryEntry {
     pub component_based: bool,
     pub version: ItemRegistryVersion,
     pub component_digest: [u8; 32],
+    /// Exact positive stack capacity retained from the negotiated component path.
+    ///
+    /// This is evidence only: it neither supplies a fallback nor binds a later
+    /// inventory decision to the registry or session generation.
+    pub negotiated_max_stack_size: Option<u8>,
+    /// Whether the component payload is the exact canonical empty compound.
+    pub canonical_empty_component_data: bool,
 }
 
 /// Returns the retail-positive item registry for the pinned Bedrock protocol.
@@ -275,6 +284,8 @@ pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
             component_based: false,
             version: ItemRegistryVersion::Legacy,
             component_digest: [0; 32],
+            negotiated_max_stack_size: None,
+            canonical_empty_component_data: true,
         });
     }
     Arc::from(entries)
@@ -559,12 +570,21 @@ pub(crate) fn normalize_item_registry(
             ItemDataItemVersion::None => ItemRegistryVersion::None,
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
+        let canonical_empty_component_data =
+            component_bytes == registry_capacity::CANONICAL_EMPTY_COMPONENT_DATA;
+        let negotiated_max_stack_size = if matches!(version, ItemRegistryVersion::Unknown(_)) {
+            None
+        } else {
+            registry_capacity::negotiated_max_stack_size(&component_bytes)
+        };
         entries.push(ItemRegistryEntry {
             identifier: Arc::from(item.item_name),
             network_id,
             component_based: item.is_component_based,
             version,
             component_digest: Sha256::digest(component_bytes).into(),
+            negotiated_max_stack_size,
+            canonical_empty_component_data,
         });
     }
     Ok(ItemActorEvent::Registry(ItemRegistryEvent {
