@@ -9,6 +9,7 @@ mod disconnect;
 mod interaction;
 mod inventory;
 mod item;
+mod item_capacity;
 mod login;
 mod movement;
 mod packet;
@@ -75,6 +76,7 @@ pub use item::{
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
     NetworkItemStack, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
+pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};

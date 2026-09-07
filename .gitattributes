@@ -1,6 +1,8 @@
 crates/world/fixtures/manifest.json text eol=lf
 crates/sim/fixtures/*.jsonl text eol=lf
 crates/protocol/data/retail_items_*.tsv text eol=lf
+crates/protocol/data/item_capacity_*.tsv text eol=lf
+crates/protocol/data/item_capacity_*.provenance.json text eol=lf
 crates/protocol/data/retail_biomes_*.txt text eol=lf
 assets/vanilla-source.json text eol=lf
 assets/ui-font-source.json text eol=lf
@@ -13,3 +15,5 @@ crates/assets/data/*.sha256 text eol=lf
 docs/block-entity-coverage-v*-report.json text eol=lf
 docs/evidence/block-entity-render-evidence-v*.json text eol=lf
 tools/blockentitygen/testdata/*.json text eol=lf
+tools/registrygen/cmd/itemcapacity/probe/main.js text eol=lf
+tools/registrygen/cmd/itemcapacity/probe/manifest.json text eol=lf
