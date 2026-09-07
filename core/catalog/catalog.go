@@ -254,6 +254,12 @@ func cacheArtwork(ctx context.Context, directory string, result *File) {
 }
 
 func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, error) {
+	return cacheArtworkFileWithTransport(ctx, directory, rawURL, http.DefaultTransport)
+}
+
+func cacheArtworkFileWithTransport(
+	ctx context.Context, directory, rawURL string, transport http.RoundTripper,
+) (string, error) {
 	if !validArtworkURL(rawURL) {
 		return "", errors.New("invalid artwork URL")
 	}
@@ -269,7 +275,19 @@ func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, er
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Cinnabar/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !validArtworkURL(req.URL.String()) {
+				return errors.New("invalid artwork redirect URL")
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
