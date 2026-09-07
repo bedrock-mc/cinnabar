@@ -148,9 +148,23 @@ pub(crate) fn flush_chat_network(
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
     runtime.service_pending_chat_autocomplete();
-    match flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
-        network.send_chat_packet(session, sequence, action, packet)
-    }) {
+    if network.closed_command_has_pending_control() {
+        return;
+    }
+    match flush_chat_sends(
+        &mut runtime,
+        8,
+        |session, sequence, action, packet| match network
+            .send_chat_packet(session, sequence, action, packet)
+        {
+            Err(crate::runtime::network::PacketSendError::Closed(packet))
+                if network.closed_command_has_pending_control() =>
+            {
+                Err(crate::runtime::network::PacketSendError::Full(packet))
+            }
+            result => result,
+        },
+    ) {
         Ok(_)
         | Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Full(_))) => {}
         Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Closed(_))) => {

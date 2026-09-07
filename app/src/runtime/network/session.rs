@@ -988,6 +988,7 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
     );
 }
 
+mod handle_state;
 mod pump;
 use pump::*;
 mod pump_runtime;

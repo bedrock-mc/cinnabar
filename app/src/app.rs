@@ -293,6 +293,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         (follow_server_transfer, recover_menu_session_failure)
             .chain()
             .after(receive_network_events)
+            .after(ClientFrameSet::NetworkSend)
             .before(exit_on_fatal_runtime_error)
             .before(finish_acceptance_run),
     );

@@ -28,6 +28,8 @@ use super::{
     write_network_pump_terminal_marker, write_network_pump_transfer_marker,
 };
 
+#[path = "close_race_tests.rs"]
+mod close_race_tests;
 #[path = "disconnect_tests.rs"]
 mod disconnect_tests;
 #[path = "physics_send_tests.rs"]

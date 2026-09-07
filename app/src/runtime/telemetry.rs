@@ -346,6 +346,14 @@ pub(crate) fn send_player_auth_inputs(
                 free_camera_packet_count: movement.sent_free_camera_packet_count(),
             }
         });
+    if network.closed_command_has_pending_control() {
+        metrics.0.record_outbound_movement_telemetry(
+            movement.sent_physics_packet_count(),
+            movement.pending_count(),
+            movement.pending_authority_fault().is_some(),
+        );
+        return;
+    }
     let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
@@ -369,6 +377,9 @@ pub(crate) fn send_player_auth_inputs(
                 format!("failed to encode PlayerAuthInput: {error}"),
             );
         }
+        Err(MovementSendError::Transport(
+            crate::runtime::network::session::PacketSendError::Closed(_),
+        )) if network.closed_command_has_pending_control() => {}
         Err(MovementSendError::Transport(
             crate::runtime::network::session::PacketSendError::Closed(_),
         )) => {

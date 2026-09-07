@@ -86,8 +86,19 @@ pub(crate) fn select_hotbar_slot(
         runtime.queue_local_hotbar_selection(target);
     }
 
+    if network.closed_command_has_pending_control() {
+        return;
+    }
+
     flush_pending_hotbar_selection(&mut runtime, &mut client_world.fatal_error, |packet| {
-        network.send_hotbar_packet(packet)
+        match network.send_hotbar_packet(packet) {
+            Err(PacketSendError::Closed(packet))
+                if network.closed_command_has_pending_control() =>
+            {
+                Err(PacketSendError::Full(packet))
+            }
+            result => result,
+        }
     });
 }
 
