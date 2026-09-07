@@ -214,6 +214,13 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
 }
 
 impl MovementTicker {
+    pub(crate) fn accepts_creative_mining(&self) -> bool {
+        self.physics_is_authorized()
+            && !self.terminal_drain
+            && !self.has_unresolved_position_authority_change()
+            && !self.tx_gate.suppressing()
+    }
+
     /// Drops interaction payloads whose frozen target, selection, ability, or
     /// session is no longer authorized. Movement samples remain queued.
     pub(crate) fn retain_creative_mining(&mut self, current: Option<&FrozenCreativeMining>) {
@@ -235,11 +242,7 @@ impl MovementTicker {
     /// Attaches one complete creative break only to its exact unsent physics
     /// tick. `None` leaves the caller's input edge pending for a later tick.
     pub(crate) fn attach_creative_mining(&mut self, frozen: FrozenCreativeMining) -> Option<u64> {
-        if !self.physics_is_authorized()
-            || self.terminal_drain
-            || self.has_unresolved_position_authority_change()
-            || self.tx_gate.suppressing()
-        {
+        if !self.accepts_creative_mining() {
             return None;
         }
         let tick = frozen.frame.physics_tick;

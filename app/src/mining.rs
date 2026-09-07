@@ -29,6 +29,9 @@ use crate::{
 const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7;
 const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6;
 const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
+// Covers the render frames between adjacent 20 Hz physics ticks while placing
+// a hard ceiling on an input edge retained during a stalled simulation.
+const MAX_PENDING_ATTACK_FRAMES: u64 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreativeMiningAbility {
@@ -40,6 +43,7 @@ pub(crate) struct FrozenMiningFrame {
     pub(crate) session_generation: u64,
     pub(crate) position_authority_generation: u64,
     pub(crate) input_authority_generation: NonZeroU64,
+    pub(crate) input_frame_sequence: u64,
     pub(crate) fifo_sequence: u64,
     pub(crate) physics_tick: u64,
     pub(crate) pose_generation: u64,
@@ -86,6 +90,12 @@ impl FrozenCreativeMining {
             && self.frame.position_authority_generation
                 == current.frame.position_authority_generation
             && self.frame.input_authority_generation == current.frame.input_authority_generation
+            && self.frame.input_frame_sequence <= current.frame.input_frame_sequence
+            && current
+                .frame
+                .input_frame_sequence
+                .saturating_sub(self.frame.input_frame_sequence)
+                <= MAX_PENDING_ATTACK_FRAMES
             && self.frame.fifo_sequence <= current.frame.fifo_sequence
             && self.frame.physics_tick <= current.frame.physics_tick
             && self.frame.pose_generation <= current.frame.pose_generation
@@ -150,9 +160,9 @@ impl QueuedMiningInteraction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct PendingAttackPress {
-    input_authority_generation: NonZeroU64,
+    authority: FrozenCreativeMining,
 }
 
 /// One bounded attack edge waiting for an exact completed physics tick.
@@ -186,21 +196,24 @@ impl MiningRuntime {
         if self.synchronize_position_authority(ticker) {
             return None;
         }
-        if self
-            .pending_press
-            .is_some_and(|pending| pending.input_authority_generation != input_authority_generation)
-        {
+        if self.pending_press.as_ref().is_some_and(|pending| {
+            pending.authority.frame.input_authority_generation != input_authority_generation
+        }) {
             self.pending_press = None;
         }
+        ticker.retain_creative_mining(current.as_ref());
+        if !ticker.accepts_creative_mining() {
+            self.pending_press = None;
+            return None;
+        }
         if pressed {
-            self.pending_press = Some(PendingAttackPress {
-                input_authority_generation,
+            self.pending_press = current.as_ref().map(|authority| PendingAttackPress {
+                authority: authority.clone(),
             });
         }
 
-        ticker.retain_creative_mining(current.as_ref());
-        let pending = self.pending_press?;
-        if pending.input_authority_generation != input_authority_generation {
+        let pending = self.pending_press.as_ref()?;
+        if pending.authority.frame.input_authority_generation != input_authority_generation {
             self.pending_press = None;
             return None;
         }
@@ -208,7 +221,13 @@ impl MiningRuntime {
             self.pending_press = None;
             return None;
         };
-        let attached = ticker.attach_creative_mining(current);
+        if !pending.authority.still_authorized_by(&current) {
+            self.pending_press = None;
+            return None;
+        }
+        let mut attachment = pending.authority.clone();
+        attachment.frame.physics_tick = current.frame.physics_tick;
+        let attached = ticker.attach_creative_mining(attachment);
         if attached.is_some() {
             self.pending_press = None;
         }
@@ -268,7 +287,10 @@ pub(crate) fn produce_creative_mining(
         &context.client_world,
         &context.collisions,
         input_snapshot.input_mode,
-        input_snapshot.authority_generation,
+        (
+            input_snapshot.authority_generation,
+            input_snapshot.frame_sequence,
+        ),
         position_authority_generation,
     );
     let _ = runtime.update_press(
@@ -285,7 +307,7 @@ fn creative_observation(
     client_world: &ClientWorld,
     collisions: &PhysicsCollisionRegistries,
     input_mode: InputMode,
-    input_authority_generation: NonZeroU64,
+    input_authority: (NonZeroU64, u64),
     position_authority_generation: u64,
 ) -> Option<FrozenCreativeMining> {
     let ability = creative_mining_ui_ability(ui.ui_focused(), ui.player_game_mode()?)?;
@@ -318,7 +340,7 @@ fn creative_observation(
         reach,
         selection,
         (ray_world_identity, hit),
-        (input_authority_generation, position_authority_generation),
+        (input_authority, position_authority_generation),
         ability,
     ))
 }
@@ -343,16 +365,18 @@ fn frozen_observation(
     reach: f64,
     selection: FrozenMiningSelection,
     ray_hit: (WorldCollisionIdentity, BlockHit),
-    generations: (NonZeroU64, u64),
+    generations: ((NonZeroU64, u64), u64),
     ability: CreativeMiningAbility,
 ) -> FrozenCreativeMining {
     let (ray_world_identity, hit) = ray_hit;
-    let (input_authority_generation, position_authority_generation) = generations;
+    let ((input_authority_generation, input_frame_sequence), position_authority_generation) =
+        generations;
     FrozenCreativeMining {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
             position_authority_generation,
             input_authority_generation,
+            input_frame_sequence,
             fifo_sequence: ray.fifo_sequence(),
             physics_tick: ray.physics_tick(),
             pose_generation: ray.pose_generation(),

@@ -85,6 +85,7 @@ fn observation(tick: u64, target: [i32; 3], item_id: i32) -> FrozenCreativeMinin
             session_generation: 7,
             position_authority_generation: 2,
             input_authority_generation: NonZeroU64::new(5).unwrap(),
+            input_frame_sequence: 31,
             fifo_sequence: 19,
             physics_tick: tick,
             pose_generation: 23,
@@ -364,6 +365,180 @@ fn press_waits_for_and_attaches_to_the_exact_frozen_tick() {
     );
     assert!(!runtime.has_pending_press());
     assert!(ticker.has_queued_creative_mining());
+}
+
+#[test]
+fn spawn_settle_rejects_the_press_and_requires_a_fresh_edge_after_lift() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    let mut runtime = MiningRuntime::default();
+    let authority = NonZeroU64::new(5).unwrap();
+    let current = observation(101, [0, 1, -3], 2);
+
+    assert_eq!(
+        runtime.update_press(true, authority, Some(current.clone()), &mut ticker),
+        None
+    );
+    assert!(!runtime.has_pending_press());
+    assert!(!ticker.has_queued_creative_mining());
+
+    ticker.testing_lift_spawn_settle_gate();
+    assert_eq!(
+        runtime.update_press(false, authority, Some(current.clone()), &mut ticker),
+        None
+    );
+    assert!(!runtime.has_pending_press());
+    assert!(!ticker.has_queued_creative_mining());
+    assert_eq!(
+        runtime.update_press(true, authority, Some(current), &mut ticker),
+        Some(101)
+    );
+}
+
+#[test]
+fn source_authority_loss_cancels_a_latched_press() {
+    let mut ticker = ticker_with_ticks(0);
+    let mut runtime = MiningRuntime::default();
+    let authority = NonZeroU64::new(5).unwrap();
+    let current = observation(101, [0, 1, -3], 2);
+
+    assert_eq!(
+        runtime.update_press(true, authority, Some(current.clone()), &mut ticker),
+        None
+    );
+    assert!(runtime.has_pending_press());
+
+    ticker.set_source(MovementSource::FreeCamera);
+    assert_eq!(
+        runtime.update_press(false, authority, Some(current), &mut ticker),
+        None
+    );
+    assert!(!runtime.has_pending_press());
+}
+
+#[test]
+fn terminal_or_missing_observation_cannot_latch_an_attack_edge() {
+    let authority = NonZeroU64::new(5).unwrap();
+
+    let mut terminal_ticker = ticker_with_ticks(0);
+    terminal_ticker.begin_terminal_drain();
+    let mut terminal_runtime = MiningRuntime::default();
+    assert_eq!(
+        terminal_runtime.update_press(
+            true,
+            authority,
+            Some(observation(101, [0, 1, -3], 2)),
+            &mut terminal_ticker,
+        ),
+        None
+    );
+    assert!(!terminal_runtime.has_pending_press());
+
+    let mut unresolved_ticker = ticker_with_ticks(0);
+    let mut unresolved_runtime = MiningRuntime::default();
+    assert_eq!(
+        unresolved_runtime.update_press(true, authority, None, &mut unresolved_ticker),
+        None
+    );
+    assert!(!unresolved_runtime.has_pending_press());
+}
+
+#[test]
+fn short_latch_preserves_the_pressed_target_payload_instead_of_retargeting() {
+    let authority = NonZeroU64::new(5).unwrap();
+    let original = observation(101, [0, 1, -3], 2);
+
+    let mut immediate_ticker = ticker_with_ticks(1);
+    let mut immediate_runtime = MiningRuntime::default();
+    assert_eq!(
+        immediate_runtime.update_press(
+            true,
+            authority,
+            Some(original.clone()),
+            &mut immediate_ticker,
+        ),
+        Some(101)
+    );
+    let mut immediate_wire = None;
+    flush_player_auth_inputs(
+        &mut immediate_ticker,
+        1,
+        Some(evidence()),
+        |_identity, packet| {
+            immediate_wire = Some(encoded(&packet));
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+
+    let mut delayed_ticker = ticker_with_ticks(0);
+    let mut delayed_runtime = MiningRuntime::default();
+    let delayed_press =
+        delayed_runtime.update_press(true, authority, Some(original.clone()), &mut delayed_ticker);
+    assert_eq!(delayed_press, None);
+    delayed_ticker
+        .enqueue_completed_physics(completed(101))
+        .unwrap();
+    let mut later = original;
+    later.frame.input_frame_sequence += 1;
+    later.target.relative_hit = [0.25, 0.75, 1.0];
+    later.ray.origin = [0.25, 2.5, 0.25];
+    assert_eq!(
+        delayed_runtime.update_press(false, authority, Some(later), &mut delayed_ticker),
+        Some(101)
+    );
+    let mut delayed_wire = None;
+    flush_player_auth_inputs(
+        &mut delayed_ticker,
+        1,
+        Some(evidence()),
+        |_identity, packet| {
+            delayed_wire = Some(encoded(&packet));
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(delayed_wire, immediate_wire);
+}
+
+#[test]
+fn changed_target_selection_ray_or_expired_frame_window_cancels_a_latched_press() {
+    let authority = NonZeroU64::new(5).unwrap();
+    let original = observation(101, [0, 1, -3], 2);
+    let changed_target = observation(101, [1, 1, -3], 2);
+    let mut changed_selection = original.clone();
+    changed_selection.selection.item = verified_item(3);
+    let mut changed_ray = original.clone();
+    changed_ray.ray.world_identity = world_identity(4);
+    let mut expired = original.clone();
+    expired.frame.input_frame_sequence += super::MAX_PENDING_ATTACK_FRAMES + 1;
+
+    for mut changed in [changed_target, changed_selection, changed_ray, expired] {
+        let mut ticker = ticker_with_ticks(0);
+        let mut runtime = MiningRuntime::default();
+        assert_eq!(
+            runtime.update_press(true, authority, Some(original.clone()), &mut ticker),
+            None
+        );
+        if changed.frame.input_frame_sequence == original.frame.input_frame_sequence {
+            changed.frame.input_frame_sequence += 1;
+        }
+        assert_eq!(
+            runtime.update_press(false, authority, Some(changed), &mut ticker),
+            None
+        );
+        assert!(!runtime.has_pending_press());
+
+        ticker.enqueue_completed_physics(completed(101)).unwrap();
+        assert_eq!(
+            runtime.update_press(false, authority, Some(original.clone()), &mut ticker),
+            None
+        );
+        assert!(!ticker.has_queued_creative_mining());
+    }
 }
 
 #[test]
