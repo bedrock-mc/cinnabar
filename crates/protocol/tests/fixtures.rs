@@ -637,7 +637,7 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
 fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
     let interactions = protocol::PlayerAuthInputInteractions {
         block_actions: fixture_block_actions(),
-        block_destroy: None,
+        block_interaction: None,
     };
     let mut built =
         protocol::player_auth_input_with_interactions(fixture_movement_snapshot(), &interactions)
@@ -776,15 +776,17 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     .expect("fixture item is verified");
     let interactions = protocol::PlayerAuthInputInteractions {
         block_actions: protocol::BlockActions::new(),
-        block_destroy: Some(protocol::BlockUseRequest {
-            block_position: [24, 68, -41],
-            face: 3,
-            selected_slot: 5,
-            selected_item,
-            player_position: [24.625, 69.5, -40.125],
-            relative_hit: [0.625, 0.375, 0.875],
-            block_runtime_id: 654_321,
-        }),
+        block_interaction: Some(protocol::BlockItemInteraction::Destroy(
+            protocol::BlockUseRequest {
+                block_position: [24, 68, -41],
+                face: 3,
+                selected_slot: 5,
+                selected_item,
+                player_position: [24.625, 69.5, -40.125],
+                relative_hit: [0.625, 0.375, 0.875],
+                block_runtime_id: 654_321,
+            },
+        )),
     };
     let mut built =
         protocol::player_auth_input_with_interactions(fixture_movement_snapshot(), &interactions)
@@ -903,7 +905,9 @@ fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactl
 
     let interactions = protocol::PlayerAuthInputInteractions {
         block_actions: fixture_block_actions(),
-        block_destroy: Some(fixture_break_block_request()),
+        block_interaction: Some(protocol::BlockItemInteraction::Destroy(
+            fixture_break_block_request(),
+        )),
     };
     let mut built =
         protocol::player_auth_input_with_interactions(fixture_movement_snapshot(), &interactions)
@@ -926,7 +930,7 @@ fn invalid_embedded_break_block_requests_are_rejected() {
     let interactions_for =
         |request: protocol::BlockUseRequest| protocol::PlayerAuthInputInteractions {
             block_actions: protocol::BlockActions::new(),
-            block_destroy: Some(request),
+            block_interaction: Some(protocol::BlockItemInteraction::Destroy(request)),
         };
     let encode_with = |request| {
         protocol::player_auth_input_with_interactions(
@@ -979,7 +983,7 @@ fn invalid_embedded_break_block_requests_are_rejected() {
             fixture_movement_snapshot(),
             &protocol::PlayerAuthInputInteractions {
                 block_actions: bad_action_face,
-                block_destroy: None,
+                block_interaction: None,
             },
         ),
         Err(PlayerAuthInputError::Interaction(

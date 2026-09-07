@@ -9,6 +9,7 @@ use crate::app::{
     ClientFrameSet, configure_acceptance_finish_system, configure_client_frame_schedule,
     configure_client_production_frame_systems,
 };
+use crate::block_use::produce_empty_hand_block_use;
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
@@ -151,14 +152,35 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_creative_mining, "produce_creative_mining"),
+            system_node(
+                graph,
+                produce_empty_hand_block_use,
+                "produce_empty_hand_block_use"
+            ),
+        ),
+        "mining arbitration must precede provisional block-use production",
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(
+                graph,
+                produce_empty_hand_block_use,
+                "produce_empty_hand_block_use"
+            ),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "mining must attach its interaction before the candidate packet is sent",
+        "block use must attach its interaction before the candidate packet is sent",
     );
     assert_system_in_stage(
         graph,
         produce_creative_mining,
         "produce_creative_mining",
+        ClientFrameSet::NetworkSend,
+    );
+    assert_system_in_stage(
+        graph,
+        produce_empty_hand_block_use,
+        "produce_empty_hand_block_use",
         ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(

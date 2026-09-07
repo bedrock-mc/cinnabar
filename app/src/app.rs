@@ -38,6 +38,7 @@ use crate::{
         LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
         select_asset_path_from_environment,
     },
+    block_use::{BlockUseRuntime, produce_empty_hand_block_use},
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
@@ -165,6 +166,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
         .init_resource::<MiningRuntime>()
+        .init_resource::<BlockUseRuntime>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
@@ -269,6 +271,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 flush_inventory_network,
                 emit_phase3_evidence,
                 produce_creative_mining,
+                produce_empty_hand_block_use,
                 send_player_auth_inputs,
             )
                 .chain()

@@ -35,7 +35,7 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(test)]
 pub(crate) use outbox::flush_player_auth_inputs;
 pub(crate) use outbox::{
-    MiningPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+    InteractionPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
@@ -72,6 +72,7 @@ struct QueuedPhysicsSample {
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
+    block_use: Option<crate::block_use::QueuedBlockUseInteraction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +132,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
+    block_use_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -144,6 +146,7 @@ impl Default for MovementTicker {
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
         let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
+        let (block_use_epoch_publisher, _block_use_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -172,6 +175,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
+            block_use_epoch_publisher,
         }
     }
 
@@ -340,6 +344,7 @@ impl MovementTicker {
             world_identity: completed.world_identity,
             evidence,
             mining: None,
+            block_use: None,
         });
         Ok(())
     }

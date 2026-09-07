@@ -10,8 +10,8 @@ mod interactions;
 mod trace;
 
 pub use interactions::{
-    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, InteractionEncodeError,
-    MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
+    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
+    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
 };
 pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
@@ -170,11 +170,11 @@ pub fn player_auth_input_with_interactions(
         flags |= PlayerInputFlags::PERFORM_BLOCK_ACTIONS;
         Some(interactions.block_actions.vendor()?)
     };
-    let item_use_transaction = match &interactions.block_destroy {
+    let item_use_transaction = match &interactions.block_interaction {
         None => None,
         Some(request) => {
             flags |= PlayerInputFlags::PERFORM_ITEM_INTERACTION;
-            Some(interactions::packed_block_destroy(request.clone())?)
+            Some(interactions::packed_block_interaction(request.clone())?)
         }
     };
 
