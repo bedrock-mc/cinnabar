@@ -1,0 +1,22 @@
+{
+  "schema": "cinnabar-item-capacity-provenance",
+  "schema_version": 1,
+  "game_version": "1.26.40.8",
+  "protocol_version": 2168,
+  "source": {
+    "public_binary_sha256": "e7775e636b9fdbbc354823d92d0c22c12738a2141d12557d856744293d258372",
+    "probe_log_sha256": "b41a522ab7d23ad8fa7b07f295c4c7d8c6539fcdea4c62575cdb2c1755fc8600",
+    "probe_script_sha256": "c7d3312f08083001aa695368806730379bd0e1b787dbb236eb0ae566e0d43cc4",
+    "probe_manifest_sha256": "317e96cb230dadcf60331d7b7aaa63d912527840cad13659d1cfb159f126c4f9",
+    "item_type_count": 1518,
+    "failures": 0
+  },
+  "retail_allowlist": {
+    "entries": 1485,
+    "sha256": "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
+  },
+  "output": {
+    "entries": 1485,
+    "sha256": "a494566eaf96fb57a38a736a1ec02d54424669e9272ae4c889be39c6f3e9caf3"
+  }
+}

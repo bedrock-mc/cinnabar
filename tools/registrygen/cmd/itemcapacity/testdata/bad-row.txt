@@ -1,0 +1,7 @@
+[2026-09-07 01:07:35:138 INFO] Version: 1.26.40.8
+[2026-09-07 01:07:36:051 INFO] Pack Stack - [00] Local item capacity probe (id: a0318bd0-ae1c-4c36-9008-074c5c5cb4df, version: 1.0.0) @ behavior_packs/cinnabar_capacity_probe
+[2026-09-07 01:07:37:538 WARN] [Scripting] CINNABAR_CAPACITY_ROW ["minecraft:water_bucket",0,false]
+[2026-09-07 01:07:37:539 WARN] [Scripting] CINNABAR_CAPACITY_ROW ["minecraft:probe_only",64,true]
+[2026-09-07 01:07:37:540 WARN] [Scripting] CINNABAR_CAPACITY_ROW ["minecraft:apple",64,true]
+[2026-09-07 01:07:37:541 WARN] [Scripting] CINNABAR_CAPACITY_ROW ["minecraft:bucket",16,true]
+[2026-09-07 01:07:37:542 WARN] [Scripting] CINNABAR_CAPACITY_DONE {"total":4,"failures":0}

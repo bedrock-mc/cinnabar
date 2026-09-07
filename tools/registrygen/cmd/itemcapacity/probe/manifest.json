@@ -1,0 +1,18 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Local item capacity probe",
+    "description": "Read-only item capacity measurements",
+    "uuid": "a0318bd0-ae1c-4c36-9008-074c5c5cb4df",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 26, 40]
+  },
+  "modules": [{
+    "type": "script",
+    "language": "javascript",
+    "uuid": "9ddafdbb-b544-42ce-964b-192f7621d8b1",
+    "version": [1, 0, 0],
+    "entry": "scripts/main.js"
+  }],
+  "dependencies": [{ "module_name": "@minecraft/server", "version": "2.9.0" }]
+}
