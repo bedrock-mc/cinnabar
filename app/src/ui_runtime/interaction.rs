@@ -262,7 +262,7 @@ pub(crate) fn drive_chat_ui_actions(
 pub(crate) fn drive_inventory_ui_actions(
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
@@ -273,6 +273,11 @@ pub(crate) fn drive_inventory_ui_actions(
         runtime.set_inventory_pointer_gui(None);
         return;
     }
+    let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
+    // The inventory owns pointer buttons while open. Preserve the primary
+    // edge long enough to resolve its cell, then clear every button before
+    // gameplay systems can observe this frame.
+    mouse_buttons.reset_all();
     let Some(position) = window.cursor_position() else {
         runtime.set_inventory_pointer_gui(None);
         return;
@@ -292,9 +297,7 @@ pub(crate) fn drive_inventory_ui_actions(
             runtime.inventory_ledger().storage_slot_count(),
         )
     });
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && let Some(slot) = hit
-    {
+    if primary_pressed && let Some(slot) = hit {
         let ledger = runtime.inventory_ledger_mut();
         let _ = match slot {
             presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
@@ -395,6 +398,12 @@ pub(crate) fn drive_chat_keyboard_input(
         return;
     }
 
+    // An already-open inventory owns this frame's pointer edge. Keyboard
+    // transitions below may close it or open a new UI, so both sides of the
+    // transition are checked before preserving that edge for the inventory
+    // system later in the production chain.
+    let inventory_owned_pointer = runtime.inventory_open();
+    let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
     for input in keyboard_messages.read() {
         if input.state != ButtonState::Pressed {
@@ -405,9 +414,11 @@ pub(crate) fn drive_chat_keyboard_input(
             match input.key_code {
                 KeyCode::KeyE => {
                     runtime.toggle_inventory();
+                    inventory_ownership_changed = true;
                 }
                 KeyCode::Escape => {
                     runtime.close_inventory();
+                    inventory_ownership_changed = true;
                 }
                 _ => {}
             }
@@ -417,6 +428,7 @@ pub(crate) fn drive_chat_keyboard_input(
             match input.key_code {
                 KeyCode::KeyE => {
                     runtime.toggle_inventory();
+                    inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
                 KeyCode::KeyT => {
@@ -509,13 +521,22 @@ pub(crate) fn drive_chat_keyboard_input(
     }
 
     if consumed_gameplay {
-        suppress_gameplay_input_for_chat(
-            &runtime,
-            &mut cursor,
-            &mut keys,
-            &mut mouse_buttons,
-            &mut mouse_motion,
-        );
+        if inventory_owned_pointer && !inventory_ownership_changed && runtime.inventory_open() {
+            suppress_gameplay_input_for_inventory(
+                &runtime,
+                &mut cursor,
+                &mut keys,
+                &mut mouse_motion,
+            );
+        } else {
+            suppress_gameplay_input_for_chat(
+                &runtime,
+                &mut cursor,
+                &mut keys,
+                &mut mouse_buttons,
+                &mut mouse_motion,
+            );
+        }
         // A send/cancel closes chat before suppression, but that same physical
         // key must still be consumed for the current frame.
         if !runtime.ui_focused() {
@@ -527,6 +548,21 @@ pub(crate) fn drive_chat_keyboard_input(
             );
         }
     }
+}
+
+fn suppress_gameplay_input_for_inventory(
+    runtime: &UiRuntime,
+    cursor: &mut CursorOptions,
+    keys: &mut ButtonInput<KeyCode>,
+    mouse_motion: &mut AccumulatedMouseMotion,
+) {
+    if !runtime.inventory_open() {
+        return;
+    }
+    cursor.grab_mode = CursorGrabMode::None;
+    cursor.visible = true;
+    keys.reset_all();
+    mouse_motion.delta = Vec2::ZERO;
 }
 
 pub(crate) fn restore_gameplay_input_after_chat(
