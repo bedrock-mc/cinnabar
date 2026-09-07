@@ -403,6 +403,7 @@ pub(crate) fn drive_chat_keyboard_input(
     // transition are checked before preserving that edge for the inventory
     // system later in the production chain.
     let inventory_owned_pointer = runtime.inventory_open();
+    let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
     for input in keyboard_messages.read() {
         if input.state != ButtonState::Pressed {
@@ -413,9 +414,11 @@ pub(crate) fn drive_chat_keyboard_input(
             match input.key_code {
                 KeyCode::KeyE => {
                     runtime.toggle_inventory();
+                    inventory_ownership_changed = true;
                 }
                 KeyCode::Escape => {
                     runtime.close_inventory();
+                    inventory_ownership_changed = true;
                 }
                 _ => {}
             }
@@ -425,6 +428,7 @@ pub(crate) fn drive_chat_keyboard_input(
             match input.key_code {
                 KeyCode::KeyE => {
                     runtime.toggle_inventory();
+                    inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
                 KeyCode::KeyT => {
@@ -517,7 +521,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
 
     if consumed_gameplay {
-        if inventory_owned_pointer && runtime.inventory_open() {
+        if inventory_owned_pointer && !inventory_ownership_changed && runtime.inventory_open() {
             suppress_gameplay_input_for_inventory(
                 &runtime,
                 &mut cursor,

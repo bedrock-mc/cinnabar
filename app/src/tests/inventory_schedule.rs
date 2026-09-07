@@ -228,19 +228,35 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
+        .init_resource::<SemanticInputRuntime>()
+        .init_resource::<SemanticInputSnapshot>()
+        .init_resource::<PendingDeviceFrame>()
+        .init_resource::<SemanticRouteState>()
+        .init_resource::<SemanticTouchTargets>()
+        .init_resource::<RuntimeSettings>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
         .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
+        .add_systems(Update, collect_raw_input.in_set(ClientFrameSet::RawInput))
+        .add_systems(
+            Update,
+            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
+        )
         .add_systems(
             Update,
             (
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
+                synchronize_semantic_input_authority,
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),
+        )
+        .add_systems(
+            Update,
+            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
         );
     let window = app
         .world_mut()
@@ -271,6 +287,59 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
             .resource::<ButtonInput<MouseButton>>()
             .just_pressed(MouseButton::Left),
         "the click accompanying the open transition is consumed"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Attack),
+        Default::default(),
+        "the inventory-opening click cannot become gameplay attack"
+    );
+
+    {
+        let mut cursor = app.world_mut().get_mut::<CursorOptions>(window).unwrap();
+        cursor.grab_mode = CursorGrabMode::Locked;
+        cursor.visible = false;
+    }
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::Escape);
+        keys.press(KeyCode::KeyE);
+    }
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    for (key_code, logical_key) in [
+        (KeyCode::Escape, Key::Escape),
+        (KeyCode::KeyE, Key::Character("e".into())),
+    ] {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+    }
+
+    app.update();
+    let runtime = app.world().resource::<UiRuntime>();
+    assert!(runtime.inventory_open());
+    assert_eq!(runtime.inventory_ledger().pending_state(), None);
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
+    assert_eq!(
+        app.world()
+            .resource::<SemanticInputSnapshot>()
+            .phase(Action::Attack),
+        Default::default(),
+        "a close-and-reopen frame must revoke its captured pointer sample"
+    );
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left),
+        "a close-and-reopen frame must consume its pointer edge"
     );
 
     app.world_mut()
