@@ -12,6 +12,7 @@ use crate::app::{
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
+use crate::menu::recover_menu_session_failure;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
@@ -206,6 +207,17 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
             system_node(graph, finish_acceptance_run, "finish_acceptance_run"),
         ),
         "terminal evidence must sample the final acknowledgement-drain state after NetworkSend closes admissions",
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            stage_node(graph, ClientFrameSet::NetworkSend),
+            system_node(
+                graph,
+                recover_menu_session_failure,
+                "recover_menu_session_failure",
+            ),
+        ),
+        "launcher recovery must observe send-side failures from the same frame before fatal exit",
     );
 }
 
