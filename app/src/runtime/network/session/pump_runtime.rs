@@ -1,8 +1,11 @@
 use super::*;
 use crate::movement::{pending_trace_line, write_trace_line};
 
-fn finalize_mining_packet(packet: Packet, mining: Option<MiningPacketGuard>) -> Packet {
-    match mining {
+fn finalize_interaction_packet(
+    packet: Packet,
+    interaction: Option<InteractionPacketGuard>,
+) -> Packet {
+    match interaction {
         Some(guard) => guard.sanitize(packet),
         None => packet,
     }
@@ -186,7 +189,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
                     chat,
                     physics,
                     physics_reanchor,
-                    mining,
+                    interaction,
                 }) => {
                     if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
                         && *reanchor.borrow() != identity.reanchor_epoch
@@ -205,9 +208,9 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
                         }
                         continue;
                     }
-                    let packet = finalize_mining_packet(packet, mining);
+                    let packet = finalize_interaction_packet(packet, interaction);
                     // Every physics trace is formatted from the final packet
-                    // after mining sanitization and published in socket-write
+                    // after interaction sanitization and published in socket-write
                     // order only after that write succeeds.
                     let movement_trace_line = physics
                         .and_then(|identity| trace_line(identity.session_generation, &packet));

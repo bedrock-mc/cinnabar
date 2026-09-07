@@ -281,7 +281,11 @@ fn creative_break_payload_is_complete_and_ordered_before_attachment() {
             protocol::BlockActionKind::PredictDestroy,
         ]
     );
-    let destroy = payload.interactions.block_destroy.unwrap();
+    let Some(protocol::BlockItemInteraction::Destroy(destroy)) =
+        payload.interactions.block_interaction
+    else {
+        panic!("creative mining must own the mutually exclusive destroy payload");
+    };
     assert_eq!(destroy.block_position, frozen.target.position);
     assert_eq!(destroy.face, frozen.target.face);
     assert_eq!(destroy.selected_slot, frozen.selection.slot);

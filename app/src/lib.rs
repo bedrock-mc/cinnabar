@@ -1,5 +1,6 @@
 pub mod args;
 pub mod asset_startup;
+mod block_use;
 pub mod camera;
 mod environment;
 mod hotbar;

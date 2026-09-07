@@ -9,6 +9,7 @@
 use protocol::{Packet, PlayerAuthInputError, player_auth_input_with_interactions};
 use tokio::sync::watch;
 
+use crate::block_use::FrozenEmptyHandBlockUse;
 use crate::mining::FrozenCreativeMining;
 
 /// Failure taxonomy of one bounded outbound movement flush.
@@ -69,16 +70,16 @@ use super::{
 /// sent-history confirmations, and retained tick evidence.
 pub const OUTBOX_CAPACITY: usize = 32;
 
-/// A movement-only replacement for an admitted mining packet whose authority
-/// is revoked before its socket write begins.
+/// A movement-only replacement for an admitted interaction packet whose
+/// authority is revoked before its socket write begins.
 #[derive(Debug)]
-pub(crate) struct MiningPacketGuard {
+pub(crate) struct InteractionPacketGuard {
     authority_epoch: u64,
     authority: watch::Receiver<u64>,
     movement_packet: Packet,
 }
 
-impl MiningPacketGuard {
+impl InteractionPacketGuard {
     pub(crate) fn sanitize(self, packet: Packet) -> Packet {
         if *self.authority.borrow() == self.authority_epoch {
             packet
@@ -125,7 +126,7 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
     ticker: &mut MovementTicker,
     budget: usize,
     evidence_context: Option<PhysicsTickEvidenceContext>,
-    mut send: impl FnMut(PhysicsSendIdentity, Packet, Option<MiningPacketGuard>) -> Result<(), E>,
+    mut send: impl FnMut(PhysicsSendIdentity, Packet, Option<InteractionPacketGuard>) -> Result<(), E>,
 ) -> Result<usize, MovementSendError<E>> {
     if !ticker.physics_is_authorized() {
         ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
@@ -164,28 +165,32 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
-        let mining_guard = sample
-            .mining
-            .as_ref()
-            .map(|_| {
+        debug_assert!(sample.mining.is_none() || sample.block_use.is_none());
+        let interaction_epoch = match (&sample.mining, &sample.block_use) {
+            (Some(_), None) => Some(&ticker.mining_epoch_publisher),
+            (None, Some(_)) => Some(&ticker.block_use_epoch_publisher),
+            (None, None) => None,
+            (Some(_), Some(_)) => None,
+        };
+        let interaction_guard = interaction_epoch
+            .map(|publisher| {
                 let movement_packet = player_auth_input_with_interactions(
                     sample.snapshot,
                     &protocol::PlayerAuthInputInteractions::default(),
                 )?;
-                Ok::<_, PlayerAuthInputError>(MiningPacketGuard {
-                    authority_epoch: *ticker.mining_epoch_publisher.borrow(),
-                    authority: ticker.mining_epoch_publisher.subscribe(),
+                Ok::<_, PlayerAuthInputError>(InteractionPacketGuard {
+                    authority_epoch: *publisher.borrow(),
+                    authority: publisher.subscribe(),
                     movement_packet,
                 })
             })
             .transpose()
             .map_err(MovementSendError::Encode)?;
-        let interactions = sample
-            .mining
-            .as_ref()
-            .map_or_else(protocol::PlayerAuthInputInteractions::default, |mining| {
-                mining.interactions.clone()
-            });
+        let interactions = match (&sample.mining, &sample.block_use) {
+            (Some(mining), None) => mining.interactions.clone(),
+            (None, Some(block_use)) => block_use.interactions.clone(),
+            (None, None) | (Some(_), Some(_)) => protocol::PlayerAuthInputInteractions::default(),
+        };
         let packet = player_auth_input_with_interactions(sample.snapshot, &interactions)
             .map_err(MovementSendError::Encode)?;
         let identity = ticker.next_send_identity(&sample);
@@ -194,7 +199,7 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
             sample,
             evidence_context.expect("nonempty outbox requires staged evidence context"),
         );
-        if let Err(error) = send(identity, packet, mining_guard) {
+        if let Err(error) = send(identity, packet, interaction_guard) {
             let sample = ticker
                 .restore_admitted(identity)
                 .map_err(|_| MovementSendError::RestoreOverflow)?;
@@ -255,6 +260,7 @@ impl MovementTicker {
             || sample.snapshot.input_mode != frozen.input_mode
             || sample.world_identity != frozen.ray.movement_world_identity
             || sample.mining.is_some()
+            || sample.block_use.is_some()
         {
             return None;
         }
@@ -274,6 +280,60 @@ impl MovementTicker {
         (self.session_generation, self.reanchor_epoch)
     }
 
+    pub(crate) const fn interaction_authority_identity(&self) -> (u64, u64) {
+        (self.session_generation, self.reanchor_epoch)
+    }
+
+    pub(crate) fn accepts_block_use(&self) -> bool {
+        self.accepts_creative_mining()
+    }
+
+    pub(crate) fn retain_block_use(&mut self, current: Option<&FrozenEmptyHandBlockUse>) {
+        let stale = self
+            .outbox
+            .iter()
+            .filter_map(|sample| sample.block_use.as_ref())
+            .chain(
+                self.pending_sends
+                    .iter()
+                    .filter_map(|pending| pending.sample.block_use.as_ref()),
+            )
+            .any(|block_use| current.is_none_or(|current| !block_use.still_authorized_by(current)));
+        if stale {
+            self.invalidate_block_use();
+        }
+    }
+
+    pub(crate) fn attach_block_use(&mut self, frozen: FrozenEmptyHandBlockUse) -> Option<u64> {
+        if !self.accepts_block_use() {
+            return None;
+        }
+        let tick = frozen.observation.frame.physics_tick;
+        let sample = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)?;
+        if frozen.observation.frame.position_authority_generation != self.reanchor_epoch
+            || sample.session_generation != frozen.observation.frame.session_generation
+            || sample.snapshot.input_mode != frozen.observation.input_mode
+            || sample.world_identity != frozen.observation.ray.movement_world_identity
+            || sample.mining.is_some()
+            || sample.block_use.is_some()
+        {
+            return None;
+        }
+        sample.block_use = Some(frozen.into_tick_payload(sample.snapshot.position));
+        Some(tick)
+    }
+
+    pub(crate) fn has_queued_block_use(&self) -> bool {
+        self.outbox.iter().any(|sample| sample.block_use.is_some())
+            || self
+                .pending_sends
+                .iter()
+                .any(|pending| pending.sample.block_use.is_some())
+    }
+
     fn invalidate_creative_mining(&mut self) {
         let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
         self.mining_epoch_publisher.send_replace(next);
@@ -282,6 +342,17 @@ impl MovementTicker {
         }
         for pending in &mut self.pending_sends {
             pending.sample.mining = None;
+        }
+    }
+
+    fn invalidate_block_use(&mut self) {
+        let next = self.block_use_epoch_publisher.borrow().wrapping_add(1);
+        self.block_use_epoch_publisher.send_replace(next);
+        for queued in &mut self.outbox {
+            queued.block_use = None;
+        }
+        for pending in &mut self.pending_sends {
+            pending.sample.block_use = None;
         }
     }
 
@@ -298,6 +369,7 @@ impl MovementTicker {
             }
         });
         self.invalidate_creative_mining();
+        self.invalidate_block_use();
         for pending in &mut self.pending_sends {
             pending.retry_after_cancellation = false;
         }

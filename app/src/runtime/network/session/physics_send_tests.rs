@@ -87,7 +87,7 @@ fn traced_movement_packets(tick: u64) -> (protocol::Packet, protocol::Packet) {
         snapshot,
         &protocol::PlayerAuthInputInteractions {
             block_actions,
-            block_destroy: None,
+            block_interaction: None,
         },
     )
     .unwrap();
@@ -119,7 +119,7 @@ async fn guarded_then_ordinary_trace_follows_successful_socket_fifo() {
             chat: None,
             physics: Some(guarded_identity),
             physics_reanchor: None,
-            mining: Some(crate::movement::MiningPacketGuard::testing(
+            interaction: Some(crate::movement::InteractionPacketGuard::testing(
                 0,
                 authority_rx,
                 movement,
@@ -133,7 +133,7 @@ async fn guarded_then_ordinary_trace_follows_successful_socket_fifo() {
             chat: None,
             physics: Some(ordinary_identity),
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let sent = Arc::new(Mutex::new(Vec::new()));
@@ -221,7 +221,7 @@ async fn revoked_mining_is_removed_before_write_without_suppressing_its_movement
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
-            mining: Some(crate::movement::MiningPacketGuard::testing(
+            interaction: Some(crate::movement::InteractionPacketGuard::testing(
                 0,
                 mining_authority_rx,
                 movement,
@@ -289,7 +289,7 @@ async fn current_mining_command_reaches_the_write_byte_exact() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
-            mining: Some(crate::movement::MiningPacketGuard::testing(
+            interaction: Some(crate::movement::InteractionPacketGuard::testing(
                 0,
                 mining_authority_rx,
                 test_packet(),
@@ -339,7 +339,7 @@ async fn reanchor_cancels_an_admitted_but_unstarted_physics_send_before_socket_w
             chat: None,
             physics: Some(identity),
             physics_reanchor: Some(reanchor_rx),
-            mining: Some(crate::movement::MiningPacketGuard::testing(
+            interaction: Some(crate::movement::InteractionPacketGuard::testing(
                 0,
                 mining_authority_rx,
                 test_packet(),
@@ -390,7 +390,7 @@ async fn physics_send_ack_is_emitted_only_after_successful_socket_write() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -436,7 +436,7 @@ async fn failed_physics_socket_write_never_emits_success_ack() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
-            mining: Some(crate::movement::MiningPacketGuard::testing(
+            interaction: Some(crate::movement::InteractionPacketGuard::testing(
                 0,
                 mining_authority_rx,
                 movement,
@@ -495,7 +495,7 @@ async fn cancelled_pending_physics_socket_write_never_emits_success_ack() {
             chat: None,
             physics: Some(identity),
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -542,7 +542,7 @@ async fn reanchor_during_an_in_flight_physics_send_preserves_the_socket_result()
             chat: None,
             physics: Some(identity),
             physics_reanchor: Some(reanchor_rx),
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);

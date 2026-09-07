@@ -533,7 +533,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -576,7 +576,7 @@ async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -648,7 +648,7 @@ async fn failed_fast_transfer_never_arms_a_reset() {
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -691,7 +691,7 @@ async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -736,7 +736,7 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -781,7 +781,7 @@ async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
             }),
             physics: None,
             physics_reanchor: None,
-            mining: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -831,7 +831,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
-                mining: None,
+                interaction: None,
             })
             .unwrap();
     }
@@ -1119,7 +1119,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
-                mining: None,
+                interaction: None,
             })
             .unwrap();
     }

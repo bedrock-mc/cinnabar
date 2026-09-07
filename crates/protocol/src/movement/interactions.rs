@@ -5,8 +5,9 @@
 //! a destroy travel as the block-action list of the movement tick in which
 //! they happened (`PerformBlockActions`), and the creative instant destroy
 //! travels as the embedded break-block item-use transaction
-//! (`PerformItemInteraction`). This module owns those bounded payloads; the
-//! movement snapshot itself stays a pure movement record.
+//! (`PerformItemInteraction`). The provisional empty-hand block-use path uses
+//! that same mutually exclusive carrier. This module owns those bounded
+//! payloads; the movement snapshot itself stays a pure movement record.
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::{
@@ -160,20 +161,30 @@ impl BlockActions {
     }
 }
 
+/// The one item-use transaction attached to a movement tick.
+///
+/// `Use` is the bounded empty-hand block-use carrier currently exercised by
+/// the app. Its wider item behavior and optional input envelope remain
+/// intentionally unspecified.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockItemInteraction {
+    Use(BlockUseRequest),
+    Destroy(BlockUseRequest),
+}
+
 /// Interaction payloads attached to one movement tick.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerAuthInputInteractions {
     /// Destroy-family block actions in the order they happened.
     pub block_actions: BlockActions,
-    /// The creative instant destroy of one block, carried as the embedded
-    /// break-block item-use transaction.
-    pub block_destroy: Option<BlockUseRequest>,
+    /// At most one mutually exclusive block item-use transaction.
+    pub block_interaction: Option<BlockItemInteraction>,
 }
 
 impl PlayerAuthInputInteractions {
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.block_actions.is_empty() && self.block_destroy.is_none()
+        self.block_actions.is_empty() && self.block_interaction.is_none()
     }
 }
 
@@ -184,23 +195,35 @@ pub enum InteractionEncodeError {
     InvalidBlockActionFace(u8),
     #[error("embedded break-block transaction is invalid: {0}")]
     InvalidBlockDestroy(#[from] BlockUsePacketError),
+    #[error("embedded block-use transaction is invalid: {0}")]
+    InvalidBlockUse(BlockUsePacketError),
     #[error(
         "PlayerAuthInput interaction flags were asserted without a matching payload (or the reverse)"
     )]
     InconsistentInteractionFlags,
 }
 
-pub(super) fn packed_block_destroy(
-    request: BlockUseRequest,
+pub(super) fn packed_block_interaction(
+    interaction: BlockItemInteraction,
 ) -> Result<PackedItemUseLegacyInventoryTransaction, InteractionEncodeError> {
-    let transaction = item_use_transaction(
-        request,
-        EnumsItemUseInventoryTransactionActionType::Destroy,
-        // The embedded carrier writes the action list through a second
-        // optional layer; a break carries no inventory actions, so the inner
-        // layer is absent exactly like the pinned public bytes.
-        None,
-    )?;
+    // The embedded carrier writes the action list through a second optional
+    // layer. These bounded block interactions carry no inventory actions, so
+    // the inner layer is absent; destroy retains its pinned bytes while
+    // empty-hand use remains explicitly provisional.
+    let transaction = match interaction {
+        BlockItemInteraction::Use(request) => item_use_transaction(
+            request,
+            EnumsItemUseInventoryTransactionActionType::Place,
+            None,
+        )
+        .map_err(InteractionEncodeError::InvalidBlockUse)?,
+        BlockItemInteraction::Destroy(request) => item_use_transaction(
+            request,
+            EnumsItemUseInventoryTransactionActionType::Destroy,
+            None,
+        )
+        .map_err(InteractionEncodeError::InvalidBlockDestroy)?,
+    };
     Ok(PackedItemUseLegacyInventoryTransaction {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,

@@ -8,13 +8,14 @@ use bevy::{
     window::PrimaryWindow,
 };
 use protocol::{
-    BlockAction, BlockActionKind, BlockActions, BlockUseRequest, PlayerAuthInputInteractions,
-    PlayerInputMode, VerifiedNetworkItemStack,
+    BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, BlockUseRequest,
+    PlayerAuthInputInteractions, PlayerInputMode, VerifiedNetworkItemStack,
 };
 use semantic_input::{Action, InputMode};
 use sim::{BlockHit, PaletteWorld, Vec3, WorldCollisionIdentity};
 
 use crate::{
+    block_use::mining_edge_authorized,
     local_player::{FrozenInteractionOrigin, InteractionOriginSnapshot},
     menu::MenuRuntime,
     movement::{MovementTicker, PhysicsCollisionRegistries},
@@ -85,7 +86,7 @@ pub(crate) struct FrozenCreativeMining {
 }
 
 impl FrozenCreativeMining {
-    fn still_authorized_by(&self, current: &Self) -> bool {
+    pub(crate) fn still_authorized_by(&self, current: &Self) -> bool {
         self.frame.session_generation == current.frame.session_generation
             && self.frame.position_authority_generation
                 == current.frame.position_authority_generation
@@ -130,7 +131,7 @@ impl FrozenCreativeMining {
         }
         let interactions = PlayerAuthInputInteractions {
             block_actions,
-            block_destroy: Some(BlockUseRequest {
+            block_interaction: Some(BlockItemInteraction::Destroy(BlockUseRequest {
                 block_position: target.position,
                 face: target.face,
                 selected_slot: self.selection.slot,
@@ -138,7 +139,7 @@ impl FrozenCreativeMining {
                 player_position,
                 relative_hit: target.relative_hit,
                 block_runtime_id: u64::from(target.runtime_id),
-            }),
+            })),
         };
         QueuedMiningInteraction {
             authority: self,
@@ -275,7 +276,15 @@ pub(crate) fn produce_creative_mining(
         movement.retain_creative_mining(None);
         return;
     };
-    let attack_pressed = !position_authority_changed && context.input.phase(Action::Attack).pressed;
+    let raw_attack_pressed = context.input.phase(Action::Attack).pressed;
+    let use_pressed = context.input.phase(Action::Use).pressed;
+    if raw_attack_pressed && use_pressed {
+        runtime.pending_press = None;
+        movement.retain_creative_mining(None);
+        return;
+    }
+    let attack_pressed =
+        !position_authority_changed && mining_edge_authorized(raw_attack_pressed, use_pressed);
     if !attack_pressed && runtime.pending_press.is_none() && !movement.has_queued_creative_mining()
     {
         return;
@@ -301,7 +310,7 @@ pub(crate) fn produce_creative_mining(
     );
 }
 
-fn creative_observation(
+pub(crate) fn creative_observation(
     origin: &InteractionOriginSnapshot,
     ui: &UiRuntime,
     client_world: &ClientWorld,
