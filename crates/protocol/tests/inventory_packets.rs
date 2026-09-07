@@ -82,6 +82,10 @@ fn full_container(
     }
 }
 
+fn default_full_container() -> FullContainerName {
+    FullContainerName::default()
+}
+
 /// One response slot. `constant_3` is the always-true outer flag of the
 /// double-optional the stack net ID is written behind: gophertunnel
 /// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/io.go`
@@ -416,6 +420,172 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         normalize_container_data(data).unwrap(),
         InventoryEvent::Data(_)
     ));
+}
+
+#[test]
+fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
+    let slots = vec![ItemStackDescriptor::default(); 36];
+    let InventoryEvent::Content(content) = normalize_content(InventoryContentPacket {
+        container_id: u32::from(INVENTORY_CONTAINER),
+        slots,
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        content.container,
+        ContainerIdentity {
+            window_id: Some(0),
+            slot_type: None,
+            dynamic_id: None,
+        }
+    );
+    assert_eq!(
+        project_container_cell(&content.container, 0),
+        Some(CanonicalCell::PlayerInventory(0))
+    );
+
+    let InventoryEvent::Slot(slot) = normalize_slot(InventorySlotPacket {
+        container_id: INVENTORY_CONTAINER,
+        slot: 4,
+        full_container_name: Some(default_full_container()),
+        storage_item: None,
+        item: item(7, 1, 13, Vec::new()),
+    })
+    .unwrap() else {
+        panic!("expected slot event")
+    };
+    assert_eq!(slot.identity.container, content.container);
+    assert_eq!(
+        project_container_cell(&slot.identity.container, slot.identity.slot),
+        Some(CanonicalCell::PlayerInventory(4))
+    );
+
+    let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
+        container_id: u32::from_ne_bytes((-119_i32).to_ne_bytes()),
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        offhand.container,
+        ContainerIdentity {
+            window_id: Some(-119),
+            slot_type: Some(0),
+            dynamic_id: None,
+        },
+        "a foreign negative window is not the legacy offhand window"
+    );
+
+    let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
+        container_id: 119,
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(offhand.container.slot_type, None);
+    assert_eq!(
+        project_container_cell(&offhand.container, 0),
+        Some(CanonicalCell::Offhand)
+    );
+}
+
+#[test]
+fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
+    let default_foreign = normalize_content(InventoryContentPacket {
+        container_id: 120,
+        slots: vec![ItemStackDescriptor::default(); 5],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap();
+    let InventoryEvent::Content(default_foreign) = default_foreign else {
+        panic!("expected content event")
+    };
+    assert_eq!(default_foreign.container.slot_type, Some(0));
+    assert_eq!(project_container_cell(&default_foreign.container, 0), None);
+
+    for dynamic_id in [0, 7] {
+        let dynamic_default = normalize_content(InventoryContentPacket {
+            container_id: u32::from(INVENTORY_CONTAINER),
+            slots: vec![ItemStackDescriptor::default()],
+            full_container_name: FullContainerName {
+                dynamic_id: Some(dynamic_id),
+                ..default_full_container()
+            },
+            storage_item: ItemStackDescriptor::default(),
+        })
+        .unwrap();
+        let InventoryEvent::Content(dynamic_default) = dynamic_default else {
+            panic!("expected content event")
+        };
+        assert_eq!(dynamic_default.container.slot_type, Some(0));
+        assert_eq!(dynamic_default.container.dynamic_id, Some(dynamic_id));
+        assert_eq!(project_container_cell(&dynamic_default.container, 0), None);
+    }
+
+    for name in [
+        FullContainerNameContainerName::CraftingInputContainer,
+        FullContainerNameContainerName::Unknown(211),
+    ] {
+        let event = normalize_content(InventoryContentPacket {
+            container_id: u32::from(INVENTORY_CONTAINER),
+            slots: vec![ItemStackDescriptor::default()],
+            full_container_name: full_container(name, None),
+            storage_item: ItemStackDescriptor::default(),
+        })
+        .unwrap();
+        let InventoryEvent::Content(content) = event else {
+            panic!("expected content event")
+        };
+        assert!(content.container.slot_type.is_some());
+        assert!(!matches!(
+            project_container_cell(&content.container, 0),
+            Some(CanonicalCell::PlayerInventory(_))
+        ));
+    }
+
+    let cursor = normalize_content(InventoryContentPacket {
+        container_id: u32::from(INVENTORY_CONTAINER),
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: full_container(FullContainerNameContainerName::CursorContainer, None),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap();
+    let InventoryEvent::Content(cursor) = cursor else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        project_container_cell(&cursor.container, 0),
+        Some(CanonicalCell::Cursor)
+    );
+
+    let response = normalize_response(ItemStackResponsePacket {
+        responses: vec![accepted_response(
+            44,
+            vec![ItemStackResponseContainerInfo {
+                full_container_name: default_full_container(),
+                slots: vec![response_slot(0, 1, 13, "", "", 0)],
+            }],
+        )],
+    })
+    .unwrap();
+    let InventoryEvent::Response(response) = response else {
+        panic!("expected response event")
+    };
+    let container = response.responses[0].containers[0].container;
+    assert_eq!(container.window_id, None);
+    assert_eq!(container.slot_type, Some(0));
+    assert_eq!(container.dynamic_id, None);
+    assert_eq!(project_container_cell(&container, 0), None);
 }
 
 #[test]
