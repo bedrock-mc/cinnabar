@@ -17,8 +17,12 @@ check, and shell acceptance tests passed. Independent review found that the
 listener also accepted the dependency's newer default; a pre-preparation check
 now rejects unsupported local protocol IDs and advertised game versions,
 including 1.26.40 sharing ID 2168. Both hermetic regressions failed before their
-fixes and passed afterward, including repeated race-enabled runs. Final review
-of these corrections is pending.
+fixes and passed afterward, including repeated race-enabled runs. Independent
+review approved the complete `8e2b19ba..0ab3ff1a` range with no remaining findings.
+The final Go tests, vet, build and architecture recheck passed after both fixes.
+The acceptance shell suite passed with the canonical `Downloads` path casing;
+PowerShell and Windows-native checks were not run locally. Cinnabar CI will run
+on the authorized push; its result is not part of this local verification record.
 No live vanilla or native acceptance gate is closed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
