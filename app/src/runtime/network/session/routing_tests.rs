@@ -59,6 +59,49 @@ fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
 }
 
 #[test]
+fn start_game_item_registry_is_normalized_from_captured_game_data() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.item_registry.item_data.push(Default::default());
+    let entry = &mut game_data.item_registry.item_data[0];
+    entry.item_name = "minecraft:apple".into();
+    entry.item_id = 878;
+
+    let registry = start_game_item_registry(&game_data, 0).expect("normalized registry");
+    assert_eq!(registry.entries.len(), 1);
+    assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:apple");
+    assert_eq!(registry.entries[0].network_id, 878);
+}
+
+#[test]
+fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    for item_id in [5, 6] {
+        game_data.item_registry.item_data.push(Default::default());
+        let entry = game_data.item_registry.item_data.last_mut().unwrap();
+        entry.item_name = "minecraft:duplicate".into();
+        entry.item_id = item_id;
+    }
+
+    assert_eq!(start_game_item_registry(&game_data, 0), None);
+    assert_eq!(
+        start_game_inventory_authority(&game_data),
+        InventoryEvent::Authority(InventoryAuthority::Client)
+    );
+}
+
+#[test]
 fn sequence_is_fifo_and_dimension_changes_apply_to_following_packets() {
     let mut sequencer = NetworkSequencer::new(7, 2, 42);
     let first = sequencer.wrap(WorldEvent::ChunkRadiusUpdated(16));

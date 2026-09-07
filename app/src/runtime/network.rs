@@ -57,7 +57,9 @@ use crate::{
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
-pub(crate) use inventory::{route_inventory_ingress, route_item_registry_ingress};
+pub(crate) use inventory::{
+    publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
+};
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
 };
@@ -281,6 +283,7 @@ pub(crate) fn receive_network_events(
                 world: bootstrap,
                 environment,
                 inventory,
+                item_registry,
                 player_game_mode,
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
@@ -326,15 +329,14 @@ pub(crate) fn receive_network_events(
                 ui_runtime.begin_session(session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
-                let protocol::InventoryEvent::Authority(authority) = inventory else {
+                if !publish_bootstrap_inventory(&mut ui_runtime, item_registry, inventory) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         "StartGame inventory fanout was not an authority event".to_owned(),
                     );
                     continue;
-                };
+                }
                 resource_pack_admission.replace_for_generation(session_generation, resource_packs);
-                ui_runtime.publish_inventory_authority(authority);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,

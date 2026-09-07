@@ -12,9 +12,9 @@ use std::{
 use bevy::prelude::Resource;
 use bytes::Bytes;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, ServerDisconnectEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
-    normalize_authority,
+    BlobCacheStats, ClientBlobCache, InventoryEvent, ItemRegistryEvent, LoginSequence, Packet,
+    PacketIdTraceSnapshot, PlayerGameMode, ServerDisconnectEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -70,6 +70,7 @@ pub enum NetworkControlEvent {
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
         inventory: InventoryEvent,
+        item_registry: Option<ItemRegistryEvent>,
         player_game_mode: PlayerGameMode,
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
@@ -597,6 +598,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
+                let item_registry = start_game_item_registry(&game_data, bootstrap.dimension);
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
                 let world_default_game_mode =
                     PlayerGameMode::world_default_from_game_data(&game_data);
@@ -610,6 +612,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world: bootstrap,
                         environment,
                         inventory,
+                        item_registry,
                         player_game_mode,
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
@@ -646,10 +649,6 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         thread: Some(thread),
         readiness_ingress,
     })
-}
-
-fn start_game_inventory_authority(game_data: &protocol::GameData) -> InventoryEvent {
-    normalize_authority(game_data.start_game.enable_item_stack_net_manager)
 }
 
 trait NetworkSession: Send {
@@ -988,13 +987,14 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
     );
 }
 
+mod bootstrap;
 mod handle_state;
+use bootstrap::{start_game_inventory_authority, start_game_item_registry};
 mod pump;
 use pump::*;
 mod pump_runtime;
 use pump_runtime::*;
 mod disconnect_display;
 use disconnect_display::disconnect_display_reason;
-
 #[cfg(test)]
 mod tests;
