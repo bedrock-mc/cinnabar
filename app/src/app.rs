@@ -54,6 +54,7 @@ use crate::{
         wait_for_core,
     },
     metrics::MetricsCollector,
+    mining::{MiningRuntime, produce_creative_mining},
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
@@ -163,6 +164,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+        .init_resource::<MiningRuntime>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
@@ -266,6 +268,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (
                 flush_inventory_network,
                 emit_phase3_evidence,
+                produce_creative_mining,
                 send_player_auth_inputs,
             )
                 .chain()

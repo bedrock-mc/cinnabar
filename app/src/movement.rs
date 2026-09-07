@@ -32,7 +32,11 @@ use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
-pub(crate) use outbox::{MovementOutboxReconciliation, flush_player_auth_inputs};
+#[cfg(test)]
+pub(crate) use outbox::flush_player_auth_inputs;
+pub(crate) use outbox::{
+    MiningPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+};
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
@@ -45,6 +49,8 @@ pub(crate) use speed_authority::LocalMovementSpeedAuthority;
 pub use state::ProcessedMovementState;
 pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
+#[cfg(test)]
+pub(crate) use trace::trace_line_if;
 pub(crate) use trace::{pending_trace_line, write_trace_line};
 
 /// Origin of a movement sample and the authority allowed to transmit it.
@@ -65,6 +71,7 @@ struct QueuedPhysicsSample {
     snapshot: PlayerAuthInputSnapshot,
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
+    mining: Option<crate::mining::QueuedMiningInteraction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +130,7 @@ pub struct MovementTicker {
     replayed_corrections_observed: u64,
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
+    mining_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -135,6 +143,7 @@ impl Default for MovementTicker {
 
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
+        let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -162,6 +171,7 @@ impl MovementTicker {
             replayed_corrections_observed: 0,
             unmarked_move_players_observed: 0,
             epoch_publisher,
+            mining_epoch_publisher,
         }
     }
 
@@ -329,6 +339,7 @@ impl MovementTicker {
             snapshot,
             world_identity: completed.world_identity,
             evidence,
+            mining: None,
         });
         Ok(())
     }
@@ -613,28 +624,6 @@ impl MovementTicker {
         self.accepting_physics_admissions()
             && self.pending_count()
                 <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
-    }
-
-    /// Records the explicit event that the server-authoritative local position
-    /// changed. Every transport admission from the prior epoch becomes
-    /// obsolete regardless of whether its packet fields happen to compare
-    /// equal after reconciliation. Publishing here keeps worker invalidation
-    /// inseparable from advancing the epoch.
-    fn position_authority_changed(&mut self) {
-        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
-        for pending in &mut self.pending_sends {
-            pending.retry_after_cancellation = false;
-        }
-        self.sent_history.clear();
-        self.epoch_publisher.send_if_modified(|published| {
-            if *published == self.reanchor_epoch {
-                false
-            } else {
-                *published = self.reanchor_epoch;
-                true
-            }
-        });
-        self.refresh_outbox_reconciliation();
     }
 
     fn has_unresolved_position_authority_change(&self) -> bool {

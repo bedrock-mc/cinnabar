@@ -86,6 +86,7 @@ async fn send_failure_reports_the_local_send_origin() {
             chat: None,
             physics: None,
             physics_reanchor: None,
+            mining: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
