@@ -62,7 +62,7 @@ pub(crate) use resource_packs::{
 };
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
-    WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
@@ -547,7 +547,7 @@ pub(crate) fn receive_network_events(
                 record_fatal_error(&mut client_world.fatal_error, failure);
             }
             NetworkControlEvent::Transferred {
-                target,
+                target: SessionTransferTarget { host, port },
                 decode_error_count,
             } => {
                 resource_pack_admission.clear_current();
@@ -560,15 +560,9 @@ pub(crate) fn receive_network_events(
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
                 client_world.network_decode_errors = decode_error_count;
-                info!(
-                    host = target.host,
-                    port = target.port,
-                    "server transferred the session"
-                );
-                client_world.transfer_notice = Some(crate::runtime::world::TransferNotice {
-                    host: target.host,
-                    port: target.port,
-                });
+                info!(host, port, "server transferred the session");
+                client_world.transfer_notice =
+                    Some(crate::runtime::world::TransferNotice { host, port });
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 resource_pack_admission.clear_current();

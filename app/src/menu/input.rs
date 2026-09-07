@@ -249,7 +249,7 @@ fn attempt_connect(
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
-    network.shutdown();
+    *network = NetworkHandle::disconnected();
     guard.stop();
     menu.release_session_directory();
     let generation = menu.next_session_generation();
@@ -489,7 +489,9 @@ pub(crate) fn drive_menu_connection(
         );
     }
     if menu.take_disconnect_request() {
-        network.shutdown();
+        // Drop the old event receivers as well as stopping their worker: a
+        // queued transfer must not undo this explicit disconnect later this frame.
+        *network = NetworkHandle::disconnected();
         guard.stop();
         // The core is gone, so its endpoint artifact is no longer open and
         // the identity-checked removal can proceed.
@@ -498,10 +500,13 @@ pub(crate) fn drive_menu_connection(
         resource_packs.begin_generation(generation);
         runtime.begin_session(generation);
         client_world.stream = None;
+        client_world.pending_surface_spawn = None;
+        client_world.fatal_error = None;
+        client_world.transfer_notice = None;
         menu.mark_disconnected();
     }
     if menu.take_exit_request() {
-        network.shutdown();
+        *network = NetworkHandle::disconnected();
         guard.stop();
         menu.release_session_directory();
         exits.write(AppExit::Success);
@@ -527,7 +532,7 @@ pub(crate) fn recover_menu_session_failure(
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    network.shutdown();
+    *network = NetworkHandle::disconnected();
     guard.stop();
     menu.release_session_directory();
     let generation = menu.next_session_generation();
@@ -635,7 +640,7 @@ fn end_transfer_without_follow(
     client_world: &mut ClientWorld,
     reason: String,
 ) {
-    network.shutdown();
+    *network = NetworkHandle::disconnected();
     guard.stop();
     menu.release_session_directory();
     let generation = menu.next_session_generation();
@@ -850,6 +855,72 @@ mod transfer_follow_tests {
     #[test]
     fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
         failed_automatic_replacement(false);
+    }
+
+    #[test]
+    fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiver() {
+        use crate::runtime::network::NetworkControlEvent;
+        use bevy::app::AppExit;
+        use tokio::sync::mpsc;
+
+        let root = TempRoot::new();
+        let mut menu = MenuRuntime::new_with_layout(
+            true,
+            2,
+            "Player".to_owned(),
+            missing_core_layout(root.path()),
+        );
+        menu.catalog_started = true;
+        menu.mark_connected();
+        menu.open_pause();
+        menu.activate(MenuAction::PauseDisconnect);
+        let mut network = NetworkHandle::disconnected();
+        let (old_controls, receiver) = mpsc::channel(2);
+        *network.control_events_mut() = receiver;
+        old_controls
+            .try_send(NetworkControlEvent::Transferred {
+                target: crate::runtime::network::SessionTransferTarget {
+                    host: "old.example.net".to_owned(),
+                    port: 19132,
+                },
+                decode_error_count: 0,
+            })
+            .unwrap();
+        old_controls
+            .try_send(NetworkControlEvent::Stopped {
+                decode_error_count: 0,
+            })
+            .unwrap();
+
+        let mut app = App::new();
+        app.add_message::<AppExit>()
+            .insert_resource(menu)
+            .insert_resource(CoreProcessGuard::default())
+            .insert_resource(network)
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(ClientWorld::default())
+            .add_systems(Update, super::drive_menu_connection);
+        app.update();
+
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(menu.is_visible());
+        assert_eq!(menu.view().screen, MenuScreen::Home);
+        assert!(!menu.is_connecting());
+        assert_eq!(
+            app.world()
+                .resource::<NetworkHandle>()
+                .pending_event_count(),
+            0
+        );
+        assert!(
+            app.world()
+                .resource::<ClientWorld>()
+                .transfer_notice
+                .is_none()
+        );
+        assert!(old_controls.is_closed());
     }
 
     fn failed_automatic_replacement(from_settings: bool) {
