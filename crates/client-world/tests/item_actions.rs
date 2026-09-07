@@ -211,6 +211,8 @@ fn registry(network_id: i32, identifier: &str) -> WorldEvent {
             component_based: false,
             version: ItemRegistryVersion::Legacy,
             component_digest: [7; 32],
+            negotiated_max_stack_size: None,
+            canonical_empty_component_data: true,
         }]),
     }))
 }
@@ -576,6 +578,8 @@ fn registry_record_bound_accepts_exact_limit_and_rejects_limit_plus_one_atomical
                     component_based: false,
                     version: ItemRegistryVersion::Legacy,
                     component_digest: [index as u8; 32],
+                    negotiated_max_stack_size: None,
+                    canonical_empty_component_data: true,
                 })
                 .collect::<Vec<_>>()
                 .into(),
