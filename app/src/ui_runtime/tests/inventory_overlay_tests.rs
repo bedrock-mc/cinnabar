@@ -35,6 +35,7 @@ fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkIt
 }
 
 fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
+    admit_personal_inventory(runtime);
     runtime
         .inventory_ledger_mut()
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -44,6 +45,22 @@ fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
             },
             stack,
             storage_item: None,
+        }));
+}
+
+fn admit_personal_inventory(runtime: &mut UiRuntime) {
+    if runtime.inventory_ledger().personal_inventory_desired_open() {
+        return;
+    }
+    assert!(runtime.inventory_ledger_mut().request_personal_open(42));
+    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(2),
+            window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            position: [0, 0, 0],
+            runtime_entity_id: -1,
         }));
 }
 
@@ -720,6 +737,7 @@ fn drained_inventory_runtime() -> UiRuntime {
         )
         .unwrap();
     runtime.drain_pending_inventory();
+    admit_personal_inventory(&mut runtime);
     runtime.set_local_selected_slot(0);
     runtime
 }

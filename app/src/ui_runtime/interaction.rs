@@ -25,7 +25,7 @@ pub fn flush_inventory_send<E>(
     now_millis: u64,
     mut send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<bool, E> {
-    runtime.inventory_ledger_mut().poll_timeout(now_millis);
+    runtime.poll_inventory_timeout(now_millis);
     let Some(packet) = runtime
         .inventory_ledger()
         .pending_packet()
@@ -57,7 +57,7 @@ pub(crate) fn flush_inventory_network(
     }) {
         Ok(_) | Err(crate::runtime::network::PacketSendError::Full(_)) => {}
         Err(crate::runtime::network::PacketSendError::Closed(_)) => {
-            runtime.inventory_ledger_mut().transport_closed();
+            runtime.inventory_transport_closed();
         }
     }
 }
@@ -380,6 +380,9 @@ pub(crate) fn drive_chat_keyboard_input(
 ) {
     let (window, mut cursor) = window.into_inner();
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+        if runtime.inventory_open() {
+            runtime.close_inventory();
+        }
         keyboard_messages.clear();
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.

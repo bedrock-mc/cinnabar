@@ -28,6 +28,7 @@ impl PlayerInventoryLedger {
                 self.authority = Some(*authority);
                 if *authority != InventoryAuthority::Server {
                     self.pending = None;
+                    self.personal = None;
                     self.cursor = None;
                     self.cursor_overlay = None;
                     self.player_resync_required = false;
@@ -43,6 +44,23 @@ impl PlayerInventoryLedger {
                         && close.window_type == pending.window_type
                 }) {
                     self.pending_close = None;
+                }
+                if self.personal.as_ref().is_some_and(|personal| {
+                    matches!(
+                        personal,
+                        super::PersonalWindow::Open {
+                            window_id,
+                            window_type,
+                            ..
+                        } | super::PersonalWindow::Closing {
+                            window_id,
+                            window_type,
+                            ..
+                        } if close.container.window_id == Some(*window_id)
+                            && close.window_type == *window_type
+                    )
+                }) {
+                    self.finish_personal_close();
                 }
                 if self.storage.as_ref().is_some_and(|storage| {
                     close.container.window_id == Some(storage.window_id)
@@ -176,6 +194,16 @@ impl PlayerInventoryLedger {
     }
 
     fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
+        if open.window_type == super::PERSONAL_INVENTORY_WINDOW_TYPE {
+            self.apply_personal_open(open);
+            return;
+        }
+        if self.personal.is_some() {
+            if let Some(window_id) = open.container.window_id {
+                self.queue_close(window_id, open.window_type, None);
+            }
+            return;
+        }
         if self
             .pending
             .as_ref()
@@ -191,7 +219,7 @@ impl PlayerInventoryLedger {
             return;
         };
         if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
-            self.queue_close(window_id, open.window_type);
+            self.queue_close(window_id, open.window_type, None);
             self.storage = None;
             return;
         }
@@ -214,6 +242,48 @@ impl PlayerInventoryLedger {
         });
     }
 
+    fn apply_personal_open(&mut self, open: protocol::ContainerOpenEvent) {
+        let Some(window_id) = open.container.window_id else {
+            self.note_unrouted_container();
+            return;
+        };
+        let Some(super::PersonalWindow::Opening {
+            generation,
+            admitted: true,
+            desired_open,
+            ..
+        }) = self.personal
+        else {
+            self.queue_close(window_id, open.window_type, None);
+            self.note_unrouted_container();
+            return;
+        };
+        if !valid_storage_window_id(window_id) {
+            self.queue_close(window_id, open.window_type, None);
+            self.personal = None;
+            self.personal_lifecycle_failed = true;
+            self.note_unrouted_container();
+            return;
+        }
+        if desired_open {
+            self.personal = Some(super::PersonalWindow::Open {
+                generation,
+                window_id,
+                window_type: open.window_type,
+            });
+        } else {
+            self.queue_close(window_id, open.window_type, Some(generation));
+            self.personal = Some(super::PersonalWindow::Closing {
+                generation,
+                window_id,
+                window_type: open.window_type,
+                // The acknowledgement completed the Open wait. Start the
+                // distinct Close wait only after its packet is admitted.
+                deadline_millis: None,
+            });
+        }
+    }
+
     fn apply_storage_content(&mut self, identity: ContainerIdentity, slots: &[NetworkItemStack]) {
         let valid_len = matches!(
             slots.len(),
@@ -231,7 +301,7 @@ impl PlayerInventoryLedger {
             return;
         }
         if !valid_len {
-            self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE);
+            self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE, None);
             self.close_storage(false);
             return;
         }

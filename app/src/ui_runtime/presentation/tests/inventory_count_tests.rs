@@ -51,6 +51,8 @@ fn build_vertices(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime)
 
 fn personal_inventory(slot: Option<(usize, u16)>) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
+    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
     if let Some((index, count)) = slot {
         let mut slots = empty_player_slots();
         slots[index] = stack(count);
@@ -232,6 +234,8 @@ fn cursor_count_renders_without_an_icon_on_personal_and_storage_screens() {
 fn offhand_count_does_not_depend_on_item_icon() {
     let runtime = |count| {
         let mut runtime = UiRuntime::new(1);
+        runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+        runtime.publish_local_runtime_id(1, 42).unwrap();
         runtime.retain_local_selected_equipment(
             1,
             EquipmentEvent {

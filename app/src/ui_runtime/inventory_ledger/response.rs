@@ -100,6 +100,12 @@ impl PlayerInventoryLedger {
         };
         let pending = self.pending.as_ref().expect("pending request exists");
         if pending.session_generation != self.session_generation
+            || pending.personal_generation.is_some_and(|generation| {
+                self.personal
+                    .as_ref()
+                    .map(super::PersonalWindow::generation)
+                    != Some(generation)
+            })
             || pending.storage_generation.is_some_and(|generation| {
                 self.storage.as_ref().map(|storage| storage.generation) != Some(generation)
             })

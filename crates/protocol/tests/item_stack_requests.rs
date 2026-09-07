@@ -12,12 +12,42 @@ fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> St
 }
 
 fn body(action: StackRequestAction) -> Vec<u8> {
+    request_body(-3, action)
+}
+
+fn request_body(request_id: i32, action: StackRequestAction) -> Vec<u8> {
     encode(
-        &item_stack_request_packet(-3, action).expect("valid request"),
+        &item_stack_request_packet(request_id, action).expect("valid request"),
         &BedrockSession { shield_item_id: 0 },
     )
     .expect("encode request")
     .to_vec()
+}
+
+#[test]
+fn personal_take_and_place_encode_empty_destinations_as_stack_id_zero() {
+    assert_eq!(
+        request_body(
+            -3,
+            StackRequestAction::Take {
+                amount: 32,
+                source: slot(StackRequestContainer::PlayerInventory, 0, 9),
+                destination: slot(StackRequestContainer::Cursor, 0, 0),
+            },
+        ),
+        hex("fe1b93010105010000200c0000090000003b00000000000000ffffffff")
+    );
+    assert_eq!(
+        request_body(
+            -5,
+            StackRequestAction::Place {
+                amount: 32,
+                source: slot(StackRequestContainer::Cursor, 0, 9),
+                destination: slot(StackRequestContainer::PlayerInventory, 9, 0),
+            },
+        ),
+        hex("fe1b93010109010101203b0000090000000c00090000000000ffffffff")
+    );
 }
 
 fn hex(value: &str) -> Vec<u8> {
