@@ -11,8 +11,13 @@ The local listener and fixture generator explicitly select the 1.26.44 adapter;
 this does not upgrade Cinnabar's wire target to the dependency's 1.26.45 default.
 The inventory-response decoder and fixture now include the filtered-name presence
 byte. Structure-editor strings retain their existing encoding. Fork restoration
-review approved; its tests and vet passed. Cinnabar verification and independent
-review are in progress. No live vanilla or native acceptance gate is closed.
+review approved; its tests, vet, and published CI passed. Cinnabar's Go tests,
+vet and build, Rust workspace tests, clippy, formatting, release build, architecture
+check, and shell acceptance tests passed. Independent review found that the
+listener also accepted the dependency's newer default; a pre-preparation check
+now rejects unsupported local protocols. Its hermetic regression failed before
+the fix and passed afterward. Final review of this correction is pending.
+No live vanilla or native acceptance gate is closed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,

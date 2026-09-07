@@ -90,6 +90,11 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
 		PrepareResourcePackOffer: func(ctx context.Context, conn *minecraft.Conn) error {
+			selected, pinned := conn.Proto(), minecraft.Protocol12644()
+			if selected.ID() != pinned.ID() || selected.Ver() != pinned.Ver() {
+				logger.Warn("unsupported local protocol", "protocol", selected.ID(), "version", selected.Ver())
+				return fmt.Errorf("unsupported local protocol %d/%s; want %d/%s", selected.ID(), selected.Ver(), pinned.ID(), pinned.Ver())
+			}
 			prepareErr := prepared.prepare(ctx, conn)
 			reportPreparationError(sessionErr, prepareErr, serveCtx)
 			return prepareErr

@@ -638,8 +638,7 @@ fn accepted_response_with_slot_count(slot_count: u32) -> BytesMut {
 fn accepted_response_with_name_lengths(unredacted: u32, redacted: u32) -> BytesMut {
     let mut body = accepted_response_with_slot_count(1);
     body.extend_from_slice(&[0, 0, 0]);
-    body.put_u8(1);
-    body.put_u8(0);
+    body.extend_from_slice(&[1, 0]);
     wire::write_var_u32(&mut body, unredacted);
     if unredacted <= crate::MAX_RESPONSE_NAME_BYTES as u32 {
         body.put_u8(1);
