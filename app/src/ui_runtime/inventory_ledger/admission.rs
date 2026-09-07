@@ -95,6 +95,7 @@ impl PlayerInventoryLedger {
     /// projection. A content payload addresses its surface from index zero,
     /// so the projected first cell identifies the surface.
     fn apply_content(&mut self, content: &InventoryContentEvent) {
+        self.trace_storage_sized_content(content);
         match project_container_cell(&content.container, 0) {
             Some(CanonicalCell::GenericStorage { .. }) => {
                 self.apply_storage_content(content.container, &content.slots);
@@ -140,6 +141,46 @@ impl PlayerInventoryLedger {
                 self.note_unrouted_container();
             }
         }
+    }
+
+    /// Emits a bounded prefix of fixed-field storage-sized content diagnostics
+    /// for each ledger session. Enable only this target with
+    /// `RUST_LOG=bedrock_client::inventory_storage_admission=debug`.
+    ///
+    /// Item descriptors and payload bytes are deliberately excluded. This is
+    /// observation only: routing and admission remain unchanged.
+    fn trace_storage_sized_content(&mut self, content: &InventoryContentEvent) {
+        if !matches!(
+            content.slots.len(),
+            SMALL_STORAGE_SLOT_COUNT | LARGE_STORAGE_SLOT_COUNT
+        ) || self.storage_content_traces_remaining == 0
+        {
+            return;
+        }
+        self.storage_content_traces_remaining -= 1;
+        let projection = match project_container_cell(&content.container, 0) {
+            Some(CanonicalCell::GenericStorage { .. }) => "generic_storage",
+            Some(CanonicalCell::PlayerInventory(_)) => "player_inventory",
+            Some(CanonicalCell::Cursor) => "cursor",
+            Some(CanonicalCell::Armor(_)) => "armor",
+            Some(CanonicalCell::Offhand) => "offhand",
+            None => "unrouted",
+        };
+        let (open_window_id, open_generation) =
+            self.storage.as_ref().map_or((None, None), |storage| {
+                (Some(storage.window_id), Some(storage.generation))
+            });
+        bevy::log::debug!(
+            target: "bedrock_client::inventory_storage_admission",
+            content_window_id = ?content.container.window_id,
+            content_slot_type = ?content.container.slot_type,
+            content_dynamic_id = ?content.container.dynamic_id,
+            content_slot_count = content.slots.len(),
+            projection,
+            open_window_id = ?open_window_id,
+            open_generation = ?open_generation,
+            "storage-sized inventory content"
+        );
     }
 
     /// Admits one authoritative slot update through the canonical projection.

@@ -469,6 +469,88 @@ fn unexpected_personal_open_and_close_do_not_steal_storage_authority() {
 }
 
 #[test]
+fn storage_sized_content_tracing_is_session_bounded_and_does_not_admit() {
+    let mut ledger = ledger_with_slot_zero();
+    let rejected = InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(4),
+            slot_type: Some(211),
+            dynamic_id: Some(91),
+        },
+        slots: Arc::from(vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT]),
+        storage_item: NetworkItemStack::empty(),
+    });
+
+    ledger.apply(&rejected);
+    assert_eq!(
+        ledger.storage_content_traces_remaining,
+        MAX_STORAGE_CONTENT_TRACES - 1,
+        "content-before-Open consumes one bounded diagnostic record"
+    );
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(4),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    let generation = ledger.storage_generation().unwrap();
+    let wrong_window = InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(9),
+            slot_type: Some(GENERIC_STORAGE_SLOT_TYPE),
+            dynamic_id: Some(91),
+        },
+        slots: Arc::from(vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT]),
+        storage_item: NetworkItemStack::empty(),
+    });
+
+    ledger.apply(&wrong_window);
+    ledger.apply(&rejected);
+    assert_eq!(ledger.authority, Some(InventoryAuthority::Server));
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(9)
+    );
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.storage_generation(), Some(generation));
+    assert_eq!(ledger.storage_slot_count(), None);
+    assert_eq!(ledger.storage_identity(), None);
+    assert!(ledger.pending_closes.is_empty());
+    assert_eq!(ledger.skipped_unknown_containers(), 2);
+    assert_eq!(
+        ledger.storage_content_traces_remaining,
+        MAX_STORAGE_CONTENT_TRACES - 3,
+        "canonical wrong-window and unrouted identities are both observable"
+    );
+
+    for _ in 0..MAX_STORAGE_CONTENT_TRACES {
+        ledger.apply(&rejected);
+    }
+    assert_eq!(ledger.storage_generation(), Some(generation));
+    assert_eq!(ledger.storage_slot_count(), None);
+    assert_eq!(ledger.storage_identity(), None);
+    assert!(ledger.pending_closes.is_empty());
+    assert_eq!(
+        ledger.skipped_unknown_containers(),
+        2 + u64::from(MAX_STORAGE_CONTENT_TRACES)
+    );
+    assert_eq!(ledger.storage_content_traces_remaining, 0);
+
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(5),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [2, 64, 2],
+        runtime_entity_id: -1,
+    }));
+    assert_eq!(
+        ledger.storage_content_traces_remaining, 0,
+        "opening another window cannot reset the session-wide bound"
+    );
+}
+
+#[test]
 fn accepted_personal_response_reconciles_player_and_cursor_cells() {
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);
