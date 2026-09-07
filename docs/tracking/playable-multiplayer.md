@@ -224,9 +224,26 @@ assertion was corrected to verify evidence-marker → mining-production → move
 production ordering did not change. Go core tests and vet, strict workspace all-target
 Clippy, formatting, and architecture checks passed. Independent final batch and
 publication review approved the complete range without findings.
-The preceding published checkpoint `706d2b10` has complete hosted CI green; this
-batch needs its own hosted run after publication. Separate follow-up repairs address
-inventory click ownership and stack counts hidden by missing optional artwork.
+This batch is pushed as `ad3cb10c`; its complete hosted CI run passed, including
+main verification, all three desktop compile jobs, macOS bootstrap, and Windows acceptance.
+The independently approved inventory checkpoint through `b925fa82` restores
+pointer ownership, artwork-independent counts, personal open
+notification, empty-destination stack ID zero, compatible window zero, and bounded
+ordered close controls. Final repairs `d5ba4791` and `84bc9a84` handle the observed
+admitted local `None` acknowledgement and preserve confirmed cursor state across it.
+The normal Windows/DX12 client passed physical Take → occupied-cursor close → reopen
+→ Place against BDS 1.26.40.8, with server queries confirming 32 stone in the destination
+and none in the source. Repeated reopening and a seven-apple/32-stone Swap also passed
+independent server checks. This is bounded usability acceptance, not full close or
+visual parity. Writer verification passed 892 client library, 16 integration, and 18
+lifecycle tests, plus strict Clippy, formatting, and architecture. Fresh post-integration
+workspace verification passed 3,471 tests, zero failures, and 13 ignored; strict
+workspace all-target Clippy, formatting, architecture, and diff checks passed too.
+Hosted CI remains a separate gate. Personal Open/Close timeout recovery
+currently requires a new session because late replies carry no attempt identity.
+An offline reconnect
+uses a fresh UUID and cannot prove persistence for the previous player. Missing
+block-item artwork and broader inventory operations remain open.
 
 Join with authoritative physics, select a tool, target a block, mine it, and
 reconcile the server-confirmed result. Implement the actual app action producer

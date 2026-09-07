@@ -54,8 +54,34 @@ complete three-line reasons within their panels, reset to zero chunks, and exite
 cleanly by keyboard confirmation. Go core tests and vet, strict workspace all-target
 Clippy, formatting, and architecture checks also passed. Independent final batch
 and publication review approved the complete range without findings.
-The next isolated repairs address inventory click ownership and counts hidden when
-optional item artwork is missing; neither is part of this accepted native checkpoint.
+The checkpoint above is pushed as `ad3cb10c`; its complete hosted CI run passed,
+including main verification, desktop compile jobs, macOS bootstrap, and Windows acceptance.
+The independently approved inventory checkpoint through `b925fa82` restores
+pointer ownership, artwork-independent counts,
+personal open notification, empty-destination stack ID zero, retained server window
+identity (including zero), and bounded ordered close controls. The final two fixes
+(`d5ba4791`, `84bc9a84`) accept the observed matching, admitted local `None` close
+acknowledgement and preserve confirmed cursor state across it. Uncertain requests,
+server-forced closes, and existing recovery flags remain conservative. Independent
+review found no blockers; one non-blocking direct reset-after-retention test remains
+coverage debt, with production reset paths verified by inspection.
+The normal Windows/DX12 build at `b925fa82` passed physical Take → occupied-cursor
+close → reopen → Place against BDS 1.26.40.8. Independent server queries confirmed
+32 stone in the destination and none in the source. Repeated reopening and Swap
+also passed: seven apples ended in main inventory and 32 stone in the second hotbar
+slot, independently server-confirmed. GUI scale 2 and sprite/count visibility were
+checked; this is a bounded usability gate, not full inventory parity. Writer checks
+passed 892 client-library, 16 integration, and 18 lifecycle tests, plus strict
+Clippy, formatting, and architecture. Fresh post-integration workspace checks passed
+3,471 tests with zero failures and 13 ignored; strict workspace all-target Clippy,
+formatting, architecture, and diff checks also passed. No diagnostic source changes
+remain in the production build. Hosted CI for this checkpoint is a separate gate.
+The personal window ID is server-assigned and is retained from its open response.
+A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
+unavailable until the next session; broader timeout recovery remains incomplete.
+Offline reconnect currently generates a new player UUID, so reconnecting with the
+same display name is not a valid persistence witness. Block-item artwork, broader
+inventory gestures, and full inventory visual parity remain open.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
