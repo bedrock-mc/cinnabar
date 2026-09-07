@@ -39,11 +39,15 @@ fn ledger_with_slot_zero() -> PlayerInventoryLedger {
 }
 
 fn personal_open(window_id: i32) -> ContainerOpenEvent {
+    personal_open_with_actor(window_id, -1)
+}
+
+fn personal_open_with_actor(window_id: i32, runtime_entity_id: i64) -> ContainerOpenEvent {
     ContainerOpenEvent {
         container: ContainerIdentity::window(window_id),
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
         position: [0, 64, 0],
-        runtime_entity_id: -1,
+        runtime_entity_id,
     }
 }
 
@@ -192,7 +196,7 @@ fn missing_open_and_close_acknowledgements_expire_without_reopening_late() {
     );
     opening.apply(&InventoryEvent::Open(personal_open(2)));
     assert!(!opening.personal_inventory_desired_open());
-    assert_eq!(opening.pending_close.unwrap().window_id, 2);
+    assert_eq!(opening.pending_closes.front().unwrap().window_id, 2);
     assert!(!opening.request_personal_open(42));
     opening.begin_session(2);
     opening.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
@@ -216,10 +220,14 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
     assert_eq!(ledger.storage_generation(), None);
 
     ledger.request_personal_close();
-    let close = ledger.pending_close.expect("personal close");
+    let close = ledger
+        .pending_closes
+        .front()
+        .copied()
+        .expect("personal close");
     assert_eq!(close.window_id, 2);
     assert_eq!(close.window_type, PERSONAL_INVENTORY_WINDOW_TYPE);
-    assert!(close.personal_generation.is_some());
+    assert!(matches!(close.owner, PendingCloseOwner::Personal(_)));
     assert!(!ledger.personal_inventory_desired_open());
 
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
@@ -237,6 +245,140 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
 }
 
 #[test]
+fn personal_window_zero_and_non_sentinel_actor_complete_the_same_lifecycle() {
+    let mut ledger = ledger_with_slot_zero();
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Open(personal_open_with_actor(0, 42)));
+
+    assert!(ledger.personal_inventory_desired_open());
+    assert_eq!(ledger.begin_click(0).unwrap(), -3);
+    ledger.request_personal_close();
+    assert_eq!(
+        ledger.pending_state(),
+        None,
+        "the unsent gesture rolls back"
+    );
+    let close = ledger.pending_closes.front().copied().unwrap();
+    assert_eq!(
+        (close.window_id, close.window_type),
+        (0, PERSONAL_INVENTORY_WINDOW_TYPE)
+    );
+    assert!(matches!(close.owner, PendingCloseOwner::Personal(_)));
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(0),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        server_initiated: true,
+    }));
+    assert!(ledger.personal.is_none());
+}
+
+#[test]
+fn cleanup_then_owned_storage_close_preserves_required_fifo_order() {
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(1),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    ledger.apply(&InventoryEvent::Open(personal_open(2)));
+    ledger.request_storage_close();
+
+    assert_eq!(
+        ledger
+            .pending_closes
+            .iter()
+            .map(|close| (close.window_id, close.window_type, close.owner))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                2,
+                PERSONAL_INVENTORY_WINDOW_TYPE,
+                PendingCloseOwner::Cleanup
+            ),
+            (1, GENERIC_STORAGE_WINDOW_TYPE, PendingCloseOwner::Storage),
+        ]
+    );
+    ledger.note_transport_pressure(10);
+    ledger.note_transport_pressure(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+    assert_eq!(ledger.pending_closes.len(), 2);
+    assert!(ledger.mark_transport_enqueued(20));
+    assert_eq!(ledger.pending_closes.front().unwrap().window_id, 1);
+    assert!(ledger.mark_transport_enqueued(21));
+    assert!(ledger.pending_closes.is_empty());
+}
+
+#[test]
+fn late_open_cleanup_is_deduplicated_bounded_and_never_evicts_personal_close() {
+    let mut late = ledger_with_slot_zero();
+    for window_id in [2, 3, 3] {
+        late.apply(&InventoryEvent::Open(personal_open(window_id)));
+    }
+    assert_eq!(
+        late.pending_closes
+            .iter()
+            .map(|close| close.window_id)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+
+    let mut personal = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut personal, 2);
+    for offset in 0..=MAX_PENDING_CLOSES {
+        personal.apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(10 + i32::try_from(offset).unwrap()),
+            window_type: 5,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+    }
+    assert_eq!(personal.pending_closes.len(), MAX_PENDING_CLOSES);
+    assert_eq!(personal.pending_closes.back().unwrap().window_id, 18);
+
+    personal.request_personal_close();
+    assert_eq!(personal.pending_closes.len(), MAX_PENDING_CLOSES);
+    assert!(personal.pending_closes.iter().any(|close| {
+        close.window_id == 2 && matches!(close.owner, PendingCloseOwner::Personal(_))
+    }));
+    personal.begin_session(2);
+    assert!(personal.pending_closes.is_empty());
+}
+
+#[test]
+fn superseded_storage_closes_evict_oldest_and_retain_latest_window() {
+    let mut ledger = ledger_with_slot_zero();
+    for window_id in 1..=i32::try_from(MAX_PENDING_CLOSES + 2).unwrap() {
+        ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(window_id),
+            window_type: GENERIC_STORAGE_WINDOW_TYPE,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+        ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity {
+                window_id: Some(window_id),
+                slot_type: Some(GENERIC_STORAGE_SLOT_TYPE),
+                dynamic_id: Some(u32::try_from(window_id).unwrap()),
+            },
+            slots: Arc::from([NetworkItemStack::empty()]),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    }
+
+    assert_eq!(ledger.pending_closes.len(), MAX_PENDING_CLOSES);
+    assert_eq!(ledger.pending_closes.front().unwrap().window_id, 3);
+    assert_eq!(ledger.pending_closes.back().unwrap().window_id, 10);
+    assert!(
+        ledger
+            .pending_closes
+            .iter()
+            .all(|close| close.owner == PendingCloseOwner::Storage)
+    );
+}
+
+#[test]
 fn local_close_before_ack_never_reopens_and_closes_the_late_dynamic_window() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));
@@ -247,7 +389,11 @@ fn local_close_before_ack_never_reopens_and_closes_the_late_dynamic_window() {
     ledger.apply(&InventoryEvent::Open(personal_open(7)));
 
     assert!(!ledger.personal_inventory_desired_open());
-    let close = ledger.pending_close.expect("late acknowledgement close");
+    let close = ledger
+        .pending_closes
+        .front()
+        .copied()
+        .expect("late acknowledgement close");
     assert_eq!((close.window_id, close.window_type), (7, -1));
 }
 
@@ -388,6 +534,6 @@ fn close_ack_clears_unrestated_cursor_and_session_reset_drops_all_personal_work(
     assert!(!ledger.request_personal_open(0));
     ledger.begin_session(2);
     assert!(ledger.personal.is_none());
-    assert!(ledger.pending_close.is_none());
+    assert!(ledger.pending_closes.is_empty());
     assert_eq!(ledger.pending_state(), None);
 }

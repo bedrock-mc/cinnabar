@@ -1,6 +1,6 @@
 use protocol::InventoryAuthority;
 
-use super::{InventoryPendingState, PlayerInventoryLedger};
+use super::{InventoryPendingState, PendingCloseOwner, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum PersonalWindow {
@@ -79,7 +79,7 @@ impl PlayerInventoryLedger {
         if self.authority != Some(InventoryAuthority::Server)
             || target_runtime_id == 0
             || self.storage.is_some()
-            || self.pending_close.is_some()
+            || !self.pending_closes.is_empty()
             || self.personal_lifecycle_failed
         {
             return false;
@@ -136,7 +136,11 @@ impl PlayerInventoryLedger {
                 window_id,
                 window_type,
             } => {
-                self.queue_close(window_id, window_type, Some(generation));
+                self.queue_close(
+                    window_id,
+                    window_type,
+                    PendingCloseOwner::Personal(generation),
+                );
                 self.personal = Some(PersonalWindow::Closing {
                     generation,
                     window_id,

@@ -15,10 +15,11 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
-use super::helpers::{bare_storage_window_matches, valid_storage_window_id};
+use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
     Cell, CellSurface, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT,
-    PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner, PlayerInventoryLedger,
+    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
@@ -34,16 +35,13 @@ impl PlayerInventoryLedger {
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
                     self.storage = None;
-                    self.pending_close = None;
+                    self.pending_closes.clear();
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
             InventoryEvent::Close(close) => {
-                if self.pending_close.is_some_and(|pending| {
-                    close.container.window_id == Some(pending.window_id)
-                        && close.window_type == pending.window_type
-                }) {
-                    self.pending_close = None;
+                if let Some(window_id) = close.container.window_id {
+                    self.remove_pending_close(window_id, close.window_type);
                 }
                 if self.personal.as_ref().is_some_and(|personal| {
                     matches!(
@@ -200,7 +198,7 @@ impl PlayerInventoryLedger {
         }
         if self.personal.is_some() {
             if let Some(window_id) = open.container.window_id {
-                self.queue_close(window_id, open.window_type, None);
+                self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             }
             return;
         }
@@ -219,15 +217,11 @@ impl PlayerInventoryLedger {
             return;
         };
         if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
-            self.queue_close(window_id, open.window_type, None);
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.storage = None;
             return;
         }
-        if self.pending_close.is_some_and(|close| {
-            close.window_id == window_id && close.window_type == open.window_type
-        }) {
-            self.pending_close = None;
-        }
+        self.remove_pending_close(window_id, open.window_type);
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
@@ -254,12 +248,12 @@ impl PlayerInventoryLedger {
             ..
         }) = self.personal
         else {
-            self.queue_close(window_id, open.window_type, None);
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.note_unrouted_container();
             return;
         };
-        if !valid_storage_window_id(window_id) {
-            self.queue_close(window_id, open.window_type, None);
+        if !valid_raw_window_id(window_id) {
+            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.personal = None;
             self.personal_lifecycle_failed = true;
             self.note_unrouted_container();
@@ -272,7 +266,11 @@ impl PlayerInventoryLedger {
                 window_type: open.window_type,
             });
         } else {
-            self.queue_close(window_id, open.window_type, Some(generation));
+            self.queue_close(
+                window_id,
+                open.window_type,
+                PendingCloseOwner::Personal(generation),
+            );
             self.personal = Some(super::PersonalWindow::Closing {
                 generation,
                 window_id,
@@ -301,7 +299,11 @@ impl PlayerInventoryLedger {
             return;
         }
         if !valid_len {
-            self.queue_close(window_id, GENERIC_STORAGE_WINDOW_TYPE, None);
+            self.queue_close(
+                window_id,
+                GENERIC_STORAGE_WINDOW_TYPE,
+                PendingCloseOwner::Storage,
+            );
             self.close_storage(false);
             return;
         }
