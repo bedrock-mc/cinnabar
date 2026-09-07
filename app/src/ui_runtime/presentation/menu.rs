@@ -7,7 +7,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
+use ui::{SafeArea, TextError, TextLayout, TextLayoutCache, TextShadow, UiNode, UiRect};
 
 use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
 
@@ -343,35 +343,136 @@ fn append_toast(
     content: ContentArea,
     message: &str,
 ) -> Result<(), UiPresentationError> {
+    const MIN_PANEL_HEIGHT: f32 = 48.0;
+    const PANEL_BOTTOM_MARGIN: f32 = 10.0;
+    const TEXT_TOP_PADDING: f32 = 14.0;
+    const TEXT_BOTTOM_PADDING: f32 = 4.0;
+
     let width = content.width.min(520.0);
     let left = content.left + content.width - width;
-    let top = content.top + content.height - 58.0;
+    let bottom_margin = PANEL_BOTTOM_MARGIN.min((content.height - 1.0).max(0.0));
+    let panel_bottom = content.top + content.height - bottom_margin;
+    let maximum_panel_height = (panel_bottom - content.top).max(1.0);
+    let maximum_text_extent =
+        (maximum_panel_height - TEXT_TOP_PADDING - TEXT_BOTTOM_PADDING).max(0.0);
+    let text_width = (width - SPACE_XL).max(1.0);
+    let visible_message = bounded_visible_text(message);
+    let fitted = fitting_status_layout(
+        layouts,
+        font,
+        metrics,
+        visible_message,
+        text_width,
+        maximum_text_extent,
+    )?;
+    let text_extent = fitted.as_ref().map_or(0.0, |(_, extent)| *extent);
+    let panel_height = MIN_PANEL_HEIGHT
+        .max(TEXT_TOP_PADDING + text_extent + TEXT_BOTTOM_PADDING)
+        .min(maximum_panel_height);
+    let top = panel_bottom - panel_height;
     solid(
         nodes,
         next_id,
         solid_page,
-        rect(left, top, left + width, top + 48.0)?,
+        rect(left, top, left + width, panel_bottom)?,
         PANEL_RAISED,
     );
     solid(
         nodes,
         next_id,
         solid_page,
-        rect(left, top, left + 4.0, top + 48.0)?,
+        rect(left, top, left + 4.0, panel_bottom)?,
         ACCENT,
     );
-    text(
-        nodes,
-        next_id,
-        layouts,
-        font,
-        metrics,
-        solid_page,
-        message,
-        [left + SPACE_MD, top + 14.0],
-        width - SPACE_XL,
-        TEXT,
-    )
+    if let Some((visible_message, _)) = fitted {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            visible_message,
+            [left + SPACE_MD, top + TEXT_TOP_PADDING],
+            text_width,
+            TEXT,
+        )?;
+    }
+    Ok(())
+}
+
+fn fitting_status_layout<'a>(
+    layouts: &mut TextLayoutCache,
+    font: &assets::RuntimeFontCatalog,
+    metrics: TextMetrics,
+    message: &'a str,
+    width: f32,
+    maximum_extent: f32,
+) -> Result<Option<(&'a str, f32)>, UiPresentationError> {
+    if message.is_empty() || maximum_extent <= 0.0 {
+        return Ok(None);
+    }
+    match layouts.layout(metrics.request(message, (width * 64.0) as u32, font)) {
+        Ok(layout) => {
+            let extent = text_visual_extent(&layout, metrics.shadow());
+            if extent <= maximum_extent {
+                return Ok(Some((message, extent)));
+            }
+        }
+        Err(TextError::VisualWidthExceeded { .. } | TextError::WrapLineLimitExceeded { .. }) => {}
+        Err(error) => return Err(UiPresentationError::Text(error)),
+    }
+
+    let mut boundaries = Vec::with_capacity(message.chars().count() + 1);
+    boundaries.push(0);
+    boundaries.extend(message.char_indices().skip(1).map(|(index, _)| index));
+    boundaries.push(message.len());
+
+    let mut low = 0usize;
+    let mut high = boundaries.len() - 1;
+    let mut best = None;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let end = boundaries[middle];
+        if end == 0 {
+            low = middle + 1;
+            continue;
+        }
+        let value = &message[..end];
+        let layout = match layouts.layout(metrics.request(value, (width * 64.0) as u32, font)) {
+            Ok(layout) => layout,
+            Err(
+                TextError::VisualWidthExceeded { .. } | TextError::WrapLineLimitExceeded { .. },
+            ) => {
+                high = middle;
+                continue;
+            }
+            Err(error) => return Err(UiPresentationError::Text(error)),
+        };
+        let extent = text_visual_extent(&layout, metrics.shadow());
+        if extent <= maximum_extent {
+            best = Some((value, extent));
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    Ok(best)
+}
+
+fn text_visual_extent(layout: &TextLayout, shadow: TextShadow) -> f32 {
+    let shadow_extent = match shadow {
+        TextShadow::None => 0.0,
+        TextShadow::Offset64(offset) => {
+            f32::from(layout.key().scale_1024) / 1_024.0 * offset as f32 / 64.0
+        }
+    };
+    let glyph_extent = layout
+        .glyphs()
+        .iter()
+        .map(|glyph| glyph.bounds_64[3] as f32 / 64.0 + shadow_extent)
+        .fold(0.0, f32::max);
+    (layout.size_64()[1] as f32 / 64.0).max(glyph_extent)
 }
 
 fn append_dialog(
