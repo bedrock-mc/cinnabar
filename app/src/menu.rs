@@ -17,7 +17,8 @@ use auth::{AuthState, AuthSupervisor};
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{
-    drive_menu_connection, drive_menu_input, follow_server_transfer, recover_menu_session_failure,
+    MenuClipboard, drive_menu_connection, drive_menu_input, follow_server_transfer,
+    recover_menu_session_failure,
 };
 use servers::{load_servers, save_servers};
 
@@ -241,6 +242,8 @@ pub(crate) struct MenuRuntime {
     server_tab: MenuServerTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
+    text_selected: bool,
+    settings_return_to_pause: bool,
     name: String,
     address: String,
     message: Option<String>,
@@ -313,6 +316,8 @@ impl MenuRuntime {
             server_tab: MenuServerTab::Featured,
             dialog: None,
             field: None,
+            text_selected: false,
+            settings_return_to_pause: false,
             name: String::new(),
             address: String::new(),
             message: loaded.recovery_message,
@@ -358,6 +363,7 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
+            self.text_selected = false;
             self.dialog = None;
         }
     }
@@ -409,6 +415,7 @@ impl MenuRuntime {
         }
         self.screen = MenuScreen::Pause;
         self.focused = 0;
+        self.settings_return_to_pause = false;
         self.message = None;
         self.visible = true;
     }
@@ -430,13 +437,27 @@ impl MenuRuntime {
         self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
+        self.text_selected = false;
+        self.settings_return_to_pause = false;
     }
 
     pub(crate) fn mark_connecting(&mut self) {
         self.connecting = true;
         self.visible = true;
         self.screen = MenuScreen::Play;
+        self.settings_return_to_pause = false;
         self.message = Some("Connecting…".to_owned());
+    }
+
+    pub(crate) fn mark_disconnected(&mut self) {
+        self.visible = true;
+        self.screen = MenuScreen::Home;
+        self.focused = 0;
+        self.connecting = false;
+        self.field = None;
+        self.text_selected = false;
+        self.settings_return_to_pause = false;
+        self.dialog = None;
     }
 
     /// Returns the session back to the launcher after a fatal session error.
@@ -452,6 +473,8 @@ impl MenuRuntime {
         self.screen = MenuScreen::Play;
         self.dialog = None;
         self.field = None;
+        self.text_selected = false;
+        self.settings_return_to_pause = false;
         self.message = Some(session_failure_message(error));
         // Let the account catalog repopulate now that the session is gone.
         self.catalog_started = false;
@@ -484,11 +507,32 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if let Some(index) = self
+            .focus_actions()
+            .iter()
+            .position(|candidate| *candidate == action)
+        {
+            self.focused = index;
+        }
+        match action {
+            MenuAction::AddName => self.focus_field(MenuField::Name),
+            MenuAction::AddAddress => self.focus_field(MenuField::Address),
+            _ => {
+                self.field = None;
+                self.text_selected = false;
+            }
+        }
         self.pressed = Some(action);
         self.message = None;
         match action {
-            MenuAction::Navigate(screen) => self.enter(screen),
-            MenuAction::OpenExitDialog => self.dialog = Some(MenuDialog::Exit),
+            MenuAction::Navigate(screen) => {
+                self.settings_return_to_pause = false;
+                self.enter(screen);
+            }
+            MenuAction::OpenExitDialog => {
+                self.dialog = Some(MenuDialog::Exit);
+                self.focused = 0;
+            }
             MenuAction::ConfirmExit => {
                 self.dialog = None;
                 self.exit_requested = true;
@@ -508,8 +552,8 @@ impl MenuRuntime {
             MenuAction::PlayAddServer => {
                 self.name.clear();
                 self.address.clear();
-                self.field = Some(MenuField::Name);
                 self.enter(MenuScreen::AddServer);
+                self.focus_field(MenuField::Name);
             }
             MenuAction::PlaySaved(index) => {
                 if index < self.servers.len() {
@@ -560,6 +604,7 @@ impl MenuRuntime {
             MenuAction::RemoveSavedDialog(index) => {
                 if index < self.servers.len() {
                     self.dialog = Some(MenuDialog::RemoveSaved(index));
+                    self.focused = 0;
                 }
             }
             MenuAction::ConfirmRemoveSaved(index) => {
@@ -580,8 +625,7 @@ impl MenuRuntime {
                     }
                 }
             }
-            MenuAction::AddName => self.field = Some(MenuField::Name),
-            MenuAction::AddAddress => self.field = Some(MenuField::Address),
+            MenuAction::AddName | MenuAction::AddAddress => {}
             MenuAction::AddSave => {
                 if self.save_draft() {
                     self.enter(MenuScreen::Play);
@@ -599,7 +643,10 @@ impl MenuRuntime {
                 self.disconnect_requested = true;
                 self.set_visible(false);
             }
-            MenuAction::PauseSettings => self.enter(MenuScreen::Settings),
+            MenuAction::PauseSettings => {
+                self.enter(MenuScreen::Settings);
+                self.settings_return_to_pause = true;
+            }
         }
     }
 
@@ -611,6 +658,14 @@ impl MenuRuntime {
         }
         let length = actions.len() as i32;
         self.focused = (self.focused as i32 + direction).rem_euclid(length) as usize;
+        match actions[self.focused] {
+            MenuAction::AddName => self.focus_field(MenuField::Name),
+            MenuAction::AddAddress => self.focus_field(MenuField::Address),
+            _ => {
+                self.field = None;
+                self.text_selected = false;
+            }
+        }
     }
 
     pub(crate) fn activate_focused(&mut self) {
@@ -618,37 +673,6 @@ impl MenuRuntime {
             return;
         };
         self.activate(action);
-    }
-
-    pub(crate) fn edit_text(&mut self, text: &str) {
-        let Some(field) = self.field else {
-            return;
-        };
-        let target = match field {
-            MenuField::Name => &mut self.name,
-            MenuField::Address => &mut self.address,
-        };
-        let maximum = match field {
-            MenuField::Name => MAX_SERVER_NAME_BYTES,
-            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
-        };
-        for character in text.chars().filter(|character| !character.is_control()) {
-            if target.len().saturating_add(character.len_utf8()) > maximum {
-                break;
-            }
-            target.push(character);
-        }
-    }
-
-    pub(crate) fn backspace_text(&mut self) {
-        let Some(field) = self.field else {
-            return;
-        };
-        let target = match field {
-            MenuField::Name => &mut self.name,
-            MenuField::Address => &mut self.address,
-        };
-        let _ = target.pop();
     }
 
     fn focus_actions(&self) -> Vec<MenuAction> {
@@ -777,6 +801,7 @@ impl MenuRuntime {
         self.focused = 0;
         self.hovered = None;
         self.field = None;
+        self.text_selected = false;
         self.dialog = None;
         self.message = None;
         self.visible = true;
@@ -789,11 +814,18 @@ impl MenuRuntime {
         match self.screen {
             MenuScreen::Home => {}
             MenuScreen::Pause => self.set_visible(false),
-            _ => self.enter(if self.screen == MenuScreen::AddServer {
-                MenuScreen::Servers
-            } else {
-                MenuScreen::Home
-            }),
+            MenuScreen::Settings if self.settings_return_to_pause => {
+                self.settings_return_to_pause = false;
+                self.enter(MenuScreen::Pause);
+            }
+            _ => {
+                self.settings_return_to_pause = false;
+                self.enter(if self.screen == MenuScreen::AddServer {
+                    MenuScreen::Servers
+                } else {
+                    MenuScreen::Home
+                });
+            }
         }
     }
 

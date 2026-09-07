@@ -28,3 +28,10 @@ impl ChatClipboard for PlatformClipboard {
         Ok(Some(Arc::from(text)))
     }
 }
+
+impl PlatformClipboard {
+    pub(crate) fn write_text(&mut self, text: String) -> Result<(), PlatformClipboardError> {
+        arboard::Clipboard::new()?.set_text(text)?;
+        Ok(())
+    }
+}

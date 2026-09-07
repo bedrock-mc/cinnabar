@@ -1,4 +1,5 @@
 use bevy::{
+    ecs::system::SystemParam,
     input::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
@@ -6,23 +7,260 @@ use bevy::{
         touch::Touches,
     },
     prelude::{
-        AppExit, ButtonInput, KeyCode, MessageReader, MessageWriter, MouseButton, Query, Res,
-        ResMut, Single, With,
+        AppExit, ButtonInput, KeyCode, Local, MessageReader, MessageWriter, MouseButton, Query,
+        Res, ResMut, Resource, Single, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::UiPoint;
+use ui::{ChatClipboard, UiPoint};
 
 use crate::{
+    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
+    movement::{LocalPhysicsController, MovementTicker},
     runtime::{
         network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         world::ClientWorld,
     },
     session_cleanup::SessionDirectoryGuard,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime},
 };
 
-use super::{CoreProcessGuard, MenuRuntime, MenuScreen, spawn_core_for_address, wait_for_core};
+#[derive(SystemParam)]
+pub(crate) struct MenuSessionState<'w> {
+    guard: ResMut<'w, CoreProcessGuard>,
+    network: ResMut<'w, NetworkHandle>,
+    resource_packs: ResMut<'w, ResourcePackAdmissionState>,
+    runtime: ResMut<'w, UiRuntime>,
+    client_world: ResMut<'w, ClientWorld>,
+    movement: ResMut<'w, MovementTicker>,
+    local_physics: ResMut<'w, LocalPhysicsController>,
+    local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
+    interaction: ResMut<'w, InteractionOriginSnapshot>,
+}
+
+impl MenuSessionState<'_> {
+    fn retire(&mut self, menu: &mut MenuRuntime) -> u64 {
+        *self.network = NetworkHandle::disconnected();
+        self.guard.stop();
+        menu.release_session_directory();
+        let generation = menu.next_session_generation();
+        self.resource_packs.begin_generation(generation);
+        self.runtime.begin_session(generation);
+        self.client_world.stream = None;
+        self.client_world.pending_surface_spawn = None;
+        self.client_world.fatal_error = None;
+        self.client_world.transfer_notice = None;
+        self.movement.deactivate();
+        self.local_physics.deactivate();
+        self.local_frame.reset(LocalPlayerFrameReset::Session);
+        self.interaction.invalidate();
+        generation
+    }
+}
+
+use super::{
+    CoreProcessGuard, MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuField, MenuRuntime,
+    spawn_core_for_address, wait_for_core,
+};
+
+#[derive(Resource)]
+pub(crate) struct MenuClipboard(
+    Box<dyn FnMut(usize) -> Option<String> + Send + Sync + 'static>,
+    Box<dyn FnMut(String) + Send + Sync + 'static>,
+);
+
+impl MenuClipboard {
+    pub(crate) fn with_access(
+        reader: impl FnMut(usize) -> Option<String> + Send + Sync + 'static,
+        writer: impl FnMut(String) + Send + Sync + 'static,
+    ) -> Self {
+        Self(Box::new(reader), Box::new(writer))
+    }
+
+    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Option<String> {
+        (self.0)(maximum_bytes)
+    }
+
+    fn write_text(&mut self, text: String) {
+        (self.1)(text);
+    }
+}
+
+impl Default for MenuClipboard {
+    fn default() -> Self {
+        let mut reader = PlatformClipboard;
+        let mut writer = PlatformClipboard;
+        Self::with_access(
+            move |maximum_bytes| {
+                reader
+                    .read_text_bounded(maximum_bytes)
+                    .ok()
+                    .flatten()
+                    .map(|text| text.to_string())
+            },
+            move |text| {
+                let _ = writer.write_text(text);
+            },
+        )
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct MenuModifiers(u8);
+
+impl MenuModifiers {
+    const CONTROL_LEFT: u8 = 1 << 0;
+    const CONTROL_RIGHT: u8 = 1 << 1;
+    const SUPER_LEFT: u8 = 1 << 2;
+    const SUPER_RIGHT: u8 = 1 << 3;
+    const ALT_LEFT: u8 = 1 << 4;
+    const ALT_RIGHT: u8 = 1 << 5;
+    const SHIFT_LEFT: u8 = 1 << 6;
+    const SHIFT_RIGHT: u8 = 1 << 7;
+
+    fn capture_pressed(&mut self, keys: &ButtonInput<KeyCode>) {
+        for key in [
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::SuperLeft,
+            KeyCode::SuperRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+        ] {
+            if keys.pressed(key) {
+                self.0 |= Self::mask(key);
+            }
+        }
+    }
+
+    fn observe(&mut self, input: &KeyboardInput) {
+        let mask = Self::mask(input.key_code);
+        if input.state == ButtonState::Pressed {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+    }
+
+    fn shortcut(&self) -> bool {
+        self.0 & 0b0000_1111 != 0 && self.0 & 0b0011_0000 == 0
+    }
+
+    fn shift(&self) -> bool {
+        self.0 & 0b1100_0000 != 0
+    }
+
+    const fn mask(key: KeyCode) -> u8 {
+        match key {
+            KeyCode::ControlLeft => Self::CONTROL_LEFT,
+            KeyCode::ControlRight => Self::CONTROL_RIGHT,
+            KeyCode::SuperLeft => Self::SUPER_LEFT,
+            KeyCode::SuperRight => Self::SUPER_RIGHT,
+            KeyCode::AltLeft => Self::ALT_LEFT,
+            KeyCode::AltRight => Self::ALT_RIGHT,
+            KeyCode::ShiftLeft => Self::SHIFT_LEFT,
+            KeyCode::ShiftRight => Self::SHIFT_RIGHT,
+            _ => 0,
+        }
+    }
+}
+
+impl MenuRuntime {
+    pub(super) fn focus_field(&mut self, field: MenuField) {
+        self.field = Some(field);
+        self.text_selected = false;
+    }
+
+    fn has_focused_field(&self) -> bool {
+        self.field.is_some()
+    }
+
+    fn selected_text_target(&self) -> Option<&str> {
+        match self.field? {
+            MenuField::Name => Some(&self.name),
+            MenuField::Address => Some(&self.address),
+        }
+    }
+
+    fn select_all_text(&mut self) {
+        self.text_selected = self
+            .selected_text_target()
+            .is_some_and(|text| !text.is_empty());
+    }
+
+    fn selected_text(&self) -> Option<&str> {
+        self.text_selected
+            .then(|| self.selected_text_target())
+            .flatten()
+    }
+
+    fn remaining_text_capacity(&self) -> usize {
+        let Some(field) = self.field else {
+            return 0;
+        };
+        let maximum = match field {
+            MenuField::Name => MAX_SERVER_NAME_BYTES,
+            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        };
+        if self.text_selected {
+            maximum
+        } else {
+            maximum.saturating_sub(self.selected_text_target().map_or(0, str::len))
+        }
+    }
+
+    fn edit_text(&mut self, text: &str) {
+        let Some(field) = self.field else {
+            return;
+        };
+        let target = match field {
+            MenuField::Name => &mut self.name,
+            MenuField::Address => &mut self.address,
+        };
+        let maximum = match field {
+            MenuField::Name => MAX_SERVER_NAME_BYTES,
+            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        };
+        let mut insertion = String::new();
+        let base_length = if self.text_selected { 0 } else { target.len() };
+        for character in text.chars().filter(|character| !character.is_control()) {
+            if base_length
+                .saturating_add(insertion.len())
+                .saturating_add(character.len_utf8())
+                > maximum
+            {
+                break;
+            }
+            insertion.push(character);
+        }
+        if insertion.is_empty() {
+            return;
+        }
+        if self.text_selected {
+            target.clear();
+        }
+        target.push_str(&insertion);
+        self.text_selected = false;
+    }
+
+    fn backspace_text(&mut self) {
+        let Some(field) = self.field else {
+            return;
+        };
+        let target = match field {
+            MenuField::Name => &mut self.name,
+            MenuField::Address => &mut self.address,
+        };
+        if self.text_selected {
+            target.clear();
+        } else {
+            let _ = target.pop();
+        }
+        self.text_selected = false;
+    }
+}
 
 /// Spawns a fresh core and network session for one address, replacing any
 /// previous session.
@@ -31,21 +269,18 @@ use super::{CoreProcessGuard, MenuRuntime, MenuScreen, spawn_core_for_address, w
 /// automatic server-transfer follows: identity-checked session directory,
 /// bounded core start wait, old-network shutdown, and a fresh session
 /// generation for every attempt.
-#[allow(clippy::too_many_arguments)]
 fn attempt_connect(
     commands: &mut bevy::prelude::Commands,
     menu: &mut MenuRuntime,
-    guard: &mut CoreProcessGuard,
-    network: &mut NetworkHandle,
     client_blob_cache: &crate::app::ClientBlobCacheOwner,
-    resource_packs: &mut ResourcePackAdmissionState,
-    runtime: &mut UiRuntime,
-    client_world: &mut ClientWorld,
+    session: &mut MenuSessionState<'_>,
     address: String,
     auth_cache: Option<std::path::PathBuf>,
 ) {
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
+    // A replacement owns no route back into the old session, even when
+    // provisioning the new endpoint fails before the connecting screen opens.
+    menu.mark_disconnected();
+    let generation = session.retire(menu);
     // Namespaced by process id like the `--address` path: a bare
     // generation counter restarts at the same value every launch, so a
     // previous run's directory would be reused for this session.
@@ -82,15 +317,14 @@ fn attempt_connect(
             return;
         }
     };
-    guard.replace(child);
+    session.guard.replace(child);
     if let Err(error) = wait_for_core(&socket_dir) {
-        super::core_process::stop_core_then(guard, |_| drop(session_directory));
+        super::core_process::stop_core_then(&mut session.guard, |_| drop(session_directory));
         menu.message = Some(format!("Could not start {address}: {error}"));
         menu.connecting = false;
         return;
     }
     menu.bind_session_directory(session_directory);
-    network.shutdown();
     match crate::runtime::network::spawn_network(NetworkConfig {
         session_generation: generation,
         socket_dir,
@@ -98,17 +332,14 @@ fn attempt_connect(
         client_blob_cache: client_blob_cache.cache(),
     }) {
         Ok(replacement) => {
-            runtime.begin_session(generation);
-            client_world.stream = None;
-            client_world.pending_surface_spawn = None;
-            client_world.fatal_error = None;
-            client_world.transfer_notice = None;
             commands.insert_resource(replacement.movement_ticker());
             commands.insert_resource(replacement);
             menu.mark_connecting();
         }
         Err(error) => {
-            super::core_process::stop_core_then(guard, |_| menu.release_session_directory());
+            super::core_process::stop_core_then(&mut session.guard, |_| {
+                menu.release_session_directory();
+            });
             menu.message = Some(format!("Could not connect: {error}"));
             menu.connecting = false;
         }
@@ -124,21 +355,27 @@ pub(crate) fn drive_menu_input(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     presentation: Res<UiPresentationRuntime>,
+    mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
+    mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
     menu.pressed = None;
     if !window.focused {
+        *modifiers = MenuModifiers::default();
+        keyboard_messages.clear();
         menu.pointer_down = false;
         return;
     }
     if !menu.is_visible() {
         // Gameplay/chat handled these messages already. In particular, do not
         // replay the Escape that opens pause as "back" on the following frame.
+        *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
         menu.hovered = None;
         menu.pointer_down = false;
         if keys.just_pressed(KeyCode::Escape) {
+            modifiers.capture_pressed(&keys);
             menu.open_pause();
             cursor.grab_mode = CursorGrabMode::None;
             cursor.visible = true;
@@ -147,6 +384,7 @@ pub(crate) fn drive_menu_input(
         return;
     }
 
+    modifiers.capture_pressed(&keys);
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
     menu.hovered = window
@@ -187,16 +425,43 @@ pub(crate) fn drive_menu_input(
         }
     }
     for input in keyboard_messages.read() {
+        modifiers.observe(input);
         if input.state != ButtonState::Pressed {
             continue;
+        }
+        if modifiers.shortcut() && menu.has_focused_field() {
+            match input.key_code {
+                KeyCode::KeyA => {
+                    menu.select_all_text();
+                    continue;
+                }
+                KeyCode::KeyC => {
+                    if let Some(text) = menu.selected_text() {
+                        clipboard.write_text(text.to_owned());
+                    }
+                    continue;
+                }
+                KeyCode::KeyV => {
+                    let maximum = menu.remaining_text_capacity();
+                    if let Some(text) = clipboard.read_text_bounded(maximum) {
+                        menu.edit_text(&text);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            if input.text.is_some() {
+                continue;
+            }
         }
         match input.key_code {
             KeyCode::Escape => menu.go_back_from_input(),
             KeyCode::ArrowUp | KeyCode::ArrowLeft => menu.move_focus(-1),
-            KeyCode::ArrowDown | KeyCode::ArrowRight | KeyCode::Tab => menu.move_focus(1),
+            KeyCode::ArrowDown | KeyCode::ArrowRight => menu.move_focus(1),
+            KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
             KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
             KeyCode::Backspace if menu.field.is_some() => menu.backspace_text(),
-            _ if menu.field.is_some() => {
+            _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);
                 }
@@ -222,49 +487,31 @@ pub(crate) fn drive_menu_connection(
     mut commands: bevy::prelude::Commands,
     mut exits: MessageWriter<AppExit>,
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    mut resource_packs: ResMut<ResourcePackAdmissionState>,
-    mut runtime: ResMut<UiRuntime>,
-    mut client_world: ResMut<ClientWorld>,
+    mut session: MenuSessionState,
 ) {
     menu.poll_catalog();
-    if menu.is_connecting() && client_world.stream.is_some() {
+    if menu.is_connecting() && session.client_world.stream.is_some() {
         menu.mark_connected();
     }
     if let Some(pending) = menu.take_pending_connect() {
         attempt_connect(
             &mut commands,
             &mut menu,
-            &mut guard,
-            &mut network,
             &client_blob_cache,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             pending.address,
             pending.auth_cache,
         );
     }
     if menu.take_disconnect_request() {
-        network.shutdown();
-        guard.stop();
-        // The core is gone, so its endpoint artifact is no longer open and
-        // the identity-checked removal can proceed.
-        menu.release_session_directory();
-        let generation = menu.next_session_generation();
-        resource_packs.begin_generation(generation);
-        runtime.begin_session(generation);
-        client_world.stream = None;
-        menu.visible = true;
-        menu.screen = MenuScreen::Home;
-        menu.connecting = false;
+        // Drop the old event receivers as well as stopping their worker: a
+        // queued transfer must not undo this explicit disconnect later this frame.
+        session.retire(&mut menu);
+        menu.mark_disconnected();
     }
     if menu.take_exit_request() {
-        network.shutdown();
-        guard.stop();
-        menu.release_session_directory();
+        session.retire(&mut menu);
         exits.write(AppExit::Success);
     }
 }
@@ -276,27 +523,15 @@ pub(crate) fn drive_menu_connection(
 /// between that and the systems that exit on a fatal error.
 pub(crate) fn recover_menu_session_failure(
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
-    mut resource_packs: ResMut<crate::runtime::network::ResourcePackAdmissionState>,
-    mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
-    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
+    mut session: MenuSessionState,
 ) {
-    let Some(error) = client_world.fatal_error.clone() else {
+    let Some(error) = session.client_world.fatal_error.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    network.shutdown();
-    guard.stop();
-    menu.release_session_directory();
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
-    runtime.begin_session(generation);
-    client_world.stream = None;
-    client_world.pending_surface_spawn = None;
-    client_world.fatal_error = None;
+    session.retire(&mut menu);
 }
 
 /// Consumes a latched server-transfer notice and performs the bounded
@@ -309,26 +544,22 @@ pub(crate) fn recover_menu_session_failure(
 /// end with the transfer named explicitly. The automatic chain is bounded so
 /// a transfer loop ends in a visible menu state instead of reconnecting
 /// forever.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn follow_server_transfer(
     mut commands: bevy::prelude::Commands,
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    mut resource_packs: ResMut<ResourcePackAdmissionState>,
-    mut runtime: ResMut<UiRuntime>,
-    mut client_world: ResMut<ClientWorld>,
+    mut session: MenuSessionState,
 ) {
-    let Some(notice) = client_world.transfer_notice.take() else {
+    let Some(notice) = session.client_world.transfer_notice.take() else {
         return;
     };
     let target = notice.host.clone();
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
+        session.retire(&mut menu);
         crate::runtime::shutdown::record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut session.client_world.fatal_error,
             format!(
                 "server transferred to {}",
                 crate::menu::format_transfer_address(&notice.host, notice.port)
@@ -340,11 +571,7 @@ pub(crate) fn follow_server_transfer(
     else {
         end_transfer_without_follow(
             &mut menu,
-            &mut guard,
-            &mut network,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             format!("server sent an unusable transfer target ({target})"),
         );
         return;
@@ -352,11 +579,7 @@ pub(crate) fn follow_server_transfer(
     if !menu.consume_transfer_chain_hop() {
         end_transfer_without_follow(
             &mut menu,
-            &mut guard,
-            &mut network,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             format!(
                 "the transfer chain limit was reached at {}",
                 crate::menu::format_transfer_address(&notice.host, notice.port)
@@ -364,22 +587,13 @@ pub(crate) fn follow_server_transfer(
         );
         return;
     }
-    // Old-session teardown first: stop the network pump and the old core,
-    // release the old session directory, then rejoin through the same
-    // machinery as an ordinary user join (fresh generation, fresh core,
-    // fresh session directory, shared verified blob cache).
-    network.shutdown();
-    guard.stop();
-    menu.release_session_directory();
+    // The shared replacement path tears down old transport and world/UI state
+    // before provisioning, so every early failure leaves no stale session.
     attempt_connect(
         &mut commands,
         &mut menu,
-        &mut guard,
-        &mut network,
         &client_blob_cache,
-        &mut resource_packs,
-        &mut runtime,
-        &mut client_world,
+        &mut session,
         address.clone(),
         auth_cache,
     );
@@ -391,26 +605,12 @@ pub(crate) fn follow_server_transfer(
 /// Ends a transferred session in the explicit cannot-follow state: the old
 /// session is torn down exactly like a failure recovery and the menu names
 /// what happened instead of reconnecting again.
-#[allow(clippy::too_many_arguments)]
 fn end_transfer_without_follow(
     menu: &mut MenuRuntime,
-    guard: &mut CoreProcessGuard,
-    network: &mut NetworkHandle,
-    resource_packs: &mut ResourcePackAdmissionState,
-    runtime: &mut UiRuntime,
-    client_world: &mut ClientWorld,
+    session: &mut MenuSessionState<'_>,
     reason: String,
 ) {
-    network.shutdown();
-    guard.stop();
-    menu.release_session_directory();
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
-    runtime.begin_session(generation);
-    client_world.stream = None;
-    client_world.pending_surface_spawn = None;
-    client_world.fatal_error = None;
-    client_world.transfer_notice = None;
+    session.retire(menu);
     menu.absorb_session_failure(&reason);
 }
 
@@ -446,7 +646,72 @@ mod session_failure_message_tests {
 
 #[cfg(test)]
 mod transfer_follow_tests {
-    use super::super::{MAX_TRANSFER_CHAIN_HOPS, MenuRuntime, format_transfer_address};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bevy::prelude::{App, Update};
+
+    use super::{
+        super::{
+            CoreProcessGuard, MAX_TRANSFER_CHAIN_HOPS, MenuAction, MenuRuntime, MenuScreen,
+            format_transfer_address,
+        },
+        follow_server_transfer,
+    };
+    use crate::{
+        app::ClientBlobCacheOwner,
+        install_layout::{InstallEnvironment, InstallLayout, Platform},
+        runtime::{
+            network::{NetworkHandle, ResourcePackAdmissionState},
+            world::{ClientWorld, TransferNotice},
+        },
+        ui_runtime::UiRuntime,
+    };
+
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "cinnabar-menu-transfer-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("create isolated transfer root");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn missing_core_layout(root: &Path) -> InstallLayout {
+        InstallLayout::resolve(
+            Platform::Linux,
+            &InstallEnvironment {
+                executable: root.join("target/debug/bedrock-client"),
+                home: Some(root.join("home")),
+                local_app_data: None,
+                xdg_config_home: None,
+                xdg_data_home: None,
+                xdg_runtime_dir: None,
+            },
+        )
+        .expect("isolated development layout")
+    }
 
     #[test]
     fn transfer_addresses_bracket_ipv6_and_leave_ordinary_hosts_untouched() {
@@ -502,4 +767,197 @@ mod transfer_follow_tests {
         menu.begin_fresh_transfer_chain();
         assert!(menu.consume_transfer_chain_hop());
     }
+
+    #[test]
+    fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
+        failed_automatic_replacement(true);
+    }
+
+    #[test]
+    fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
+        for remove_saved in [false, true] {
+            let root = TempRoot::new();
+            let mut menu = MenuRuntime::new_with_layout(
+                true,
+                2,
+                "Player".to_owned(),
+                missing_core_layout(root.path()),
+            );
+            menu.servers.push(super::super::SavedServer {
+                name: "Local".to_owned(),
+                address: "127.0.0.1:19132".to_owned(),
+                favorite: false,
+                last_joined_unix: 0,
+            });
+            menu.focused = 6;
+            let (open, confirm) = if remove_saved {
+                (
+                    MenuAction::RemoveSavedDialog(0),
+                    MenuAction::ConfirmRemoveSaved(0),
+                )
+            } else {
+                (MenuAction::OpenExitDialog, MenuAction::ConfirmExit)
+            };
+            menu.activate(open);
+            assert_eq!(menu.view().focused_action, Some(confirm));
+            menu.move_focus(1);
+            assert_eq!(menu.view().focused_action, Some(MenuAction::DismissDialog));
+            menu.move_focus(-1);
+            menu.activate_focused();
+            assert!(menu.dialog.is_none());
+            if remove_saved {
+                assert!(menu.servers.is_empty());
+            } else {
+                assert!(menu.exit_requested);
+            }
+        }
+    }
+
+    #[test]
+    fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
+        failed_automatic_replacement(false);
+    }
+
+    #[test]
+    fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiver() {
+        use crate::runtime::network::NetworkControlEvent;
+        use bevy::app::AppExit;
+        use tokio::sync::mpsc;
+
+        let root = TempRoot::new();
+        let mut menu = MenuRuntime::new_with_layout(
+            true,
+            2,
+            "Player".to_owned(),
+            missing_core_layout(root.path()),
+        );
+        menu.catalog_started = true;
+        menu.mark_connected();
+        menu.open_pause();
+        menu.activate(MenuAction::PauseDisconnect);
+        let mut network = NetworkHandle::disconnected();
+        let (old_controls, receiver) = mpsc::channel(2);
+        *network.control_events_mut() = receiver;
+        old_controls
+            .try_send(NetworkControlEvent::Transferred {
+                target: crate::runtime::network::SessionTransferTarget {
+                    host: "old.example.net".to_owned(),
+                    port: 19132,
+                },
+                decode_error_count: 0,
+            })
+            .unwrap();
+        old_controls
+            .try_send(NetworkControlEvent::Stopped {
+                decode_error_count: 0,
+            })
+            .unwrap();
+
+        let mut app = App::new();
+        app.add_message::<AppExit>()
+            .insert_resource(menu)
+            .insert_resource(CoreProcessGuard::default())
+            .insert_resource(network)
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(ClientWorld::default())
+            .insert_resource(crate::movement::MovementTicker::default())
+            .insert_resource(crate::movement::LocalPhysicsController::default())
+            .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+            .add_systems(Update, super::drive_menu_connection);
+        app.update();
+
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(menu.is_visible());
+        assert_eq!(menu.view().screen, MenuScreen::Home);
+        assert!(!menu.is_connecting());
+        assert_eq!(
+            app.world()
+                .resource::<NetworkHandle>()
+                .pending_event_count(),
+            0
+        );
+        assert!(
+            app.world()
+                .resource::<ClientWorld>()
+                .transfer_notice
+                .is_none()
+        );
+        assert!(old_controls.is_closed());
+    }
+
+    fn failed_automatic_replacement(from_settings: bool) {
+        let root = TempRoot::new();
+        let mut menu = MenuRuntime::new_with_layout(
+            true,
+            2,
+            "Player".to_owned(),
+            missing_core_layout(root.path()),
+        );
+        let old_generation = menu.next_session_generation();
+        menu.mark_connected();
+        if from_settings {
+            menu.open_pause();
+            menu.activate(MenuAction::PauseSettings);
+        }
+
+        let client_world = ClientWorld {
+            stream: Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.0, 64.0, 0.0],
+                world_spawn_position: [0, 64, 0],
+                air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                block_network_ids_are_hashes: false,
+            })),
+            transfer_notice: Some(TransferNotice {
+                host: "transfer.example.net".to_owned(),
+                port: 19132,
+            }),
+            ..ClientWorld::default()
+        };
+        let mut runtime = UiRuntime::new(old_generation);
+        let _ = runtime.open_chat();
+        runtime.insert_chat_text("old session draft").unwrap();
+
+        let mut app = App::new();
+        app.insert_resource(menu)
+            .insert_resource(CoreProcessGuard::default())
+            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(runtime)
+            .insert_resource(client_world)
+            .insert_resource(crate::movement::MovementTicker::default())
+            .insert_resource(crate::movement::LocalPhysicsController::default())
+            .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+            .add_systems(Update, follow_server_transfer);
+        app.update();
+
+        assert!(app.world().resource::<ClientWorld>().stream.is_none());
+        let runtime = app.world().resource::<UiRuntime>();
+        assert_ne!(runtime.session_id(), old_generation);
+        assert!(!runtime.chat_focused());
+        assert!(runtime.chat_editor().as_str().is_empty());
+
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        assert!(menu.is_visible());
+        assert_eq!(menu.view().screen, MenuScreen::Home);
+        assert!(
+            menu.view()
+                .message
+                .as_deref()
+                .is_some_and(|message| message.starts_with("Could not start transfer.example.net"))
+        );
+        menu.go_back_from_input();
+        assert_eq!(menu.view().screen, MenuScreen::Home);
+    }
 }
+
+#[cfg(test)]
+#[path = "session_teardown_tests.rs"]
+mod session_teardown_tests;
