@@ -46,7 +46,7 @@ impl HudLayout<'_> {
             let slot = [origin[0] + 8.0, origin[1] + 8.0 + row as f32 * SLOT_SIZE];
             self.inventory_slot(slot)?;
             if let Some(icon) = frame.armor_icons[row] {
-                self.inventory_item(icon, slot, None)?;
+                self.inventory_item(Some(icon), slot, None)?;
             }
         }
         self.player_box([origin[0] + 26.0, origin[1] + 8.0], [51.0, 72.0])?;
@@ -57,10 +57,8 @@ impl HudLayout<'_> {
         }
         let offhand_slot = [origin[0] + 77.0, origin[1] + 62.0];
         self.inventory_slot(offhand_slot)?;
-        if let (Some(icon), Some(stack)) =
-            (frame.offhand_icon, runtime.gameplay_hud().offhand_stack())
-        {
-            self.inventory_item(icon, offhand_slot, Some(stack))?;
+        if let Some(stack) = runtime.gameplay_hud().offhand_stack() {
+            self.inventory_item(frame.offhand_icon, offhand_slot, Some(stack))?;
         }
 
         for row in 0..2 {
@@ -91,13 +89,15 @@ impl HudLayout<'_> {
                     origin[1] + 84.0 + row as f32 * SLOT_SIZE,
                 ];
                 self.inventory_slot(slot)?;
-                if let (Some(icon), Some(stack)) = (
-                    frame.inventory_icons.0[inventory_index],
-                    runtime
-                        .inventory_ledger()
-                        .displayed_stack(inventory_index as u8),
-                ) {
-                    self.inventory_item(icon, slot, Some(stack))?;
+                if let Some(stack) = runtime
+                    .inventory_ledger()
+                    .displayed_stack(inventory_index as u8)
+                {
+                    self.inventory_item(
+                        frame.inventory_icons.0[inventory_index],
+                        slot,
+                        Some(stack),
+                    )?;
                 }
                 if runtime
                     .inventory_ledger()
@@ -117,11 +117,8 @@ impl HudLayout<'_> {
                 origin[1] + 142.0,
             ];
             self.inventory_slot(slot)?;
-            if let (Some(icon), Some(stack)) = (
-                frame.inventory_icons.0[column],
-                runtime.inventory_ledger().displayed_stack(column as u8),
-            ) {
-                self.inventory_item(icon, slot, Some(stack))?;
+            if let Some(stack) = runtime.inventory_ledger().displayed_stack(column as u8) {
+                self.inventory_item(frame.inventory_icons.0[column], slot, Some(stack))?;
             }
             if runtime.inventory_ledger().slot_pending(column as u8) {
                 self.solid_gui(
@@ -131,12 +128,15 @@ impl HudLayout<'_> {
                 )?;
             }
         }
-        if let (Some(icon), Some(stack), Some(pointer)) = (
-            frame.cursor_icon,
+        if let (Some(stack), Some(pointer)) = (
             runtime.inventory_ledger().cursor_stack(),
             runtime.inventory_pointer_gui(),
         ) {
-            self.inventory_item(icon, [pointer[0] - 8.0, pointer[1] - 8.0], Some(stack))?;
+            self.inventory_item(
+                frame.cursor_icon,
+                [pointer[0] - 8.0, pointer[1] - 8.0],
+                Some(stack),
+            )?;
         }
         Ok(())
     }
@@ -163,11 +163,8 @@ impl HudLayout<'_> {
                 origin[1] + 18.0 + (index / 9) as f32 * SLOT_SIZE,
             ];
             self.inventory_slot(slot)?;
-            if let (Some(icon), Some(stack)) = (
-                frame.storage_icons.0[index],
-                runtime.inventory_ledger().storage_stack(index as u8),
-            ) {
-                self.inventory_item(icon, slot, Some(stack))?;
+            if let Some(stack) = runtime.inventory_ledger().storage_stack(index as u8) {
+                self.inventory_item(frame.storage_icons.0[index], slot, Some(stack))?;
             }
             if runtime.inventory_ledger().storage_slot_pending(index as u8) {
                 self.solid_gui(
@@ -201,12 +198,15 @@ impl HudLayout<'_> {
                 [origin[0] + 8.0 + column as f32 * SLOT_SIZE, player_y + 58.0],
             )?;
         }
-        if let (Some(icon), Some(stack), Some(pointer)) = (
-            frame.cursor_icon,
+        if let (Some(stack), Some(pointer)) = (
             runtime.inventory_ledger().cursor_stack(),
             runtime.inventory_pointer_gui(),
         ) {
-            self.inventory_item(icon, [pointer[0] - 8.0, pointer[1] - 8.0], Some(stack))?;
+            self.inventory_item(
+                frame.cursor_icon,
+                [pointer[0] - 8.0, pointer[1] - 8.0],
+                Some(stack),
+            )?;
         }
         Ok(())
     }
@@ -219,11 +219,8 @@ impl HudLayout<'_> {
         slot: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         self.inventory_slot(slot)?;
-        if let (Some(icon), Some(stack)) = (
-            frame.inventory_icons.0[index],
-            runtime.inventory_ledger().displayed_stack(index as u8),
-        ) {
-            self.inventory_item(icon, slot, Some(stack))?;
+        if let Some(stack) = runtime.inventory_ledger().displayed_stack(index as u8) {
+            self.inventory_item(frame.inventory_icons.0[index], slot, Some(stack))?;
         }
         if runtime.inventory_ledger().slot_pending(index as u8) {
             self.solid_gui(
@@ -305,12 +302,14 @@ impl HudLayout<'_> {
 
     fn inventory_item(
         &mut self,
-        icon: IconRef,
+        icon: Option<IconRef>,
         slot: [f32; 2],
         stack: Option<&protocol::NetworkItemStack>,
     ) -> Result<(), UiPresentationError> {
         let cell = [slot[0] + 1.0, slot[1] + 1.0];
-        self.icon_gui(icon, cell)?;
+        if let Some(icon) = icon {
+            self.icon_gui(icon, cell)?;
+        }
         if let Some(stack) = stack {
             self.stack_decorations(stack, cell, None)?;
         }

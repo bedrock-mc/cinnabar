@@ -16,6 +16,7 @@ use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
 mod hud_matrix_tests;
+mod inventory_count_tests;
 mod menu_status_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
