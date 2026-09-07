@@ -510,6 +510,92 @@ fn accepted_personal_response_reconciles_player_and_cursor_cells() {
 }
 
 #[test]
+fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+    let request_id = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id,
+            containers: Arc::from([
+                correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, -1),
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(CONTAINER_NAME_CURSOR),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([StackResponseSlot {
+                        slot: 0,
+                        hotbar_slot: 0,
+                        count: 32,
+                        item_stack_id: 9,
+                        custom_name: Arc::from("Retained stack"),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: 4,
+                    }]),
+                },
+            ]),
+        }]),
+    }));
+    let confirmed = ledger.cursor_stack().cloned().unwrap();
+    let overlay = ledger.cursor_overlay().cloned().unwrap();
+
+    ledger.request_personal_close();
+    assert!(ledger.mark_transport_enqueued(30));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: NO_CONTAINER_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert_eq!(ledger.cursor_stack(), Some(&confirmed));
+    assert_eq!(ledger.cursor_overlay(), Some(&overlay));
+    assert!(!ledger.resync_required());
+
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(40));
+    ledger.apply(&InventoryEvent::Open(personal_open(3)));
+    assert_eq!(ledger.begin_click(9).unwrap(), -5);
+    let pending = ledger.pending.as_ref().unwrap();
+    let StackRequestAction::Place {
+        source,
+        destination,
+        ..
+    } = pending.action
+    else {
+        panic!("expected Place action")
+    };
+    assert_eq!(source.stack_network_id, 9);
+    assert_eq!(destination.stack_network_id, 0);
+    assert_eq!(pending.prediction.destination_overlay, Some(overlay));
+}
+
+#[test]
+fn admitted_mutation_remains_ambiguous_when_its_personal_window_closes() {
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+    ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    assert!(ledger.cursor.is_none());
+    assert!(ledger.cursor_stack().is_some(), "the prediction is visible");
+
+    ledger.request_personal_close();
+    assert!(ledger.mark_transport_enqueued(30));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: NO_CONTAINER_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+
+    assert!(ledger.personal.is_none());
+    assert_eq!(ledger.pending_state(), None);
+    assert!(ledger.cursor_stack().is_none());
+    assert!(ledger.resync_required());
+}
+
+#[test]
 fn unsent_personal_mutation_is_dropped_on_close_but_admitted_one_reconciles() {
     let mut unsent = ledger_with_slot_zero();
     acknowledge_personal_open(&mut unsent, 2);
