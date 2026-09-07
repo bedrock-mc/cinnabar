@@ -193,6 +193,7 @@ fn complete_oversized_response_names_remain_semantic_without_owned_decode() {
         body.extend_from_slice(&[0, 0, 0, 0, 0]);
         if redacted {
             wire::write_var_u32(&mut body, 0);
+            body.put_u8(1);
         }
         wire::write_var_u32(&mut body, name_len as u32);
         body.resize(body.len() + name_len, b'x');

@@ -18112,7 +18112,8 @@ pub struct ItemStackResponseSlotInfo {
     pub slot: u8,
     pub amount: u8,
     pub item_stack_net_id: Option<Option<TypedServerNetIdstructItemStackNetIdTagint32T0>>,
-    pub custom_name: BedrockSafetyRedactableString,
+    pub custom_name: String,
+    pub filtered_custom_name: Option<String>,
     pub durability_correction: i32,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfo {
@@ -18134,7 +18135,14 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfo {
                     None => 0usize,
                 }
         };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.custom_name);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+            self.custom_name.len() as u32,
+        )) + self.custom_name.len();
+        size += 1 + self.filtered_custom_name.as_ref().map_or(0, |name| {
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                name.len() as u32,
+            )) + name.len()
+        });
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.durability_correction),
         );
@@ -18161,7 +18169,13 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
             }
             None => buf.put_u8(0),
         }
-        self.custom_name.encode(buf)?;
+        crate::bedrock::codec::VarUInt(self.custom_name.len() as u32).encode(buf)?;
+        buf.put_slice(self.custom_name.as_bytes());
+        self.filtered_custom_name.is_some().encode(buf)?;
+        if let Some(name) = &self.filtered_custom_name {
+            crate::bedrock::codec::VarUInt(name.len() as u32).encode(buf)?;
+            buf.put_slice(name.as_bytes());
+        }
         crate::bedrock::codec::ZigZag32(self.durability_correction).encode(buf)?;
         Ok(())
     }
@@ -18193,11 +18207,45 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
                 None
             }
         };
-        let custom_name =
-            <BedrockSafetyRedactableString as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
+        let custom_name = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        let filtered_custom_name =
+            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+                Some({
+                    let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+                    if buf.remaining() < len {
+                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                            declared: len,
+                            available: buf.remaining(),
+                        });
+                    }
+                    let mut bytes = vec![0u8; len];
+                    buf.copy_to_slice(&mut bytes);
+                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                })
+            } else {
+                None
+            };
         let durability_correction =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
@@ -18210,6 +18258,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
             amount,
             item_stack_net_id,
             custom_name,
+            filtered_custom_name,
             durability_correction,
         })
     }

@@ -398,12 +398,8 @@ pub fn normalize_response(
                     let identity = full_container_identity(container.full_container_name)?;
                     let mut slots = Vec::with_capacity(container.slots.len());
                     for slot in container.slots {
-                        // The two custom names are one redactable string now:
-                        // gophertunnel writes CustomName then FilteredCustomName
-                        // (protocol/item_stack.go), which map to the unredacted
-                        // and redacted halves respectively.
-                        let custom_name = slot.custom_name.unredacted;
-                        let filtered_custom_name = slot.custom_name.redacted;
+                        let custom_name = slot.custom_name;
+                        let filtered_custom_name = slot.filtered_custom_name.unwrap_or_default();
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
                         // The stack net ID is a double optional now: absent means
@@ -614,10 +610,10 @@ fn scan_stack_responses(
                 if read_presence(body)? {
                     read_var_i32(body)?;
                 }
-                // The two custom names are one redactable string, but both halves
-                // are unconditional adjacent strings on the wire.
                 scan_response_name(body, semantic_error)?;
-                scan_response_name(body, semantic_error)?;
+                if read_presence(body)? {
+                    scan_response_name(body, semantic_error)?;
+                }
                 read_var_i32(body)?;
             }
         }

@@ -3,6 +3,17 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-08 dependency refresh: the Go core and fixture generator pin Gophertunnel
+`649c0edad68caf669e89215106403369deed5e03` on `resource-pack-changes`, containing
+latest lunar `80a44ec6a6b974d63cbfdd6b1fb4e273d534e997` and the restored resource-pack
+snapshot APIs. The core pins go-raknet lunar `216ccc2404e808b0b76e622b7eb13e990a0a8054`.
+The local listener and fixture generator explicitly select the 1.26.44 adapter;
+this does not upgrade Cinnabar's wire target to the dependency's 1.26.45 default.
+The inventory-response decoder and fixture now include the filtered-name presence
+byte. Structure-editor strings retain their existing encoding. Fork restoration
+review approved; its tests and vet passed. Cinnabar verification and independent
+review are in progress. No live vanilla or native acceptance gate is closed.
+
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
 plus the Windows physics-install shell-test correction. Independent reviews approved

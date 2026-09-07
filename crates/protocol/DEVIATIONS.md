@@ -11,8 +11,9 @@ pinned encoder/decoder and live bytes agreed exactly.
 
 The checked-in fixtures were generated with gophertunnel
 `9f42f3679a573fc4b51104569cc4f422036e28ec` (Bedrock 1.26.40 / protocol 2168).
-The Go core now uses `434923f163a15144cdaa44356536cdc76722c50d`, and the
-Rust codec uses the 1.26.44 same-protocol hotfix described below.
+The Go core now uses `649c0edad68caf669e89215106403369deed5e03` with the
+1.26.44 adapter. The inventory-response fixture is regenerated for the optional
+filtered name described below; Rust retains the 1.26.44 scoreboard hotfix.
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001
 generation of those fixtures. `available_commands.bin` and
 `available_commands_live_356513.bin` are byte-identical across the bump.
@@ -161,19 +162,18 @@ The following generated corrections target the Bedrock 1.26.40 base for
 protocol 2168, remain unchanged in 1.26.44, and use
 the pinned gophertunnel commit `9f42f3679a573fc4b51104569cc4f422036e28ec`.
 
-### Redactable strings are two adjacent strings
+### Inventory response filtered names carry a presence byte
 
-`ItemStackResponseSlotInfo::custom_name` and
-`StructureEditorData::structure_name` use the generated
-`BedrockSafetyRedactableString` wrapper, but gophertunnel writes both halves as
-unconditional adjacent VarInt-length-prefixed strings. The correction removes
-the generated presence byte while retaining `Option` in memory: `None` writes
-an empty second string, and an empty second string decodes as `None`.
+Gophertunnel commit `283a5a97` fixes `StackResponseSlotInfo.FilteredCustomName`
+to use an optional string. The owned and borrowed slot codecs now preserve
+absence separately from an empty string, and the raw scanner consumes the
+presence byte before bounding a present name. The regenerated
+`item_stack_response.bin` is 47 bytes; its digest is in the fixture manifest.
+Tests cover present, absent, empty, and truncated names and exact round trips.
 
-The checked-in `item_stack_response.bin` fixture now decodes and re-encodes
-byte-for-byte, and the public raw scanner bounds both name strings before owned
-decoding. Owned and borrowed structure-editor tests pin the same wire shape;
-the owned decoder also pins the truncated second-string failure.
+`StructureEditorData::structure_name` retains its two adjacent bounded strings.
+This update does not change that separate encoding. These are upstream codec
+conformance checks; live vanilla inventory acceptance remains open.
 
 ### MovePlayer actor IDs use strict unsigned varints
 

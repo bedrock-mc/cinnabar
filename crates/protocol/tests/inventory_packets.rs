@@ -90,9 +90,8 @@ fn default_full_container() -> FullContainerName {
 /// double-optional the stack net ID is written behind: gophertunnel
 /// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/io.go`
 /// `DoubleOptionalFunc` writes `outer := true` and then the inner presence bool.
-/// The two protocol-1001 name fields are now the unredacted and redacted halves
-/// of one redactable string (`minecraft/protocol/item_stack.go` writes
-/// `CustomName` then `FilteredCustomName`).
+/// The custom name is followed by an optional filtered name, as encoded by
+/// Gophertunnel's item-stack response codec.
 fn response_slot(
     slot: u8,
     amount: u8,
@@ -108,10 +107,8 @@ fn response_slot(
         item_stack_net_id: Some(Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
             id: item_stack_id,
         })),
-        custom_name: BedrockSafetyRedactableString {
-            unredacted: custom_name.to_owned(),
-            redacted: filtered_custom_name.to_owned(),
-        },
+        custom_name: custom_name.to_owned(),
+        filtered_custom_name: Some(filtered_custom_name.to_owned()),
         durability_correction,
     }
 }
@@ -210,11 +207,7 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
     }
 }
 
-/// Pins gophertunnel's two adjacent strings for the generated redactable type.
-///
-/// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ 9f42f3679a573fc4b51104569cc4f422036e28ec)
-/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent strings.
+/// Pins the optional filtered name from Gophertunnel commit 283a5a97.
 #[test]
 fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
     let packet = decode_fixture(RESPONSE_FIXTURE);
@@ -228,14 +221,51 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
         .as_ref()
         .unwrap()[0]
         .slots[0];
-    assert_eq!(slot.custom_name.unredacted, "Fixture item");
-    assert_eq!(slot.custom_name.redacted, "Fixture item");
+    assert_eq!(slot.custom_name, "Fixture item");
+    assert_eq!(slot.filtered_custom_name.as_deref(), Some("Fixture item"));
 
     let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
     assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
 }
 
-/// The only other generated use must carry the same two-string wire shape, and
+/// Checks presence, empty values, truncation, and borrowed decoding of filtered names.
+#[test]
+fn response_filtered_name_preserves_optional_wire_shape() {
+    use valentine::bedrock::codec::BedrockSized;
+    use valentine::bedrock::version::v1_26_44::ItemStackResponseSlotInfoView;
+    for filtered in [None, Some(String::new()), Some("filtered".to_owned())] {
+        let slot = ItemStackResponseSlotInfo {
+            custom_name: "original".to_owned(),
+            filtered_custom_name: filtered,
+            durability_correction: -3,
+            ..Default::default()
+        };
+        let mut wire = Vec::new();
+        slot.encode(&mut wire).unwrap();
+        assert_eq!(slot.encoded_size(), wire.len());
+        let owned = ItemStackResponseSlotInfo::decode(&mut Bytes::from(wire.clone()), ()).unwrap();
+        assert_eq!(owned, slot);
+        let borrowed =
+            ItemStackResponseSlotInfoView::decode(&mut Bytes::from(wire.clone())).unwrap();
+        assert_eq!(borrowed.encoded_size(), wire.len());
+        let mut encoded = Vec::new();
+        borrowed.encode(&mut encoded).unwrap();
+        assert_eq!(encoded, wire);
+        assert_eq!(ItemStackResponseSlotInfo::from(borrowed), slot);
+        for end in 0..wire.len() {
+            assert!(
+                ItemStackResponseSlotInfo::decode(&mut Bytes::copy_from_slice(&wire[..end]), ())
+                    .is_err()
+            );
+            assert!(
+                ItemStackResponseSlotInfoView::decode(&mut Bytes::copy_from_slice(&wire[..end]))
+                    .is_err()
+            );
+        }
+    }
+}
+
+/// Structure editor names retain their two-string wire shape, and
 /// a malicious declared length must fail before allocating or reading past the
 /// available bytes.
 #[test]

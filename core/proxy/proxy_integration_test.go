@@ -38,7 +38,7 @@ func TestProxyJoin(t *testing.T) {
 
 	client, err := (minecraft.Dialer{
 		IdentityData: login.IdentityData{DisplayName: "RustMCBEPhase0"},
-		Protocol:     minecraft.DefaultProtocol,
+		Protocol:     minecraft.Protocol12644(),
 	}).DialContextNetwork(harness.ctx, streamnet.New(socketDir), "")
 	if err != nil {
 		t.Fatalf("dial core: %v\nCore status: %s\nBDS output:\n%s", err, harness.core.status(), harness.bds.output())

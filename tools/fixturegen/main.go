@@ -58,10 +58,10 @@ func main() {
 }
 
 func generate(out string) error {
-	if minecraft.DefaultProtocol.ID() != protocolID || minecraft.DefaultProtocol.Ver() != upstreamGameVersion {
+	if minecraft.Protocol12644().ID() != protocolID || minecraft.Protocol12644().Ver() != upstreamGameVersion {
 		return fmt.Errorf(
 			"gophertunnel protocol drift: got %d/%s, want %d/%s",
-			minecraft.DefaultProtocol.ID(), minecraft.DefaultProtocol.Ver(), protocolID, upstreamGameVersion,
+			minecraft.Protocol12644().ID(), minecraft.Protocol12644().Ver(), protocolID, upstreamGameVersion,
 		)
 	}
 	if out == "" {
@@ -390,7 +390,7 @@ func fixtures() []fixture {
 										Count:                5,
 										StackNetworkID:       13,
 										CustomName:           "Fixture item",
-										FilteredCustomName:   "Fixture item",
+										FilteredCustomName:   protocol.Option("Fixture item"),
 										DurabilityCorrection: -3,
 									},
 								},
@@ -770,7 +770,11 @@ func encode(pk packet.Packet) ([]byte, error) {
 	}).Write(&entry); err != nil {
 		return nil, err
 	}
-	pk.Marshal(protocol.NewWriter(&entry, 0))
+	converted := minecraft.Protocol12644().ConvertFromLatest(pk, nil)
+	if len(converted) != 1 {
+		return nil, fmt.Errorf("fixture conversion produced %d packets, want one", len(converted))
+	}
+	converted[0].Marshal(minecraft.Protocol12644().NewWriter(&entry, 0))
 
 	var batch bytes.Buffer
 	if err := packet.NewEncoder(&batch).Encode([][]byte{entry.Bytes()}); err != nil {

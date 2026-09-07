@@ -37,7 +37,7 @@ change wraps `RemoveScore.ObjectiveName` in an additional presence marker.
 Reconciliation requires two byte-equivalent complete source
 claims or a fingerprinted adjudication with independent wire evidence. Reviewed
 corrections cover binary buffers, little-endian scalar union arms, strict
-actor-ID varints, adjacent redactable strings, the two-selector PlayerList
+actor-ID varints, optional inventory filtered names, adjacent structure names, the two-selector PlayerList
 entry layout, and opaque preservation of unavailable packet bodies. Pinned conformance fixtures under
 `crates/protocol/tests` cover these shapes.
 
@@ -48,8 +48,11 @@ maintained separately and remains the authority for Cinnabar's server tooling.
 
 Wire behaviour and byte fixtures use the project pin
 `hashimthearab/gophertunnel` commit
-`434923f163a15144cdaa44356536cdc76722c50d` (`resource-pack-changes`, module pseudo-version
-`v1.25.3-0.20260816120458-434923f163a1`, Minecraft 1.26.44 / protocol 2168).
+`649c0edad68caf669e89215106403369deed5e03` (`resource-pack-changes`, module pseudo-version
+`v1.25.3-0.20260907212853-649c0edad68c`, using the 1.26.44 adapter / protocol 2168).
+The fork includes lunar `80a44ec6` plus restored Cinnabar resource-pack APIs.
+The inventory-response fixture was regenerated for the optional filtered name;
+other existing generator-owned fixture bytes remain unchanged.
 
 ## Generated-code caveats
 

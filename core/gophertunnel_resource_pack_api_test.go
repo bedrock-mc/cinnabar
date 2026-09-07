@@ -3,7 +3,6 @@ package core_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -54,7 +53,7 @@ func TestGophertunnelResourcePackTransportAPI(t *testing.T) {
 	dialer := minecraft.Dialer{ResourcePackDownload: download, ResourcePackCache: cache}
 	listener := minecraft.ListenConfig{
 		TexturePacksRequired: true,
-		ResourcePackDelivery: minecraft.ResourcePackDeliveryConfig{ChunkSize: 13, ChunkSendDelay: time.Millisecond},
+		ResourcePackDelivery: minecraft.ResourcePackDeliveryConfig{ChunkSize: 13},
 		PrepareResourcePackOffer: func(_ context.Context, conn *minecraft.Conn) error {
 			return conn.ConfigureResourcePackOffer(nil, true)
 		},
@@ -70,8 +69,7 @@ func TestGophertunnelResourcePackTransportAPI(t *testing.T) {
 		key.Size != 14 {
 		t.Fatal("resource-pack offer and cache-key API drifted")
 	}
-	if minecraft.DefaultResourcePackMaxInFlightChunks <= 0 || minecraft.DefaultResourcePackChunkSize == 0 ||
-		minecraft.DefaultResourcePackChunkSendDelay <= 0 {
+	if minecraft.DefaultResourcePackMaxInFlightChunks <= 0 || minecraft.DefaultResourcePackChunkSize == 0 {
 		t.Fatal("resource-pack transport defaults must remain bounded and non-zero")
 	}
 }

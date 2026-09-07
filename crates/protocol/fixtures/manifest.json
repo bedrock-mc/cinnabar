@@ -159,8 +159,8 @@
     "name": "ItemStackResponse",
     "file": "item_stack_response.bin",
     "id": 148,
-    "byte_length": 46,
-    "sha256": "7104be672f27e9fadef58f2500138162b7e41b5c204b363d8df9d681964fde0d"
+    "byte_length": 47,
+    "sha256": "9c19f21d8e6622dc545c37f24732672edf9db5eb45edf977e783587fa02e828d"
   },
   {
     "name": "InventoryTransactionClickBlock",

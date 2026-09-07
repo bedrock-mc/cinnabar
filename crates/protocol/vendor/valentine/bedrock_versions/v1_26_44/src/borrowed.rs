@@ -12768,7 +12768,8 @@ pub struct ItemStackResponseSlotInfoView {
     pub slot: u8,
     pub amount: u8,
     pub item_stack_net_id: Option<Option<TypedServerNetIdstructItemStackNetIdTagint32T0View>>,
-    pub custom_name: BedrockSafetyRedactableStringView,
+    pub custom_name: crate::bedrock::borrowed::BorrowedStr,
+    pub filtered_custom_name: Option<crate::bedrock::borrowed::BorrowedStr>,
     pub durability_correction: i32,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfoView {
@@ -12784,7 +12785,16 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfoView {
                         crate::bedrock::codec::BedrockSized::encoded_size(_value)
                     })
             })
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.custom_name)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                self.custom_name.as_bytes().len() as u32,
+            ))
+            + self.custom_name.as_bytes().len()
+            + 1
+            + self.filtered_custom_name.as_ref().map_or(0, |name| {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    name.as_bytes().len() as u32,
+                )) + name.as_bytes().len()
+            })
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.durability_correction,
             ))
@@ -12817,10 +12827,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseSlotInfo
         } else {
             None
         };
-        let custom_name = <BedrockSafetyRedactableStringView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-            buf,
-            (),
-        )?;
+        let custom_name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let filtered_custom_name =
+            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+                Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+            } else {
+                None
+            };
         let durability_correction =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
@@ -12833,6 +12846,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseSlotInfo
             amount,
             item_stack_net_id,
             custom_name,
+            filtered_custom_name,
             durability_correction,
         })
     }
@@ -12853,7 +12867,13 @@ impl ItemStackResponseSlotInfoView {
                 (value).encode(buf)?;
             }
         }
-        (&self.custom_name).encode(buf)?;
+        crate::bedrock::codec::VarUInt(self.custom_name.as_bytes().len() as u32).encode(buf)?;
+        buf.put_slice(self.custom_name.as_bytes());
+        self.filtered_custom_name.is_some().encode(buf)?;
+        if let Some(name) = &self.filtered_custom_name {
+            crate::bedrock::codec::VarUInt(name.as_bytes().len() as u32).encode(buf)?;
+            buf.put_slice(name.as_bytes());
+        }
         crate::bedrock::codec::ZigZag32(*&self.durability_correction).encode(buf)?;
         Ok(())
     }
@@ -12867,7 +12887,10 @@ impl From<ItemStackResponseSlotInfoView> for ItemStackResponseSlotInfo {
             amount: value.amount,
             item_stack_net_id: (value.item_stack_net_id)
                 .map(|value| (value).map(|value| (value).into())),
-            custom_name: (value.custom_name).into(),
+            custom_name: value.custom_name.to_string_lossy().into_owned(),
+            filtered_custom_name: value
+                .filtered_custom_name
+                .map(|name| name.to_string_lossy().into_owned()),
             durability_correction: value.durability_correction,
         }
     }

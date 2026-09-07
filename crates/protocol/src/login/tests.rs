@@ -642,6 +642,7 @@ fn accepted_response_with_name_lengths(unredacted: u32, redacted: u32) -> BytesM
     body.put_u8(0);
     wire::write_var_u32(&mut body, unredacted);
     if unredacted <= crate::MAX_RESPONSE_NAME_BYTES as u32 {
+        body.put_u8(1);
         wire::write_var_u32(&mut body, redacted);
     }
     body

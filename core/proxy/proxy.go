@@ -85,6 +85,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
+		AcceptedProtocols:      []minecraft.Protocol{minecraft.Protocol12644()},
 		AllowUnknownPackets:    true,
 		EnableBatchReading:     true,
 		ErrorLog:               slog.Default().With("component", "local-listener"),
