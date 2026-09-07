@@ -1,4 +1,5 @@
 use bevy::{
+    ecs::system::SystemParam,
     input::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
@@ -14,6 +15,8 @@ use bevy::{
 use ui::{ChatClipboard, UiPoint};
 
 use crate::{
+    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
+    movement::{LocalPhysicsController, MovementTicker},
     runtime::{
         network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         world::ClientWorld,
@@ -21,6 +24,39 @@ use crate::{
     session_cleanup::SessionDirectoryGuard,
     ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime},
 };
+
+#[derive(SystemParam)]
+pub(crate) struct MenuSessionState<'w> {
+    guard: ResMut<'w, CoreProcessGuard>,
+    network: ResMut<'w, NetworkHandle>,
+    resource_packs: ResMut<'w, ResourcePackAdmissionState>,
+    runtime: ResMut<'w, UiRuntime>,
+    client_world: ResMut<'w, ClientWorld>,
+    movement: ResMut<'w, MovementTicker>,
+    local_physics: ResMut<'w, LocalPhysicsController>,
+    local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
+    interaction: ResMut<'w, InteractionOriginSnapshot>,
+}
+
+impl MenuSessionState<'_> {
+    fn retire(&mut self, menu: &mut MenuRuntime) -> u64 {
+        *self.network = NetworkHandle::disconnected();
+        self.guard.stop();
+        menu.release_session_directory();
+        let generation = menu.next_session_generation();
+        self.resource_packs.begin_generation(generation);
+        self.runtime.begin_session(generation);
+        self.client_world.stream = None;
+        self.client_world.pending_surface_spawn = None;
+        self.client_world.fatal_error = None;
+        self.client_world.transfer_notice = None;
+        self.movement.deactivate();
+        self.local_physics.deactivate();
+        self.local_frame.reset(LocalPlayerFrameReset::Session);
+        self.interaction.invalidate();
+        generation
+    }
+}
 
 use super::{
     CoreProcessGuard, MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuField, MenuRuntime,
@@ -233,32 +269,18 @@ impl MenuRuntime {
 /// automatic server-transfer follows: identity-checked session directory,
 /// bounded core start wait, old-network shutdown, and a fresh session
 /// generation for every attempt.
-#[allow(clippy::too_many_arguments)]
 fn attempt_connect(
     commands: &mut bevy::prelude::Commands,
     menu: &mut MenuRuntime,
-    guard: &mut CoreProcessGuard,
-    network: &mut NetworkHandle,
     client_blob_cache: &crate::app::ClientBlobCacheOwner,
-    resource_packs: &mut ResourcePackAdmissionState,
-    runtime: &mut UiRuntime,
-    client_world: &mut ClientWorld,
+    session: &mut MenuSessionState<'_>,
     address: String,
     auth_cache: Option<std::path::PathBuf>,
 ) {
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
-    *network = NetworkHandle::disconnected();
-    guard.stop();
-    menu.release_session_directory();
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
-    runtime.begin_session(generation);
-    client_world.stream = None;
-    client_world.pending_surface_spawn = None;
-    client_world.fatal_error = None;
-    client_world.transfer_notice = None;
+    let generation = session.retire(menu);
     // Namespaced by process id like the `--address` path: a bare
     // generation counter restarts at the same value every launch, so a
     // previous run's directory would be reused for this session.
@@ -295,9 +317,9 @@ fn attempt_connect(
             return;
         }
     };
-    guard.replace(child);
+    session.guard.replace(child);
     if let Err(error) = wait_for_core(&socket_dir) {
-        super::core_process::stop_core_then(guard, |_| drop(session_directory));
+        super::core_process::stop_core_then(&mut session.guard, |_| drop(session_directory));
         menu.message = Some(format!("Could not start {address}: {error}"));
         menu.connecting = false;
         return;
@@ -315,7 +337,9 @@ fn attempt_connect(
             menu.mark_connecting();
         }
         Err(error) => {
-            super::core_process::stop_core_then(guard, |_| menu.release_session_directory());
+            super::core_process::stop_core_then(&mut session.guard, |_| {
+                menu.release_session_directory();
+            });
             menu.message = Some(format!("Could not connect: {error}"));
             menu.connecting = false;
         }
@@ -463,27 +487,19 @@ pub(crate) fn drive_menu_connection(
     mut commands: bevy::prelude::Commands,
     mut exits: MessageWriter<AppExit>,
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    mut resource_packs: ResMut<ResourcePackAdmissionState>,
-    mut runtime: ResMut<UiRuntime>,
-    mut client_world: ResMut<ClientWorld>,
+    mut session: MenuSessionState,
 ) {
     menu.poll_catalog();
-    if menu.is_connecting() && client_world.stream.is_some() {
+    if menu.is_connecting() && session.client_world.stream.is_some() {
         menu.mark_connected();
     }
     if let Some(pending) = menu.take_pending_connect() {
         attempt_connect(
             &mut commands,
             &mut menu,
-            &mut guard,
-            &mut network,
             &client_blob_cache,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             pending.address,
             pending.auth_cache,
         );
@@ -491,24 +507,11 @@ pub(crate) fn drive_menu_connection(
     if menu.take_disconnect_request() {
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
-        *network = NetworkHandle::disconnected();
-        guard.stop();
-        // The core is gone, so its endpoint artifact is no longer open and
-        // the identity-checked removal can proceed.
-        menu.release_session_directory();
-        let generation = menu.next_session_generation();
-        resource_packs.begin_generation(generation);
-        runtime.begin_session(generation);
-        client_world.stream = None;
-        client_world.pending_surface_spawn = None;
-        client_world.fatal_error = None;
-        client_world.transfer_notice = None;
+        session.retire(&mut menu);
         menu.mark_disconnected();
     }
     if menu.take_exit_request() {
-        *network = NetworkHandle::disconnected();
-        guard.stop();
-        menu.release_session_directory();
+        session.retire(&mut menu);
         exits.write(AppExit::Success);
     }
 }
@@ -520,27 +523,15 @@ pub(crate) fn drive_menu_connection(
 /// between that and the systems that exit on a fatal error.
 pub(crate) fn recover_menu_session_failure(
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
-    mut resource_packs: ResMut<crate::runtime::network::ResourcePackAdmissionState>,
-    mut runtime: ResMut<crate::ui_runtime::UiRuntime>,
-    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
+    mut session: MenuSessionState,
 ) {
-    let Some(error) = client_world.fatal_error.clone() else {
+    let Some(error) = session.client_world.fatal_error.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    *network = NetworkHandle::disconnected();
-    guard.stop();
-    menu.release_session_directory();
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
-    runtime.begin_session(generation);
-    client_world.stream = None;
-    client_world.pending_surface_spawn = None;
-    client_world.fatal_error = None;
+    session.retire(&mut menu);
 }
 
 /// Consumes a latched server-transfer notice and performs the bounded
@@ -553,26 +544,22 @@ pub(crate) fn recover_menu_session_failure(
 /// end with the transfer named explicitly. The automatic chain is bounded so
 /// a transfer loop ends in a visible menu state instead of reconnecting
 /// forever.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn follow_server_transfer(
     mut commands: bevy::prelude::Commands,
     mut menu: ResMut<MenuRuntime>,
-    mut guard: ResMut<CoreProcessGuard>,
-    mut network: ResMut<NetworkHandle>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    mut resource_packs: ResMut<ResourcePackAdmissionState>,
-    mut runtime: ResMut<UiRuntime>,
-    mut client_world: ResMut<ClientWorld>,
+    mut session: MenuSessionState,
 ) {
-    let Some(notice) = client_world.transfer_notice.take() else {
+    let Some(notice) = session.client_world.transfer_notice.take() else {
         return;
     };
     let target = notice.host.clone();
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
+        session.retire(&mut menu);
         crate::runtime::shutdown::record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut session.client_world.fatal_error,
             format!(
                 "server transferred to {}",
                 crate::menu::format_transfer_address(&notice.host, notice.port)
@@ -584,11 +571,7 @@ pub(crate) fn follow_server_transfer(
     else {
         end_transfer_without_follow(
             &mut menu,
-            &mut guard,
-            &mut network,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             format!("server sent an unusable transfer target ({target})"),
         );
         return;
@@ -596,11 +579,7 @@ pub(crate) fn follow_server_transfer(
     if !menu.consume_transfer_chain_hop() {
         end_transfer_without_follow(
             &mut menu,
-            &mut guard,
-            &mut network,
-            &mut resource_packs,
-            &mut runtime,
-            &mut client_world,
+            &mut session,
             format!(
                 "the transfer chain limit was reached at {}",
                 crate::menu::format_transfer_address(&notice.host, notice.port)
@@ -613,12 +592,8 @@ pub(crate) fn follow_server_transfer(
     attempt_connect(
         &mut commands,
         &mut menu,
-        &mut guard,
-        &mut network,
         &client_blob_cache,
-        &mut resource_packs,
-        &mut runtime,
-        &mut client_world,
+        &mut session,
         address.clone(),
         auth_cache,
     );
@@ -630,26 +605,12 @@ pub(crate) fn follow_server_transfer(
 /// Ends a transferred session in the explicit cannot-follow state: the old
 /// session is torn down exactly like a failure recovery and the menu names
 /// what happened instead of reconnecting again.
-#[allow(clippy::too_many_arguments)]
 fn end_transfer_without_follow(
     menu: &mut MenuRuntime,
-    guard: &mut CoreProcessGuard,
-    network: &mut NetworkHandle,
-    resource_packs: &mut ResourcePackAdmissionState,
-    runtime: &mut UiRuntime,
-    client_world: &mut ClientWorld,
+    session: &mut MenuSessionState<'_>,
     reason: String,
 ) {
-    *network = NetworkHandle::disconnected();
-    guard.stop();
-    menu.release_session_directory();
-    let generation = menu.next_session_generation();
-    resource_packs.begin_generation(generation);
-    runtime.begin_session(generation);
-    client_world.stream = None;
-    client_world.pending_surface_spawn = None;
-    client_world.fatal_error = None;
-    client_world.transfer_notice = None;
+    session.retire(menu);
     menu.absorb_session_failure(&reason);
 }
 
@@ -901,6 +862,10 @@ mod transfer_follow_tests {
             .insert_resource(ResourcePackAdmissionState::default())
             .insert_resource(UiRuntime::new(1))
             .insert_resource(ClientWorld::default())
+            .insert_resource(crate::movement::MovementTicker::default())
+            .insert_resource(crate::movement::LocalPhysicsController::default())
+            .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
             .add_systems(Update, super::drive_menu_connection);
         app.update();
 
@@ -966,6 +931,10 @@ mod transfer_follow_tests {
             .insert_resource(ResourcePackAdmissionState::default())
             .insert_resource(runtime)
             .insert_resource(client_world)
+            .insert_resource(crate::movement::MovementTicker::default())
+            .insert_resource(crate::movement::LocalPhysicsController::default())
+            .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
             .add_systems(Update, follow_server_transfer);
         app.update();
 
@@ -988,3 +957,7 @@ mod transfer_follow_tests {
         assert_eq!(menu.view().screen, MenuScreen::Home);
     }
 }
+
+#[cfg(test)]
+#[path = "session_teardown_tests.rs"]
+mod session_teardown_tests;

@@ -249,7 +249,11 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(CoreProcessGuard::default())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1));
+        .insert_resource(UiRuntime::new(1))
+        .insert_resource(crate::movement::MovementTicker::default())
+        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(crate::local_player::InteractionOriginSnapshot::default());
 }
 
 #[test]
