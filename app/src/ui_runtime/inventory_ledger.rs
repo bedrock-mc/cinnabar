@@ -35,6 +35,8 @@ const MAX_PENDING_CLOSES: usize = 8;
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
+/// A close acknowledgement sent after the addressed window no longer exists.
+const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 
@@ -853,7 +855,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    fn finish_personal_close(&mut self) {
+    fn finish_personal_close(&mut self, retain_confirmed_cursor: bool) {
         let generation = match self.personal {
             Some(
                 PersonalWindow::Open { generation, .. }
@@ -861,6 +863,11 @@ impl PlayerInventoryLedger {
             ) => generation,
             _ => return,
         };
+        // The cursor is session-owned rather than window-owned. Only a
+        // settled cursor may survive the acknowledgement of our own close;
+        // every pending or recovery-marked state keeps the fail-closed path.
+        let retain_confirmed_cursor =
+            retain_confirmed_cursor && self.pending.is_none() && !self.cursor_resync_required;
         if self
             .pending
             .as_ref()
@@ -875,7 +882,7 @@ impl PlayerInventoryLedger {
             }
         }
         self.personal = None;
-        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
+        if !retain_confirmed_cursor && self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
             self.cursor = None;
             self.cursor_overlay = None;
             self.bump_cell_revision(Cell::Cursor);

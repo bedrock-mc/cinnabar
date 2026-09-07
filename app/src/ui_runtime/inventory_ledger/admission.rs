@@ -18,8 +18,8 @@ use protocol::{
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
     Cell, CellSurface, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT,
-    PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner, PlayerInventoryLedger,
-    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    NO_CONTAINER_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner,
+    PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
@@ -43,22 +43,37 @@ impl PlayerInventoryLedger {
                 if let Some(window_id) = close.container.window_id {
                     self.remove_pending_close(window_id, close.window_type);
                 }
-                if self.personal.as_ref().is_some_and(|personal| {
-                    matches!(
-                        personal,
-                        super::PersonalWindow::Open {
-                            window_id,
-                            window_type,
-                            ..
-                        } | super::PersonalWindow::Closing {
-                            window_id,
-                            window_type,
-                            ..
-                        } if close.container.window_id == Some(*window_id)
-                            && close.window_type == *window_type
-                    )
-                }) {
-                    self.finish_personal_close();
+                let personal_close = self.personal.as_ref().and_then(|personal| match personal {
+                    super::PersonalWindow::Open {
+                        window_id,
+                        window_type,
+                        ..
+                    } if close.container.window_id == Some(*window_id)
+                        && close.window_type == *window_type =>
+                    {
+                        Some(false)
+                    }
+                    super::PersonalWindow::Closing {
+                        window_id,
+                        window_type,
+                        deadline_millis,
+                        ..
+                    } if close.container.window_id == Some(*window_id) => {
+                        if close.window_type == *window_type {
+                            Some(false)
+                        } else if deadline_millis.is_some()
+                            && close.window_type == NO_CONTAINER_WINDOW_TYPE
+                            && !close.server_initiated
+                        {
+                            Some(true)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                });
+                if let Some(retain_confirmed_cursor) = personal_close {
+                    self.finish_personal_close(retain_confirmed_cursor);
                 }
                 if self.storage.as_ref().is_some_and(|storage| {
                     close.container.window_id == Some(storage.window_id)
