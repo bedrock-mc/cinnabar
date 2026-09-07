@@ -2488,6 +2488,11 @@ remains pending measured timing.
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
 
+Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management
+implementation when establishing these contracts. Pin the inspected source revision
+and verify Cinnabar's end-to-end request/response behavior; the reference designation
+does not itself close Cinnabar's inventory implementation or native acceptance gates.
+
 Entity combat is part of this tranche and is strictly vanilla:
 
 - sample one immutable local eye/look pose, selected stack, actor snapshot,

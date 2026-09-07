@@ -523,7 +523,9 @@ impl UiPresentationRuntime {
             if is_toast {
                 let shadow = match metrics.shadow() {
                     TextShadow::None => 0.0,
-                    TextShadow::Offset64(offset) => metrics.scale.get() * offset as f32 / 64.0,
+                    TextShadow::Offset64(offset) => {
+                        f32::from(layout.key().scale_1024) / 1_024.0 * offset as f32 / 64.0
+                    }
                 };
                 if layout
                     .glyphs()
