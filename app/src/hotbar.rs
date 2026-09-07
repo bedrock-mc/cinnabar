@@ -158,9 +158,10 @@ mod tests {
     use std::sync::Arc;
 
     use protocol::{
-        ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent,
-        ItemStackResponseEvent, NetworkItemStack, SelectedSlotEvent, SlotIdentity, StackResponse,
-        StackResponseContainer, StackResponseSlot, StackResponseStatus,
+        ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryEvent,
+        InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SelectedSlotEvent,
+        SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot,
+        StackResponseStatus,
     };
     use sha2::{Digest, Sha256};
 
@@ -171,8 +172,7 @@ mod tests {
         if runtime.inventory_authority() == Some(InventoryAuthority::Server)
             && !runtime.inventory_ledger().personal_inventory_desired_open()
         {
-            assert!(runtime.inventory_ledger_mut().request_personal_open(42));
-            assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+            open_personal_inventory(runtime);
         }
         runtime
             .inventory_ledger_mut()
@@ -183,6 +183,19 @@ mod tests {
                 },
                 stack,
                 storage_item: None,
+            }));
+    }
+
+    fn open_personal_inventory(runtime: &mut UiRuntime) {
+        assert!(runtime.inventory_ledger_mut().request_personal_open(42));
+        assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(2),
+                window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
             }));
     }
 
@@ -363,6 +376,7 @@ mod tests {
         runtime
             .inventory_ledger_mut()
             .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        open_personal_inventory(&mut runtime);
         let authoritative = present_stack();
         publish_slot(&mut runtime, 0, authoritative.clone());
         runtime.queue_local_hotbar_selection(0);
@@ -432,6 +446,7 @@ mod tests {
         runtime
             .inventory_ledger_mut()
             .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        open_personal_inventory(&mut runtime);
         let original = present_stack();
         publish_slot(&mut runtime, 0, NetworkItemStack::empty());
         publish_slot(&mut runtime, 1, original.clone());

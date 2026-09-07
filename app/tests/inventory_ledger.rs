@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use bedrock_client::ui_runtime::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryGestureError, InventoryPendingState,
-    PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger, PlayerInventorySlot,
+    PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger,
+    PlayerInventorySlot,
 };
 use bedrock_client::ui_runtime::{UiRuntime, flush_inventory_send};
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryContentEvent, InventoryEvent,
-    InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
+    InventoryEvent, InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity,
+    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
@@ -41,7 +42,19 @@ fn ready(
         slots: Arc::from(slots),
         storage_item: NetworkItemStack::default(),
     }));
+    open_personal_inventory(&mut ledger);
     ledger
+}
+
+fn open_personal_inventory(ledger: &mut PlayerInventoryLedger) {
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
 }
 
 fn response(request_id: i32, status: StackResponseStatus) -> InventoryEvent {
@@ -249,6 +262,7 @@ fn bounded_transport_pressure_does_not_consume_or_duplicate_the_request() {
     runtime
         .inventory_ledger_mut()
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    open_personal_inventory(runtime.inventory_ledger_mut());
     let content = InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(0),
         slots: Arc::from(
@@ -307,6 +321,7 @@ fn short_content_is_partial_and_never_releases_the_resync_gate() {
     let first = stack(5, 1, 44);
     let mut fresh = PlayerInventoryLedger::default();
     fresh.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    open_personal_inventory(&mut fresh);
     fresh.apply(&InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(0),
         slots: Arc::from([first.clone()]),
