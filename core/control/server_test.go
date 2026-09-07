@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
+
+const testRequestIOTimeout = 100 * time.Millisecond
 
 func TestBridgeCompatibilityStatusHelper(t *testing.T) {
 	if os.Getenv("RUST_MCBE_BRIDGE_STATUS_HELPER") != "1" {
@@ -111,6 +114,117 @@ func TestOversizedClientCannotTerminateServer(t *testing.T) {
 	}
 }
 
+func TestSilentClientCannotDenyNextStatusClient(t *testing.T) {
+	dir := t.TempDir()
+	server, err := startWithRequestIOTimeout(dir, NewStore(), testRequestIOTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	silent := dialControl(t, dir)
+	defer silent.Close()
+	waitForActiveConnection(t, server)
+
+	started := time.Now()
+	valid := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":21,"method":"status.v1"}`))
+	if !strings.Contains(string(valid), `"id":21`) {
+		t.Fatalf("valid response after silent client = %s", valid)
+	}
+	if elapsed := time.Since(started); elapsed > 10*testRequestIOTimeout {
+		t.Fatalf("next client waited %v after silent client", elapsed)
+	}
+}
+
+func TestPartialFrameCannotDenyNextStatusClient(t *testing.T) {
+	dir := t.TempDir()
+	server, err := startWithRequestIOTimeout(dir, NewStore(), testRequestIOTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	partial := dialControl(t, dir)
+	defer partial.Close()
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], 128)
+	if _, err := partial.Write(append(header[:], []byte(`{"jsonrpc":`)...)); err != nil {
+		t.Fatal(err)
+	}
+	waitForActiveConnection(t, server)
+
+	valid := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":22,"method":"status.v1"}`))
+	if !strings.Contains(string(valid), `"id":22`) {
+		t.Fatalf("valid response after partial frame = %s", valid)
+	}
+}
+
+func TestNonReadingClientResponseWriteIsBounded(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+	server := &Server{store: NewStore(), requestIOTimeout: testRequestIOTimeout}
+	request := []byte(`{"jsonrpc":"2.0","id":23,"method":"status.v1"}`)
+	writeDone := make(chan error, 1)
+	go func() {
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], uint32(len(request)))
+		_, err := clientConn.Write(append(header[:], request...))
+		writeDone <- err
+	}()
+
+	started := time.Now()
+	err := server.serveOne(serverConn)
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("serveOne() error = %v, want write timeout", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*testRequestIOTimeout {
+		t.Fatalf("blocked response write took %v", elapsed)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("request write error = %v", err)
+	}
+}
+
+func TestReadDeadlineFailureRejectsConnectionBeforeReading(t *testing.T) {
+	want := errors.New("deadline unavailable")
+	conn := &deadlineFailureConn{readDeadlineErr: want}
+	server := &Server{store: NewStore(), requestIOTimeout: testRequestIOTimeout}
+	if err := server.serveOne(conn); !errors.Is(err, want) {
+		t.Fatalf("serveOne() error = %v, want %v", err, want)
+	}
+	if conn.reads != 0 {
+		t.Fatalf("serveOne() performed %d reads after deadline failure", conn.reads)
+	}
+}
+
+func TestWriteDeadlineFailureRejectsResponseBeforeWriting(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	conn := &writeDeadlineFailureConn{Conn: serverConn, err: errors.New("deadline unavailable")}
+	defer conn.Close()
+	defer clientConn.Close()
+	server := &Server{store: NewStore(), requestIOTimeout: testRequestIOTimeout}
+	request := []byte(`{"jsonrpc":"2.0","id":24,"method":"status.v1"}`)
+	writeDone := make(chan error, 1)
+	go func() {
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], uint32(len(request)))
+		_, err := clientConn.Write(append(header[:], request...))
+		writeDone <- err
+	}()
+
+	if err := server.serveOne(conn); !errors.Is(err, conn.err) {
+		t.Fatalf("serveOne() error = %v, want %v", err, conn.err)
+	}
+	if conn.writes != 0 {
+		t.Fatalf("serveOne() performed %d writes after deadline failure", conn.writes)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("request write error = %v", err)
+	}
+}
+
 func TestCloseUnblocksSlowActiveClientAndRemovesEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	server, err := Start(dir, NewStore())
@@ -141,6 +255,9 @@ func exchange(t *testing.T, dir string, request []byte) []byte {
 	t.Helper()
 	conn := dialControl(t, dir)
 	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(request)))
 	if _, err := conn.Write(append(header[:], request...)); err != nil {
@@ -156,6 +273,59 @@ func exchange(t *testing.T, dir string, request []byte) []byte {
 	}
 	return payload
 }
+
+func waitForActiveConnection(t *testing.T, server *Server) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		server.mu.Lock()
+		active := server.active != nil
+		server.mu.Unlock()
+		if active {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("server did not accept control connection")
+}
+
+type deadlineFailureConn struct {
+	readDeadlineErr error
+	reads           int
+}
+
+func (conn *deadlineFailureConn) Read([]byte) (int, error) {
+	conn.reads++
+	return 0, io.EOF
+}
+
+func (*deadlineFailureConn) Write(payload []byte) (int, error) { return len(payload), nil }
+func (*deadlineFailureConn) Close() error                      { return nil }
+func (*deadlineFailureConn) LocalAddr() net.Addr               { return testControlAddr("local") }
+func (*deadlineFailureConn) RemoteAddr() net.Addr              { return testControlAddr("remote") }
+func (*deadlineFailureConn) SetDeadline(time.Time) error       { return nil }
+func (conn *deadlineFailureConn) SetReadDeadline(time.Time) error {
+	return conn.readDeadlineErr
+}
+func (*deadlineFailureConn) SetWriteDeadline(time.Time) error { return nil }
+
+type writeDeadlineFailureConn struct {
+	net.Conn
+	err    error
+	writes int
+}
+
+func (conn *writeDeadlineFailureConn) Write(payload []byte) (int, error) {
+	conn.writes++
+	return conn.Conn.Write(payload)
+}
+
+func (conn *writeDeadlineFailureConn) SetWriteDeadline(time.Time) error { return conn.err }
+
+type testControlAddr string
+
+func (address testControlAddr) Network() string { return "control-test" }
+func (address testControlAddr) String() string  { return string(address) }
 
 func dialControl(t *testing.T, dir string) net.Conn {
 	t.Helper()
