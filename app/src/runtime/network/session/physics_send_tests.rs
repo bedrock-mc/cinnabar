@@ -59,6 +59,110 @@ struct RecordingSendSession {
     sent: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
+fn traced_movement_packets() -> (protocol::Packet, protocol::Packet) {
+    let snapshot = protocol::PlayerAuthInputSnapshot {
+        tick: 101,
+        position: [0.5, 2.620_01, 0.5],
+        delta: [0.0; 3],
+        move_vector: [0.0; 2],
+        analogue_move_vector: [0.0; 2],
+        raw_move_vector: [0.0; 2],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        camera_orientation: [0.0, 0.0, -1.0],
+        flags: protocol::PlayerInputFlags::NONE,
+        input_mode: protocol::PlayerInputMode::Mouse,
+    };
+    let movement = protocol::player_auth_input(snapshot).unwrap();
+    let mut block_actions = protocol::BlockActions::new();
+    block_actions
+        .push(protocol::BlockAction {
+            kind: protocol::BlockActionKind::StartDestroy,
+            position: [0, 1, -3],
+            face: 3,
+        })
+        .unwrap();
+    let combined = protocol::player_auth_input_with_interactions(
+        snapshot,
+        &protocol::PlayerAuthInputInteractions {
+            block_actions,
+            block_destroy: None,
+        },
+    )
+    .unwrap();
+    (combined, movement)
+}
+
+#[test]
+fn guarded_trace_uses_the_final_packet_once_and_skips_ordinary_movement() {
+    let identity = crate::movement::PhysicsSendIdentity {
+        session_generation: 7,
+        tick: 101,
+        admission_id: 3,
+        reanchor_epoch: 0,
+    };
+    let (combined, movement) = traced_movement_packets();
+    let combined_bytes =
+        protocol::encode(&combined, &protocol::BedrockSession { shield_item_id: 0 })
+            .unwrap()
+            .to_vec();
+    let movement_bytes =
+        protocol::encode(&movement, &protocol::BedrockSession { shield_item_id: 0 })
+            .unwrap()
+            .to_vec();
+
+    for (revoked, expected) in [(false, combined_bytes), (true, movement_bytes)] {
+        let (authority, authority_rx) = watch::channel(0);
+        if revoked {
+            authority.send_replace(1);
+        }
+        let (packet, guarded) = finalize_mining_packet(
+            combined.clone(),
+            Some(crate::movement::MiningPacketGuard::testing(
+                0,
+                authority_rx,
+                movement.clone(),
+            )),
+        );
+        let mut formatted = Vec::new();
+        let trace = guarded_physics_trace_line_with(
+            Some(identity),
+            guarded,
+            &packet,
+            |session_generation, final_packet| {
+                assert_eq!(session_generation, identity.session_generation);
+                formatted.push(
+                    protocol::encode(
+                        final_packet,
+                        &protocol::BedrockSession { shield_item_id: 0 },
+                    )
+                    .unwrap()
+                    .to_vec(),
+                );
+                crate::movement::trace_line_if(true, session_generation, final_packet)
+            },
+        );
+        let trace = trace.expect("the final PlayerAuthInput produces one trace line");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&trace).unwrap()["tick"],
+            101
+        );
+        assert_eq!(formatted, [expected]);
+    }
+
+    let (ordinary, guarded) = finalize_mining_packet(movement, None);
+    let mut ordinary_formats = 0;
+    assert_eq!(
+        guarded_physics_trace_line_with(Some(identity), guarded, &ordinary, |_, _| {
+            ordinary_formats += 1;
+            Some("duplicate".to_owned())
+        }),
+        None
+    );
+    assert_eq!(ordinary_formats, 0);
+}
+
 impl NetworkSession for RecordingSendSession {
     type Error = &'static str;
 

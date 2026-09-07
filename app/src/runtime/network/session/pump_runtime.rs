@@ -1,4 +1,28 @@
 use super::*;
+use crate::movement::{pending_trace_line, write_trace_line};
+
+pub(super) fn finalize_mining_packet(
+    packet: Packet,
+    mining: Option<MiningPacketGuard>,
+) -> (Packet, bool) {
+    match mining {
+        Some(guard) => (guard.sanitize(packet), true),
+        None => (packet, false),
+    }
+}
+
+pub(super) fn guarded_physics_trace_line_with(
+    physics: Option<PhysicsSendIdentity>,
+    mining_guarded: bool,
+    packet: &Packet,
+    format: impl FnOnce(u64, &Packet) -> Option<String>,
+) -> Option<String> {
+    if !mining_guarded {
+        return None;
+    }
+    physics.and_then(|identity| format(identity.session_generation, packet))
+}
+
 #[cfg(test)]
 pub(super) async fn run_network_pump<S: NetworkSession>(
     session: S,
@@ -125,10 +149,16 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                         }
                         continue;
                     }
-                    let packet = match mining {
-                        Some(guard) => guard.sanitize(packet),
-                        None => packet,
-                    };
+                    let (packet, mining_guarded) = finalize_mining_packet(packet, mining);
+                    // A mining guard can replace the packet at this final
+                    // provably-unsent point. Format that exact result here and
+                    // publish it only after the socket accepts the write.
+                    let mining_trace_line = guarded_physics_trace_line_with(
+                        physics,
+                        mining_guarded,
+                        &packet,
+                        pending_trace_line,
+                    );
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
                         session.begin_packet_id_trace();
@@ -151,6 +181,9 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
+                            if let Some(line) = mining_trace_line {
+                                write_trace_line(&line);
+                            }
                             if trace_armed {
                                 session.arm_blob_cache_reset_for_fast_transfer();
                             }

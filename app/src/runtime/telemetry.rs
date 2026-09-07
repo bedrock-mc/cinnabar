@@ -354,7 +354,8 @@ pub(crate) fn send_player_auth_inputs(
             // Opt-in diagnostic trace of the exact unguarded movement stream.
             // The line is formatted before the send attempt and written only
             // after the transport accepted the packet, so retried samples are
-            // traced exactly once, at their successful hand-off.
+            // traced exactly once, at their successful hand-off. Mining-guarded
+            // packets are traced by the network worker after final sanitization.
             let trace_line = mining_guard
                 .is_none()
                 .then(|| pending_trace_line(identity.session_generation, &packet))
