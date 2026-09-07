@@ -57,6 +57,96 @@ fn server_ledger(runtime: &mut UiRuntime) {
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
 }
 
+fn decode_inventory_event(bytes: Vec<u8>) -> InventoryEvent {
+    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    match into_world_event(packets.pop().unwrap(), 0).unwrap() {
+        Some(WorldEvent::Inventory(event)) => event,
+        other => panic!("expected inventory event, got {other:?}"),
+    }
+}
+
+fn default_descriptor_full_inventory_fixture() -> Vec<u8> {
+    // One batch packet containing InventoryContent(window 0), thirty-six
+    // empty item descriptors, the zero/default full-container descriptor,
+    // and an empty storage item descriptor.
+    let mut packet = vec![0xb1, 0x48, 0, 36];
+    packet.resize(packet.len() + 36 * 8, 0);
+    packet.extend_from_slice(&[0, 0]);
+    packet.resize(packet.len() + 8, 0);
+    let mut batch = vec![0xfe, 0xae, 0x02];
+    assert_eq!(packet.len(), 302);
+    batch.extend(packet);
+    batch
+}
+
+fn default_descriptor_present_content_fixture() -> Vec<u8> {
+    let mut bytes =
+        include_bytes!("../../../../crates/protocol/fixtures/inventory_content.bin").to_vec();
+    assert_eq!(bytes.len(), 58);
+    assert_eq!(&bytes[44..50], &[12, 1, 7, 0, 0, 0]);
+    bytes[1] = 0x34;
+    bytes.splice(44..50, [0, 0]);
+    bytes
+}
+
+fn default_descriptor_slot_fixture() -> Vec<u8> {
+    let mut bytes =
+        include_bytes!("../../../../crates/protocol/fixtures/inventory_slot.bin").to_vec();
+    assert_eq!(&bytes[6..9], &[1, 29, 0]);
+    bytes[7] = 0;
+    bytes
+}
+
+#[test]
+fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    server_ledger(&mut runtime);
+
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            decode_inventory_event(default_descriptor_full_inventory_fixture()),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    assert_eq!(
+        runtime.selected_stack_snapshot().unwrap().state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty,
+        "the complete empty inventory establishes selected slot 0 as known empty"
+    );
+
+    runtime
+        .enqueue_inventory_event(
+            1,
+            2,
+            decode_inventory_event(default_descriptor_present_content_fixture()),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    assert!(matches!(
+        runtime.selected_stack_snapshot().unwrap().state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+    ));
+
+    runtime.set_local_selected_slot(4);
+    runtime
+        .enqueue_inventory_event(
+            1,
+            3,
+            decode_inventory_event(default_descriptor_slot_fixture()),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    let selected = runtime.selected_stack_snapshot().unwrap();
+    assert_eq!(selected.slot, 4);
+    assert!(matches!(
+        selected.state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+    ));
+}
+
 #[test]
 fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_path() {
     let mut runtime = UiRuntime::new(1);

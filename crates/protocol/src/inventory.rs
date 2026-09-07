@@ -895,6 +895,7 @@ fn container_identity_varint(
     window_id: i32,
     full: Option<FullContainerName>,
 ) -> Result<ContainerIdentity, InventoryPacketError> {
+    let window_id = raw_window_id_varint(window_id)?;
     let mut identity = full.map_or(
         Ok(ContainerIdentity {
             window_id: None,
@@ -903,7 +904,18 @@ fn container_identity_varint(
         }),
         full_container_identity,
     )?;
-    identity.window_id = Some(raw_window_id_varint(window_id)?);
+    // Live legacy player and offhand rewrites carry a mandatory
+    // FullContainerName value whose zero/default shape is only a placeholder.
+    // Preserve real named or dynamic descriptors, and preserve the same
+    // zero/default shape everywhere else; only these two legacy window IDs
+    // have an established unnamed interpretation.
+    if matches!(window_id, PLAYER_INVENTORY_WINDOW_ID | OFFHAND_WINDOW_ID)
+        && identity.slot_type == Some(0)
+        && identity.dynamic_id.is_none()
+    {
+        identity.slot_type = None;
+    }
+    identity.window_id = Some(window_id);
     Ok(identity)
 }
 
