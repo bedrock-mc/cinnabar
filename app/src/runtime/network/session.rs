@@ -569,17 +569,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
-                        let _ = send_control_event_or_cancel(
-                            &control_event_tx,
-                            &mut shutdown_rx,
-                            NetworkControlEvent::Failed {
-                                message: error.to_string(),
-                                decode_error_count: 0,
-                                server_disconnect: None,
-                                origin: NetworkFailureOrigin::Startup,
-                            },
-                        )
-                        .await;
+                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
                         return;
                     }
                 };
@@ -598,7 +588,14 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
-                let item_registry = start_game_item_registry(&game_data, bootstrap.dimension);
+                let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
+                {
+                    Ok(registry) => registry,
+                    Err(error) => {
+                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
+                        return;
+                    }
+                };
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
                 let world_default_game_mode =
                     PlayerGameMode::world_default_from_game_data(&game_data);
@@ -989,7 +986,7 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
 
 mod bootstrap;
 mod handle_state;
-use bootstrap::{start_game_inventory_authority, start_game_item_registry};
+use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 mod pump;
 use pump::*;
 mod pump_runtime;

@@ -72,7 +72,9 @@ fn start_game_item_registry_is_normalized_from_captured_game_data() {
     entry.item_name = "minecraft:apple".into();
     entry.item_id = 878;
 
-    let registry = start_game_item_registry(&game_data, 0).expect("normalized registry");
+    let registry = start_game_item_registry(&game_data, 0)
+        .unwrap()
+        .expect("normalized registry");
     assert_eq!(registry.entries.len(), 1);
     assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:apple");
     assert_eq!(registry.entries[0].network_id, 878);
@@ -94,11 +96,34 @@ fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
         entry.item_id = item_id;
     }
 
-    assert_eq!(start_game_item_registry(&game_data, 0), None);
+    assert_eq!(start_game_item_registry(&game_data, 0).unwrap(), None);
     assert_eq!(
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Client)
     );
+}
+
+#[test]
+fn malformed_start_game_registry_nbt_is_a_typed_wire_failure() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.item_registry.item_data.push(Default::default());
+    let entry = &mut game_data.item_registry.item_data[0];
+    entry.item_name = "minecraft:apple".into();
+    entry.item_id = 878;
+    entry.item_component_data.0 = bytes::Bytes::from_static(&[0xff]);
+
+    assert!(matches!(
+        start_game_item_registry(&game_data, 0),
+        Err(protocol::WorldPacketError::Wire(
+            protocol::WorldWireError::Item(protocol::ItemPacketError::InvalidItemNbt)
+        ))
+    ));
 }
 
 #[test]
