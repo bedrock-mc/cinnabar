@@ -497,21 +497,42 @@ impl UiPresentationRuntime {
             ) {
                 continue;
             }
-            if matches!(
+            let is_toast = matches!(
                 node.role,
                 HudViewRole::ToastTitle | HudViewRole::ToastMessage
-            ) {
+            );
+            let ordinal = if is_toast {
                 if toast_rows >= MAX_PRESENTED_TOAST_ROWS {
                     continue;
                 }
+                let ordinal = toast_rows;
                 toast_rows += 1;
+                ordinal
+            } else {
+                nodes.len()
+            };
+            let [x, y] = hud_position(node.role, ordinal, content_width, content_height);
+            if is_toast && y >= content_height {
+                continue;
             }
             let text = bounded_visible_text(&node.text);
             let layout = self
                 .layouts
                 .layout(metrics.request(text, wrap_width, &self.font))
                 .map_err(UiPresentationError::Text)?;
-            let [x, y] = hud_position(node.role, nodes.len(), content_width, content_height);
+            if is_toast {
+                let shadow = match metrics.shadow() {
+                    TextShadow::None => 0.0,
+                    TextShadow::Offset64(offset) => metrics.scale.get() * offset as f32 / 64.0,
+                };
+                if layout
+                    .glyphs()
+                    .iter()
+                    .any(|glyph| y + glyph.bounds_64[3] as f32 / 64.0 + shadow > content_height)
+                {
+                    continue;
+                }
+            }
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
