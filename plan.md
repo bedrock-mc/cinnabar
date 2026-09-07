@@ -75,13 +75,38 @@ passed 892 client-library, 16 integration, and 18 lifecycle tests, plus strict
 Clippy, formatting, and architecture. Fresh post-integration workspace checks passed
 3,471 tests with zero failures and 13 ignored; strict workspace all-target Clippy,
 formatting, architecture, and diff checks also passed. No diagnostic source changes
-remain in the production build. Hosted CI for this checkpoint is a separate gate.
+remain in the production build. The checkpoint is pushed through `2759e46d`;
+hosted run `34088016127` passed every job, including Windows acceptance,
+macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
 A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
 unavailable until the next session; broader timeout recovery remains incomplete.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
+
+2026-09-07 follow-up: independently approved `abea4179` adds positive bounded
+explicit-count Take/Place operations for player and generic storage slots, with
+empty destinations only. Partial predictions retain both counts; accepted
+responses must establish usable distinct identities before the halves can be
+reused. Ambiguous identity responses enter existing bounded recovery. Full-stack
+Take/Place share the implementation and occupied Swap remains unchanged. Writer
+and fresh reviewer each passed 902 client-library, 16 ledger integration, and 21
+storage integration tests, plus strict lint, formatting, and architecture checks.
+This backend tranche is locally integrated through `a9f60ac4`, not a physical
+right-click or complete inventory acceptance gate. Occupied merging, drag, and
+native explicit-count validation remain open.
+The same local checkpoint includes independently approved `83d42234`, bounding
+each read/write phase of the local status endpoint to two seconds so a stalled
+tool does not permanently block later clients. Focused repeated control tests,
+full Go core tests, and vet passed; root post-integration Go checks passed too.
+Race instrumentation was unavailable locally because the required C toolchain
+was absent. Fresh post-integration Rust workspace tests passed 3,481 tests with
+zero failures and 13 ignored; formatting, strict workspace all-target Clippy,
+architecture enforcement, and diff checks passed.
+The dependent right-click input tranche is in progress: ceiling-half pickup and
+single-item placement into empty slots. Its physical reference parity remains
+provisional; no native parity checkbox is closed by the planned binding.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
@@ -2555,10 +2580,12 @@ and verify Cinnabar's end-to-end request/response behavior; the reference design
 does not itself close Cinnabar's inventory implementation or native acceptance gates.
 The inspected Lunar revision is `f8cccf30a296c82e2af95161b856587937c3a0b6`:
 `lunar/internal/inventory` owns packet/action-level prediction and reconciliation,
-not physical mouse or drag input. The native ingress blocker is repaired; first
-establish visible stacks and a working basic inventory transfer, then add right-click
-one-item transfer through the existing Cinnabar ledger. Drag
-requires multi-action requests.
+not physical mouse or drag input. The native ingress blocker and basic whole-stack
+transfer/Swap workflow are verified by the bounded checkpoint above. Next add
+half-stack and one-item transfer through the existing Cinnabar ledger; occupied
+stack merging still needs item compatibility and capacity handling. Drag requires
+multi-action requests. Neither backend conformance nor an input binding alone
+closes the native inventory parity gate.
 
 Entity combat is part of this tranche and is strictly vanilla:
 

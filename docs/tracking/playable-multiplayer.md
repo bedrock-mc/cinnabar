@@ -239,11 +239,35 @@ visual parity. Writer verification passed 892 client library, 16 integration, an
 lifecycle tests, plus strict Clippy, formatting, and architecture. Fresh post-integration
 workspace verification passed 3,471 tests, zero failures, and 13 ignored; strict
 workspace all-target Clippy, formatting, architecture, and diff checks passed too.
-Hosted CI remains a separate gate. Personal Open/Close timeout recovery
+This checkpoint is pushed through `2759e46d`; hosted run `34088016127` passed
+every job, including Windows acceptance and all desktop compile targets.
+Personal Open/Close timeout recovery
 currently requires a new session because late replies carry no attempt identity.
 An offline reconnect
 uses a fresh UUID and cannot prove persistence for the previous player. Missing
 block-item artwork and broader inventory operations remain open.
+
+### Count-transfer and status-service follow-up, 2026-09-07
+
+Locally integrated `a9f60ac4` includes independently approved explicit-count
+inventory transfers (`abea4179`) and bounded local status I/O (`83d42234`). Each
+review approved its complete task range without findings. The ledger supports
+positive bounded Take/Place amounts to empty player/storage destinations and
+requires usable distinct server identities for surviving split halves. Existing
+full-stack transfers and Swap remain available. This is backend completion only;
+right-click binding, native split-transfer acceptance, occupied merges, and drag
+remain open. The dependent input tranche is in progress and is provisional until
+its physical reference and native acceptance gates are met.
+
+The status endpoint bounds each read/write phase to two seconds; silent, partial,
+and non-reading peers no longer indefinitely block later status clients. Repeated
+control tests, full Go core tests, and vet passed. Race instrumentation was not
+available locally because the required C toolchain was absent.
+
+Fresh post-integration checks passed 3,481 Rust workspace tests with zero failures
+and 13 ignored, strict workspace all-target Clippy, formatting, architecture, and
+diff checks. Root Go core tests and vet passed too. Publication and hosted CI for
+this follow-up remain separate from these local results.
 
 Join with authoritative physics, select a tool, target a block, mine it, and
 reconcile the server-confirmed result. Implement the actual app action producer
