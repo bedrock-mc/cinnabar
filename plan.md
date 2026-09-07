@@ -104,9 +104,41 @@ Race instrumentation was unavailable locally because the required C toolchain
 was absent. Fresh post-integration Rust workspace tests passed 3,481 tests with
 zero failures and 13 ignored; formatting, strict workspace all-target Clippy,
 architecture enforcement, and diff checks passed.
-The dependent right-click input tranche is in progress: ceiling-half pickup and
-single-item placement into empty slots. Its physical reference parity remains
-provisional; no native parity checkbox is closed by the planned binding.
+The dependent right-click input tranche is independently approved and locally
+integrated through `26b737e3`: ceiling-half pickup and single-item placement into
+empty player or admitted storage slots. Existing primary clicks are unchanged;
+occupied secondary targets do not merge or swap. Writer checks passed eight
+focused production-schedule tests, all 910 client-library tests, strict all-target
+Clippy, formatting, and architecture checks; a fresh reviewer independently
+passed the focused tests with no findings. Its physical reference parity remains
+provisional; full inventory parity remains open.
+A fresh normal Windows/DX12 build at `3eff46cf`, 1280x720, platform scale 1 and
+GUI scale 2, passed physical right-click tests against BDS 1.26.40.8. Splitting
+33 apples, placing one in each of two empty slots, closing/reopening with the
+remainder, and placing that remainder produced server-confirmed counts of
+16/1/1/15. An even split, single-item transfer, and occupied-target no-op also
+passed independent server queries. Settled counts and sprites were legible,
+within their cells, and correctly layered; no gameplay-use action was observed
+during inventory input. The client exited cleanly with no runtime errors.
+This closes the bounded personal-inventory input witness, not storage-native,
+occupied merging, drag, block-item artwork, arbitrary-scale, or vanilla parity
+acceptance. Fresh post-integration workspace verification passed 3,489 tests,
+zero failures, and 13 ignored, plus strict workspace all-target Clippy,
+formatting, architecture checks, and the normal client build.
+The follow-up is pushed through `defac786`. Completed hosted run `34092936659`
+passed Windows acceptance, main verification, macOS bootstrap, and Ubuntu/Windows
+desktop compilation, but the macOS Go
+suite timed out in the existing required-pack ignore-policy StartGame witness.
+Independently approved test-only synchronization is locally integrated through
+`3eff46cf`: receive the connected client, explicitly flush its queued final
+acknowledgement, then join server StartGame. The old failure did not reproduce
+locally, so periodic final flushing is a hypothesis, not a proven root cause.
+The admission and no-pack-data assertions are unchanged; repeated focused tests,
+fresh full Go core tests, and vet passed. Replacement macOS CI remains required;
+this checkpoint is not CI-green. Pack-server joining policy is unchanged.
+The same local batch includes independently approved artwork redirect validation
+in `bc5aa862`: redirects retain the initial HTTPS requirement, allow HTTPS CDN
+hosts, and remain bounded. Focused and full Go tests passed.
 
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
@@ -2586,6 +2618,21 @@ half-stack and one-item transfer through the existing Cinnabar ledger; occupied
 stack merging still needs item compatibility and capacity handling. Drag requires
 multi-action requests. Neither backend conformance nor an input binding alone
 closes the native inventory parity gate.
+
+Bounded follow-up diagnosis (2026-09-07): occupied merges need a version-pinned
+item-rules registry with exact per-item maximum counts and session/registry
+generation handling. Current negotiated component data is retained only as a
+digest, not usable stack-capacity rules. Unknown/custom items cannot inherit a
+universal limit. Explicit-count requests should retain their checked amount;
+any whole-stack selector computes available capacity before making the request.
+Full compatibility also needs semantic item-data comparison, not equality of
+counts or stack network IDs.
+Missing block-item artwork is a separate route gap: compiled block visuals exist,
+but the icon carrier emits only sprite routes and inventory publication reduces
+the canonical route to an identifier. Preserve the visual route and design a
+bounded thumbnail path from exact compiled geometry/materials; do not infer a
+generic block icon from an item name. Projection, shading, all visible surfaces,
+and native rendered acceptance remain open.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
