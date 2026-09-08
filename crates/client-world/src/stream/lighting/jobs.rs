@@ -522,6 +522,15 @@ impl WorldStream {
             }
         }
         for neighbour in requeue {
+            if let Some(pending) = self.pending_light.get_mut(&neighbour) {
+                let revision = pending.revision;
+                if urgent {
+                    pending.urgent = true;
+                    self.pending_light_scan.push_front((neighbour, revision));
+                }
+                self.light_priority_wakeups.insert(neighbour, revision);
+                continue;
+            }
             if let Some(revision) = self.mark_light_dirty_exact_with_priority(neighbour, urgent) {
                 self.light_priority_wakeups.insert(neighbour, revision);
             }
