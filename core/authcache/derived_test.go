@@ -34,6 +34,41 @@ import (
 
 const cachedRelyingParty = "http://xboxlive.com"
 
+func TestPersistentSourceRetainsCanonicalCachePath(t *testing.T) {
+	raw := filepath.Join(t.TempDir(), "alias", "derived")
+	canonical := filepath.Join(t.TempDir(), "canonical", "derived")
+	var input string
+	deps := derivedDeps{canonicalize: func(path string) (string, error) {
+		input = path
+		return canonical, nil
+	}}
+	source := persistentSource(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	persistent, ok := source.(*persistentAuthSource)
+	if !ok {
+		t.Fatal("persistent source was not constructed")
+	}
+	wantInput, err := filepath.Abs(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input != filepath.Clean(wantInput) {
+		t.Fatalf("canonicalization input = %q, want absolute clean path %q", input, filepath.Clean(wantInput))
+	}
+	if persistent.path != canonical {
+		t.Fatalf("persistent path = %q, want canonical path %q", persistent.path, canonical)
+	}
+}
+
+func TestPersistentSourceRejectsUntrustedCanonicalization(t *testing.T) {
+	oauth := oauth2.StaticTokenSource(testOAuthToken("account-a"))
+	deps := derivedDeps{canonicalize: func(string) (string, error) {
+		return "", errors.New("untrusted alias")
+	}}
+	if got := persistentSource(context.Background(), filepath.Join(t.TempDir(), "derived"), oauth, nil, deps); got != oauth {
+		t.Fatal("persistent source retained an untrusted cache path")
+	}
+}
+
 func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "derived")
 	oauthToken := testOAuthToken("account-a")

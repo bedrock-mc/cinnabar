@@ -56,6 +56,7 @@ func PersistentSource(ctx context.Context, path string, oauth oauth2.TokenSource
 }
 
 type derivedDeps struct {
+	canonicalize func(string) (string, error)
 	discover     func(context.Context) (*service.AuthorizationEnvironment, error)
 	serviceToken func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)
 	mint         func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error)
@@ -63,6 +64,7 @@ type derivedDeps struct {
 
 func defaultDerivedDeps() derivedDeps {
 	return derivedDeps{
+		canonicalize: canonicalizeCachePath,
 		discover: func(ctx context.Context) (*service.AuthorizationEnvironment, error) {
 			discovery, err := service.Default(ctx)
 			if err != nil {
@@ -143,10 +145,18 @@ func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource
 	if err != nil {
 		return oauth
 	}
+	canonicalize := deps.canonicalize
+	if canonicalize == nil {
+		canonicalize = canonicalizeCachePath
+	}
+	path, err = canonicalize(filepath.Clean(path))
+	if err != nil {
+		return oauth
+	}
 	binding := oauthBinding(tok)
 	client := clientBinding()
 	source := &persistentAuthSource{
-		path:        filepath.Clean(path),
+		path:        path,
 		diagnostics: diagnostics,
 		oauth:       oauth,
 		binding:     binding,
