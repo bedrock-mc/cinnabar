@@ -215,13 +215,14 @@ func (s *persistentAuthSource) DeviceToken(ctx context.Context) (*xasd.Token, er
 		defer lease.Close()
 		s.reloadLocked()
 	}
+	publish := lease != nil
 	before := s.deviceToken
 	token, err := s.device.DeviceToken(ctx)
 	if err != nil {
 		return nil, err
 	}
 	s.deviceToken = token
-	s.persistLocked(ctx)
+	s.persistLocked(ctx, publish)
 	if before != nil && before.Token == token.Token {
 		s.diagnostic("reuse", "device", "valid")
 	} else {
@@ -250,6 +251,7 @@ func (s *persistentAuthSource) XSTSToken(ctx context.Context, relyingParty strin
 		defer lease.Close()
 		s.reloadLocked()
 	}
+	publish := lease != nil
 	before := s.session.Snapshot().XSTSTokens[relyingParty]
 	token, err := s.session.XSTSToken(ctx, relyingParty)
 	if err != nil {
@@ -262,7 +264,7 @@ func (s *persistentAuthSource) XSTSToken(ctx context.Context, relyingParty strin
 	if before == nil || before.Token != token.Token {
 		s.updateOAuthBindingLocked()
 	}
-	s.persistLocked(ctx)
+	s.persistLocked(ctx, publish)
 	if before != nil && before.Token == token.Token {
 		s.diagnostic("reuse", "xsts", "valid")
 	} else {
@@ -291,6 +293,7 @@ func (s *persistentAuthSource) MultiplayerToken(ctx context.Context, key *ecdsa.
 		defer lease.Close()
 		s.reloadLocked()
 	}
+	publish := lease != nil
 	if s.environment == nil {
 		env, err := s.deps.discover(ctx)
 		if err != nil {
@@ -312,7 +315,7 @@ func (s *persistentAuthSource) MultiplayerToken(ctx context.Context, key *ecdsa.
 	}
 	if s.service == nil || !s.service.Valid() {
 		s.diagnostic("refresh", "service", "expired")
-		if err := s.refreshServiceLocked(ctx); err != nil {
+		if err := s.refreshServiceLocked(ctx, publish); err != nil {
 			return "", err
 		}
 	}
@@ -332,7 +335,7 @@ func (s *persistentAuthSource) MultiplayerToken(ctx context.Context, key *ecdsa.
 	// that layer and retry the refresh/mint sequence once.
 	s.service = nil
 	s.diagnostic("refresh", "service", "rejected")
-	if err := s.refreshServiceLocked(ctx); err != nil {
+	if err := s.refreshServiceLocked(ctx, publish); err != nil {
 		return "", err
 	}
 	jwt, err = s.deps.mint(ctx, s.environment, staticServiceToken{s.service}, key)
@@ -342,11 +345,11 @@ func (s *persistentAuthSource) MultiplayerToken(ctx context.Context, key *ecdsa.
 		}
 		return "", errors.New("authentication: mint multiplayer credential after refresh")
 	}
-	s.persistLocked(ctx)
+	s.persistLocked(ctx, publish)
 	return jwt, nil
 }
 
-func (s *persistentAuthSource) refreshServiceLocked(ctx context.Context) error {
+func (s *persistentAuthSource) refreshServiceLocked(ctx context.Context, publish bool) error {
 	before := sessionFingerprint(s.session.Snapshot())
 	token, err := s.deps.serviceToken(ctx, s.environment, nsal.NewResolver(s.session))
 	if err != nil || token == nil || !token.Valid() {
@@ -359,7 +362,7 @@ func (s *persistentAuthSource) refreshServiceLocked(ctx context.Context) error {
 	if before != sessionFingerprint(s.session.Snapshot()) {
 		s.updateOAuthBindingLocked()
 	}
-	s.persistLocked(ctx)
+	s.persistLocked(ctx, publish)
 	return nil
 }
 
@@ -397,8 +400,20 @@ func (s *persistentAuthSource) acquireLeaseLocked(ctx context.Context) (io.Close
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	for {
-		lease, err := lockfile.Acquire(lockPath, 0)
+		before, identityErr := leaseFileIdentity(lockPath)
+		if identityErr != nil {
+			s.diagnostic("miss", "write", "unsafe")
+			return nil, nil
+		}
+		lease, err := lockfile.AcquireExisting(lockPath, 0)
 		if err == nil {
+			opened, openedErr := lockfile.Identity(lease)
+			after, identityErr := leaseFileIdentity(lockPath)
+			if openedErr != nil || identityErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
+				_ = lease.Close()
+				s.diagnostic("miss", "write", "unsafe")
+				return nil, nil
+			}
 			return lease, nil
 		}
 		if !errors.Is(err, lockfile.ErrBusy) {
@@ -443,31 +458,39 @@ func prepareLeasePath(path string) error {
 }
 
 func validateLeasePath(path string) error {
+	_, err := leaseFileIdentity(path)
+	return err
+}
+
+func leaseFileIdentity(path string) (fs.FileInfo, error) {
 	canonical, err := canonicalizeCachePath(filepath.Clean(path))
 	if err != nil || canonical != filepath.Clean(path) {
-		return errors.New("resolve authentication lease path")
+		return nil, errors.New("resolve authentication lease path")
 	}
 	parents, err := snapshotDirectoryChain(filepath.Dir(canonical))
 	if err != nil || !parents.complete {
-		return errors.New("inspect authentication lease parent")
+		return nil, errors.New("inspect authentication lease parent")
 	}
 	if err := parents.revalidate(); err != nil {
-		return errors.New("authentication lease parent changed")
+		return nil, errors.New("authentication lease parent changed")
 	}
 	info, err := os.Lstat(canonical)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, fs.ErrNotExist
 	}
 	if err != nil {
-		return errors.New("inspect authentication lease")
+		return nil, errors.New("inspect authentication lease")
 	}
 	if err := checkRegular(info); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkCacheSecurityByPath(canonical, info); err != nil {
-		return err
+		return nil, err
 	}
-	return parents.revalidate()
+	if err := parents.revalidate(); err != nil {
+		return nil, err
+	}
+	return info, nil
 }
 
 func (s *persistentAuthSource) reloadLocked() {
@@ -501,7 +524,10 @@ func (s staticServiceToken) ServiceToken(context.Context) (*service.Token, error
 	return s.token, nil
 }
 
-func (s *persistentAuthSource) persistLocked(ctx context.Context) {
+func (s *persistentAuthSource) persistLocked(ctx context.Context, publish bool) {
+	if !publish {
+		return
+	}
 	device := s.deviceToken
 	if device == nil {
 		var err error
@@ -549,25 +575,18 @@ func (s *persistentAuthSource) persistLocked(ctx context.Context) {
 }
 
 func (s *persistentAuthSource) resetLocked(binding string) {
+	var proofKey *ecdsa.PrivateKey
+	if s.device != nil {
+		proofKey = s.device.ProofKey()
+	}
 	s.binding = binding
 	s.environment = nil
 	s.cachedEnv = nil
 	s.service = nil
 	s.deviceToken = nil
-	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, nil)
+	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, proofKey)
 	s.session = auth.AndroidConfig.New(s.oauth, &sisu.SessionConfig{DeviceTokenSource: s.device})
-	b, err := json.Marshal(derivedState{
-		Version:       derivedCacheVersion,
-		OAuthBinding:  binding,
-		ClientBinding: s.client,
-	})
-	if err == nil {
-		if err := savePrivate(s.path, append(b, '\n')); err != nil {
-			s.diagnostic("miss", "write", "contended")
-		} else {
-			s.persisted = bytesFingerprint(b)
-		}
-	}
+	s.persisted = ""
 }
 
 func (s *persistentAuthSource) restore(state *derivedState) error {
@@ -581,6 +600,13 @@ func (s *persistentAuthSource) restore(state *derivedState) error {
 	key, err := x509.ParseECPrivateKey(der)
 	if err != nil || key.Curve == nil || key.Curve.Params().Name != "P-256" {
 		return errDerivedCacheMiss
+	}
+	if s.device != nil && s.device.ProofKey() != nil {
+		current := s.device.ProofKey()
+		if current.Curve == nil || current.Curve.Params().Name != key.Curve.Params().Name || current.D.Cmp(key.D) != 0 {
+			return errDerivedCacheMiss
+		}
+		key = current
 	}
 	var cachedEnv *derivedEnvironment
 	if state.Environment != nil {

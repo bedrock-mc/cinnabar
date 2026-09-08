@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -124,7 +125,7 @@ func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
 	}
 }
 
-func TestPersistentSourceOAuthRotationInvalidatesPublishedDerivedState(t *testing.T) {
+func TestPersistentSourceOAuthRotationInvalidatesInMemoryDerivedState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "derived")
 	oldToken := testOAuthToken("account-a")
 	newToken := testOAuthToken("account-b")
@@ -134,15 +135,85 @@ func TestPersistentSourceOAuthRotationInvalidatesPublishedDerivedState(t *testin
 	if _, err := source.Token(); err != nil {
 		t.Fatal(err)
 	}
+	persistent := source.(*persistentAuthSource)
+	if persistent.binding != oauthBinding(newToken) {
+		t.Fatal("rotated OAuth material did not replace the in-memory binding")
+	}
+	if persistent.deviceToken != nil || persistent.service != nil || persistent.cachedEnv != nil {
+		t.Fatal("old-account derived credentials survived OAuth rotation in memory")
+	}
 	state, err := loadDerived(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.OAuthBinding != oauthBinding(newToken) {
-		t.Fatal("rotated OAuth material did not replace the derived-cache binding")
+	if state.OAuthBinding != oauthBinding(oldToken) {
+		t.Fatal("unleased OAuth reset modified shared derived state")
 	}
-	if state.DeviceToken != nil || state.SISU != nil || state.ServiceToken != nil {
-		t.Fatal("old-account derived credentials survived OAuth rotation")
+}
+
+func TestPersistentSourceOAuthRotationDoesNotPublishWithoutLease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "derived")
+	oldToken := testOAuthToken("account-a")
+	newToken := testOAuthToken("account-b")
+	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := persistentSource(context.Background(), path, &sequenceOAuthSource{tokens: []*oauth2.Token{oldToken, newToken}}, nil, derivedDeps{})
+	if _, err := source.Token(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("OAuth reset published derived state without a lease")
+	}
+}
+
+func TestPersistentSourceProofKeyStableAcrossOAuthReset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "derived")
+	oldToken := testOAuthToken("account-a")
+	newToken := testOAuthToken("account-b")
+	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := decodeProofKey(t, state.ProofKey)
+	source := persistentSource(context.Background(), path, &sequenceOAuthSource{tokens: []*oauth2.Token{oldToken, oldToken, newToken}}, nil, derivedDeps{})
+	if _, err := source.(xsapi.TokenSource).DeviceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Token(); err != nil {
+		t.Fatal(err)
+	}
+	if got := source.(xsapi.TokenSource).ProofKey(); got.D.Cmp(want.D) != 0 {
+		t.Fatal("OAuth reset changed the proof key after a device token was exposed")
+	}
+}
+
+func TestPersistentSourceProofKeyStableAcrossConflictingReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := decodeProofKey(t, state.ProofKey)
+	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	if _, err := source.(xsapi.TokenSource).DeviceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	if _, err := source.(xsapi.TokenSource).XSTSToken(context.Background(), cachedRelyingParty); err != nil {
+		t.Fatal(err)
+	}
+	if got := source.(xsapi.TokenSource).ProofKey(); got.D.Cmp(want.D) != 0 {
+		t.Fatal("cache reload changed the proof key after a device token was exposed")
 	}
 }
 
@@ -482,6 +553,57 @@ func TestPersistentSourceCancellationInterruptsLeaseWait(t *testing.T) {
 	}
 }
 
+func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	if err := prepareLeasePath(path + ".lock"); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := lockfile.Acquire(path+".lock", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	refreshing := make(chan struct{})
+	finishRefresh := make(chan struct{})
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			close(refreshing)
+			<-finishRefresh
+			return testServiceToken(time.Now().Add(time.Hour)), nil
+		},
+		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
+			return "fresh-jwt", nil
+		},
+	}
+	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	done := make(chan error, 1)
+	go func() {
+		key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		_, err := source.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &key.PublicKey)
+		done <- err
+	}()
+	<-refreshing
+	writeDerivedState(t, path, oauthToken, time.Now().Add(2*time.Hour))
+	ownerState, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(finishRefresh)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(ownerState, after) {
+		t.Fatal("memory-only lease fallback overwrote the lease owner's state")
+	}
+}
+
 func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "derived.lock")
 	start := make(chan struct{})
@@ -553,6 +675,22 @@ func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
 	}
 }
 
+func TestValidateLeasePathRejectsMissingTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.lock")
+	if err := validateLeasePath(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("error = %v, want missing", err)
+	}
+	if lease, err := lockfile.AcquireExisting(path, 0); !errors.Is(err, fs.ErrNotExist) {
+		if lease != nil {
+			_ = lease.Close()
+		}
+		t.Fatalf("AcquireExisting error = %v, want missing", err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing lease was unexpectedly created: %v", err)
+	}
+}
+
 func TestSavePrivateFailurePreservesOldCache(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "derived")
 	if err := savePrivate(path, []byte("old\n")); err != nil {
@@ -609,6 +747,19 @@ func writeDerivedState(t *testing.T, path string, oauthToken *oauth2.Token, serv
 	if err := savePrivate(path, append(b, '\n')); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func decodeProofKey(t *testing.T, encoded string) *ecdsa.PrivateKey {
+	t.Helper()
+	der, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := x509.ParseECPrivateKey(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 func testOAuthToken(account string) *oauth2.Token {

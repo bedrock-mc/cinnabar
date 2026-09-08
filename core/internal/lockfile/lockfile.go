@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,15 +14,35 @@ import (
 // ErrBusy reports that another process currently holds a lease.
 var ErrBusy = errors.New("lockfile: lease is already held")
 
+// Identity returns the opened file identity held by lease.
+func Identity(lease io.Closer) (fs.FileInfo, error) {
+	identified, ok := lease.(interface{ Identity() (fs.FileInfo, error) })
+	if !ok {
+		return nil, errors.New("lockfile: lease identity unavailable")
+	}
+	return identified.Identity()
+}
+
 // Acquire exclusively leases path. The lock file remains in place after release.
 // A non-positive timeout makes one non-blocking acquisition attempt.
 func Acquire(path string, timeout time.Duration) (io.Closer, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("lockfile: create parent directory: %w", err)
+	return acquire(path, timeout, true)
+}
+
+// AcquireExisting exclusively leases an existing path without creating it.
+func AcquireExisting(path string, timeout time.Duration) (io.Closer, error) {
+	return acquire(path, timeout, false)
+}
+
+func acquire(path string, timeout time.Duration, create bool) (io.Closer, error) {
+	if create {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("lockfile: create parent directory: %w", err)
+		}
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		lease, busy, err := tryAcquire(path)
+		lease, busy, err := tryAcquire(path, create)
 		if err != nil {
 			return nil, err
 		}

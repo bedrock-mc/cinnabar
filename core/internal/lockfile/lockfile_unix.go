@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 	"syscall"
@@ -17,8 +18,14 @@ type lease struct {
 	err  error
 }
 
-func tryAcquire(path string) (io.Closer, bool, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+func (locked *lease) Identity() (fs.FileInfo, error) { return locked.file.Stat() }
+
+func tryAcquire(path string, create bool) (io.Closer, bool, error) {
+	flags := os.O_RDWR
+	if create {
+		flags |= os.O_CREATE
+	}
+	file, err := os.OpenFile(path, flags, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("lockfile: open %s: %w", path, err)
 	}
