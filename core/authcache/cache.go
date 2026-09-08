@@ -91,7 +91,7 @@ func sourceWithQuarantine(
 	if err := save(config.Path, current); err != nil {
 		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
 	}
-	return &persistingSource{path: config.Path, source: source}, nil
+	return &persistingSource{path: config.Path, source: source, last: cloneToken(current)}, nil
 }
 
 func acquire(
@@ -125,13 +125,14 @@ func acquire(
 	if source == nil {
 		return nil, errors.New("create Microsoft refresh source: nil token source")
 	}
-	return &persistingSource{path: path, source: source}, nil
+	return &persistingSource{path: path, source: source, last: cloneToken(tok)}, nil
 }
 
 type persistingSource struct {
 	mu     sync.Mutex
 	path   string
 	source oauth2.TokenSource
+	last   *oauth2.Token
 }
 
 func (s *persistingSource) Token() (*oauth2.Token, error) {
@@ -145,13 +146,54 @@ func (s *persistingSource) Token() (*oauth2.Token, error) {
 	if !validToken(tok) {
 		return nil, errors.New("refresh Microsoft token: token has no refresh token")
 	}
+	if sameToken(s.last, tok) {
+		return tok, nil
+	}
 	if err := save(s.path, tok); err != nil {
 		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
 	}
+	s.last = cloneToken(tok)
 	return tok, nil
 }
 
+func sameToken(left, right *oauth2.Token) bool {
+	return left != nil && right != nil && left.AccessToken == right.AccessToken && left.TokenType == right.TokenType &&
+		left.RefreshToken == right.RefreshToken && left.Expiry.Equal(right.Expiry)
+}
+
+func cloneToken(token *oauth2.Token) *oauth2.Token {
+	if token == nil {
+		return nil
+	}
+	cloned := *token
+	return &cloned
+}
+
 func load(path string) (*oauth2.Token, error) {
+	contents, err := loadPrivate(path, maxCacheSize)
+	if err != nil {
+		return nil, err
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	var tok oauth2.Token
+	if err := decoder.Decode(&tok); err != nil {
+		return nil, fmt.Errorf("decode auth cache: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("decode auth cache: trailing JSON value")
+		}
+		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
+	}
+	if !validToken(&tok) {
+		return nil, errors.New("decode auth cache: token has no refresh token")
+	}
+	return &tok, nil
+}
+
+func loadPrivate(path string, limit int64) ([]byte, error) {
 	initialParents, err := snapshotDirectoryChain(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -166,8 +208,8 @@ func load(path string) (*oauth2.Token, error) {
 	if err := checkCacheSecurityByPath(path, pathInfo); err != nil {
 		return nil, err
 	}
-	if pathInfo.Size() > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if pathInfo.Size() > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 	parents, err := snapshotDirectoryChain(filepath.Dir(path))
 	if err != nil {
@@ -202,44 +244,29 @@ func load(path string) (*oauth2.Token, error) {
 	if err := parents.revalidate(); err != nil {
 		return nil, err
 	}
-	if openInfo.Size() > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if openInfo.Size() > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 
-	contents, err := io.ReadAll(io.LimitReader(file, maxCacheSize+1))
+	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(contents) > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if int64(len(contents)) > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 	finalInfo, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	if finalInfo.Size() > maxCacheSize || finalInfo.Size() != int64(len(contents)) {
+	if finalInfo.Size() > limit || finalInfo.Size() != int64(len(contents)) {
 		return nil, errors.New("auth cache changed while reading")
 	}
 	if err := parents.revalidate(); err != nil {
 		return nil, err
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	var tok oauth2.Token
-	if err := decoder.Decode(&tok); err != nil {
-		return nil, fmt.Errorf("decode auth cache: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("decode auth cache: trailing JSON value")
-		}
-		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
-	}
-	if !validToken(&tok) {
-		return nil, errors.New("decode auth cache: token has no refresh token")
-	}
-	return &tok, nil
+	return contents, nil
 }
 
 func save(path string, tok *oauth2.Token) error {
@@ -254,13 +281,24 @@ type saveHooks struct {
 }
 
 func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr error) {
+	serialized, err := serializeToken(tok)
+	if err != nil {
+		return err
+	}
+	return savePrivateWithHooks(path, serialized, hooks)
+}
+
+func savePrivate(path string, serialized []byte) error {
+	return savePrivateWithHooks(path, serialized, saveHooks{})
+}
+
+func savePrivateWithHooks(path string, serialized []byte, hooks saveHooks) (returnErr error) {
 	path, err := canonicalizeCachePath(filepath.Clean(path))
 	if err != nil {
 		return errors.New("resolve auth cache path")
 	}
-	serialized, err := serializeToken(tok)
-	if err != nil {
-		return err
+	if len(serialized) == 0 || len(serialized) > maxCacheSize {
+		return fmt.Errorf("private cache exceeds %d bytes", maxCacheSize)
 	}
 	dir := filepath.Dir(path)
 	beforeCreate, err := snapshotDirectoryChain(dir)

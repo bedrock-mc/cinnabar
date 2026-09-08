@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -297,8 +298,15 @@ func TestRunAuthenticatedPassesTokenSourceToProxy(t *testing.T) {
 		},
 		func(_ context.Context, cfg proxy.Config) error {
 			serveCalls++
-			if cfg.TokenSource != source {
-				t.Fatal("proxy token source was not preserved")
+			if cfg.TokenSource == nil {
+				t.Fatal("proxy token source was not configured")
+			}
+			token, err := cfg.TokenSource.Token()
+			if err != nil {
+				t.Fatalf("wrapped source Token: %v", err)
+			}
+			if token == nil || token.AccessToken != "sentinel" {
+				t.Fatal("wrapped source did not delegate the configured token")
 			}
 			return nil
 		},
@@ -308,6 +316,29 @@ func TestRunAuthenticatedPassesTokenSourceToProxy(t *testing.T) {
 	}
 	if serveCalls != 1 {
 		t.Fatalf("serve calls = %d, want 1", serveCalls)
+	}
+}
+
+func TestRunAuthenticatedWrapsPersistentDerivedSource(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "microsoft-token.json")
+	source := oauth2.StaticTokenSource(&oauth2.Token{
+		AccessToken: "sentinel-access", RefreshToken: "sentinel-refresh", Expiry: time.Now().Add(time.Hour),
+	})
+	err := run(
+		context.Background(),
+		[]string{"-auth-cache", cachePath, "-socket-dir", t.TempDir(), "-upstream", "example.test:19132"},
+		io.Discard,
+		io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return source, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if _, ok := cfg.TokenSource.(minecraft.MultiplayerTokenSource); !ok {
+				t.Fatal("authenticated proxy source does not persist derived join authentication")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
