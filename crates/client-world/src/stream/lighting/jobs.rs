@@ -527,6 +527,8 @@ impl WorldStream {
                 if urgent {
                     pending.urgent = true;
                     self.pending_light_scan.push_front((neighbour, revision));
+                } else {
+                    self.pending_light_scan.push_back((neighbour, revision));
                 }
                 self.light_priority_wakeups.insert(neighbour, revision);
                 continue;

@@ -552,13 +552,47 @@ fn settled_dependency_wakeup_preserves_an_already_pending_target_revision() {
             Some(&pending_revision)
         );
         assert!(!stream.light_waiters.contains_key(&source));
-        if urgent {
-            assert_eq!(
-                stream.pending_light_scan.front(),
-                Some(&(target, pending_revision))
-            );
-        }
+        let queued = if urgent {
+            stream.pending_light_scan.front()
+        } else {
+            stream.pending_light_scan.back()
+        };
+        assert_eq!(queued, Some(&(target, pending_revision)));
     }
+}
+
+#[test]
+fn ordinary_dependency_wakeup_requeues_a_consumed_pending_candidate() {
+    let mut stream = lit_stream(0);
+    let top = SubChunkKey::new(0, 0, 19, 0);
+    let below = SubChunkKey::new(0, 0, 18, 0);
+    install_current_light(&mut stream, top, 0, 0, false);
+    install_current_light(&mut stream, below, 0, 0, false);
+    stream.mark_light_dirty_exact(top).unwrap();
+    let camera = [8.0, 296.0, 8.0];
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    let top_completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("upper light completion");
+
+    let below_revision = stream.mark_light_dirty_exact(below).unwrap();
+    let below_queued_at = stream.pending_light[&below].queued_at;
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 0);
+    assert!(stream.light_waiters[&top].contains(&below));
+    assert!(stream.pending_light_scan.is_empty());
+
+    stream.accept_light_completion(top_completion);
+
+    assert_eq!(stream.pending_light[&below].revision, below_revision);
+    assert_eq!(stream.pending_light[&below].queued_at, below_queued_at);
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    settle_light(&mut stream, camera);
+    assert!(stream.light_is_current(top));
+    assert!(stream.light_is_current(below));
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_waiters.is_empty());
 }
 
 #[test]
@@ -592,6 +626,51 @@ fn settled_dependency_wakeup_still_invalidates_an_in_flight_target() {
 
     assert_eq!(stream.in_flight_light.get(&target), Some(&identity));
     assert!(stream.pending_light[&target].revision > dispatched_revision);
+    assert!(stream.pending_light[&target].urgent);
+    assert!(
+        !stream
+            .light_revisions
+            .is_current(target, dispatched_revision)
+    );
+}
+
+#[test]
+fn settled_dependency_wakeup_preserves_existing_in_flight_replacement() {
+    let mut stream = lit_stream(1);
+    let source = SubChunkKey::new(1, 0, 0, 0);
+    let target = SubChunkKey::new(1, 1, 0, 0);
+    install_current_light(&mut stream, source, 15, 0, false);
+    install_current_light(&mut stream, target, 14, 0, false);
+    let dispatched_revision = stream.mark_light_dirty_exact(target).unwrap();
+    let identity = LightJobIdentity {
+        revision: dispatched_revision,
+        block_generation: stream.block_generations[&target],
+        previous_light_generation: stream
+            .light_store
+            .light(target)
+            .map(|light| light.generation()),
+        batch_id: 42,
+        urgent: false,
+    };
+    stream.pending_light.remove(&target);
+    stream.in_flight_light.insert(target, identity);
+    let replacement_revision = stream.mark_light_dirty_exact(target).unwrap();
+    let replacement_queued_at = stream.pending_light[&target].queued_at;
+    stream
+        .light_waiters
+        .entry(source)
+        .or_default()
+        .insert(target);
+    let direct_sky = stream.direct_sky[&source].clone();
+
+    stream.finish_accepted_light_completion(source, 1, &direct_sky, [false; 6], true);
+
+    assert_eq!(stream.in_flight_light.get(&target), Some(&identity));
+    assert_eq!(stream.pending_light[&target].revision, replacement_revision);
+    assert_eq!(
+        stream.pending_light[&target].queued_at,
+        replacement_queued_at
+    );
     assert!(stream.pending_light[&target].urgent);
     assert!(
         !stream
