@@ -77,12 +77,18 @@ without refresh. No compiler or test ran during these native measurements.
 A bounded regional-lighting experiment remains isolated on
 `fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. Controlled
 initial-load comparisons did not justify its complexity, so batching is excluded
-from the shipping candidate. A smaller current-air boundary check is in progress
-on `fix/light-boundary-dominance-20260908` from `c51ba65a`. It may suppress a
-neighbor's light requeue only when every new contribution is already covered by
-current light and the source face has no level or direct-sky provenance loss.
-Unknown, stale, dirty, in-flight and non-air targets retain existing behavior;
-mesh invalidation is independent. Full tests, review and live performance remain open.
+from the shipping candidate. The smaller current-air boundary check received fresh
+independent APPROVE for the complete `c51ba65a..04350544` range, with no findings,
+and is integrated history-preservingly in `3a77c1fd`. It suppresses a neighbor's
+light requeue only when every new contribution is already covered by current light
+and the source face has no level or direct-sky provenance loss. Unknown, stale,
+dirty, in-flight and non-air targets retain existing behavior; mesh invalidation
+is independent. Fresh post-integration world/client-world/meshing/render suites
+passed 999 tests with two ignored; all 950 app-library tests, strict affected
+all-target Clippy, formatting, architecture and the release build passed. The
+controlled mixed-terrain fixture preserved exact light/provenance hashes through
+initial load, emitter removal and addition; initial median was 225 ms versus an
+earlier 512 ms baseline. This synthetic result is not a native loading improvement.
 
 Independently approved `7b089c7e` is integrated in `c51ba65a`. It adds a bounded
 once-per-session logical terrain-ready timestamp without changing readiness
@@ -95,6 +101,25 @@ with 32,988 accepted light jobs and the same 224-column, 5,376-subchunk cohort.
 The actual lobby rendered, saved authentication was reused without refresh or
 sidecar rewrite, and no compiler or test ran during measurement. This is a
 pre-boundary-check baseline, not an optimization result or exact first-pixel time.
+Two normal Windows/DX12 Zeqa runs of the integrated boundary check reached logical
+terrain readiness in 31.371 s and 28.701 s; full work drained approximately
+35.95 s and 29.74 s after connection, with 43,993 and 38,745 accepted light jobs.
+Both retained 5,376 subchunks and rendered 1,108 at the same spawn/settings. These
+results do not establish improvement over the diagnostic baseline. The large
+Lifeboat baseline retained 3,035 and rendered 1,863 subchunks; logical readiness
+took 32.484 s, with work still pending after 195.62 s. Both candidate Lifeboat
+joins received only 298 retained / 226 rendered subchunks, so their 5-6 s logical
+readiness cannot be compared with that large workload. Native performance remains
+open; no compiler or test ran during these measurements.
+
+Saved auth was reused throughout. During the repeated Zeqa run, the service token
+naturally expired: the bound disk bundle was accepted, the service credential was
+refreshed and persisted, and connection succeeded in 3.832 s. The replacement
+sidecar retained its protected owner-restricted access. Credential contents were
+not read for verification. A new isolated investigation on
+`fix/light-trust-convergence-20260908`, based on `3a77c1fd`, is reproducing
+dirty-neighbor darken/restore amplification before choosing another change;
+no new production behavior from that investigation is integrated.
 All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
