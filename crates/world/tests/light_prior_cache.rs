@@ -1,10 +1,70 @@
 use std::{cell::RefCell, collections::BTreeMap};
 
 use world::{
-    BlockPos, BoundaryLightSample, DimensionLightProfile, EmptyLight, LightBlockAccess,
-    LightBlockSample, LightBounds, LightChannel, LightProperties, LightReadAccess,
-    LightSolveOutput, SolverLimits, solve_light,
+    BlockPos, BoundaryLightSample, DimensionLightProfile, LightBlockAccess, LightBlockSample,
+    LightBounds, LightChannel, LightProperties, LightReadAccess, LightSolveStats, SolverLimits,
+    SubChunkKey, SubChunkLight, solve_light,
 };
+
+const PRIOR: [(u8, u8, bool); 27] = [
+    (15, 15, true),
+    (14, 15, true),
+    (13, 15, true),
+    (14, 15, true),
+    (13, 15, true),
+    (12, 15, true),
+    (13, 15, true),
+    (12, 15, true),
+    (11, 15, true),
+    (14, 15, true),
+    (13, 14, false),
+    (12, 15, true),
+    (13, 15, true),
+    (12, 14, false),
+    (11, 15, true),
+    (12, 15, true),
+    (0, 0, false),
+    (10, 15, true),
+    (13, 15, true),
+    (12, 15, true),
+    (11, 15, true),
+    (12, 15, true),
+    (11, 15, true),
+    (10, 15, true),
+    (11, 15, true),
+    (10, 15, true),
+    (9, 15, true),
+];
+
+const GOLDEN: [(u8, u8, bool); 27] = [
+    (8, 14, false),
+    (9, 15, true),
+    (10, 15, true),
+    (7, 14, false),
+    (8, 15, true),
+    (9, 15, true),
+    (0, 0, false),
+    (7, 15, true),
+    (8, 15, true),
+    (9, 15, true),
+    (10, 15, true),
+    (11, 15, true),
+    (8, 15, true),
+    (9, 15, true),
+    (10, 15, true),
+    (7, 15, true),
+    (8, 15, true),
+    (9, 15, true),
+    (10, 15, true),
+    (11, 15, true),
+    (12, 15, true),
+    (9, 15, true),
+    (10, 15, true),
+    (11, 15, true),
+    (8, 15, true),
+    (9, 15, true),
+    (10, 15, true),
+];
 
 #[derive(Default)]
 struct FixtureBlocks {
@@ -45,14 +105,48 @@ impl LightBlockAccess for FixtureBlocks {
     }
 }
 
+struct GoldenPrior;
+
+impl GoldenPrior {
+    fn value(position: BlockPos) -> Option<(u8, u8, bool)> {
+        if !(0..=2).contains(&position.x)
+            || !(0..=2).contains(&position.y)
+            || !(0..=2).contains(&position.z)
+        {
+            return None;
+        }
+        let index = usize::try_from(position.x * 9 + position.y * 3 + position.z).unwrap();
+        Some(PRIOR[index])
+    }
+}
+
+impl LightReadAccess for GoldenPrior {
+    fn read_light(&self, dimension: i32, position: BlockPos, channel: LightChannel) -> u8 {
+        if dimension != 0 {
+            return 0;
+        }
+        let Some((block, sky, _)) = Self::value(position) else {
+            return 0;
+        };
+        match channel {
+            LightChannel::Block => block,
+            LightChannel::Sky => sky,
+        }
+    }
+
+    fn has_direct_sky_provenance(&self, dimension: i32, position: BlockPos) -> bool {
+        dimension == 0 && Self::value(position).is_some_and(|(_, _, direct)| direct)
+    }
+}
+
 struct CountingPrior<'a> {
-    inner: &'a LightSolveOutput,
+    inner: &'a GoldenPrior,
     light_reads: RefCell<Vec<(BlockPos, LightChannel)>>,
     provenance_reads: RefCell<Vec<BlockPos>>,
 }
 
 impl<'a> CountingPrior<'a> {
-    fn new(inner: &'a LightSolveOutput) -> Self {
+    fn new(inner: &'a GoldenPrior) -> Self {
         Self {
             inner,
             light_reads: RefCell::new(Vec::new()),
@@ -114,27 +208,6 @@ fn positions() -> impl Iterator<Item = BlockPos> {
 
 #[test]
 fn interior_prior_reads_are_lazy_bounded_and_output_equivalent() {
-    let mut retained = FixtureBlocks::default();
-    retained.air_box(BlockPos::new(0, 0, 0), BlockPos::new(2, 2, 2));
-    retained.block(BlockPos::new(0, 0, 0), 15, 0);
-    retained.block(BlockPos::new(1, 2, 1), 0, 15);
-    for x in 0..=2 {
-        for z in 0..=2 {
-            retained.sky.insert(BlockPos::new(x, 2, z), 15);
-        }
-    }
-    let prior = solve_light(
-        &retained,
-        &EmptyLight,
-        region(),
-        1,
-        DimensionLightProfile::Overworld {
-            direct_sky_down: true,
-        },
-        limits(),
-    )
-    .unwrap();
-
     let mut replacement = FixtureBlocks::default();
     replacement.air_box(BlockPos::new(0, 0, 0), BlockPos::new(2, 2, 2));
     replacement.block(BlockPos::new(2, 0, 2), 12, 0);
@@ -144,17 +217,7 @@ fn interior_prior_reads_are_lazy_bounded_and_output_equivalent() {
             replacement.sky.insert(BlockPos::new(x, 2, z), 15);
         }
     }
-    let expected = solve_light(
-        &replacement,
-        &prior,
-        region(),
-        2,
-        DimensionLightProfile::Overworld {
-            direct_sky_down: true,
-        },
-        limits(),
-    )
-    .unwrap();
+    let prior = GoldenPrior;
     let counting_prior = CountingPrior::new(&prior);
     let actual = solve_light(
         &replacement,
@@ -168,28 +231,45 @@ fn interior_prior_reads_are_lazy_bounded_and_output_equivalent() {
     )
     .unwrap();
 
-    assert_eq!(actual.sub_chunks(), expected.sub_chunks());
-    assert_eq!(actual.stats(), expected.stats());
-    for position in positions() {
+    let mut golden_sub_chunk = SubChunkLight::dark(2);
+    for (position, (block, sky, direct_sky)) in positions().zip(GOLDEN) {
+        let x = u8::try_from(position.x).unwrap();
+        let y = u8::try_from(position.y).unwrap();
+        let z = u8::try_from(position.z).unwrap();
+        golden_sub_chunk
+            .set(LightChannel::Block, x, y, z, block)
+            .unwrap();
+        golden_sub_chunk
+            .set(LightChannel::Sky, x, y, z, sky)
+            .unwrap();
+        assert_eq!(actual.light_at(position, LightChannel::Block), block);
+        assert_eq!(actual.light_at(position, LightChannel::Sky), sky);
+        assert_eq!(actual.has_direct_sky_provenance(0, position), direct_sky);
         for channel in [LightChannel::Block, LightChannel::Sky] {
-            assert_eq!(
-                actual.light_at(position, channel),
-                expected.light_at(position, channel)
-            );
             assert!(
                 counting_prior.light_read_count(position, channel) <= 1,
                 "prior {channel:?} at {position:?} was read more than once"
             );
         }
-        assert_eq!(
-            actual.has_direct_sky_provenance(0, position),
-            expected.has_direct_sky_provenance(0, position)
-        );
         assert!(
             counting_prior.provenance_read_count(position) <= 1,
             "prior provenance at {position:?} was read more than once"
         );
     }
+    assert_eq!(actual.sub_chunks().len(), 1);
+    assert_eq!(
+        actual.sub_chunks()[&SubChunkKey::new(0, 0, 0, 0)].as_ref(),
+        &golden_sub_chunk
+    );
+    assert_eq!(
+        actual.stats(),
+        LightSolveStats {
+            darken_seeded: 3,
+            darken_dequeued: 28,
+            increase_dequeued: 54,
+            queue_peak: 24,
+        }
+    );
     assert_eq!(
         counting_prior.light_reads.borrow().len(),
         27 * 2,

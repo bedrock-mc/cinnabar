@@ -159,3 +159,74 @@ impl<P: LightReadAccess> LightReadAccess for CachedLightReadAccess<'_, P> {
         self.source.boundary_light(dimension, position, channel)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingPrior {
+        light_reads: Cell<usize>,
+        provenance_reads: Cell<usize>,
+        boundary_reads: Cell<usize>,
+    }
+
+    impl LightReadAccess for RecordingPrior {
+        fn read_light(&self, _dimension: i32, _position: BlockPos, _channel: LightChannel) -> u8 {
+            self.light_reads.set(self.light_reads.get() + 1);
+            17
+        }
+
+        fn has_direct_sky_provenance(&self, _dimension: i32, _position: BlockPos) -> bool {
+            self.provenance_reads.set(self.provenance_reads.get() + 1);
+            true
+        }
+
+        fn boundary_light(
+            &self,
+            _dimension: i32,
+            _position: BlockPos,
+            _channel: LightChannel,
+        ) -> BoundaryLightSample {
+            self.boundary_reads.set(self.boundary_reads.get() + 1);
+            BoundaryLightSample::trusted(9, true).unwrap()
+        }
+    }
+
+    #[test]
+    fn prior_cache_is_raw_inside_and_forwards_every_outside_or_boundary_read() {
+        let source = RecordingPrior::default();
+        let position = BlockPos::new(4, 5, 6);
+        let bounds = LightBounds::new(3, position, position).unwrap();
+        let cache = CachedLightReadAccess::new(&source, bounds, 1);
+
+        assert_eq!(cache.read_light(3, position, LightChannel::Sky), 17);
+        assert_eq!(cache.read_light(3, position, LightChannel::Sky), 17);
+        assert_eq!(source.light_reads.get(), 1);
+        assert!(cache.has_direct_sky_provenance(3, position));
+        assert!(cache.has_direct_sky_provenance(3, position));
+        assert_eq!(source.provenance_reads.get(), 1);
+
+        let outside = BlockPos::new(5, 5, 6);
+        for (dimension, read_position) in [(4, position), (3, outside)] {
+            assert_eq!(
+                cache.read_light(dimension, read_position, LightChannel::Sky),
+                17
+            );
+            assert!(cache.has_direct_sky_provenance(dimension, read_position));
+        }
+        assert_eq!(source.light_reads.get(), 3);
+        assert_eq!(source.provenance_reads.get(), 3);
+
+        let expected = BoundaryLightSample::trusted(9, true).unwrap();
+        assert_eq!(
+            cache.boundary_light(3, outside, LightChannel::Sky),
+            expected
+        );
+        assert_eq!(
+            cache.boundary_light(3, outside, LightChannel::Sky),
+            expected
+        );
+        assert_eq!(source.boundary_reads.get(), 2);
+    }
+}
