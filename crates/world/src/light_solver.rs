@@ -925,7 +925,7 @@ impl MutableOutput {
                 .or_insert_with(|| SubChunkLight::dark(self.generation));
             for channel in [LightChannel::Block, LightChannel::Sky] {
                 light
-                    .set(
+                    .set_deferred(
                         channel,
                         x,
                         y,
@@ -934,6 +934,9 @@ impl MutableOutput {
                     )
                     .expect("solver only emits validated nibble values");
             }
+        }
+        for light in sub_chunks.values_mut() {
+            light.canonicalize();
         }
         LightSolveOutput {
             dimension: self.bounds.dimension,

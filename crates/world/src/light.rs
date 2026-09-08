@@ -4,6 +4,11 @@ use thiserror::Error;
 
 use crate::{ChunkKey, SubChunkKey};
 
+#[cfg(test)]
+thread_local! {
+    static COLLAPSE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Number of light samples in one 16x16x16 sub-chunk.
 pub const LIGHT_SAMPLES_PER_SUB_CHUNK: usize = 16 * 16 * 16;
 const PACKED_LIGHT_BYTES: usize = LIGHT_SAMPLES_PER_SUB_CHUNK / 2;
@@ -73,6 +78,14 @@ impl LightNibbleStorage {
 
     /// Writes one sample, allocating packed bytes only when the value differs.
     pub fn set(&mut self, index: usize, value: u8) -> Result<bool, LightStorageError> {
+        let changed = self.set_without_collapse(index, value)?;
+        if changed {
+            self.collapse_if_uniform();
+        }
+        Ok(changed)
+    }
+
+    fn set_without_collapse(&mut self, index: usize, value: u8) -> Result<bool, LightStorageError> {
         validate_light(value)?;
         if index >= LIGHT_SAMPLES_PER_SUB_CHUNK {
             return Err(LightStorageError::IndexOutOfRange { index });
@@ -95,7 +108,6 @@ impl LightNibbleStorage {
         } else {
             *slot = (*slot & 0x0f) | (value << 4);
         }
-        self.collapse_if_uniform();
         Ok(true)
     }
 
@@ -132,6 +144,8 @@ impl LightNibbleStorage {
     }
 
     fn collapse_if_uniform(&mut self) {
+        #[cfg(test)]
+        COLLAPSE_CALLS.set(COLLAPSE_CALLS.get() + 1);
         let LightNibbleRepresentation::Packed(bytes) = &self.representation else {
             return;
         };
@@ -139,6 +153,179 @@ impl LightNibbleStorage {
         let repeated = first | (first << 4);
         if bytes.iter().all(|&byte| byte == repeated) {
             self.representation = LightNibbleRepresentation::Uniform(first);
+        }
+    }
+}
+
+#[cfg(test)]
+mod packing_tests {
+    use super::*;
+    use crate::{
+        BlockPos, DimensionLightProfile, EmptyLight, LightBlockAccess, LightBlockSample,
+        LightBounds, SolverLimits, solve_light,
+    };
+
+    struct FullSky;
+
+    impl LightBlockAccess for FullSky {
+        fn sample(&self, _position: BlockPos) -> LightBlockSample {
+            LightBlockSample::KnownAir
+        }
+
+        fn sky_seed(&self, _position: BlockPos) -> u8 {
+            15
+        }
+    }
+
+    #[test]
+    fn solver_canonicalizes_each_output_channel_at_most_once() {
+        let bounds =
+            LightBounds::new(0, BlockPos::new(0, 0, 0), BlockPos::new(15, 15, 15)).unwrap();
+        COLLAPSE_CALLS.set(0);
+
+        let output = solve_light(
+            &FullSky,
+            &EmptyLight,
+            bounds,
+            73,
+            DimensionLightProfile::Overworld {
+                direct_sky_down: true,
+            },
+            SolverLimits::new(LIGHT_SAMPLES_PER_SUB_CHUNK, 1_000_000),
+        )
+        .unwrap();
+
+        assert!(
+            COLLAPSE_CALLS.get() <= 2,
+            "one solved subchunk performed {} uniform-collapse scans",
+            COLLAPSE_CALLS.get()
+        );
+        let light = output
+            .sub_chunks()
+            .get(&SubChunkKey::new(0, 0, 0, 0))
+            .unwrap();
+        assert_eq!(light.generation(), 73);
+        assert!(light.channel(LightChannel::Block).is_uniform());
+        assert!(light.channel(LightChannel::Sky).is_uniform());
+        assert_eq!(light.channel(LightChannel::Block).allocated_bytes(), 0);
+        assert_eq!(light.channel(LightChannel::Sky).allocated_bytes(), 0);
+        assert_eq!(light.get(LightChannel::Sky, 15, 15, 15), Some(15));
+    }
+
+    #[test]
+    fn deferred_subchunk_writes_match_public_scalar_canonicalization() {
+        let patterns = [
+            vec![0; LIGHT_SAMPLES_PER_SUB_CHUNK],
+            vec![15; LIGHT_SAMPLES_PER_SUB_CHUNK],
+            vec![10; LIGHT_SAMPLES_PER_SUB_CHUNK],
+            (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
+                .map(|index| u8::try_from(index & 1).unwrap() * 15)
+                .collect(),
+            (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
+                .map(|index| u8::try_from((index * 7 + index / 19) & 15).unwrap())
+                .collect(),
+            {
+                let mut one_changed = vec![0; LIGHT_SAMPLES_PER_SUB_CHUNK];
+                one_changed[2_047] = 9;
+                one_changed
+            },
+        ];
+
+        for values in patterns {
+            let mut scalar = SubChunkLight::dark(81);
+            let mut deferred = SubChunkLight::dark(81);
+            for x in 0..16 {
+                for z in 0..16 {
+                    for y in 0..16 {
+                        let index = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
+                        for (channel, value) in [
+                            (LightChannel::Block, values[index]),
+                            (LightChannel::Sky, 15 - values[index]),
+                        ] {
+                            scalar.set(channel, x, y, z, value).unwrap();
+                            deferred.set_deferred(channel, x, y, z, value).unwrap();
+                        }
+                    }
+                }
+            }
+            COLLAPSE_CALLS.set(0);
+            deferred.canonicalize();
+
+            assert_eq!(deferred, scalar);
+            assert_eq!(COLLAPSE_CALLS.get(), 2);
+        }
+    }
+
+    #[test]
+    fn deferred_subchunk_writes_preserve_scalar_validation() {
+        let mut light = SubChunkLight::dark(91);
+
+        assert_eq!(
+            light.set_deferred(LightChannel::Block, 16, 0, 0, 0),
+            Err(LightStorageError::IndexOutOfRange {
+                index: LIGHT_SAMPLES_PER_SUB_CHUNK
+            })
+        );
+        assert_eq!(
+            light.set_deferred(LightChannel::Block, 0, 0, 0, 16),
+            Err(LightStorageError::ValueOutOfRange { value: 16 })
+        );
+        assert_eq!(light, SubChunkLight::dark(91));
+    }
+
+    #[test]
+    fn solver_freeze_preserves_partial_negative_and_i32_edge_mapping() {
+        let cases = [
+            (
+                BlockPos::new(-1, 0, 0),
+                BlockPos::new(0, 0, 0),
+                vec![BlockPos::new(-1, 0, 0), BlockPos::new(0, 0, 0)],
+            ),
+            (
+                BlockPos::new(i32::MAX, i32::MAX, i32::MAX),
+                BlockPos::new(i32::MAX, i32::MAX, i32::MAX),
+                vec![BlockPos::new(i32::MAX, i32::MAX, i32::MAX)],
+            ),
+        ];
+
+        for (min, max, positions) in cases {
+            let bounds = LightBounds::new(0, min, max).unwrap();
+            let output = solve_light(
+                &FullSky,
+                &EmptyLight,
+                bounds,
+                92,
+                DimensionLightProfile::Overworld {
+                    direct_sky_down: true,
+                },
+                SolverLimits::new(positions.len(), 1_000_000),
+            )
+            .unwrap();
+            let mut expected = std::collections::BTreeMap::new();
+            for position in positions {
+                let key = SubChunkKey::new(
+                    0,
+                    position.x.div_euclid(16),
+                    position.y.div_euclid(16),
+                    position.z.div_euclid(16),
+                );
+                let light = expected
+                    .entry(key)
+                    .or_insert_with(|| SubChunkLight::dark(92));
+                light
+                    .set(
+                        LightChannel::Sky,
+                        position.x.rem_euclid(16) as u8,
+                        position.y.rem_euclid(16) as u8,
+                        position.z.rem_euclid(16) as u8,
+                        15,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(output.sub_chunks().len(), expected.len());
+            for (key, expected_light) in expected {
+                assert_eq!(output.sub_chunks()[&key].as_ref(), &expected_light);
+            }
         }
     }
 }
@@ -223,6 +410,25 @@ impl SubChunkLight {
             index: LIGHT_SAMPLES_PER_SUB_CHUNK,
         })?;
         self.channel_mut(channel).set(index, value)
+    }
+
+    pub(crate) fn set_deferred(
+        &mut self,
+        channel: LightChannel,
+        x: u8,
+        y: u8,
+        z: u8,
+        value: u8,
+    ) -> Result<bool, LightStorageError> {
+        let index = local_index(x, y, z).ok_or(LightStorageError::IndexOutOfRange {
+            index: LIGHT_SAMPLES_PER_SUB_CHUNK,
+        })?;
+        self.channel_mut(channel).set_without_collapse(index, value)
+    }
+
+    pub(crate) fn canonicalize(&mut self) {
+        self.block.collapse_if_uniform();
+        self.sky.collapse_if_uniform();
     }
 
     /// Returns a channel without exposing mutable packed bytes.
