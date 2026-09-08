@@ -367,6 +367,8 @@ impl WorldStream {
             direct_sky_changed,
             changed_faces,
         } = solved;
+        let monotonic_faces =
+            self.monotonic_light_faces(completion.key, &replacement, direct_sky.as_ref());
         if used_uniform_fast_path {
             self.stats.light_uniform_fast_path_jobs =
                 self.stats.light_uniform_fast_path_jobs.saturating_add(1);
@@ -397,12 +399,13 @@ impl WorldStream {
             self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
             self.stats.noop_light_jobs = self.stats.noop_light_jobs.saturating_add(1);
-            self.finish_accepted_light_completion(
+            self.finish_accepted_light_completion_with_dominance(
                 completion.key,
                 completion.identity.batch_id,
                 &current_direct,
                 changed_faces,
                 completion.identity.urgent,
+                monotonic_faces,
             );
             return;
         }
@@ -429,12 +432,13 @@ impl WorldStream {
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
             self.stats.provenance_only_light_jobs =
                 self.stats.provenance_only_light_jobs.saturating_add(1);
-            self.finish_accepted_light_completion(
+            self.finish_accepted_light_completion_with_dominance(
                 completion.key,
                 completion.identity.batch_id,
                 &new_direct,
                 changed_faces,
                 completion.identity.urgent,
+                monotonic_faces,
             );
             return;
         }
@@ -471,14 +475,16 @@ impl WorldStream {
             completion.identity.urgent,
         );
 
-        self.finish_accepted_light_completion(
+        self.finish_accepted_light_completion_with_dominance(
             completion.key,
             completion.identity.batch_id,
             &new_direct,
             changed_faces,
             completion.identity.urgent,
+            monotonic_faces,
         );
     }
+    #[cfg(test)]
     pub(in crate::stream) fn finish_accepted_light_completion(
         &mut self,
         key: SubChunkKey,
@@ -486,6 +492,24 @@ impl WorldStream {
         direct_sky: &StoredDirectSky,
         changed_faces: [bool; 6],
         urgent: bool,
+    ) {
+        self.finish_accepted_light_completion_with_dominance(
+            key,
+            batch_id,
+            direct_sky,
+            changed_faces,
+            urgent,
+            [false; 6],
+        );
+    }
+    fn finish_accepted_light_completion_with_dominance(
+        &mut self,
+        key: SubChunkKey,
+        batch_id: u64,
+        direct_sky: &StoredDirectSky,
+        changed_faces: [bool; 6],
+        urgent: bool,
+        monotonic_faces: [bool; 6],
     ) {
         let mut requeue = self.light_waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
@@ -522,6 +546,9 @@ impl WorldStream {
             }
         }
         for neighbour in requeue {
+            if self.current_known_air_dominates_source_face(key, neighbour, monotonic_faces) {
+                continue;
+            }
             if let Some(pending) = self.pending_light.get_mut(&neighbour) {
                 let revision = pending.revision;
                 let effective_urgent = urgent || pending.urgent;
