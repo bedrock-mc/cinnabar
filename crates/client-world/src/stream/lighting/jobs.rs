@@ -524,7 +524,8 @@ impl WorldStream {
         for neighbour in requeue {
             if let Some(pending) = self.pending_light.get_mut(&neighbour) {
                 let revision = pending.revision;
-                if urgent {
+                let effective_urgent = urgent || pending.urgent;
+                if effective_urgent {
                     pending.urgent = true;
                     self.pending_light_scan.push_front((neighbour, revision));
                 } else {

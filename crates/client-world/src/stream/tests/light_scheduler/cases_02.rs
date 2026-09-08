@@ -529,35 +529,50 @@ fn mutually_dependent_lit_air_regions_converge() {
 
 #[test]
 fn settled_dependency_wakeup_preserves_an_already_pending_target_revision() {
-    for urgent in [false, true] {
-        let mut stream = lit_stream(1);
-        let source = SubChunkKey::new(1, 0, 0, 0);
-        let target = SubChunkKey::new(1, 1, 0, 0);
-        install_current_light(&mut stream, source, 15, 0, false);
-        install_current_light(&mut stream, target, 14, 0, false);
-        let pending_revision = stream.mark_light_dirty_exact(target).unwrap();
-        stream
-            .light_waiters
-            .entry(source)
-            .or_default()
-            .insert(target);
-        let direct_sky = stream.direct_sky[&source].clone();
+    for pending_urgent in [false, true] {
+        for source_urgent in [false, true] {
+            let mut stream = lit_stream(1);
+            let source = SubChunkKey::new(1, 0, 0, 0);
+            let target = SubChunkKey::new(1, 1, 0, 0);
+            install_current_light(&mut stream, source, 15, 0, false);
+            install_current_light(&mut stream, target, 14, 0, false);
+            let pending_revision = stream
+                .mark_light_dirty_exact_with_priority(target, pending_urgent)
+                .unwrap();
+            let queued_at = stream.pending_light[&target].queued_at;
+            stream.pending_light_scan.clear();
+            stream
+                .light_waiters
+                .entry(source)
+                .or_default()
+                .insert(target);
+            let direct_sky = stream.direct_sky[&source].clone();
 
-        stream.finish_accepted_light_completion(source, 1, &direct_sky, [false; 6], urgent);
+            stream.finish_accepted_light_completion(
+                source,
+                1,
+                &direct_sky,
+                [false; 6],
+                source_urgent,
+            );
 
-        assert_eq!(stream.pending_light[&target].revision, pending_revision);
-        assert_eq!(stream.pending_light[&target].urgent, urgent);
-        assert_eq!(
-            stream.light_priority_wakeups.get(&target),
-            Some(&pending_revision)
-        );
-        assert!(!stream.light_waiters.contains_key(&source));
-        let queued = if urgent {
-            stream.pending_light_scan.front()
-        } else {
-            stream.pending_light_scan.back()
-        };
-        assert_eq!(queued, Some(&(target, pending_revision)));
+            assert_eq!(stream.pending_light[&target].revision, pending_revision);
+            assert_eq!(stream.pending_light[&target].queued_at, queued_at);
+            let effective_urgent = pending_urgent || source_urgent;
+            assert_eq!(stream.pending_light[&target].urgent, effective_urgent);
+            assert_eq!(
+                stream.light_priority_wakeups.get(&target),
+                Some(&pending_revision)
+            );
+            assert!(!stream.light_waiters.contains_key(&source));
+            let queued = if effective_urgent {
+                stream.pending_light_scan.front()
+            } else {
+                stream.pending_light_scan.back()
+            };
+            assert_eq!(queued, Some(&(target, pending_revision)));
+            assert_eq!(stream.pending_light_scan.len(), 1);
+        }
     }
 }
 
@@ -590,6 +605,62 @@ fn ordinary_dependency_wakeup_requeues_a_consumed_pending_candidate() {
     settle_light(&mut stream, camera);
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_waiters.is_empty());
+}
+
+#[test]
+fn ordinary_dependency_wakeup_restores_a_consumed_urgent_candidate_to_the_front() {
+    let mut stream = lit_stream(0);
+    let top = SubChunkKey::new(0, 0, 19, 0);
+    let below = SubChunkKey::new(0, 0, 18, 0);
+    let ordinary = SubChunkKey::new(0, 2, 19, 0);
+    for key in [top, below, ordinary] {
+        install_current_light(&mut stream, key, 0, 0, false);
+    }
+    stream.mark_light_dirty_exact(top).unwrap();
+    let camera = [8.0, 296.0, 8.0];
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    let top_completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("upper light completion");
+
+    let below_revision = stream
+        .mark_light_dirty_exact_with_priority(below, true)
+        .unwrap();
+    let below_queued_at = stream.pending_light[&below].queued_at;
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 0);
+    assert!(stream.light_waiters[&top].contains(&below));
+    assert!(stream.pending_light_scan.is_empty());
+    let ordinary_revision = stream.mark_light_dirty_exact(ordinary).unwrap();
+    assert_eq!(
+        stream.pending_light_scan.front(),
+        Some(&(ordinary, ordinary_revision))
+    );
+
+    stream.accept_light_completion(top_completion);
+
+    assert_eq!(stream.pending_light[&below].revision, below_revision);
+    assert_eq!(stream.pending_light[&below].queued_at, below_queued_at);
+    assert!(stream.pending_light[&below].urgent);
+    assert_eq!(
+        stream.pending_light_scan.front(),
+        Some(&(below, below_revision))
+    );
+    assert_eq!(
+        stream.pending_light_scan.back(),
+        Some(&(ordinary, ordinary_revision))
+    );
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    assert!(stream.in_flight_light.contains_key(&below));
+    settle_light(&mut stream, camera);
+    assert!(
+        [top, below, ordinary]
+            .into_iter()
+            .all(|key| stream.light_is_current(key))
+    );
     assert!(stream.pending_light.is_empty());
     assert!(stream.in_flight_light.is_empty());
     assert!(stream.light_waiters.is_empty());
