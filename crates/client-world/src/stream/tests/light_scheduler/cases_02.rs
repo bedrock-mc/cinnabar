@@ -1,5 +1,71 @@
 use super::*;
 #[test]
+fn removing_waiter_target_has_face_bounded_work_and_exact_graph_effect() {
+    for target in [
+        SubChunkKey::new(1, 10, 20, 30),
+        SubChunkKey::new(1, i32::MIN, i32::MAX, i32::MIN),
+    ] {
+        let mut stream = lit_stream(target.dimension);
+        let adjacent_sources = target
+            .mesh_dependents()
+            .filter(|source| *source != target)
+            .collect::<BTreeSet<_>>();
+        for source in &adjacent_sources {
+            let retained_waiter = source
+                .mesh_dependents()
+                .find(|waiter| *waiter != *source && *waiter != target)
+                .unwrap();
+            stream
+                .light_waiters
+                .entry(*source)
+                .or_default()
+                .extend([target, retained_waiter]);
+        }
+        for offset in 0..256 {
+            let unrelated_source = SubChunkKey::new(
+                2,
+                offset,
+                offset.saturating_mul(2),
+                offset.saturating_mul(3),
+            );
+            let unrelated_waiter =
+                SubChunkKey::new(2, offset.saturating_add(1), offset * 2, offset * 3);
+            stream
+                .light_waiters
+                .entry(unrelated_source)
+                .or_default()
+                .insert(unrelated_waiter);
+        }
+        let before = stream.light_waiters.clone();
+
+        let probes = stream.remove_light_waiter_target(target);
+
+        assert!(probes <= 6, "target removal probed {probes} waiter sources");
+        let mut expected = before;
+        for source in adjacent_sources {
+            let waiters = expected.get_mut(&source).unwrap();
+            waiters.remove(&target);
+            if waiters.is_empty() {
+                expected.remove(&source);
+            }
+        }
+        assert_eq!(stream.light_waiters, expected);
+    }
+
+    let mut stream = lit_stream(0);
+    let target = SubChunkKey::new(0, 0, 0, 0);
+    for source in target.mesh_dependents().filter(|source| *source != target) {
+        stream
+            .light_waiters
+            .entry(source)
+            .or_default()
+            .insert(target);
+    }
+    assert!(stream.remove_light_waiter_target(target) <= 6);
+    assert!(stream.light_waiters.is_empty());
+}
+
+#[test]
 fn equivalent_block_light_properties_skip_relighting() {
     let mut stream = lit_stream(0);
     let opaque = super::uniform_sub_chunk(2);

@@ -152,11 +152,23 @@ impl WorldStream {
         self.light_waiters.remove(&key);
         self.remove_light_waiter_target(key);
     }
-    pub(in crate::stream) fn remove_light_waiter_target(&mut self, key: SubChunkKey) {
-        self.light_waiters.retain(|_, waiters| {
-            waiters.remove(&key);
-            !waiters.is_empty()
-        });
+    pub(in crate::stream) fn remove_light_waiter_target(&mut self, key: SubChunkKey) -> usize {
+        // Waiter edges are registered only for face-adjacent light dependencies:
+        // the upper skylight dependency and `register_untrusted_light_waiters`.
+        // Therefore `key` can occur only in a face neighbour's waiter set.
+        let mut probes = 0;
+        for source in key.mesh_dependents().filter(|source| *source != key) {
+            probes += 1;
+            if let std::collections::hash_map::Entry::Occupied(mut entry) =
+                self.light_waiters.entry(source)
+            {
+                entry.get_mut().remove(&key);
+                if entry.get().is_empty() {
+                    entry.remove();
+                }
+            }
+        }
+        probes
     }
     #[cfg(test)]
     pub(in crate::stream) fn mark_light_dirty_exact(&mut self, key: SubChunkKey) -> Option<u64> {
