@@ -20,6 +20,7 @@ type cacheBoundaryTelemetry struct {
 	ordinaryLevelChunks atomic.Uint64
 	cachedSubChunks     atomic.Uint64
 	ordinarySubChunks   atomic.Uint64
+	loadingOrder        loadingOrderTrace
 }
 
 type cacheBoundarySnapshot struct {
@@ -29,6 +30,7 @@ type cacheBoundarySnapshot struct {
 	ordinaryLevelChunks   uint64
 	cachedSubChunks       uint64
 	ordinarySubChunks     uint64
+	loadingOrder          loadingOrderTraceSnapshot
 }
 
 func (telemetry *cacheBoundaryTelemetry) observeUpstreamPacket(
@@ -36,6 +38,7 @@ func (telemetry *cacheBoundaryTelemetry) observeUpstreamPacket(
 	payload []byte,
 	_, _ net.Addr,
 ) {
+	telemetry.loadingOrder.observeUpstreamCallback(header, payload)
 	if header.PacketID != packet.IDClientCacheStatus || len(payload) != 1 || payload[0] > 1 {
 		return
 	}
@@ -47,6 +50,7 @@ func (telemetry *cacheBoundaryTelemetry) observeUpstreamPacket(
 }
 
 func (telemetry *cacheBoundaryTelemetry) observeRelayPacket(value packet.Packet) {
+	telemetry.loadingOrder.observeRelay(value)
 	switch value := value.(type) {
 	case *packet.LevelChunk:
 		if value.CacheEnabled {
@@ -72,11 +76,14 @@ func (telemetry *cacheBoundaryTelemetry) snapshot() cacheBoundarySnapshot {
 		ordinaryLevelChunks:   telemetry.ordinaryLevelChunks.Load(),
 		cachedSubChunks:       telemetry.cachedSubChunks.Load(),
 		ordinarySubChunks:     telemetry.ordinarySubChunks.Load(),
+		loadingOrder:          telemetry.loadingOrder.snapshot(),
 	}
 }
 
 func (telemetry *cacheBoundaryTelemetry) report(logger *slog.Logger) {
 	snapshot := telemetry.snapshot()
+	upstreamCaptured := min(snapshot.loadingOrder.UpstreamCallback.UpdateCount, loadingOrderTraceLimit)
+	relayCaptured := min(snapshot.loadingOrder.Relay.UpdateCount, loadingOrderTraceLimit)
 	logger.Info(
 		"PHASE2_CACHE_BOUNDARY",
 		"upstream_status_seen", snapshot.upstreamStatusSeen,
@@ -85,6 +92,15 @@ func (telemetry *cacheBoundaryTelemetry) report(logger *slog.Logger) {
 		"ordinary_level_chunks", snapshot.ordinaryLevelChunks,
 		"cached_sub_chunks", snapshot.cachedSubChunks,
 		"ordinary_sub_chunks", snapshot.ordinarySubChunks,
+		"publisher_trace_limit", loadingOrderTraceLimit,
+		"upstream_callback_publisher_update_count", snapshot.loadingOrder.UpstreamCallback.UpdateCount,
+		"upstream_callback_publisher_overflow_count", snapshot.loadingOrder.UpstreamCallback.OverflowCount,
+		"upstream_callback_publisher_invalid_count", snapshot.loadingOrder.UpstreamCallback.InvalidCount,
+		"upstream_callback_publisher_updates", snapshot.loadingOrder.UpstreamCallback.Updates[:upstreamCaptured],
+		"relay_publisher_update_count", snapshot.loadingOrder.Relay.UpdateCount,
+		"relay_publisher_overflow_count", snapshot.loadingOrder.Relay.OverflowCount,
+		"relay_publisher_invalid_count", snapshot.loadingOrder.Relay.InvalidCount,
+		"relay_publisher_updates", snapshot.loadingOrder.Relay.Updates[:relayCaptured],
 	)
 }
 
@@ -101,10 +117,5 @@ func flipUpstreamClientCacheStatus(payload []byte) {
 }
 
 func atomicSaturatingIncrement(counter *atomic.Uint64) {
-	for {
-		current := counter.Load()
-		if current == ^uint64(0) || counter.CompareAndSwap(current, current+1) {
-			return
-		}
-	}
+	_ = atomicSaturatingIncrementValue(counter)
 }
