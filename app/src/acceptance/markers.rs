@@ -16,6 +16,7 @@ pub(crate) const FAST_TRANSFER_PACKET_TRACE: &str = "RUST_MCBE_FAST_TRANSFER_PAC
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
     "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
+pub(crate) const LOADING_MILESTONE: &str = "RUST_MCBE_LOADING_MILESTONE";
 pub(crate) const MODEL_WITNESS_COMPLETE: &str = "RUST_MCBE_MODEL_WITNESS_COMPLETE";
 pub(crate) const MOVEMENT_TRACE: &str = "RUST_MCBE_MOVEMENT_TRACE";
 pub(crate) const MOVE_PLAYER_INGRESS: &str = "RUST_MCBE_MOVE_PLAYER_INGRESS";
@@ -75,6 +76,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
         MarkerContract::ParsedEvidence,
     ),
     (GALLERY_ANCHOR_READY, MarkerContract::ParsedEvidence),
+    (LOADING_MILESTONE, MarkerContract::LogOnlyDiagnostic),
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),
     (MOVEMENT_TRACE, MarkerContract::EnvironmentVariable),
@@ -243,7 +245,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 35);
+        assert_eq!(names.len(), 36);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

@@ -346,6 +346,11 @@ kind = "log_only"
 producer = "app/src/acceptance/markers.rs"
 
 [[markers]]
+literal = "RUST_MCBE_LOADING_MILESTONE"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
 literal = "RUST_MCBE_SHUTDOWN_COMPLETED"
 kind = "log_only"
 producer = "app/src/acceptance/markers.rs"
