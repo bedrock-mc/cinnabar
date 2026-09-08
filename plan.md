@@ -129,9 +129,34 @@ change is rejected, and the uncommitted diagnostic tests remain isolated.
 No new production behavior from that investigation is integrated.
 A separate isolated dependency lane, `fix/loading-batch-order-20260908` from
 `649c0eda`, reproduced a concurrent FIFO violation between the deferred and ready
-batch queues and is implementing a bounded fix. It has not yet established the
-cause of the live publisher-radius discrepancy. Lighting changes are paused until
-the corrected packet order can be tested live.
+batch queues. The complete `649c0eda..f2586456` fix received fresh independent
+APPROVE with no findings and is integrated locally on `resource-pack-changes` in
+`3d9f4b7a`. The mutex-protected ring preserves batch order, login deferral and
+close/deadline draining; normal full-backlog operations neither relocate entries
+nor allocate, consumed references clear, and drained burst storage returns to eight
+slots. The earlier review's compaction and retained-reference findings have
+deterministic RED/GREEN regressions. Fresh integrated Go tests and vet passed,
+excluding only two unchanged packet-timer assertions that also fail on the untouched
+base on Windows. Race instrumentation remains unavailable without a C compiler.
+Full Cinnabar core tests, vet and build passed with an ignored local module override;
+the public dependency pin is unchanged, and the fork is not published.
+
+With the same release renderer and this core, a normal Lifeboat run loaded all
+257 columns / 3,035 subchunks and rendered 1,863. Logical terrain readiness was
+29.063 s; work drained approximately 85.42 s after connection with 90,717 accepted
+light jobs. This is one combined-change run, not isolated causal attribution or
+vanilla-speed acceptance. A fresh repeat still loaded only 25 columns / 298
+subchunks despite 258 ordinary chunk packets at the bridge, so the fixed FIFO race
+does not resolve the publisher-area discrepancy. Zeqa retained its usual 224
+columns / 5,376 subchunks; logical readiness was 39.879 s and work drained in
+approximately 40.71 s with 37,323 light jobs. No compiler or test ran during these
+measurements, but substantial unrelated/background process CPU was observed after
+the Zeqa run; its timing is not a clean causal comparison. All three launches
+reused the saved auth bundle and service token without rewriting the sidecar.
+Lighting changes remain paused while `fix/loading-publisher-trace-20260908`, from
+`10f14313`, adds bounded upstream-callback versus relay publisher metadata for
+attribution. That diagnostic is not yet reviewed or integrated and makes no
+publisher-behavior change.
 All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
