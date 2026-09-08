@@ -58,10 +58,20 @@ and 5,376 subchunks. These are one-second observer measurements after connection
 not loading-screen durations: the lobby can render before all work drains.
 An earlier waiter-only Lifeboat run took approximately 81 s to drain, also with
 the lobby visible sooner. Normal uncapped runs are not the capped resource-budget
-gate, and no matched vanilla speed comparison is established. A deterministic
-cross-column lighting-convergence investigation remains in progress on isolated
-`fix/light-convergence-20260908` from `b0635a7a`; no candidate from that lane is
-integrated. All changes in this loading-only checkpoint are local, not pushed.
+gate, and no matched vanilla speed comparison is established. The complete
+`b0635a7a..e4043212` waiter-coalescing range received independent APPROVE with no
+findings and is integrated in `86ac5fc2`. Pending wakeups retain their revision
+and queue age, restore consumed scheduling candidates, and preserve urgency;
+in-flight-only targets still receive invalidating revisions. Both earlier review
+findings have dispatch-driven regressions. Fresh world/client-world/meshing tests,
+strict all-target Clippy, formatting and architecture checks passed. The analytical
+3-by-3 emitter witness verifies every light channel and final current/empty state,
+but controlled accepted work remains 21 jobs: this is not the full convergence fix.
+A bounded regional-lighting experiment is isolated on
+`fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. It must
+preserve exact light, atomic stale-result rejection, existing work limits and the
+full-view known-air release gate; review and native performance remain open.
+All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
