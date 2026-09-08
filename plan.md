@@ -74,10 +74,27 @@ lighting after 180.30 s; it eventually drained after 194,505 accepted light jobs
 That is a failed loading-performance result, not an improvement claim. All four
 fresh native launches reused the saved auth bundle and valid service credentials
 without refresh. No compiler or test ran during these native measurements.
-A bounded regional-lighting experiment is isolated on
-`fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. It must
-preserve exact light, atomic stale-result rejection, existing work limits and the
-full-view known-air release gate; review and native performance remain open.
+A bounded regional-lighting experiment remains isolated on
+`fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. Controlled
+initial-load comparisons did not justify its complexity, so batching is excluded
+from the shipping candidate. A smaller current-air boundary check is in progress
+on `fix/light-boundary-dominance-20260908` from `c51ba65a`. It may suppress a
+neighbor's light requeue only when every new contribution is already covered by
+current light and the source face has no level or direct-sky provenance loss.
+Unknown, stale, dirty, in-flight and non-air targets retain existing behavior;
+mesh invalidation is independent. Full tests, review and live performance remain open.
+
+Independently approved `7b089c7e` is integrated in `c51ba65a`. It adds a bounded
+once-per-session logical terrain-ready timestamp without changing readiness
+thresholds or presentation behavior. Fresh post-integration verification passed
+all 950 app-library tests, strict all-target Clippy, formatting, architecture and
+the release build. The first Windows/DX12 Zeqa run with this diagnostic reported
+23.862 s from the first connected-session observation to logical terrain readiness.
+The full terrain pipeline drained approximately 25.13 s after upstream connection,
+with 32,988 accepted light jobs and the same 224-column, 5,376-subchunk cohort.
+The actual lobby rendered, saved authentication was reused without refresh or
+sidecar rewrite, and no compiler or test ran during measurement. This is a
+pre-boundary-check baseline, not an optimization result or exact first-pixel time.
 All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
