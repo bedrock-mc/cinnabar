@@ -25,6 +25,44 @@ PowerShell and Windows-native checks were not run locally. Cinnabar CI will run
 on the authorized push; its result is not part of this local verification record.
 No live vanilla or native acceptance gate is closed.
 
+2026-09-08 loading-only local checkpoint: upstream was pulled through `3438c89d`;
+the broader completion track remains paused. Independently approved lighting
+tranches `ef5d0ea6`, `f99eb3ab`/`d7216891`, and `b0635a7a` bound waiter cleanup to
+the six possible face sources, cache retained light reads within one bounded solve,
+and canonicalize packed output once per channel instead of after every voxel write.
+The fixed retained-light witness covers exact channels, provenance, storage and
+queue statistics against the pre-change result. Fresh world/client-world/meshing
+tests, strict all-target Clippy, formatting, architecture checks, and the release
+client build passed. These local changes do not close lighting parity or performance.
+
+The complete persistent-auth range `3438c89d..e96589d1` received independent
+APPROVE with no findings and is integrated history-preservingly in `9179f145`.
+The optional owner-restricted, bounded disk sidecar preserves expiry-checked
+device/proof-key, Xbox and service credentials across processes. OAuth material,
+client configuration and freshly discovered service environment bind reuse;
+each connection still receives a newly minted credential. Invalid/unsafe caches
+are optional misses, and derived writes require a verified exclusive lease.
+Fresh full Go tests, vet and the production core build passed. Darwin authcache
+tests compile but were not executed on macOS; race instrumentation remains
+unavailable locally without a C compiler. Discovery/JWKS caches, NetherNet's
+separate service path and cross-process OAuth refresh coordination are unchanged.
+
+Windows/DX12 live Zeqa cold and fresh-process warm launches reached the lobby.
+The warm process reported a bound disk-cache hit and service reuse without
+rewriting the sidecar. Connection time was 5.625 s cold versus 3.635 s warm in
+that pair, including the server's pre-login transfer. Expiry and rejection handling
+have synthetic regression coverage, not a forced real-credential expiry test.
+With the same `b0635a7a` release renderer, full terrain work drained in 33.933 s
+on the warm run but took 144.006 s on an earlier run; both ended at 224 columns
+and 5,376 subchunks. These are one-second observer measurements after connection,
+not loading-screen durations: the lobby can render before all work drains.
+An earlier waiter-only Lifeboat run took approximately 81 s to drain, also with
+the lobby visible sooner. Normal uncapped runs are not the capped resource-budget
+gate, and no matched vanilla speed comparison is established. A deterministic
+cross-column lighting-convergence investigation remains in progress on isolated
+`fix/light-convergence-20260908` from `b0635a7a`; no candidate from that lane is
+integrated. All changes in this loading-only checkpoint are local, not pushed.
+
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
 plus the Windows physics-install shell-test correction. Independent reviews approved
