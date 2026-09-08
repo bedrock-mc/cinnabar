@@ -81,18 +81,24 @@ pub(crate) fn publish_ui_runtime(
                 });
         let render_work_drained =
             render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
-        let startup_released = presentation.startup.observe(StartupReadinessInput {
-            session_generation: runtime.session_id(),
-            connected,
-            diagnostics_frame_generation: diagnostics_input.frame_generation(),
-            snapshot: visibility_diagnostics.snapshot(),
-            visible_rendered: visibility.visible_rendered,
-            cohort_target_complete: frame_poll
-                .cohort
-                .is_some_and(|status| status.target_is_complete()),
-            stream_work_drained,
-            render_work_drained,
-        });
+        let (startup_released, loading_milestone) = presentation.startup.observe_with_milestone(
+            StartupReadinessInput {
+                session_generation: runtime.session_id(),
+                connected,
+                diagnostics_frame_generation: diagnostics_input.frame_generation(),
+                snapshot: visibility_diagnostics.snapshot(),
+                visible_rendered: visibility.visible_rendered,
+                cohort_target_complete: frame_poll
+                    .cohort
+                    .is_some_and(|status| status.target_is_complete()),
+                stream_work_drained,
+                render_work_drained,
+            },
+            now_millis,
+        );
+        if let Some(milestone) = loading_milestone {
+            eprintln!("{milestone}");
+        }
         diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
         presentation.set_loading_message(if !connected {
             Some("Connecting to server...")
