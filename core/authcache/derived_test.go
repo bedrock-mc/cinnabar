@@ -482,6 +482,62 @@ func TestPersistentSourceCancellationInterruptsLeaseWait(t *testing.T) {
 	}
 }
 
+func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "derived.lock")
+	start := make(chan struct{})
+	errs := make(chan error, 8)
+	for range cap(errs) {
+		go func() {
+			<-start
+			errs <- prepareLeasePath(path)
+		}()
+	}
+	close(start)
+	for range cap(errs) {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := lockfile.Acquire(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := createPrivateOnce(path, []byte("replacement\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("existing active lease file was replaced")
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("lease file identity changed while held")
+	}
+	if second, err := lockfile.Acquire(path, 0); !errors.Is(err, lockfile.ErrBusy) {
+		if second != nil {
+			_ = second.Close()
+		}
+		t.Fatalf("second acquisition error = %v, want busy", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "join-auth-lease\n" {
+		t.Fatalf("lease contents = %q, want original marker", contents)
+	}
+}
+
 func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")

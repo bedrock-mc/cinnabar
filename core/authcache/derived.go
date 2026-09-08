@@ -424,7 +424,7 @@ func prepareLeasePath(path string) error {
 	for range 5 {
 		_, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
-			if err := savePrivate(path, []byte("join-auth-lease\n")); err != nil {
+			if _, err := createPrivateOnce(path, []byte("join-auth-lease\n")); err != nil {
 				lastErr = err
 				time.Sleep(20 * time.Millisecond)
 				continue

@@ -292,6 +292,89 @@ func savePrivate(path string, serialized []byte) error {
 	return savePrivateWithHooks(path, serialized, saveHooks{})
 }
 
+// createPrivateOnce publishes path only if it does not already exist. Unlike
+// savePrivate, it never replaces an existing file identity, making it suitable
+// for stable lock files shared by concurrent processes.
+func createPrivateOnce(path string, contents []byte) (created bool, returnErr error) {
+	path, err := canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return false, errors.New("resolve private file path")
+	}
+	if len(contents) == 0 || len(contents) > maxCacheSize {
+		return false, fmt.Errorf("private file exceeds %d bytes", maxCacheSize)
+	}
+	dir := filepath.Dir(path)
+	parents, err := snapshotDirectoryChain(dir)
+	if err != nil || !parents.complete {
+		return false, errors.New("private file parent is unavailable")
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return false, errors.New("open private file parent")
+	}
+	defer root.Close()
+	rootInfo, err := root.Stat(".")
+	if err != nil || len(parents.directories) == 0 || !os.SameFile(parents.directories[len(parents.directories)-1].info, rootInfo) {
+		return false, errors.New("private file parent changed while opening")
+	}
+
+	name := filepath.Base(path)
+	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.New("create private file")
+	}
+	identity, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return false, errors.New("inspect private file")
+	}
+	success := false
+	defer func() {
+		if success {
+			return
+		}
+		if err := cleanupTempIdentity(root, file, identity, saveHooks{}); err != nil {
+			returnErr = errors.New("secure private file cleanup failed")
+		}
+	}()
+	if err := protectOpenedCacheFile(file); err != nil {
+		return false, errors.New("protect private file")
+	}
+	if err := checkRegular(identity); err != nil {
+		return false, err
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return false, err
+	}
+	written, err := file.Write(contents)
+	if err != nil {
+		return false, err
+	}
+	if written != len(contents) {
+		return false, io.ErrShortWrite
+	}
+	if err := file.Sync(); err != nil {
+		return false, err
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	if err := file.Close(); err != nil {
+		return false, err
+	}
+	success = true
+	return true, nil
+}
+
 func savePrivateWithHooks(path string, serialized []byte, hooks saveHooks) (returnErr error) {
 	path, err := canonicalizeCachePath(filepath.Clean(path))
 	if err != nil {
