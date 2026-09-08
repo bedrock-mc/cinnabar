@@ -67,6 +67,13 @@ findings have dispatch-driven regressions. Fresh world/client-world/meshing test
 strict all-target Clippy, formatting and architecture checks passed. The analytical
 3-by-3 emitter witness verifies every light channel and final current/empty state,
 but controlled accepted work remains 21 jobs: this is not the full convergence fix.
+The reviewed release build passed and two fresh Zeqa runs drained terrain work in
+32.20 s and 33.01 s after connection, with the same 224-column cohort and actual
+lobby rendering verified. The larger 257-column Lifeboat run still had pending
+lighting after 180.30 s; it eventually drained after 194,505 accepted light jobs.
+That is a failed loading-performance result, not an improvement claim. All four
+fresh native launches reused the saved auth bundle and valid service credentials
+without refresh. No compiler or test ran during these native measurements.
 A bounded regional-lighting experiment is isolated on
 `fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. It must
 preserve exact light, atomic stale-result rejection, existing work limits and the
