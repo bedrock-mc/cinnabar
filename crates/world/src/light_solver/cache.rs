@@ -1,5 +1,10 @@
+use std::cell::Cell;
+
+use crate::LightChannel;
+
 use super::{
-    BlockPos, LightBlockAccess, LightBlockSample, LightBounds, light_axis_len, light_dense_index,
+    BlockPos, BoundaryLightSample, LightBlockAccess, LightBlockSample, LightBounds,
+    LightReadAccess, light_axis_len, light_channel_index, light_dense_index,
 };
 
 #[derive(Debug, Clone)]
@@ -77,5 +82,80 @@ impl<A: LightBlockAccess> LightBlockAccess for CachedLightBlockAccess<'_, A> {
             || self.source.sky_seed(position),
             |index| self.sky_seeds[index],
         )
+    }
+}
+
+pub(super) struct CachedLightReadAccess<'a, P> {
+    source: &'a P,
+    bounds: LightBounds,
+    y_len: usize,
+    z_len: usize,
+    light: Box<[[Cell<Option<u8>>; 2]]>,
+    direct_sky: Box<[Cell<Option<bool>>]>,
+}
+
+impl<'a, P: LightReadAccess> CachedLightReadAccess<'a, P> {
+    pub(super) fn new(source: &'a P, bounds: LightBounds, volume: usize) -> Self {
+        Self {
+            source,
+            bounds,
+            y_len: light_axis_len(bounds.min.y, bounds.max.y),
+            z_len: light_axis_len(bounds.min.z, bounds.max.z),
+            light: (0..volume)
+                .map(|_| [Cell::new(None), Cell::new(None)])
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            direct_sky: (0..volume)
+                .map(|_| Cell::new(None))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }
+    }
+
+    fn index(&self, position: BlockPos) -> Option<usize> {
+        light_dense_index(self.bounds, self.y_len, self.z_len, position)
+    }
+}
+
+impl<P: LightReadAccess> LightReadAccess for CachedLightReadAccess<'_, P> {
+    fn read_light(&self, dimension: i32, position: BlockPos, channel: LightChannel) -> u8 {
+        if dimension != self.bounds.dimension {
+            return self.source.read_light(dimension, position, channel);
+        }
+        let Some(index) = self.index(position) else {
+            return self.source.read_light(dimension, position, channel);
+        };
+        let cached = &self.light[index][light_channel_index(channel)];
+        if let Some(value) = cached.get() {
+            return value;
+        }
+        let value = self.source.read_light(dimension, position, channel);
+        cached.set(Some(value));
+        value
+    }
+
+    fn has_direct_sky_provenance(&self, dimension: i32, position: BlockPos) -> bool {
+        if dimension != self.bounds.dimension {
+            return self.source.has_direct_sky_provenance(dimension, position);
+        }
+        let Some(index) = self.index(position) else {
+            return self.source.has_direct_sky_provenance(dimension, position);
+        };
+        let cached = &self.direct_sky[index];
+        if let Some(direct_sky) = cached.get() {
+            return direct_sky;
+        }
+        let direct_sky = self.source.has_direct_sky_provenance(dimension, position);
+        cached.set(Some(direct_sky));
+        direct_sky
+    }
+
+    fn boundary_light(
+        &self,
+        dimension: i32,
+        position: BlockPos,
+        channel: LightChannel,
+    ) -> BoundaryLightSample {
+        self.source.boundary_light(dimension, position, channel)
     }
 }

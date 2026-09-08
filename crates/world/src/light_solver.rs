@@ -9,7 +9,7 @@ use crate::{LightChannel, LightStorageError, LightStoreSnapshot, SubChunkKey, Su
 
 mod cache;
 
-use cache::{CachedLightBlockAccess, DensePositionSet};
+use cache::{CachedLightBlockAccess, CachedLightReadAccess, DensePositionSet};
 
 /// Global block coordinate used by the dependency-free light solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -428,6 +428,8 @@ pub fn solve_light<A: LightBlockAccess, P: LightReadAccess>(
 
     let cached_blocks = CachedLightBlockAccess::new(blocks, bounds, volume);
     let blocks = &cached_blocks;
+    let cached_prior = CachedLightReadAccess::new(prior, bounds, volume);
+    let prior = &cached_prior;
     let mut output = MutableOutput::new(bounds, generation, volume);
     let mut stats = LightSolveStats::default();
     let mut queued_total = 0_usize;
