@@ -217,11 +217,18 @@ func newNetherNetTarget(ctx context.Context, address string, connectionType int,
 }
 
 func newXSAPIClient(ctx context.Context, src oauth2.TokenSource) (*xsapi.Client, error) {
-	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, auth.AndroidConfig.New(src, nil))
+	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, xsapiTokenSource(src))
 	if err != nil {
 		return nil, fmt.Errorf("login to Xbox Live: %w", err)
 	}
 	return client, nil
+}
+
+func xsapiTokenSource(src oauth2.TokenSource) xsapi.TokenSource {
+	if cached, ok := src.(xsapi.TokenSource); ok {
+		return cached
+	}
+	return auth.AndroidConfig.New(src, nil)
 }
 
 func newServiceTokenSource(ctx context.Context, xbl *xsapi.Client) (service.TokenSource, *playfab.Client, error) {

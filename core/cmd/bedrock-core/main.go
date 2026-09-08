@@ -149,6 +149,7 @@ func runWithResourcePackCacheFactory(
 		if err != nil {
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
+		tokenSource = authcache.PersistentSource(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr)
 	}
 	logger.Info("authentication ready", "mode", authentication)
 	if opts.catalogFile != "" {
