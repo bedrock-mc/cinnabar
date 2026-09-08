@@ -108,8 +108,12 @@ Both retained 5,376 subchunks and rendered 1,108 at the same spawn/settings. The
 results do not establish improvement over the diagnostic baseline. The large
 Lifeboat baseline retained 3,035 and rendered 1,863 subchunks; logical readiness
 took 32.484 s, with work still pending after 195.62 s. Both candidate Lifeboat
-joins received only 298 retained / 226 rendered subchunks, so their 5-6 s logical
-readiness cannot be compared with that large workload. Native performance remains
+scenes retained only 298 / rendered 226 subchunks, so their 5-6 s logical
+readiness cannot be compared with that large workload. The bridge received 258
+ordinary chunk packets in both sizes. Follow-up diagnostic runs showed publisher
+radii of eight chunks for the large scene and two for the small scene, despite a
+confirmed chunk radius of eight in both. Admission/order attribution remains open;
+the smaller scene is not evidence that the server sent less terrain. Native performance remains
 open; no compiler or test ran during these measurements.
 
 Saved auth was reused throughout. During the repeated Zeqa run, the service token
@@ -117,9 +121,17 @@ naturally expired: the bound disk bundle was accepted, the service credential wa
 refreshed and persisted, and connection succeeded in 3.832 s. The replacement
 sidecar retained its protected owner-restricted access. Credential contents were
 not read for verification. A new isolated investigation on
-`fix/light-trust-convergence-20260908`, based on `3a77c1fd`, is reproducing
-dirty-neighbor darken/restore amplification before choosing another change;
-no new production behavior from that investigation is integrated.
+`fix/light-trust-convergence-20260908`, based on `3a77c1fd`, reproduced
+dirty-neighbor darken/restore amplification. A source-first scheduling experiment
+helped a flat emitter fixture but increased accepted work on the 9-by-9-by-24
+mixed-height fixture; all final light/provenance hashes matched. That scheduling
+change is rejected, and the uncommitted diagnostic tests remain isolated.
+No new production behavior from that investigation is integrated.
+A separate isolated dependency lane, `fix/loading-batch-order-20260908` from
+`649c0eda`, reproduced a concurrent FIFO violation between the deferred and ready
+batch queues and is implementing a bounded fix. It has not yet established the
+cause of the live publisher-radius discrepancy. Lighting changes are paused until
+the corrected packet order can be tested live.
 All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
