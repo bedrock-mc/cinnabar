@@ -528,6 +528,317 @@ fn mutually_dependent_lit_air_regions_converge() {
 }
 
 #[test]
+fn settled_dependency_wakeup_preserves_an_already_pending_target_revision() {
+    for pending_urgent in [false, true] {
+        for source_urgent in [false, true] {
+            let mut stream = lit_stream(1);
+            let source = SubChunkKey::new(1, 0, 0, 0);
+            let target = SubChunkKey::new(1, 1, 0, 0);
+            install_current_light(&mut stream, source, 15, 0, false);
+            install_current_light(&mut stream, target, 14, 0, false);
+            let pending_revision = stream
+                .mark_light_dirty_exact_with_priority(target, pending_urgent)
+                .unwrap();
+            let queued_at = stream.pending_light[&target].queued_at;
+            stream.pending_light_scan.clear();
+            stream
+                .light_waiters
+                .entry(source)
+                .or_default()
+                .insert(target);
+            let direct_sky = stream.direct_sky[&source].clone();
+
+            stream.finish_accepted_light_completion(
+                source,
+                1,
+                &direct_sky,
+                [false; 6],
+                source_urgent,
+            );
+
+            assert_eq!(stream.pending_light[&target].revision, pending_revision);
+            assert_eq!(stream.pending_light[&target].queued_at, queued_at);
+            let effective_urgent = pending_urgent || source_urgent;
+            assert_eq!(stream.pending_light[&target].urgent, effective_urgent);
+            assert_eq!(
+                stream.light_priority_wakeups.get(&target),
+                Some(&pending_revision)
+            );
+            assert!(!stream.light_waiters.contains_key(&source));
+            let queued = if effective_urgent {
+                stream.pending_light_scan.front()
+            } else {
+                stream.pending_light_scan.back()
+            };
+            assert_eq!(queued, Some(&(target, pending_revision)));
+            assert_eq!(stream.pending_light_scan.len(), 1);
+        }
+    }
+}
+
+#[test]
+fn ordinary_dependency_wakeup_requeues_a_consumed_pending_candidate() {
+    let mut stream = lit_stream(0);
+    let top = SubChunkKey::new(0, 0, 19, 0);
+    let below = SubChunkKey::new(0, 0, 18, 0);
+    install_current_light(&mut stream, top, 0, 0, false);
+    install_current_light(&mut stream, below, 0, 0, false);
+    stream.mark_light_dirty_exact(top).unwrap();
+    let camera = [8.0, 296.0, 8.0];
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    let top_completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("upper light completion");
+
+    let below_revision = stream.mark_light_dirty_exact(below).unwrap();
+    let below_queued_at = stream.pending_light[&below].queued_at;
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 0);
+    assert!(stream.light_waiters[&top].contains(&below));
+    assert!(stream.pending_light_scan.is_empty());
+
+    stream.accept_light_completion(top_completion);
+
+    assert_eq!(stream.pending_light[&below].revision, below_revision);
+    assert_eq!(stream.pending_light[&below].queued_at, below_queued_at);
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    settle_light(&mut stream, camera);
+    assert!(stream.light_is_current(top));
+    assert!(stream.light_is_current(below));
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_waiters.is_empty());
+}
+
+#[test]
+fn ordinary_dependency_wakeup_restores_a_consumed_urgent_candidate_to_the_front() {
+    let mut stream = lit_stream(0);
+    let top = SubChunkKey::new(0, 0, 19, 0);
+    let below = SubChunkKey::new(0, 0, 18, 0);
+    let ordinary = SubChunkKey::new(0, 2, 19, 0);
+    for key in [top, below, ordinary] {
+        install_current_light(&mut stream, key, 0, 0, false);
+    }
+    stream.mark_light_dirty_exact(top).unwrap();
+    let camera = [8.0, 296.0, 8.0];
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    let top_completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("upper light completion");
+
+    let below_revision = stream
+        .mark_light_dirty_exact_with_priority(below, true)
+        .unwrap();
+    let below_queued_at = stream.pending_light[&below].queued_at;
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 0);
+    assert!(stream.light_waiters[&top].contains(&below));
+    assert!(stream.pending_light_scan.is_empty());
+    let ordinary_revision = stream.mark_light_dirty_exact(ordinary).unwrap();
+    assert_eq!(
+        stream.pending_light_scan.front(),
+        Some(&(ordinary, ordinary_revision))
+    );
+
+    stream.accept_light_completion(top_completion);
+
+    assert_eq!(stream.pending_light[&below].revision, below_revision);
+    assert_eq!(stream.pending_light[&below].queued_at, below_queued_at);
+    assert!(stream.pending_light[&below].urgent);
+    assert_eq!(
+        stream.pending_light_scan.front(),
+        Some(&(below, below_revision))
+    );
+    assert_eq!(
+        stream.pending_light_scan.back(),
+        Some(&(ordinary, ordinary_revision))
+    );
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    assert!(stream.in_flight_light.contains_key(&below));
+    settle_light(&mut stream, camera);
+    assert!(
+        [top, below, ordinary]
+            .into_iter()
+            .all(|key| stream.light_is_current(key))
+    );
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_waiters.is_empty());
+}
+
+#[test]
+fn settled_dependency_wakeup_still_invalidates_an_in_flight_target() {
+    let mut stream = lit_stream(1);
+    let source = SubChunkKey::new(1, 0, 0, 0);
+    let target = SubChunkKey::new(1, 1, 0, 0);
+    install_current_light(&mut stream, source, 15, 0, false);
+    install_current_light(&mut stream, target, 14, 0, false);
+    let dispatched_revision = stream.mark_light_dirty_exact(target).unwrap();
+    let identity = LightJobIdentity {
+        revision: dispatched_revision,
+        block_generation: stream.block_generations[&target],
+        previous_light_generation: stream
+            .light_store
+            .light(target)
+            .map(|light| light.generation()),
+        batch_id: 41,
+        urgent: false,
+    };
+    stream.pending_light.remove(&target);
+    stream.in_flight_light.insert(target, identity);
+    stream
+        .light_waiters
+        .entry(source)
+        .or_default()
+        .insert(target);
+    let direct_sky = stream.direct_sky[&source].clone();
+
+    stream.finish_accepted_light_completion(source, 1, &direct_sky, [false; 6], true);
+
+    assert_eq!(stream.in_flight_light.get(&target), Some(&identity));
+    assert!(stream.pending_light[&target].revision > dispatched_revision);
+    assert!(stream.pending_light[&target].urgent);
+    assert!(
+        !stream
+            .light_revisions
+            .is_current(target, dispatched_revision)
+    );
+}
+
+#[test]
+fn settled_dependency_wakeup_preserves_existing_in_flight_replacement() {
+    let mut stream = lit_stream(1);
+    let source = SubChunkKey::new(1, 0, 0, 0);
+    let target = SubChunkKey::new(1, 1, 0, 0);
+    install_current_light(&mut stream, source, 15, 0, false);
+    install_current_light(&mut stream, target, 14, 0, false);
+    let dispatched_revision = stream.mark_light_dirty_exact(target).unwrap();
+    let identity = LightJobIdentity {
+        revision: dispatched_revision,
+        block_generation: stream.block_generations[&target],
+        previous_light_generation: stream
+            .light_store
+            .light(target)
+            .map(|light| light.generation()),
+        batch_id: 42,
+        urgent: false,
+    };
+    stream.pending_light.remove(&target);
+    stream.in_flight_light.insert(target, identity);
+    let replacement_revision = stream.mark_light_dirty_exact(target).unwrap();
+    let replacement_queued_at = stream.pending_light[&target].queued_at;
+    stream
+        .light_waiters
+        .entry(source)
+        .or_default()
+        .insert(target);
+    let direct_sky = stream.direct_sky[&source].clone();
+
+    stream.finish_accepted_light_completion(source, 1, &direct_sky, [false; 6], true);
+
+    assert_eq!(stream.in_flight_light.get(&target), Some(&identity));
+    assert_eq!(stream.pending_light[&target].revision, replacement_revision);
+    assert_eq!(
+        stream.pending_light[&target].queued_at,
+        replacement_queued_at
+    );
+    assert!(stream.pending_light[&target].urgent);
+    assert!(
+        !stream
+            .light_revisions
+            .is_current(target, dispatched_revision)
+    );
+}
+
+#[test]
+fn staggered_emitter_region_converges_to_exact_light() {
+    let mut stream = lit_stream(1);
+    let mut keys = Vec::new();
+    for chunk_x in -1..=1 {
+        for chunk_z in -1..=1 {
+            let key = SubChunkKey::new(1, chunk_x, 0, chunk_z);
+            if chunk_x == 0 && chunk_z == 0 {
+                stream
+                    .store
+                    .commit_sub_chunk(key, super::uniform_sub_chunk(1))
+                    .unwrap();
+                stream.resident.insert(key);
+            } else {
+                stream.record_known_air(key);
+            }
+            keys.push(key);
+        }
+    }
+    stream.mark_light_changed_sources(keys.iter().copied());
+
+    let mut completions = 0_usize;
+    while !stream.pending_light.is_empty() || !stream.in_flight_light.is_empty() {
+        stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1);
+        let completion = stream
+            .light_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("staggered light region must make progress");
+        stream.accept_light_completion(completion);
+        completions += 1;
+        assert!(
+            completions <= 128,
+            "staggered light region did not converge"
+        );
+    }
+
+    assert_eq!(stream.stats().stale_light_jobs, 0);
+    assert!(stream.pending_light.is_empty());
+    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.light_waiters.is_empty());
+    for key in keys {
+        assert!(stream.light_is_current(key));
+        for x in 0_u8..16 {
+            for z in 0_u8..16 {
+                for y in 0_u8..16 {
+                    let world_x = key.x * 16 + i32::from(x);
+                    let world_z = key.z * 16 + i32::from(z);
+                    let dx = if world_x < 0 {
+                        -world_x
+                    } else if world_x > 15 {
+                        world_x - 15
+                    } else {
+                        0
+                    };
+                    let dz = if world_z < 0 {
+                        -world_z
+                    } else if world_z > 15 {
+                        world_z - 15
+                    } else {
+                        0
+                    };
+                    let expected = u8::try_from(15_i32.saturating_sub(dx + dz).max(0)).unwrap();
+                    let position = BlockPos::new(world_x, i32::from(y), world_z);
+                    assert_eq!(
+                        stream
+                            .light_store
+                            .light(key)
+                            .unwrap()
+                            .get(LightChannel::Block, x, y, z),
+                        Some(expected),
+                        "wrong block light at {position:?}"
+                    );
+                    assert_eq!(
+                        stream
+                            .light_store
+                            .light(key)
+                            .unwrap()
+                            .get(LightChannel::Sky, x, y, z),
+                        Some(0),
+                        "wrong sky light at {position:?}"
+                    );
+                    assert!(!stream.direct_sky.get(&key).unwrap().mask.get(x, y, z));
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn mixed_roof_and_air_columns_converge() {
     for roof_mask in [1_u8, 3, 5, 7] {
         let mut stream = lit_stream(0);
