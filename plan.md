@@ -220,13 +220,30 @@ passed. A quiet release seed-phase microbenchmark measured 2.21x and 2.83x on
 the two fixed geometries; this does not establish an end-to-end speedup. Fresh
 post-integration world/client-world/meshing/render tests passed 1,019 tests with
 four ignored, and all 951 app-library tests passed. Strict affected all-target
-Clippy, formatting, architecture and the release build passed. Matched native
-measurements remain pending. The separate current-resident light-dominance
-extension is locally committed in `6ef82c72` from `e8329093`, isolated and awaiting
-fresh independent review. Its exact mixed-terrain light/provenance hashes remain
-unchanged through initial load, emitter removal and addition; timing under build
-contention is excluded. No new scheduling or readiness-threshold change is
-included. The broader completion track remains paused; nothing here is pushed.
+Clippy, formatting, architecture and the release build passed. Normal native
+boundary-only runs retained and displayed both complete lobbies. Lifeboat logical
+readiness / full drain took 31.286 / 85.72 s, worse than its fog-only baseline;
+Zeqa took 24.702 / 26.36 s, better than its baseline. Accepted light work varied
+substantially, so these mixed results establish no reliable universal speedup.
+Both fresh processes reused disk authentication without refreshing or rewriting
+the valid bundle. No compiler or test ran during native measurement.
+
+The complete current-resident light-dominance range `e8329093..6ef82c72`
+received fresh independent APPROVE with no findings and is integrated in
+`f4892583`. It extends the existing conservative face proof to current known
+resident blocks, with no palette lookups or weaker stale/dirty/in-flight guards.
+Exact mixed-terrain light/provenance hashes remain unchanged through initial load,
+emitter removal and addition; timing under build contention is excluded. Fresh
+integrated app and client-world library tests passed 951 and 347 tests respectively,
+with two ignored; all 34 client-world integration tests, strict affected all-target
+Clippy, formatting and architecture checks passed. Release/native/performance
+gates remain open for this extension.
+A lazy destination-filter refinement is isolated on
+`fix/loading-filter-dominance-20260908` from `f4892583`, not yet reviewed or
+integrated. It must preserve the exact solver's layer/filter semantics and the
+current-state proof; dirty retained-light reuse is not authorized. No new scheduler
+or readiness-threshold change is included. The broader track remains paused;
+nothing in this checkpoint is pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
