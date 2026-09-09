@@ -75,6 +75,80 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
 }
 
 #[test]
+fn world_ready_binds_announced_columns_without_rewriting_raw_radius_identity() {
+    let started = Instant::now();
+    let mut snapshot = settled_world_snapshot();
+    let raw_cohort = RenderViewCohort::new(0, [65, 65], 2);
+    let status = snapshot.cohort.as_mut().expect("settled status");
+    status.target.radius = raw_cohort.radius;
+    status.committed = Some(status.target);
+    status.expected = 2;
+    status.loaded_target = 2;
+    let inside = SubChunkKey::new(0, 65, 0, 65);
+    let announced_outside = SubChunkKey::new(0, 69, 0, 65);
+    let mut proposed = TargetRenderExpectation {
+        cohort: raw_cohort,
+        source_cohort: None,
+        target_columns: Some(Arc::from([inside.chunk(), announced_outside.chunk()])),
+        target_keys: None,
+        manifest: Arc::from([(inside, 7), (announced_outside, 8)]),
+        view_generation: 0,
+        render_ready_at: started,
+    };
+    let mut settler = WorldReadySettler::default();
+
+    let expectation = settler
+        .reconcile_presentation(snapshot, proposed.clone(), started)
+        .expect("exact status should arm the announced-column presentation target");
+    assert_eq!(expectation.cohort, raw_cohort);
+    assert_eq!(expectation.target_columns, proposed.target_columns);
+
+    let mut missing_announced = presented_acknowledgement(
+        &expectation,
+        10,
+        Duration::from_millis(1),
+        Duration::from_millis(2),
+    );
+    missing_announced.allocation_manifest = Arc::from([(inside, 7)]);
+    missing_announced.visible_allocation_manifest = Arc::clone(&missing_announced.allocation_manifest);
+    missing_announced.drawn_manifest = Arc::clone(&missing_announced.allocation_manifest);
+    missing_announced.missing_target_instances = 1;
+    assert!(
+        !settler.observe_presented_frame(missing_announced),
+        "missing announced terrain must not certify readiness"
+    );
+    assert!(!settler.has_stable_presentation(snapshot));
+
+    assert!(!settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        11,
+        Duration::from_millis(3),
+        Duration::from_millis(4),
+    )));
+    assert!(settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        12,
+        Duration::from_millis(5),
+        Duration::from_millis(6),
+    )));
+
+    proposed.target_columns = Some(Arc::from([
+        inside.chunk(),
+        announced_outside.chunk(),
+        world::ChunkKey::new(0, 70, 65),
+    ]));
+    let expanded = settler
+        .reconcile_presentation(snapshot, proposed, started + Duration::from_millis(7))
+        .expect("expanded announced membership should arm a new candidate");
+    assert_eq!(expanded.cohort, raw_cohort);
+    assert_ne!(expanded.view_generation, expectation.view_generation);
+    assert!(
+        !settler.has_stable_presentation(snapshot),
+        "a previous presented pair survived an explicit membership change"
+    );
+}
+
+#[test]
 fn presentation_waits_until_the_captured_readiness_ingress_fence_is_consumed() {
     let started = Instant::now();
     let mut snapshot = settled_world_snapshot();

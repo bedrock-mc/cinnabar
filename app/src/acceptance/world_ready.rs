@@ -245,6 +245,8 @@ impl WorldReadySettler {
             && candidate.snapshot.same_readiness_state(snapshot)
             && candidate.expectation.cohort == proposed.cohort
             && candidate.expectation.source_cohort == proposed.source_cohort
+            && candidate.expectation.target_columns == proposed.target_columns
+            && candidate.expectation.target_keys == proposed.target_keys
             && candidate.expectation.manifest == proposed.manifest
         {
             return Some(candidate.expectation.clone());

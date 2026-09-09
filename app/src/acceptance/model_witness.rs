@@ -337,6 +337,8 @@ pub(crate) fn drive_model_witness(
     let expectation = if let Some(current) = state.expectation.as_ref().filter(|current| {
         current.cohort == proposed.cohort
             && current.source_cohort == proposed.source_cohort
+            && current.target_columns == proposed.target_columns
+            && current.target_keys == proposed.target_keys
             && current.manifest == proposed.manifest
     }) {
         current.clone()

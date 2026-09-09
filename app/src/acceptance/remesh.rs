@@ -152,6 +152,8 @@ impl FullViewRemeshTracker {
         if let Some(candidate) = &pending.candidate {
             if proposed.cohort != candidate.expectation.cohort
                 || proposed.source_cohort != candidate.expectation.source_cohort
+                || proposed.target_columns != candidate.expectation.target_columns
+                || proposed.target_keys != candidate.expectation.target_keys
                 || proposed.manifest != candidate.expectation.manifest
             {
                 self.invalidate();

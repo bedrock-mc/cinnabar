@@ -181,6 +181,12 @@ impl FrameProbe {
                 |target_keys| target_keys.contains(&key),
             )
         };
+        let is_foreign = |key: SubChunkKey| {
+            target_columns.as_ref().map_or_else(
+                || !expectation.cohort.contains(key),
+                |target_columns| !target_columns.contains(&key.chunk()),
+            )
+        };
         let is_model_target = |key: SubChunkKey| {
             model_target_keys
                 .as_ref()
@@ -208,7 +214,7 @@ impl FrameProbe {
             .values()
             .filter(|instance| {
                 is_scoped_instance(instance.key)
-                    && !expectation.cohort.contains(instance.key)
+                    && is_foreign(instance.key)
                     && expectation
                         .source_cohort
                         .is_none_or(|source| !source.contains(instance.key))
