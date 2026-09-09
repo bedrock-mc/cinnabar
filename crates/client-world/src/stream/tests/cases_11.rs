@@ -375,3 +375,139 @@ fn malformed_inline_wire_outside_both_scopes_is_still_fatal() {
         Some(WorldStreamFatalError::ChunkDecode { sequence: 4, .. })
     ));
 }
+
+#[test]
+fn ordinary_long_travel_prunes_evicted_required_history() {
+    let mut stream = stream_after_publisher_shrink();
+    let origin = ChunkKey::new(0, -28, -32);
+    stream
+        .submit(4, inline_air_event_at(origin.dimension, origin.x, origin.z))
+        .expect("admit origin announcement");
+    complete_pending_decode_jobs(&mut stream);
+    let target = stream.committed_view_cohort().unwrap();
+    let origin_hash = stream.cohort_status(target).required_hash;
+    let mut previous = origin;
+    let mut sequence = 5_u64;
+
+    for step in 0..12 {
+        let destination = ChunkKey::new(0, step * 32, 0);
+        let destination_x = f32::from(i16::try_from(destination.x).unwrap()) * 16.0 + 0.5;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::MovePlayer(MovePlayerEvent {
+                    runtime_id: 1,
+                    position: [destination_x, 43.62, 0.5],
+                    mode: MovePlayerMode::Normal,
+                    ..Default::default()
+                }),
+            )
+            .expect("commit ordinary long-distance movement");
+        sequence += 1;
+
+        assert!(!stream.loaded_columns.contains(&previous));
+        assert!(!stream.required_columns().contains(&previous));
+
+        stream
+            .submit(
+                sequence,
+                inline_air_event_at(destination.dimension, destination.x, destination.z),
+            )
+            .expect("admit destination player-grid announcement");
+        sequence += 1;
+        complete_pending_decode_jobs(&mut stream);
+
+        let expected = BTreeSet::from([destination]);
+        assert_eq!(stream.required_columns(), &expected);
+        let status = stream.cohort_status(target);
+        assert_eq!(
+            status.required_hash,
+            super::super::diagnostics::deterministic_chunk_key_hash(&expected)
+        );
+        assert_eq!(status.expected, 1);
+        assert_eq!(status.loaded_target, 1);
+        assert_eq!(status.missing_target, 0);
+        assert!(status.is_exact());
+        previous = destination;
+    }
+
+    assert_ne!(stream.cohort_status(target).required_hash, origin_hash);
+    assert_eq!(stream.committed_view_cohort(), Some(target));
+    assert_eq!(stream.publisher_epoch, 2);
+    assert_eq!(stream.publisher_center, Some([-512, 64, -512]));
+    assert_eq!(stream.publisher_radius_blocks, Some(32));
+}
+
+#[test]
+fn confirmed_radius_shrink_prunes_outer_requirement_but_keeps_inner_pending() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [0, 70, 0],
+                radius_blocks: 32,
+            }),
+        )
+        .unwrap();
+    let inner = ChunkKey::new(0, 3, 0);
+    let outer = ChunkKey::new(0, 8, 0);
+    stream
+        .submit(
+            3,
+            request_level_chunk_event(
+                inner.dimension,
+                inner.x,
+                inner.z,
+                LevelChunkMode::LimitedRequests { highest: 1 },
+                1,
+            ),
+        )
+        .unwrap();
+    stream
+        .submit(4, inline_air_event_at(outer.dimension, outer.x, outer.z))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let request = stream.pop_next_request().expect("inner request is queued");
+    acknowledge_request_sent(&mut stream, &request, Instant::now());
+    let deadlines_before = stream.sub_chunk_deadlines.clone();
+    let confirmed_attempts_before =
+        stream.requested_sub_chunks[&inner][&request.base_sub_chunk_y].confirmed_attempts;
+    let target = stream.committed_view_cohort().unwrap();
+
+    assert_eq!(stream.required_columns(), &BTreeSet::from([inner, outer]));
+    assert!(stream.requested_sub_chunks.contains_key(&inner));
+    assert!(!stream.loaded_columns.contains(&inner));
+    assert!(stream.loaded_columns.contains(&outer));
+    assert_eq!(confirmed_attempts_before, 1);
+    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+
+    stream.submit(5, WorldEvent::ChunkRadiusUpdated(2)).unwrap();
+
+    assert_eq!(stream.required_columns(), &BTreeSet::from([inner]));
+    assert!(stream.requested_sub_chunks.contains_key(&inner));
+    assert!(!stream.loaded_columns.contains(&inner));
+    assert_eq!(stream.sub_chunk_deadlines, deadlines_before);
+    assert_eq!(
+        stream.requested_sub_chunks[&inner][&request.base_sub_chunk_y].confirmed_attempts,
+        confirmed_attempts_before
+    );
+    assert!(!stream.tracked_columns().contains(&outer));
+    assert_eq!(stream.committed_view_cohort(), Some(target));
+    assert_eq!(stream.publisher_center, Some([0, 70, 0]));
+    assert_eq!(stream.publisher_radius_blocks, Some(32));
+    let status = stream.cohort_status(target);
+    assert_eq!(status.expected, 1);
+    assert_eq!(status.loaded_target, 0);
+    assert_eq!(status.missing_target, 1);
+    assert!(!status.target_is_complete());
+}

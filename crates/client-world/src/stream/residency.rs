@@ -109,10 +109,10 @@ impl WorldStream {
         columns
     }
     /// Re-evaluates chunk-grid retention against the local player's current
-    /// chunk and the server-confirmed radius, evicting every tracked column the
-    /// vanilla client's grid no longer keeps. Cheap to call on every player
-    /// move: it only rescans when the player's chunk or the confirmed radius
-    /// changes.
+    /// chunk and the server-confirmed radius, evicting every tracked column and
+    /// pruning every announced requirement the grid no longer keeps. Cheap to
+    /// call on every player move: it only rescans when the player's chunk or
+    /// the confirmed radius changes.
     pub(super) fn reevaluate_chunk_retention(&mut self) {
         let Some(radius) = self.chunk_radius else {
             return;
@@ -125,13 +125,15 @@ impl WorldStream {
         self.last_retention_center = Some(center);
         self.last_retention_radius = Some(radius);
         let center_xz = [center.x, center.z];
+        let current_dimension = self.current_dimension;
+        let is_retained = |key: &ChunkKey| {
+            key.dimension == current_dimension && chunk_in_view(radius, [key.x, key.z], center_xz)
+        };
+        self.required_columns.retain(is_retained);
         let stale = self
             .tracked_columns()
             .into_iter()
-            .filter(|key| {
-                key.dimension != self.current_dimension
-                    || !chunk_in_view(radius, [key.x, key.z], center_xz)
-            })
+            .filter(|key| !is_retained(key))
             .collect::<Vec<_>>();
         for column in stale {
             self.evict_column(column);
