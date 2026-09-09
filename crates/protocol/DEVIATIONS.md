@@ -11,7 +11,7 @@ pinned encoder/decoder and live bytes agreed exactly.
 
 The checked-in fixtures were generated with gophertunnel
 `9f42f3679a573fc4b51104569cc4f422036e28ec` (Bedrock 1.26.40 / protocol 2168).
-The Go core now uses `649c0edad68caf669e89215106403369deed5e03` with the
+The Go core now uses `3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38` with the
 1.26.44 adapter. The inventory-response fixture is regenerated for the optional
 filtered name described below; Rust retains the 1.26.44 scoreboard hotfix.
 Byte lengths and SHA-256 digests quoted below describe the protocol-1001

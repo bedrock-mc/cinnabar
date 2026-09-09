@@ -3,6 +3,26 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-09 loading publication: the owner authorized publishing the completed
+loading/auth work; the broader track and unused solver experiments remain paused.
+The reviewed ordered-batch dependency is published on `resource-pack-changes` at
+`3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38`, and its Go CI passed. Both current Go
+consumers and the acceptance scripts now pin its public pseudo-version
+`v1.25.3-0.20260908230935-3d9f4b7a4ac0`; the former local override is no longer
+needed. This is the same dependency source used by the recorded native A/B runs,
+not a wire-version upgrade. Exact-version provenance checks remain enforced.
+Fresh full core, fixture-generator and registry-generator tests/vet and the core
+build passed against the public pin. The fork's full Windows test run reproduces
+only the two previously established zero-duration timer failures; the remaining
+tests, vet and staticcheck pass. Race instrumentation remains unavailable locally.
+The complete outgoing loading range and pin changes cleared publication review.
+Fresh Rust workspace tests passed 3,591 tests with 16 ignored; strict all-target
+workspace Clippy, formatting and architecture checks passed. PowerShell 5.1 and
+Git Bash acceptance harnesses and the asset contract suite passed; the latter's
+deep Bash extraction legs remain skipped locally without unzip/cc. Cinnabar CI
+remains pending until the authorized push; the earlier native A/B evidence is
+unchanged, and no faster-than-vanilla acceptance gate is closed.
+
 2026-09-08 dependency refresh: the Go core and fixture generator pin Gophertunnel
 `649c0edad68caf669e89215106403369deed5e03` on `resource-pack-changes`, containing
 latest lunar `80a44ec6a6b974d63cbfdd6b1fb4e273d534e997` and the restored resource-pack

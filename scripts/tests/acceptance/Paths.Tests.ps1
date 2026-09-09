@@ -393,7 +393,7 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'649c0edad68caf669e89215106403369deed5e03'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'")) 'gophertunnel metadata commit is not the repository pin'
     Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'c4540512dc47833bb40363da7ad1161110d64b67'")) 'protocol metadata omitted the Axolotl Stack revision'
     Assert-True ($source.Contains("'870bb549c701a0c03472c66441449c4b70a8454a'")) 'protocol metadata omitted the protocolgen revision'

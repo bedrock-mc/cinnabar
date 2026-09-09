@@ -46,11 +46,12 @@ Protocolgen's independent Gophertunnel oracle was evaluated at
 `be6713da4dc051a4197f897d04835e89e9c54321`. The runtime Go module pin below is
 maintained separately and remains the authority for Cinnabar's server tooling.
 
-Wire behaviour and byte fixtures use the project pin
+The runtime and fixture generator resolve the project pin
 `hashimthearab/gophertunnel` commit
-`649c0edad68caf669e89215106403369deed5e03` (`resource-pack-changes`, module pseudo-version
-`v1.25.3-0.20260907212853-649c0edad68c`, using the 1.26.44 adapter / protocol 2168).
-The fork includes lunar `80a44ec6` plus restored Cinnabar resource-pack APIs.
+`3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38` (`resource-pack-changes`, module pseudo-version
+`v1.25.3-0.20260908230935-3d9f4b7a4ac0`, using the 1.26.44 adapter / protocol 2168).
+The fork includes lunar `80a44ec6`, restored Cinnabar resource-pack APIs, and
+ordered batch reads. The batch queue update does not change packet encodings.
 The inventory-response fixture was regenerated for the optional filtered name;
 other existing generator-owned fixture bytes remain unchanged.
 

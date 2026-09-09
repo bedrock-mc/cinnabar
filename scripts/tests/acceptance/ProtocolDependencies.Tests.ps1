@@ -17,9 +17,9 @@ Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) 
 
 $resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
     -ProjectRoot $ProjectRoot `
-    -ExpectedVersion 'v1.25.3-0.20260907212853-649c0edad68c' `
-    -ExpectedCommit '649c0edad68caf669e89215106403369deed5e03'
-Assert-Equal '649c0edad68caf669e89215106403369deed5e03' $resolvedGophertunnelCommit `
+    -ExpectedVersion 'v1.25.3-0.20260908230935-3d9f4b7a4ac0' `
+    -ExpectedCommit '3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'
+Assert-Equal '3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38' $resolvedGophertunnelCommit `
     'gophertunnel commit was not derived from the resolved Go module replacement'
 Assert-ThrowsLike {
     Get-PinnedGophertunnelCommit `
