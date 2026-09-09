@@ -38,7 +38,7 @@ impl WorldStream {
         let mut grouped = BTreeMap::<SubChunkKey, Vec<BlockUpdate>>::new();
         for event in events {
             match split_block_update(event) {
-                Ok((key, update)) if self.column_is_active(key.chunk()) => {
+                Ok((key, update)) if self.column_is_data_interesting(key.chunk()) => {
                     grouped.entry(key).or_default().push(update);
                 }
                 Ok(_) => {

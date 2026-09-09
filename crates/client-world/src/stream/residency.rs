@@ -169,6 +169,23 @@ impl WorldStream {
         i64::from(key.x).abs_diff(i64::from(center_x)) <= radius
             && i64::from(key.z).abs_diff(i64::from(center_z)) <= radius
     }
+    /// Reports whether inbound world data belongs to either server-established
+    /// interest scope. Publisher scope remains the control/rebase authority;
+    /// the confirmed player grid independently retains ordinary world data.
+    pub(super) fn column_is_data_interesting(&self, key: ChunkKey) -> bool {
+        if key.dimension != self.current_dimension {
+            return false;
+        }
+        self.column_is_active(key)
+            || self.chunk_radius.is_some_and(|radius| {
+                let player = self.player_chunk();
+                chunk_in_view(
+                    radius.clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS),
+                    [key.x, key.z],
+                    [player.x, player.z],
+                )
+            })
+    }
     pub(super) fn is_expected_sub_chunk(&self, key: SubChunkKey) -> bool {
         self.requested_sub_chunks
             .get(&key.chunk())

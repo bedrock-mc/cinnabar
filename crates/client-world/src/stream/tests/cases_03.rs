@@ -43,7 +43,7 @@ fn publisher_block_position_and_radius_use_euclidean_chunk_conversion() {
 }
 
 #[test]
-fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
+fn unannounced_prefetch_column_prevents_explicit_cohort_exactness() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -69,8 +69,8 @@ fn in_scope_prefetch_columns_do_not_prevent_exact_cohort_readiness() {
     assert_eq!(status.expected, 5);
     assert_eq!(status.loaded_target, 5);
     assert_eq!(status.missing_target, 0);
-    assert_eq!(status.foreign_loaded, 0);
-    assert!(status.is_exact());
+    assert_eq!(status.foreign_loaded, 1);
+    assert!(!status.is_exact());
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
     assert_eq!(stream.loaded_columns.len(), status.expected);
     assert_eq!(status.loaded_target, 4);
     assert_eq!(status.missing_target, 1);
-    assert_eq!(status.foreign_loaded, 0);
+    assert_eq!(status.foreign_loaded, 1);
     assert!(!status.is_exact());
 }
 
@@ -943,7 +943,9 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
             3,
             WorldEvent::LevelChunk(LevelChunkEvent {
                 dimension: 0,
-                x: super::PHASE0_MAX_VIEW_RADIUS_CHUNKS + 1,
+                // The confirmed player grid intentionally retains through
+                // radius + 2, independently of publisher control scope.
+                x: super::PHASE0_MAX_VIEW_RADIUS_CHUNKS + 3,
                 z: 0,
                 mode: LevelChunkMode::LimitlessRequests,
                 payload: biome_payload(0, 1),

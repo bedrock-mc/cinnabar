@@ -993,7 +993,9 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
     let batches = stream.snapshot_block_mutation_batches(vec![
         BlockUpdateEvent {
             dimension: 0,
-            position: [16, 0, 0],
+            // Confirmed radius zero still retains the existing grid slack;
+            // three columns away is outside both data-interest scopes.
+            position: [48, 0, 0],
             layer: 0,
             network_id: 1,
         },
@@ -1014,7 +1016,7 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
                 result: super::PreparedSubChunkResult::AllAir,
             },
             super::PreparedSubChunk {
-                position: [1, 0, 0],
+                position: [3, 0, 0],
                 result: super::PreparedSubChunkResult::AllAir,
             },
         ],

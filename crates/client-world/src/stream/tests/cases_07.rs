@@ -134,7 +134,7 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
 }
 
 #[test]
-fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_scope() {
+fn provisional_publisher_update_retains_destination_data_interest() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -165,8 +165,8 @@ fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_
         )
         .unwrap();
     let active = ChunkKey::new(0, 66, 65);
-    let publisher_only = ChunkKey::new(0, 69, 65);
-    stream.required_columns = BTreeSet::from([active, publisher_only]);
+    let grid_slack = ChunkKey::new(0, 69, 65);
+    stream.required_columns = BTreeSet::from([active, grid_slack]);
     stream.loaded_columns = stream.required_columns.clone();
 
     stream
@@ -179,14 +179,15 @@ fn provisional_publisher_update_retains_only_destination_work_in_clamped_active_
         )
         .unwrap();
 
-    assert_eq!(stream.required_columns, BTreeSet::from([active]));
-    // The publisher-clamped publication cohort keeps only the destination-scope
-    // column, but chunk-grid retention is independent of the publisher: the
-    // vanilla client's grid still retains both loaded columns because
-    // publisher_only sits within the confirmed radius plus the grid slack of the
-    // player's chunk.
+    // Both announcements remain in destination data interest: the center is in
+    // publisher control scope and the outer column is in the independently
+    // confirmed player grid's existing slack.
+    assert_eq!(
+        stream.required_columns,
+        BTreeSet::from([active, grid_slack])
+    );
     assert!(stream.tracked_columns().contains(&active));
-    assert!(stream.tracked_columns().contains(&publisher_only));
+    assert!(stream.tracked_columns().contains(&grid_slack));
 }
 
 #[test]
@@ -434,7 +435,7 @@ fn required_epoch_reports_stable_only_after_stream_work_drains() {
 }
 
 #[test]
-fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
+fn announcements_follow_confirmed_grid_slack_but_not_unbounded_distance() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -459,7 +460,7 @@ fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
     stream
         .submit(
             3,
-            request_level_chunk_event(0, 17, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 1),
+            request_level_chunk_event(0, 19, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 1),
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
@@ -473,7 +474,7 @@ fn announcements_outside_clamped_retention_do_not_expand_required_epoch() {
     stream
         .submit(
             4,
-            request_level_chunk_event(0, 16, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 1),
+            request_level_chunk_event(0, 18, 0, LevelChunkMode::LimitedRequests { highest: 0 }, 1),
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
