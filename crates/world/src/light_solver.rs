@@ -780,6 +780,15 @@ fn seed_boundary_from_halo<A: LightBlockAccess, P: LightReadAccess>(
         return Ok(());
     }
     for position in bounds.positions() {
+        if position.x != bounds.min.x
+            && position.x != bounds.max.x
+            && position.y != bounds.min.y
+            && position.y != bounds.max.y
+            && position.z != bounds.min.z
+            && position.z != bounds.max.z
+        {
+            continue;
+        }
         let Some(filter) = blocks.sample(position).filter() else {
             continue;
         };
@@ -876,6 +885,10 @@ struct MutableOutput {
     values: Box<[[u8; 2]]>,
     known: Box<[bool]>,
 }
+
+#[cfg(test)]
+#[path = "light_solver/boundary_scan_tests.rs"]
+mod boundary_scan_tests;
 
 impl MutableOutput {
     fn new(bounds: LightBounds, generation: u64, volume: usize) -> Self {
