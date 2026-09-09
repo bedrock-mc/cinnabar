@@ -112,6 +112,7 @@ impl WorldStream {
             return false;
         };
 
+        let mut destination_sub_chunk = None;
         face_cells(face).all(|(source_position, destination_position)| {
             let get = |light: &SubChunkLight, channel, position: [u8; 3]| {
                 light
@@ -120,33 +121,98 @@ impl WorldStream {
             };
             let source_block = get(source, LightChannel::Block, source_position);
             let destination_block = get(destination, LightChannel::Block, destination_position);
-            if source_block.saturating_sub(1) > destination_block {
-                return false;
-            }
-
             let source_sky = get(source, LightChannel::Sky, source_position);
             let destination_sky = get(destination, LightChannel::Sky, destination_position);
-            let carries_direct_sky = face == 2
+            let source_has_downward_direct = face == 2
                 && source_sky == 15
                 && source_direct.mask.get(
                     source_position[0],
                     source_position[1],
                     source_position[2],
                 );
-            let incoming_sky = if carries_direct_sky {
-                15
-            } else {
-                source_sky.saturating_sub(1)
+            let destination_has_direct = destination_direct.mask.get(
+                destination_position[0],
+                destination_position[1],
+                destination_position[2],
+            );
+            if incoming_is_dominated(
+                source_block,
+                source_sky,
+                source_has_downward_direct,
+                destination_block,
+                destination_sky,
+                destination_has_direct,
+                0,
+            ) {
+                return true;
+            }
+            let Some(filter) = self.destination_filter(
+                destination_key,
+                destination_position,
+                &mut destination_sub_chunk,
+            ) else {
+                return false;
             };
-            incoming_sky <= destination_sky
-                && (!carries_direct_sky
-                    || destination_direct.mask.get(
-                        destination_position[0],
-                        destination_position[1],
-                        destination_position[2],
-                    ))
+            incoming_is_dominated(
+                source_block,
+                source_sky,
+                source_has_downward_direct,
+                destination_block,
+                destination_sky,
+                destination_has_direct,
+                filter,
+            )
         })
     }
+
+    fn destination_filter(
+        &self,
+        key: SubChunkKey,
+        position: [u8; 3],
+        destination_sub_chunk: &mut Option<Arc<SubChunk>>,
+    ) -> Option<u8> {
+        if self.known_air.contains(&key) {
+            return Some(0);
+        }
+        if destination_sub_chunk.is_none() {
+            *destination_sub_chunk = self.store.sub_chunk(key);
+        }
+        let sub_chunk = destination_sub_chunk.as_deref()?;
+        match sample_resident_light(sub_chunk, position, self.classifier, |runtime_id| {
+            let properties = self
+                .runtime_assets
+                .resolve(self.network_id_mode, runtime_id)
+                .light_properties();
+            SolverLightProperties::new(properties.emission(), properties.filter())
+                .expect("runtime light properties are nibble-bounded")
+        }) {
+            LightBlockSample::KnownAir => Some(0),
+            LightBlockSample::Resident(properties) => Some(properties.filter()),
+            LightBlockSample::Unknown => None,
+        }
+    }
+}
+
+fn incoming_is_dominated(
+    source_block: u8,
+    source_sky: u8,
+    source_has_downward_direct: bool,
+    destination_block: u8,
+    destination_sky: u8,
+    destination_has_direct: bool,
+    filter: u8,
+) -> bool {
+    let attenuation = filter.max(1);
+    if source_block.saturating_sub(attenuation) > destination_block {
+        return false;
+    }
+    let carries_direct_sky = filter == 0 && source_has_downward_direct;
+    let incoming_sky = if carries_direct_sky {
+        15
+    } else {
+        source_sky.saturating_sub(attenuation)
+    };
+    incoming_sky <= destination_sky && (!carries_direct_sky || destination_has_direct)
 }
 
 fn face_cells(face: usize) -> impl Iterator<Item = ([u8; 3], [u8; 3])> {

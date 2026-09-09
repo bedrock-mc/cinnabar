@@ -327,7 +327,7 @@ fn dominance_proof_fails_closed_for_decrease_provenance_and_target_state() {
 }
 
 #[test]
-fn resident_dominance_uses_the_unit_attenuation_upper_bound_for_all_palettes() {
+fn resident_dominance_uses_fast_unit_bound_then_exact_destination_filter() {
     let source = SubChunkKey::new(1, 0, 0, 0);
     for runtime_id in [2, 99_999] {
         let destination = SubChunkKey::new(1, 1, 0, 0);
@@ -351,12 +351,31 @@ fn resident_dominance_uses_the_unit_attenuation_upper_bound_for_all_palettes() {
         ));
 
         install_current_light(&mut stream, destination, 13, 0, false);
-        assert!(!stream.current_known_target_dominates_source_face(
+        assert!(stream.current_known_target_dominates_source_face(
             source,
             destination,
             monotonic_faces
         ));
     }
+
+    let destination = SubChunkKey::new(1, 1, 0, 0);
+    let mut stream = lit_stream(1);
+    install_current_light(&mut stream, source, 0, 0, false);
+    let source_generation = stream.light_store.light(source).unwrap().generation();
+    let replacement = SubChunkLight::uniform(15, 0, source_generation).unwrap();
+    let monotonic_faces =
+        stream.monotonic_light_faces(source, &replacement, &DirectSkyMask::Uniform(false));
+    stream.light_store.insert_known_air(source, replacement);
+    stream
+        .store
+        .commit_sub_chunk(destination, super::uniform_sub_chunk(3))
+        .unwrap();
+    install_current_light(&mut stream, destination, 13, 0, false);
+    assert!(!stream.current_known_target_dominates_source_face(
+        source,
+        destination,
+        monotonic_faces
+    ));
 }
 
 #[test]
