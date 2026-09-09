@@ -47,6 +47,44 @@ fn dominated_lower_column_faces_do_not_redirty_current_upper_air() {
 }
 
 #[test]
+fn dominated_face_does_not_redirty_current_resident_neighbour() {
+    let mut stream = lit_stream(1);
+    let source = SubChunkKey::new(1, 0, 0, 0);
+    let neighbour = SubChunkKey::new(1, 1, 0, 0);
+    for key in [source, neighbour] {
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(3))
+            .unwrap();
+    }
+    install_current_light(&mut stream, source, 0, 0, false);
+    install_current_light(&mut stream, neighbour, 14, 0, false);
+    let neighbour_generation = stream.light_store.light(neighbour).unwrap().generation();
+    stream.mark_light_dirty_exact(source).unwrap();
+    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1), 1);
+    let mut completion = stream
+        .light_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("dispatched resident completion");
+    let solved = completion.result.as_mut().unwrap();
+    solved.replacement = SubChunkLight::uniform(15, 0, completion.identity.revision).unwrap();
+    solved.direct_sky = Arc::new(DirectSkyMask::Uniform(false));
+    solved.light_levels_changed = true;
+    solved.direct_sky_changed = false;
+    solved.changed_faces = [false, true, false, false, false, false];
+    stream.accept_light_completion(completion);
+
+    assert!(stream.light_is_current(neighbour));
+    assert_eq!(
+        stream.light_store.light(neighbour).unwrap().generation(),
+        neighbour_generation,
+        "dominated face needlessly dirtied the current resident neighbour"
+    );
+    assert!(!stream.pending_light.contains_key(&neighbour));
+    assert!(stream.pending_mesh.contains_key(&source));
+}
+
+#[test]
 fn monotonic_proof_requires_sound_prior_direct_provenance() {
     let source = SubChunkKey::new(1, 0, 0, 0);
     let mut stream = lit_stream(1);
@@ -177,7 +215,7 @@ fn dominance_proof_maps_each_nonuniform_source_cell_to_the_opposite_face() {
             )
             .unwrap();
         stream.light_store.insert_known_air(destination, dominated);
-        assert!(stream.current_known_air_dominates_source_face(
+        assert!(stream.current_known_target_dominates_source_face(
             source,
             destination,
             monotonic_faces
@@ -194,7 +232,7 @@ fn dominance_proof_maps_each_nonuniform_source_cell_to_the_opposite_face() {
             )
             .unwrap();
         stream.light_store.insert_known_air(destination, exceeded);
-        assert!(!stream.current_known_air_dominates_source_face(
+        assert!(!stream.current_known_target_dominates_source_face(
             source,
             destination,
             monotonic_faces
@@ -216,9 +254,9 @@ fn dominance_proof_fails_closed_for_decrease_provenance_and_target_state() {
         &gained_direct,
     );
     stream.direct_sky.get_mut(&above).unwrap().mask = Arc::new(gained_direct);
-    assert!(!stream.current_known_air_dominates_source_face(above, below, gained_faces));
+    assert!(!stream.current_known_target_dominates_source_face(above, below, gained_faces));
     install_current_light(&mut stream, below, 0, 15, true);
-    assert!(stream.current_known_air_dominates_source_face(above, below, gained_faces));
+    assert!(stream.current_known_target_dominates_source_face(above, below, gained_faces));
 
     install_current_light(&mut stream, above, 15, 15, true);
     let removal_faces = stream.monotonic_light_faces(
@@ -243,8 +281,14 @@ fn dominance_proof_fails_closed_for_decrease_provenance_and_target_state() {
         &SubChunkLight::uniform(0, 15, 30_003).unwrap(),
         &DirectSkyMask::Uniform(true),
     );
+    stream.direct_sky.get_mut(&side).unwrap().light_revision += 1;
+    assert!(!stream.current_known_target_dominates_source_face(above, side, dominated_faces));
+    install_current_light(&mut stream, side, 0, 14, false);
+    *stream.block_generations.get_mut(&side).unwrap() += 1;
+    assert!(!stream.current_known_target_dominates_source_face(above, side, dominated_faces));
+    install_current_light(&mut stream, side, 0, 14, false);
     stream.mark_light_dirty_exact(side).unwrap();
-    assert!(!stream.current_known_air_dominates_source_face(above, side, dominated_faces));
+    assert!(!stream.current_known_target_dominates_source_face(above, side, dominated_faces));
     stream.pending_light.remove(&side);
     let identity = LightJobIdentity {
         revision: stream.light_revisions.dirty(side).unwrap().revision,
@@ -254,7 +298,7 @@ fn dominance_proof_fails_closed_for_decrease_provenance_and_target_state() {
         urgent: false,
     };
     stream.in_flight_light.insert(side, identity);
-    assert!(!stream.current_known_air_dominates_source_face(above, side, dominated_faces));
+    assert!(!stream.current_known_target_dominates_source_face(above, side, dominated_faces));
     stream.in_flight_light.remove(&side);
     stream.light_revisions.entries.remove(&side);
 
@@ -264,9 +308,55 @@ fn dominance_proof_fails_closed_for_decrease_provenance_and_target_state() {
         .commit_sub_chunk(non_air, super::uniform_sub_chunk(3))
         .unwrap();
     install_current_light(&mut stream, non_air, 0, 14, false);
-    assert!(!stream.current_known_air_dominates_source_face(above, non_air, dominated_faces));
+    assert!(stream.current_known_target_dominates_source_face(above, non_air, dominated_faces));
+    let source_direct = stream.direct_sky.remove(&above).unwrap();
+    assert!(!stream.current_known_target_dominates_source_face(above, non_air, dominated_faces));
+    stream.direct_sky.insert(above, source_direct);
+
+    stream
+        .store
+        .commit_sub_chunk(below, super::uniform_sub_chunk(3))
+        .unwrap();
+    install_current_light(&mut stream, below, 0, 15, false);
+    assert!(!stream.current_known_target_dominates_source_face(above, below, gained_faces));
+    install_current_light(&mut stream, below, 0, 15, true);
+    assert!(stream.current_known_target_dominates_source_face(above, below, gained_faces));
+
     let unknown = SubChunkKey::new(1, 0, 1, 1);
-    assert!(!stream.current_known_air_dominates_source_face(above, unknown, dominated_faces));
+    assert!(!stream.current_known_target_dominates_source_face(above, unknown, dominated_faces));
+}
+
+#[test]
+fn resident_dominance_uses_the_unit_attenuation_upper_bound_for_all_palettes() {
+    let source = SubChunkKey::new(1, 0, 0, 0);
+    for runtime_id in [2, 99_999] {
+        let destination = SubChunkKey::new(1, 1, 0, 0);
+        let mut stream = lit_stream(1);
+        install_current_light(&mut stream, source, 0, 0, false);
+        let source_generation = stream.light_store.light(source).unwrap().generation();
+        let replacement = SubChunkLight::uniform(15, 0, source_generation).unwrap();
+        let monotonic_faces =
+            stream.monotonic_light_faces(source, &replacement, &DirectSkyMask::Uniform(false));
+        stream.light_store.insert_known_air(source, replacement);
+        stream
+            .store
+            .commit_sub_chunk(destination, super::uniform_sub_chunk(runtime_id))
+            .unwrap();
+        install_current_light(&mut stream, destination, 14, 0, false);
+
+        assert!(stream.current_known_target_dominates_source_face(
+            source,
+            destination,
+            monotonic_faces
+        ));
+
+        install_current_light(&mut stream, destination, 13, 0, false);
+        assert!(!stream.current_known_target_dominates_source_face(
+            source,
+            destination,
+            monotonic_faces
+        ));
+    }
 }
 
 #[test]

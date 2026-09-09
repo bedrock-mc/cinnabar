@@ -71,13 +71,13 @@ impl WorldStream {
         })
     }
 
-    pub(in crate::stream) fn current_known_air_dominates_source_face(
+    pub(in crate::stream) fn current_known_target_dominates_source_face(
         &self,
         source_key: SubChunkKey,
         destination_key: SubChunkKey,
         monotonic_faces: [bool; 6],
     ) -> bool {
-        if !self.known_air.contains(&destination_key)
+        if !self.light_source_is_known(destination_key)
             || self.pending_light.contains_key(&destination_key)
             || self.in_flight_light.contains_key(&destination_key)
             || !self.light_is_current(destination_key)
