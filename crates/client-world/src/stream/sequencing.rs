@@ -141,7 +141,7 @@ impl WorldStream {
                     Ok(decoded) => {
                         // Cohort membership follows the request-mode ordering
                         // contract exactly: only after successful decode, the
-                        // active-column gate above, and the submit-time
+                        // data-interest gate above, and the submit-time
                         // supported-dimension admission. Failed decodes below
                         // never enter readiness.
                         self.record_required_level_chunk(&event);

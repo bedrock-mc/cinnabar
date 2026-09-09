@@ -176,6 +176,27 @@ are not performance comparisons. Both reused saved authentication without refres
 Lighting work remains paused until this admission contract is resolved.
 All changes in this loading-only checkpoint are local, not pushed.
 
+The subsequent admission investigation identified 232 valid inline chunks and 18
+block updates discarded solely by the small publisher envelope in that run.
+The complete `2eb94414..52bf5425` stream range and `2eb94414..db609e6e` render/app
+companion received fresh independent APPROVE, with no Critical or Important
+findings, and are integrated history-preservingly in `7ad83fd5` / `0e0471c4`.
+Data admission now includes the independently confirmed player grid while raw
+publisher center, radius, epoch, and teleport/control decisions remain unchanged.
+Required membership and render expectations follow admitted announcements, and
+normal retention changes prune departed requirements without dropping incomplete
+nearby requests. The initial review's stale/unbounded membership finding has
+long-travel and radius-shrink regressions. Explicit render membership preserves
+foreign/source/stale blockers and invalidates candidates when membership changes.
+Fresh integrated world/client-world/meshing/render suites passed 1,012 tests with
+two ignored; all 951 app-library tests, strict affected all-target Clippy,
+formatting, and architecture checks passed. The sole final review comment was
+corrected without changing behavior. The release rebuild passed; normal live
+full-lobby checks remain pending, so this does not yet establish a loading-time improvement.
+The existing loading-screen threshold is unchanged. New lighting optimizations
+remain isolated until the admission candidate has a comparable native baseline.
+These changes are local and have not been pushed.
+
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
 plus the Windows physics-install shell-test correction. Independent reviews approved
