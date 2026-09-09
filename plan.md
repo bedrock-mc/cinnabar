@@ -153,10 +153,27 @@ approximately 40.71 s with 37,323 light jobs. No compiler or test ran during the
 measurements, but substantial unrelated/background process CPU was observed after
 the Zeqa run; its timing is not a clean causal comparison. All three launches
 reused the saved auth bundle and service token without rewriting the sidecar.
-Lighting changes remain paused while `fix/loading-publisher-trace-20260908`, from
-`10f14313`, adds bounded upstream-callback versus relay publisher metadata for
-attribution. That diagnostic is not yet reviewed or integrated and makes no
-publisher-behavior change.
+The complete publisher-diagnostic range `10f14313..fddfda1e` received fresh
+independent APPROVE with no findings and is integrated in `b07482e7`. It records
+the first 16 numeric publisher updates independently at the upstream callback and
+relay, including preceding chunk counts, without changing publisher behavior.
+Full writer Go tests, independent focused/proxy tests and vet, fresh integrated
+proxy/command consumer tests with the local fork, vet, architecture and core build
+passed. Race instrumentation remains unavailable on this host.
+
+Two short Windows/DX12 attribution runs with unchanged release renderer reproduced
+both sizes. The full run received one 128-block publisher update and retained
+3,035 subchunks. The small run received a 128-block update followed by a 32-block
+update before the remaining terrain; the callback and relay recorded identical
+publisher order, centers and radii. Both runs received 258 ordinary chunk packets;
+all publisher saved-list counts were zero. The small run retained only 298
+subchunks / 25 columns and visibly lacked most of the lobby. Thus this pair
+attributes the small publisher update to the upstream stream, not proxy reordering
+or a nonempty saved-list omission. Whether the client incorrectly rejects new
+chunks outside that publisher area remains under investigation; no admission
+change follows from this observation alone. These instrumented, early-closed runs
+are not performance comparisons. Both reused saved authentication without refresh.
+Lighting work remains paused until this admission contract is resolved.
 All changes in this loading-only checkpoint are local, not pushed.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
