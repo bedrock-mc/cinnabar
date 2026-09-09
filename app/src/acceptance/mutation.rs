@@ -135,6 +135,8 @@ impl MutationTracker {
         if let Some(expectation) = &pending.expectation
             && expectation.cohort == proposed.cohort
             && expectation.source_cohort == proposed.source_cohort
+            && expectation.target_columns == proposed.target_columns
+            && expectation.target_keys == proposed.target_keys
             && expectation.manifest == proposed.manifest
         {
             return Some(expectation.clone());

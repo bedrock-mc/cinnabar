@@ -432,7 +432,11 @@ impl ChunkRenderQueue {
         }
     }
 
-    /// Freezes render generations only for actually announced required columns.
+    /// Freezes render generations only for the caller's bounded required columns.
+    ///
+    /// Explicit columns define membership independently from the raw publisher
+    /// geometry retained in `cohort`; they must be nonempty and belong to that
+    /// cohort's dimension.
     #[must_use]
     pub fn freeze_target_expectation_for_columns(
         &self,
@@ -446,7 +450,7 @@ impl ChunkRenderQueue {
         if columns.is_empty()
             || columns
                 .iter()
-                .any(|column| !cohort.contains(SubChunkKey::from_chunk(*column, 0)))
+                .any(|column| column.dimension != cohort.dimension)
         {
             return None;
         }

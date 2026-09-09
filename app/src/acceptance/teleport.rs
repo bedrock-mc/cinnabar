@@ -440,6 +440,8 @@ impl FullViewTeleportTracker {
             && candidate.status == status
             && candidate.expectation.cohort == proposed.cohort
             && candidate.expectation.source_cohort == proposed.source_cohort
+            && candidate.expectation.target_columns == proposed.target_columns
+            && candidate.expectation.target_keys == proposed.target_keys
             && candidate.expectation.manifest == proposed.manifest
         {
             candidate.snapshot = snapshot;
