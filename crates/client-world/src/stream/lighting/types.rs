@@ -122,6 +122,38 @@ impl LightBlockSnapshot {
     }
 }
 
+pub(in crate::stream) fn sample_resident_light(
+    sub_chunk: &SubChunk,
+    position: [u8; 3],
+    classifier: BlockClassifier,
+    mut resolve: impl FnMut(u32) -> SolverLightProperties,
+) -> LightBlockSample {
+    let [x, y, z] = position;
+    let mut emission = 0_u8;
+    let mut filter = 0_u8;
+    let mut found = false;
+    for layer in 0..sub_chunk.storages().len() {
+        let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
+            continue;
+        };
+        if classifier.is_air(runtime_id) {
+            continue;
+        }
+        let properties = resolve(runtime_id);
+        emission = emission.max(properties.emission());
+        filter = filter.max(properties.filter());
+        found = true;
+    }
+    if found {
+        LightBlockSample::Resident(
+            SolverLightProperties::new(emission, filter)
+                .expect("resolved light properties are nibble-bounded"),
+        )
+    } else {
+        LightBlockSample::KnownAir
+    }
+}
+
 impl LightBlockAccess for LightBlockSnapshot {
     fn sample(&self, position: BlockPos) -> LightBlockSample {
         let (key, [x, y, z]) = split_light_position(self.dimension, position);
@@ -129,35 +161,14 @@ impl LightBlockAccess for LightBlockSnapshot {
             None => LightBlockSample::Unknown,
             Some(SnapshotBlock::KnownAir) => LightBlockSample::KnownAir,
             Some(SnapshotBlock::Resident(sub_chunk)) => {
-                let mut emission = 0_u8;
-                let mut filter = 0_u8;
-                let mut found = false;
-                for layer in 0..sub_chunk.storages().len() {
-                    let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
-                        continue;
-                    };
-                    if self.classifier.is_air(runtime_id) {
-                        continue;
-                    }
-                    let properties = self
-                        .resolved_light
+                sample_resident_light(sub_chunk, [x, y, z], self.classifier, |runtime_id| {
+                    self.resolved_light
                         .get(&runtime_id)
                         .copied()
                         .unwrap_or_else(|| {
                             SolverLightProperties::new(0, 15).expect("constant nibbles are valid")
-                        });
-                    emission = emission.max(properties.emission());
-                    filter = filter.max(properties.filter());
-                    found = true;
-                }
-                if found {
-                    LightBlockSample::Resident(
-                        SolverLightProperties::new(emission, filter)
-                            .expect("MCBEAS05 light nibbles are validated"),
-                    )
-                } else {
-                    LightBlockSample::KnownAir
-                }
+                        })
+                })
             }
         }
     }

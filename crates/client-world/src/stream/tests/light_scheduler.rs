@@ -227,3 +227,4 @@ fn synthetic_light_completion(
 mod boundary_dominance;
 mod cases_01;
 mod cases_02;
+mod filter_dominance;
