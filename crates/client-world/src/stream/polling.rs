@@ -147,7 +147,10 @@ impl WorldStream {
         reason = "the committed stream radius is bounded to sixteen chunks"
     )]
     pub fn render_distance_blocks(&self) -> f32 {
-        self.active_radius_chunks().max(0).saturating_mul(16) as f32
+        self.chunk_radius
+            .unwrap_or_else(|| self.active_radius_chunks())
+            .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+            .saturating_mul(16) as f32
     }
     pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {
         Arc::clone(&self.biome_definitions)
