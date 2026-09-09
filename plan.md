@@ -197,6 +197,37 @@ The existing loading-screen threshold is unchanged. New lighting optimizations
 remain isolated until the admission candidate has a comparable native baseline.
 These changes are local and have not been pushed.
 
+The admission candidate retained all 257 Lifeboat columns but initially still
+hid the lobby in fog. The independently approved `e8329093..f05bd346` correction,
+integrated in `196f3077`, derives fog distance from the confirmed chunk radius;
+raw publisher controls remain unchanged. Fresh app/client-world tests, strict
+Clippy, formatting, architecture and release build passed. Normal Windows/DX12
+native runs then displayed the complete Lifeboat and Zeqa lobbies. Lifeboat sent
+the same 128-to-32-block publisher update and still retained 3,035 subchunks /
+rendered 1,863; Zeqa retained 5,376 / rendered 1,108. Logical terrain readiness
+took 26.549 s and 35.778 s respectively; all terrain work drained approximately
+73.63 s and 52.45 s after connection. These are comparable-scene baselines,
+not a loading-performance or complete fog-shape parity claim. Zeqa naturally
+refreshed its expiring service credential and persisted the replacement with
+protected owner-restricted access; subsequent reuse succeeded.
+
+The complete `2eb94414..a7006f96` lighting boundary-scan range received fresh
+independent APPROVE with no findings and is integrated in `5831f6e4`. It avoids
+sampling strict interior voxels during external boundary seeding while preserving
+boundary traversal, queue order, light values, direct-sky provenance and error
+behavior. Nonvacuous full-volume oracle tests and exact full-solve fingerprints
+passed. A quiet release seed-phase microbenchmark measured 2.21x and 2.83x on
+the two fixed geometries; this does not establish an end-to-end speedup. Fresh
+post-integration world/client-world/meshing/render tests passed 1,019 tests with
+four ignored, and all 951 app-library tests passed. Strict affected all-target
+Clippy, formatting, architecture and the release build passed. Matched native
+measurements remain pending. The separate current-resident light-dominance
+extension is locally committed in `6ef82c72` from `e8329093`, isolated and awaiting
+fresh independent review. Its exact mixed-terrain light/provenance hashes remain
+unchanged through initial load, emitter removal and addition; timing under build
+contention is excluded. No new scheduling or readiness-threshold change is
+included. The broader completion track remains paused; nothing here is pushed.
+
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
 plus the Windows physics-install shell-test correction. Independent reviews approved
