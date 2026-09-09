@@ -546,7 +546,7 @@ impl WorldStream {
             }
         }
         for neighbour in requeue {
-            if self.current_known_air_dominates_source_face(key, neighbour, monotonic_faces) {
+            if self.current_known_target_dominates_source_face(key, neighbour, monotonic_faces) {
                 continue;
             }
             if let Some(pending) = self.pending_light.get_mut(&neighbour) {
