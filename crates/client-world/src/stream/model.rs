@@ -18,23 +18,26 @@ pub(super) struct CorrelatedSubChunkAttempts {
 
 /// Raw block-space witness for a server publisher view.
 ///
-/// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] for
-/// bounded retention. This identity preserves values that would otherwise be
-/// lost when an unaligned block centre or radius is converted to chunks.
+/// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] as a
+/// bounded publisher/control envelope. This identity preserves values that
+/// would otherwise be lost when an unaligned block centre or radius is
+/// converted to chunks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublisherViewGeometry {
     pub center_blocks: [i32; 2],
     pub radius_blocks: u32,
 }
 
-/// One horizontal view cohort with separate required and retention geometry.
+/// One horizontal publisher view with independently tracked required columns.
 ///
-/// `center` and `radius` define the enclosing Chebyshev retention square in
-/// chunk columns. Publisher-created cohorts additionally retain the raw wire
-/// witness, but the protocol does not define an enumerable universal column
-/// set from that witness. Required membership is recorded separately from
-/// unique `LevelChunk` announcements — request-mode and inline alike — in the
-/// publisher epoch, each only after its own decode and admission gates.
+/// `center` and `radius` define the enclosing Chebyshev publisher/control
+/// envelope in chunk columns. Publisher-created cohorts additionally retain
+/// the raw wire witness, but the protocol does not define an enumerable
+/// universal column set from that witness. Required membership is recorded
+/// separately from unique `LevelChunk` announcements — request-mode and inline
+/// alike — in the publisher epoch, each only after its own decode and data
+/// admission gates. The player grid's independent retention geometry is not
+/// stored in this publisher identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,

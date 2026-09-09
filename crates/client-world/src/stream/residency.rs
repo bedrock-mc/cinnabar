@@ -109,10 +109,10 @@ impl WorldStream {
         columns
     }
     /// Re-evaluates chunk-grid retention against the local player's current
-    /// chunk and the server-confirmed radius, evicting every tracked column the
-    /// vanilla client's grid no longer keeps. Cheap to call on every player
-    /// move: it only rescans when the player's chunk or the confirmed radius
-    /// changes.
+    /// chunk and the server-confirmed radius, evicting every tracked column and
+    /// pruning every announced requirement the grid no longer keeps. Cheap to
+    /// call on every player move: it only rescans when the player's chunk or
+    /// the confirmed radius changes.
     pub(super) fn reevaluate_chunk_retention(&mut self) {
         let Some(radius) = self.chunk_radius else {
             return;
@@ -125,13 +125,15 @@ impl WorldStream {
         self.last_retention_center = Some(center);
         self.last_retention_radius = Some(radius);
         let center_xz = [center.x, center.z];
+        let current_dimension = self.current_dimension;
+        let is_retained = |key: &ChunkKey| {
+            key.dimension == current_dimension && chunk_in_view(radius, [key.x, key.z], center_xz)
+        };
+        self.required_columns.retain(is_retained);
         let stale = self
             .tracked_columns()
             .into_iter()
-            .filter(|key| {
-                key.dimension != self.current_dimension
-                    || !chunk_in_view(radius, [key.x, key.z], center_xz)
-            })
+            .filter(|key| !is_retained(key))
             .collect::<Vec<_>>();
         for column in stale {
             self.evict_column(column);
@@ -168,6 +170,23 @@ impl WorldStream {
         let center_z = center[2].div_euclid(16);
         i64::from(key.x).abs_diff(i64::from(center_x)) <= radius
             && i64::from(key.z).abs_diff(i64::from(center_z)) <= radius
+    }
+    /// Reports whether inbound world data belongs to either server-established
+    /// interest scope. Publisher scope remains the control/rebase authority;
+    /// the confirmed player grid independently retains ordinary world data.
+    pub(super) fn column_is_data_interesting(&self, key: ChunkKey) -> bool {
+        if key.dimension != self.current_dimension {
+            return false;
+        }
+        self.column_is_active(key)
+            || self.chunk_radius.is_some_and(|radius| {
+                let player = self.player_chunk();
+                chunk_in_view(
+                    radius.clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS),
+                    [key.x, key.z],
+                    [player.x, player.z],
+                )
+            })
     }
     pub(super) fn is_expected_sub_chunk(&self, key: SubChunkKey) -> bool {
         self.requested_sub_chunks

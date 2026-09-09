@@ -71,7 +71,7 @@ impl WorldStream {
     }
     fn record_sub_chunk_reply_admission_position(&mut self, dimension: i32, position: [i32; 3]) {
         let key = SubChunkKey::new(dimension, position[0], position[1], position[2]);
-        if !self.column_is_active(key.chunk()) {
+        if !self.column_is_data_interesting(key.chunk()) {
             return;
         }
         let expected = self.is_expected_sub_chunk(key);

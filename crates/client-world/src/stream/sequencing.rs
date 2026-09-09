@@ -133,7 +133,7 @@ impl WorldStream {
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
-                if !self.column_is_active(key) {
+                if !self.column_is_data_interesting(key) {
                     self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);
                     return;
                 }
@@ -238,7 +238,7 @@ impl WorldStream {
                         entry.position[1],
                         entry.position[2],
                     );
-                    if !self.column_is_active(key.chunk()) {
+                    if !self.column_is_data_interesting(key.chunk()) {
                         self.stats.phase2_outcomes.stale =
                             self.stats.phase2_outcomes.stale.saturating_add(1);
                         continue;
@@ -427,7 +427,7 @@ impl WorldStream {
                     );
                     return;
                 }
-                if !self.column_is_active(key.chunk()) {
+                if !self.column_is_data_interesting(key.chunk()) {
                     self.record_normalization_error(
                         NormalizationErrorReason::InactiveBlockEntityUpdate,
                     );
@@ -499,7 +499,7 @@ impl WorldStream {
                     return;
                 };
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
-                if !self.column_is_active(key) {
+                if !self.column_is_data_interesting(key) {
                     if let Some(sequence) = sequence {
                         self.cancel_request_reservation(sequence);
                     }
@@ -543,19 +543,10 @@ impl WorldStream {
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
                 if self.committed_view_cohort != Some(cohort) {
                     if self.provisional_publisher_rebase {
-                        let active_radius = u64::try_from(self.active_radius_chunks()).unwrap_or(0);
-                        let active_center = [
-                            update.center[0].div_euclid(16),
-                            update.center[2].div_euclid(16),
-                        ];
-                        self.required_columns.retain(|key| {
-                            cohort.contains_column(key.dimension, [key.x, key.z])
-                                && key.dimension == self.current_dimension
-                                && i64::from(key.x).abs_diff(i64::from(active_center[0]))
-                                    <= active_radius
-                                && i64::from(key.z).abs_diff(i64::from(active_center[1]))
-                                    <= active_radius
-                        });
+                        self.required_columns = std::mem::take(&mut self.required_columns)
+                            .into_iter()
+                            .filter(|key| self.column_is_data_interesting(*key))
+                            .collect();
                     } else {
                         self.required_columns.clear();
                     }
@@ -843,7 +834,7 @@ impl WorldStream {
         sequence: Option<u64>,
     ) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        if !self.column_is_active(key) {
+        if !self.column_is_data_interesting(key) {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
@@ -910,11 +901,8 @@ impl WorldStream {
 
     fn record_required_level_chunk(&mut self, event: &LevelChunkEvent) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        let belongs_to_authoritative_cohort = self
-            .committed_view_cohort
-            .is_some_and(|cohort| cohort.contains_column(key.dimension, [key.x, key.z]));
-        if (belongs_to_authoritative_cohort || self.provisional_publisher_rebase)
-            && self.column_is_active(key)
+        if (self.committed_view_cohort.is_some() || self.provisional_publisher_rebase)
+            && self.column_is_data_interesting(key)
         {
             self.required_columns.insert(key);
         }
