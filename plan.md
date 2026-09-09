@@ -237,13 +237,70 @@ emitter removal and addition; timing under build contention is excluded. Fresh
 integrated app and client-world library tests passed 951 and 347 tests respectively,
 with two ignored; all 34 client-world integration tests, strict affected all-target
 Clippy, formatting and architecture checks passed. Release/native/performance
-gates remain open for this extension.
-A lazy destination-filter refinement is isolated on
-`fix/loading-filter-dominance-20260908` from `f4892583`, not yet reviewed or
-integrated. It must preserve the exact solver's layer/filter semantics and the
-current-state proof; dirty retained-light reuse is not authorized. No new scheduler
-or readiness-threshold change is included. The broader track remains paused;
-nothing in this checkpoint is pushed.
+gates were initially open for this extension; the combined candidate below now
+has repeat native evidence.
+
+The complete lazy destination-filter refinement `f4892583..acdcbefc` received
+fresh independent APPROVE with no findings and is integrated in `735a422a`.
+Only cells that fail the cheaper bound consult the exact destination layer/filter
+semantics, with at most one destination lookup per proof. All current-state,
+monotonic-source and direct-sky provenance guards remain; mesh invalidation is
+independent. The old shared lighting fixture is unchanged. Exact 3-by-3-by-24
+light/provenance hashes remain `8406a83a02b26fbd` initially,
+`fdb331a60caa17e5` after emitter removal and `8406a83a02b26fbd` after addition.
+Fresh integrated app/client-world units passed 951/352 tests (two ignored);
+world/client-world/meshing/render consumers passed 1,026 tests (four ignored).
+Strict affected all-target Clippy, formatting, architecture, diff checks and
+the release build passed.
+
+Normal Windows/DX12/Immediate release A/B runs, with no concurrent compiler or
+test, retained and visibly rendered the complete lobbies at the same spawn and
+settings. Full terrain-work drain was measured by a one-second observer after
+upstream connection, not by the loading-screen timestamp:
+
+| Server | Boundary-only baseline runs | Resident + filter runs | Retained / rendered subchunks |
+| --- | --- | --- | --- |
+| Lifeboat | 85.72 s, 61.51 s | 10.98 s, 11.45 s | 3,035 / 1,863 |
+| Zeqa | 26.36 s, 30.07 s | 5.80 s, 5.97 s | 5,376 / 1,108 |
+
+Lifeboat accepted 86,706-113,456 light jobs in those baselines versus
+12,950-14,134 in the candidate; Zeqa accepted 35,107-40,482 versus 8,120-8,293.
+The fresh-baseline comparison is roughly 81% less terrain-drain time for both
+servers. Arrival order, live server activity and publisher updates still vary;
+this supports the combined optimization, not isolated attribution to either
+refinement. The Lifeboat candidate's first logical milestone used an early
+transient drained state and is not a full-lobby time; its repeat used the ordinary
+dense-opaque milestone at 6.075 s. Zeqa logical milestones were 5.020/5.511 s.
+Readiness thresholds are unchanged. Existing pack-dependent rendering and glyph
+defects remain, and there is no matched vanilla-speed or capped resource-budget
+acceptance claim.
+
+Every fresh process in these A/B runs reused the bound disk authentication and
+valid service token; the sidecar remained unchanged after the earlier natural
+expiry refresh. Candidate connection times were 1.693/1.187 s for Lifeboat and
+3.678/3.477 s for Zeqa, including its pre-login transfer. A separate resource-pack
+cache warning was traced to a parent directory whose inherited permissions fail
+the existing owner-only check. Authentication caching is unaffected; permissions
+and pack acquisition/application policy were not changed. This is not evidence
+of persistent pack reuse. The long-lived Zeqa baseline later exited on the
+pre-existing unconsumed block-crack queue limit, after its loading measurement;
+that separate gameplay defect is recorded, not fixed by this loading tranche.
+
+The more complex initial-floor runtime experiment is deferred: the conservative
+candidate already produces a repeatable large improvement. Its opt-in pure solver
+remains isolated on `fix/loading-increase-only-solver-20260908`, based on
+`049f2889`, with no runtime caller or integration. Review of `95c5a1e4` requested
+one defensive filtered-halo correction, now committed separately in `c7dae5ab`.
+The regression failed before the fix and passed afterward; all nine focused
+debug/release tests, 136 world tests (two ignored), strict Clippy, formatting,
+architecture and the ordinary exact release fingerprints pass. A fresh
+independent re-review of the complete `049f2889..c7dae5ab` range returned APPROVE
+with no findings and independently repeated those checks. It is parked, clean
+and locally committed, without runtime integration or native acceptance.
+Do not merge or enable it from this checkpoint. The broader track remains paused.
+Upstream was re-fetched and remains `3438c89d`; all loading changes are local,
+not pushed. The tested core still uses the reviewed local Gophertunnel override;
+publication and an exact reachable dependency repin remain separate gates.
 
 2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
 adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
