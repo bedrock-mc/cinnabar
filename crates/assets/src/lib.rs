@@ -7,6 +7,7 @@ mod audio_pcm;
 mod biome;
 mod blob;
 mod block_entity;
+mod block_visibility;
 mod compiled;
 mod entity;
 mod environment_settings;
@@ -87,6 +88,7 @@ pub use block_entity::{
     MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
     RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
+pub use block_visibility::is_default_invisible_block;
 pub use compiled::{
     BlockFace, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,

@@ -24,6 +24,7 @@ members = [
     "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
+    "tools/web-spectator/wasm",
 ]
 resolver = "3"
 

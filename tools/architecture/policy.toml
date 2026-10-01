@@ -183,6 +183,12 @@ path = "tools/jsonui-mcp"
 allowed_dependencies = ["json-ui", "jsonui-editor"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+[[crates]]
+name = "web-spectator"
+path = "tools/web-spectator/wasm"
+allowed_dependencies = ["assets", "meshing", "world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "bridge", "protocol", "wgpu"]
+
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
 kind = "parsed"

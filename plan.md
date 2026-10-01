@@ -3,6 +3,20 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 web spectator: optional read-only extension under
+`tools/web-spectator`, with browser arena geometry built by Cinnabar's existing
+palette-native world store, runtime asset overlays and greedy chunk mesher.
+The server publishes active duel snapshots; the website owns its viewer camera
+and live fighter presentation. No browser game login, lobby/FFA map, player
+input or per-viewer desktop client is included. Incomplete: named flat colors
+and solid-cube terrain are diagnostic approximations. The existing Cinnabar
+invisible-block classifier is shared with the viewer; invisible terrain draws
+nothing and does not cull neighboring faces. Vanilla textures,
+transparent/partial block models, liquids, world lighting, full actor animation,
+equipment and version-matched native visual/performance parity are not provided.
+This extension closes no vanilla parity gate. Build/runtime admission limits
+are documented in `tools/web-spectator/wasm/README.md`.
+
 2026-10-01 menu scene ownership: gameplay input uses the screen absorption policy;
 world queues and both first-person paths obey game visibility. Pack flags retain
 vanilla defaults and inheritance. The existing full-screen Settings panorama also

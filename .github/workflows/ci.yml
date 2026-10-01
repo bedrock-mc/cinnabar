@@ -13,6 +13,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  web-spectator:
+    name: Optional web spectator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_TARGET_DIR: target/web-spectator-ci
+      RAYON_NUM_THREADS: "2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cache browser Rust dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/web-spectator-ci
+          key: ${{ runner.os }}-web-spectator-wasm-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-web-spectator-wasm-
+      - name: Build browser terrain renderer
+        run: cargo build --locked -p web-spectator --lib --target wasm32-unknown-unknown
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          cache-dependency-path: tools/web-spectator/server/go.sum
+      - name: Test and vet spectator sidecar
+        working-directory: tools/web-spectator/server
+        env:
+          GOWORK: "off"
+        run: |
+          go test -p 1 ./... -count=1
+          go vet -p 1 ./...
+
   desktop-compile-readiness:
     name: Desktop compile readiness (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

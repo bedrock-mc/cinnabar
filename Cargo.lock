@@ -6733,6 +6733,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-spectator"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "meshing",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "world",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"

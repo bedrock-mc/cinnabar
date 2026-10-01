@@ -1,0 +1,27 @@
+[Unit]
+Description=Cinnabar read-only Zeno duel spectator ingress
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=zeno
+Group=zeno
+EnvironmentFile=/home/zeno/deployments/spectator/shared/env/runtime.env
+ExecStart=/home/zeno/deployments/spectator/current/spectator
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+CPUQuota=100%
+MemoryMax=384M
+MemorySwapMax=0
+TasksMax=128
+LimitNOFILE=1024
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+Environment=GOMAXPROCS=1 GOMEMLIMIT=300MiB
+
+[Install]
+WantedBy=multi-user.target

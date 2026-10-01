@@ -1,0 +1,20 @@
+services:
+  spectator:
+    image: ${IMAGE:?IMAGE is required}
+    container_name: ${SERVICE:-zeno_spectator_dev}
+    restart: unless-stopped
+    network_mode: host
+    cpus: 1.0
+    mem_limit: 384m
+    memswap_limit: 384m
+    pids_limit: 128
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    env_file:
+      - ${RUNTIME_ENV_FILE:?RUNTIME_ENV_FILE is required}
+    environment:
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: "300MiB"

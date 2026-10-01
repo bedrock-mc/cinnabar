@@ -483,6 +483,15 @@ impl PackedQuad {
         self.material_id
     }
 
+    /// Width and height in the face's local axes, in blocks.
+    #[must_use]
+    pub const fn extent(&self) -> [u8; 2] {
+        [
+            (((self.geometry >> Self::WIDTH_SHIFT) & Self::EXTENT_MASK) + 1) as u8,
+            (((self.geometry >> Self::HEIGHT_SHIFT) & Self::EXTENT_MASK) + 1) as u8,
+        ]
+    }
+
     /// Raw words ready for upload to a storage buffer.
     #[must_use]
     pub const fn words(&self) -> [u32; 2] {
