@@ -64,7 +64,7 @@ impl Children {
         lock(&self.live).retain(|entry| running(&mut lock(entry)));
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn tracked(&self) -> usize {
         lock(&self.live).len()
     }
