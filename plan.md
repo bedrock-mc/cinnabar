@@ -4195,3 +4195,13 @@ hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gat
 The player-body report omits equipment and GPU execution. See
 `docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
 references, PNG evidence and the limitations of the capture.
+
+### JSON-UI review follow-up (incomplete live form acceptance)
+
+Review corrections cover untrusted animation graphs, expanded widget component
+bags, native form titles, screen cancellation, Drop remapping, recipe icons and
+perspective settings. An open form also remeasures when its session font changes.
+The captured Spirit Bundle witness exercises late pack installation and texture
+residency, but the black rectangle, floating labels and live FPS loss remain
+unproven. No live visual/performance gate is closed; see
+`docs/reference/jsonui-review-fixes.md`.

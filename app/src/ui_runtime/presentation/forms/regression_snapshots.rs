@@ -106,6 +106,88 @@ fn spirit_bundle_snapshot() {
     );
 }
 
+#[test]
+fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
+    let Some(runtime) = captured_form() else {
+        return;
+    };
+    let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
+    let dpi = DpiScale::new(1.0).unwrap();
+    let cold = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    super::snapshot::write(&cold, "spirit-bundle-before-pack");
+    let pack = pack_harness::env_pack().expect("captured server UI pack");
+    presentation.set_server_ui_pack(&pack);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        let engine = presentation.form_presentation.engine.as_ref().unwrap();
+        let atlas = engine.textures.lock();
+        let resident = [
+            "textures/ui/common/dark_field",
+            "textures/ui/common/buttons/green/default",
+        ]
+        .iter()
+        .all(|key| atlas.placement(key).is_some());
+        drop(atlas);
+        if resident {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "button textures never became resident"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    presentation.finish_menu_artwork();
+    let settled = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    super::snapshot::write(&settled, "spirit-bundle-after-pack");
+    let pixels = super::snapshot::rasterize(&settled);
+    assert!(
+        pixels
+            .enumerate_pixels()
+            .filter(|(x, y, pixel)| (435..843).contains(x)
+                && (205..440).contains(y)
+                && pixel[2] > pixel[0]
+                && pixel[0] > 60)
+            .count()
+            > 1_000,
+        "bundle art did not reach the published pages"
+    );
+    let passes = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .passes;
+    let pages: Vec<_> = settled
+        .textures
+        .pages()
+        .iter()
+        .map(render::UiTexturePage::identity)
+        .collect();
+    for now in 1..6 {
+        let frame = presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        assert_eq!(
+            presentation
+                .form_presentation
+                .engine
+                .as_ref()
+                .unwrap()
+                .passes,
+            passes
+        );
+        assert_eq!(
+            frame
+                .textures
+                .pages()
+                .iter()
+                .map(render::UiTexturePage::identity)
+                .collect::<Vec<_>>(),
+            pages
+        );
+    }
+}
+
 /// Replays the captured ModalFormRequest through the packet decoder and UI state.
 fn captured_form() -> Option<crate::ui_runtime::UiRuntime> {
     let bytes = std::fs::read(std::env::var_os("CINNABAR_LOBBY_CAPTURE")?).unwrap();
