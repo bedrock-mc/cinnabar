@@ -57,10 +57,10 @@ enter git. Use `git worktree`, one Cargo `target` per active worktree, and delet
 
 ## Verify before pushing
 
-Before pushing a shared branch run what CI runs: focused tests, `cargo fmt --all`, clippy, and
-`cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml` — the gate
-most often forgotten (line limits, test-only public API, markers). If local verification is
-impossible, say the state is unverified; CI must never be the first compile.
+Land through a PR into `dev`; its CI runs the full matrix, so don't run full-workspace sweeps
+locally. Before pushing run `cargo run -p devtool --locked -- verify-affected --base origin/dev`:
+fmt, the architecture gate (line limits, test-only public API, markers), clippy and nextest,
+scoped to the affected crates. Merge only on green CI.
 
 ## Report state precisely
 

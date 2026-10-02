@@ -22,9 +22,8 @@ workspace suite once at the end, and skip release builds in agent worktrees.
 
 ## Verify before pushing
 
-Run what CI runs: focused tests, `cargo fmt --all`, clippy, and the architecture gate
-(`cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml`). Read the
-real exit code — never let a pipe hide it, and never treat "the background job finished" as "the
-check passed". A test that fails only on a network fetch or on stale local carriers is an
-environment artifact: confirm by rerunning it, and say so. If verification is impossible, label
-the state unverified; CI must never be the first compile.
+Locally run `cargo run -p devtool --locked -- verify-affected --base origin/dev` (fmt, the
+architecture gate, clippy and nextest scoped to affected crates); the full matrix runs on the PR
+into `dev`, and merges wait for green CI. Read the real exit code — never let a pipe hide it, and never
+treat "the background job finished" as "the check passed". A test that fails only on a network
+fetch or on stale local carriers is an environment artifact: confirm by rerunning it, and say so.

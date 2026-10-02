@@ -41,9 +41,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
@@ -102,9 +102,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
       - name: Test Rust workspace on Windows
         run: cargo test --workspace --locked
       - name: Lint Rust workspace on Windows
@@ -136,9 +136,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
