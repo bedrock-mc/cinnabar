@@ -53,6 +53,8 @@ impl std::ops::Deref for SharedCollection {
 /// collections.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DataSource {
+    /// Native creation values inherited by the screen's created subtree.
+    pub(super) creation_values: Arc<BTreeMap<String, Scalar>>,
     pub(super) globals: BTreeMap<String, Scalar>,
     pub(super) collections: BTreeMap<String, SharedCollection>,
     /// Values the controller writes straight into named controls' bags.
@@ -82,6 +84,11 @@ impl DataSource {
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Fill the native creation bag read throughout the created screen subtree.
+    pub fn set_creation_value(&mut self, name: impl Into<String>, value: Scalar) {
+        Arc::make_mut(&mut self.creation_values).insert(name.into(), value);
     }
 
     /// Write `name` into the bag of every control named `control` on each

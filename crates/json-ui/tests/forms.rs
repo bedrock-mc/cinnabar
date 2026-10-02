@@ -107,6 +107,10 @@ fn action_form_renders_a_button_per_entry_with_present_images_only() {
 
     // Every button label reaches the draw tree.
     let drawn = texts(&render.nodes);
+    assert!(
+        drawn.iter().any(|text| text == "Shop"),
+        "missing form title"
+    );
     for label in ["Apple", "Sword", "Plain"] {
         assert!(
             drawn.iter().any(|t| t == label),
@@ -289,6 +293,10 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
         .expect("custom_form resolves");
 
     let generated = find(&render.bound, "generated_form").expect("generated form factory");
+    assert!(
+        texts(&render.nodes).iter().any(|text| text == "Options"),
+        "missing custom title"
+    );
     let names: Vec<&str> = generated
         .children
         .iter()

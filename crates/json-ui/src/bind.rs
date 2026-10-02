@@ -134,7 +134,11 @@ fn bind_with(
         keys: state::KeyMap::default(),
         retain,
     };
-    let mut node = binder.build(Src::root(Arc::clone(root)), &Scope::default(), 0);
+    let scope = Scope {
+        values: Arc::clone(&data.creation_values),
+        ..Scope::default()
+    };
+    let mut node = binder.build(Src::root(Arc::clone(root)), &scope, 0);
     binder.settle_views(&mut node);
     let baked = binder.bake(&node);
     binder.retain(node);

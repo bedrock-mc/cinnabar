@@ -248,6 +248,7 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 }
 
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
+    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#form_text", Scalar::Text(form.body.clone()));
     let length = Scalar::Num(form.elements.len() as f64);
@@ -284,6 +285,7 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
 }
 
 fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
+    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global(
         "#custom_form_length",
