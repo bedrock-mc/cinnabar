@@ -71,7 +71,7 @@ type Option func(*config) error
 // disables admission rather than meaning unlimited storage.
 func WithQuota(bytes uint64) Option { return func(c *config) error { c.quota = bytes; return nil } }
 
-// New opens or creates an owner-only cache rooted at root. Callers should pass
+// New opens or creates a quota-managed cache rooted at root. Callers should pass
 // the versioned objects directory (normally .local/cinnabar/resource-packs/v1/objects).
 func New(root string, options ...Option) (*Cache, error) {
 	cfg := config{quota: DefaultQuota}
@@ -87,40 +87,26 @@ func New(root string, options ...Option) (*Cache, error) {
 	if err != nil || strings.TrimSpace(root) == "" {
 		return nil, errors.New("packcache: invalid root")
 	}
-	abs, err = canonicalizeTopLevelAlias(abs)
-	if err != nil {
-		return nil, fmt.Errorf("packcache: canonical root: %w", err)
-	}
 	processMu.Lock()
 	defer processMu.Unlock()
-	if err := prepareRoot(abs); err != nil {
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, fmt.Errorf("packcache: secure root: %w", err)
 	}
 	canonical, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, fmt.Errorf("packcache: canonical root: %w", err)
 	}
-	canonical = canonicalRoot(canonical)
+	canonical = canonicalPlatformPath(canonical)
 	if _, exists := openRoots[canonical]; exists {
 		return nil, ErrInUse
 	}
 	leasePath := filepath.Join(canonical, ".packcache.lock")
-	leaseExisted := pathExists(leasePath)
 	lease, err := lockfile.Acquire(leasePath, 0)
 	if err != nil {
 		if errors.Is(err, lockfile.ErrBusy) {
 			return nil, ErrInUse
 		}
 		return nil, fmt.Errorf("packcache: acquire root lease: %w", err)
-	}
-	if leaseExisted {
-		err = validateOwnerOnlyPath(leasePath, false)
-	} else {
-		err = secureCreatedPath(leasePath, false)
-	}
-	if err != nil {
-		_ = lease.Close()
-		return nil, fmt.Errorf("packcache: secure root lease: %w", err)
 	}
 	openRoots[canonical] = struct{}{}
 	c := &Cache{root: canonical, quota: cfg.quota, pins: make(map[string]uint32), index: make(map[string]entry), clock: time.Now, lease: lease}
@@ -195,9 +181,6 @@ func (c *Cache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*
 	if err != nil {
 		return nil, err
 	}
-	if err := c.validateRoot(); err != nil {
-		return nil, err
-	}
 	path := filepath.Join(c.root, name)
 	pack, ok, err := readVerified(ctx, path, key)
 	if err != nil {
@@ -230,9 +213,6 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 	if key.Size > c.quota {
 		return errors.New("packcache: object exceeds quota")
 	}
-	if err := c.validateRoot(); err != nil {
-		return err
-	}
 	dest := filepath.Join(c.root, name)
 	if _, ok, err := readVerified(ctx, dest, key); err != nil {
 		return err
@@ -254,10 +234,6 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 	defer os.Remove(tempPath)
 	if err := temp.Chmod(0o600); err != nil {
 		temp.Close()
-		return err
-	}
-	if err := secureCreatedPath(tempPath, false); err != nil {
-		_ = temp.Close()
 		return err
 	}
 	n, copyErr := copyContext(ctx, temp, io.NewSectionReader(pack, 0, int64(key.Size)), key.Size)
@@ -293,7 +269,6 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 	return nil
 }
 
-func (c *Cache) validateRoot() error { return validateRoot(c.root) }
 func (c *Cache) checkOpen() error {
 	if c == nil || c.closed {
 		return ErrClosed
@@ -325,10 +300,6 @@ func (c *Cache) scan() error {
 			path := filepath.Join(c.root, name)
 			info, err := os.Lstat(path)
 			if err != nil || !regularNoLink(info) || info.Size() < 0 {
-				continue
-			}
-			if !ownerOnlyPath(path, info) {
-				_ = os.Remove(path)
 				continue
 			}
 			size := uint64(info.Size())
@@ -476,10 +447,7 @@ func readVerified(ctx context.Context, path string, key minecraft.ResourcePackCa
 	if err != nil {
 		return nil, false, fmt.Errorf("packcache: inspect object: %w", err)
 	}
-	if !secureRegular(info) || info.Size() < 0 || uint64(info.Size()) != key.Size {
-		return nil, false, nil
-	}
-	if !ownerOnlyPath(path, info) {
+	if !regularNoLink(info) || info.Size() < 0 || uint64(info.Size()) != key.Size {
 		return nil, false, nil
 	}
 	f, err := openRegular(path)

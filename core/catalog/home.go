@@ -376,7 +376,7 @@ func personaHead(ctx context.Context, discovery *service.Discovery, account *aut
 	if err := discovery.Environment(env); err != nil {
 		return Image{}, fmt.Errorf("resolve persona service: %w", err)
 	}
-	xbl, err := newXSAPIClient(ctx, account)
+	xbl, err := XboxClient(ctx, account)
 	if err != nil {
 		return Image{}, err
 	}

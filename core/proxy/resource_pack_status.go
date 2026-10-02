@@ -356,3 +356,13 @@ func redactURLs(text string) string {
 func (handler secretSafeResourcePackHandler) WithGroup(name string) slog.Handler {
 	return secretSafeResourcePackHandler{next: handler.next.WithGroup(name)}
 }
+
+// atomicSaturatingIncrement keeps diagnostic counters bounded without wrapping.
+func atomicSaturatingIncrement(counter *atomic.Uint64) {
+	for {
+		value := counter.Load()
+		if value == math.MaxUint64 || counter.CompareAndSwap(value, value+1) {
+			return
+		}
+	}
+}

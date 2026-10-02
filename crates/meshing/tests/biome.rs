@@ -196,11 +196,7 @@ fn biome_record_mesh_timing() {
         std::hint::black_box(PackedBiomeRecord::from_neighbourhood(&halo, |id| id));
     }
     let elapsed = started.elapsed();
-    std::fs::write(
-        "/tmp/cinnabar-biome-blend-pack-timing.txt",
-        format!("1000 boundary records: {elapsed:?}\n"),
-    )
-    .unwrap();
+    eprintln!("1000 boundary records: {elapsed:?}");
 }
 
 /// Resolves a binary palette to the second biome's contribution.
@@ -272,9 +268,10 @@ fn negative_cache_cells_preserve_vanilla_truncation_and_distance_ties() {
 
 #[test]
 fn offline_biome_boundary_gallery() {
+    let default_directory = tempfile::tempdir().unwrap();
     let directory = std::env::var_os("CINNABAR_BIOME_GALLERY")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/cinnabar-biome-blend-gallery"));
+        .unwrap_or_else(|| default_directory.path().to_path_buf());
     std::fs::create_dir_all(&directory).unwrap();
     let west = boundary_record();
     let halo = std::array::from_fn(|slot| Some(uniform_storage(if slot % 3 == 0 { 1 } else { 2 })));

@@ -3,7 +3,6 @@ package proxy
 import (
 	"errors"
 	"io"
-	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,54 +49,6 @@ func controlledReader(t *testing.T, source *fakeDownstream, sink packetSession, 
 	return reader, ticks
 }
 
-func TestRelayCoalescesRequestsAtStalledBatchBoundary(t *testing.T) {
-	src := newFakeDownstream(nil)
-	sink := &countedFlushSink{fakeUpstream: newFakeUpstream(nil)}
-	reader, _ := controlledReader(t, src, sink, false)
-	want := stamps(1)[0]
-	src.batchReads <- batchResult{packets: want}
-	batch, err := reader.Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
-	go func() {
-		_ = sink.WritePacket(batch[0])
-		close(entered)
-		<-release
-		_ = sink.WritePacket(batch[1])
-		done <- reader.Flush()
-	}()
-	<-entered
-	for range 100 {
-		reader.RequestFlush()
-	}
-	if got := len(reader.flushRequests); got != 1 {
-		t.Fatalf("queued requests = %d", got)
-	}
-	if sink.flushes.Load() != 0 {
-		t.Fatal("request split the stalled batch")
-	}
-	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if sink.flushes.Load() != 1 || len(reader.flushRequests) != 0 {
-		t.Fatal("boundary did not satisfy exactly one coalesced request")
-	}
-	if got := sink.flushedBatches(); len(got) != 1 || !slices.Equal(got[0], want) {
-		t.Fatalf("delivered = %v", got)
-	}
-	// A subsequent read must not service a stale request, even if EOF wins its select.
-	src.batchReads <- batchResult{err: io.EOF}
-	if _, err := reader.Read(); !errors.Is(err, io.EOF) {
-		t.Fatal(err)
-	}
-	if sink.flushes.Load() != 1 {
-		t.Fatal("stale request caused another flush")
-	}
-}
-
 func TestRelayIdleWriteLeavesOnFirstTick(t *testing.T) {
 	src := newFakeDownstream(nil)
 	sink := &countedFlushSink{fakeUpstream: newFakeUpstream(nil), flushed: make(chan struct{}, 1)}
@@ -125,7 +76,7 @@ func TestRelayIdleWriteLeavesOnFirstTick(t *testing.T) {
 
 func TestRelayFailureAttribution(t *testing.T) {
 	for _, upstream := range []bool{false, true} {
-		for _, operation := range []string{"read", "write", "idle", "request", "boundary"} {
+		for _, operation := range []string{"read", "write", "idle", "boundary"} {
 			t.Run(operation+map[bool]string{true: "-upstream", false: "-downstream"}[upstream], func(t *testing.T) {
 				failure := &minecraft.DisconnectPacketError{Message: "injected " + operation}
 				src := newFakeDownstream(nil)
@@ -138,9 +89,6 @@ func TestRelayFailureAttribution(t *testing.T) {
 					_, err = reader.Read()
 				case "idle":
 					ticks <- time.Now()
-					_, err = reader.Read()
-				case "request":
-					reader.RequestFlush()
 					_, err = reader.Read()
 				case "boundary":
 					err = reader.Flush()

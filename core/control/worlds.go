@@ -85,13 +85,6 @@ type WorldResultV1 struct {
 	Prefs         *localworld.Prefs  `json:"prefs,omitempty"`
 }
 
-type worldResponse struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      uint64         `json:"id"`
-	Result  *WorldResultV1 `json:"result,omitempty"`
-	Error   *responseError `json:"error,omitempty"`
-}
-
 func decodeParams(raw json.RawMessage, into any) bool {
 	if len(raw) == 0 {
 		return false
@@ -102,17 +95,14 @@ func decodeParams(raw json.RawMessage, into any) bool {
 }
 
 func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
-	fail := func(code int, message string) error {
-		return server.writeResponse(conn, worldResponse{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: message}})
-	}
-	invalid := func() error { return fail(-32602, "Invalid params") }
+	reply := responseWriter{server: server, conn: conn, id: id}
 	worlds := server.worldService()
 	result := &WorldResultV1{SchemaVersion: 1}
 	var err error
 	switch method {
 	case methodWorldList, methodWorldClose, methodWorldStatus:
 		if len(raw) != 0 {
-			return invalid()
+			return reply.invalid()
 		}
 	}
 	switch method {
@@ -124,7 +114,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 	case methodWorldCreate:
 		var spec localworld.Spec
 		if !decodeParams(raw, &spec) {
-			return invalid()
+			return reply.invalid()
 		}
 		var world localworld.World
 		if world, err = worlds.Create(spec); err == nil {
@@ -137,7 +127,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 		if !decodeParams(raw, &params) || params.ID == nil ||
 			(params.Name == nil && params.GameMode == nil && params.Difficulty == nil) {
-			return invalid()
+			return reply.invalid()
 		}
 		var world localworld.World
 		if world, err = worlds.Update(*params.ID, params.Update); err == nil {
@@ -150,7 +140,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 		if !decodeParams(raw, &params) || params.ID == nil || params.ViewDistance < 0 || params.ViewDistance > 64 ||
 			(method == methodWorldDelete && params.ViewDistance != 0) {
-			return invalid()
+			return reply.invalid()
 		}
 		if method == methodWorldDelete {
 			err = worlds.Delete(*params.ID)
@@ -163,7 +153,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			Redetect              bool  `json:"redetect"`
 		}
 		if len(raw) != 0 && !decodeParams(raw, &params) {
-			return invalid()
+			return reply.invalid()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		prefs, prefsErr := worlds.Prefs(ctx, localworld.PrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, Redetect: params.Redetect})
@@ -175,7 +165,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			Accepted *bool `json:"accepted"`
 		}
 		if !decodeParams(raw, &params) || params.Accepted == nil || !*params.Accepted {
-			return invalid()
+			return reply.invalid()
 		}
 		err = worlds.AcceptEULA()
 	case methodWorldClose:
@@ -185,18 +175,18 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			Paused *bool `json:"paused"`
 		}
 		if !decodeParams(raw, &params) || params.Paused == nil {
-			return invalid()
+			return reply.invalid()
 		}
 		err = worlds.SetPaused(*params.Paused)
 	}
 	if err != nil {
-		return fail(worldErrorCode(err), worldErrorMessage(err))
+		return reply.fail(worldErrorCode(err), worldErrorMessage(err))
 	}
 	if method == methodWorldOpen || method == methodWorldClose || method == methodWorldPause || method == methodWorldStatus || method == methodBDSEULA || method == methodPrefs {
 		status := worlds.Status()
 		result.Status = &status
 	}
-	return server.writeResponse(conn, worldResponse{JSONRPC: "2.0", ID: id, Result: result})
+	return reply.ok(result)
 }
 
 func worldErrorCode(err error) int {

@@ -195,3 +195,109 @@ fn a_new_stack_identity_or_session_cannot_inherit_a_charge() {
     assert_eq!(charged(&runtime, &crossbow(36, true)), None);
     assert!(!runtime.has_work(false));
 }
+
+#[test]
+fn rejected_fire_preserves_loaded_prediction_until_admitted() {
+    let mut runtime = load();
+    let mut swings = SwingTracker::default();
+    let fire = crossbow(38, true);
+    runtime.observe_press(true);
+    assert!(!step_and_send(
+        &mut runtime,
+        &mut swings,
+        &fire,
+        7,
+        6,
+        |_| Err(BatchSendError::Full),
+    ));
+    assert_eq!(charged(&runtime, &fire), Some(Some("minecraft:arrow")));
+    assert!(runtime.has_work(false));
+    let (ready, _open) = NetworkHandle::with_command_capacity(1);
+    assert!(!step_and_send(
+        &mut runtime,
+        &mut swings,
+        &crossbow(39, false),
+        7,
+        6,
+        |packets| ready.send_inventory_packets(packets),
+    ));
+    assert_eq!(ready.pending_command_count(), 1);
+    assert_eq!(charged(&runtime, &fire), Some(None));
+    assert!(!runtime.has_work(false));
+}
+
+#[test]
+fn rejected_early_release_does_not_become_a_completed_charge() {
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.observe_press(true);
+    let (full, _open) = NetworkHandle::with_command_capacity(1);
+    assert!(step_and_send(
+        &mut runtime,
+        &mut swings,
+        &crossbow(10, true),
+        7,
+        6,
+        |packets| full.send_inventory_packets(packets),
+    ));
+    step_and_send(
+        &mut runtime,
+        &mut swings,
+        &crossbow(20, false),
+        7,
+        6,
+        |packets| full.send_inventory_packets(packets),
+    );
+    assert!(runtime.release_pending);
+    let delayed = crossbow(40, false);
+    let (ready, _open) = NetworkHandle::with_command_capacity(1);
+    step_and_send(&mut runtime, &mut swings, &delayed, 7, 6, |packets| {
+        assert_eq!(packets.len(), 1);
+        assert!(wire(&packets[0]).contains("action_type: Release"));
+        ready.send_inventory_packets(packets)
+    });
+    assert_eq!(ready.pending_command_count(), 1);
+    assert_eq!(charged(&runtime, &delayed), None);
+    assert!(!runtime.is_using());
+    assert!(!runtime.release_pending);
+}
+
+#[test]
+fn closed_connection_clears_loaded_prediction() {
+    let mut runtime = load();
+    let mut swings = SwingTracker::default();
+    runtime.observe_press(true);
+    let fire = crossbow(38, true);
+    step_and_send(&mut runtime, &mut swings, &fire, 7, 6, |packets| {
+        NetworkHandle::disconnected().send_inventory_packets(packets)
+    });
+    assert_eq!(charged(&runtime, &fire), None);
+    assert!(!runtime.has_work(false));
+}
+
+#[test]
+fn full_charge_completes_locally_without_queue_admission() {
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.observe_press(true);
+    let (full, _open) = NetworkHandle::with_command_capacity(1);
+    assert!(step_and_send(
+        &mut runtime,
+        &mut swings,
+        &crossbow(10, true),
+        7,
+        6,
+        |packets| full.send_inventory_packets(packets),
+    ));
+    let completed = crossbow(10 + u64::from(crossbow_duration()), true);
+    assert!(!step_and_send(
+        &mut runtime,
+        &mut swings,
+        &completed,
+        7,
+        6,
+        |_| panic!("native crossbow completion sends no release transaction"),
+    ));
+    assert_eq!(charged(&runtime, &completed), Some(Some("minecraft:arrow")));
+    assert!(!runtime.is_using());
+}

@@ -18,7 +18,7 @@ struct Prediction {
     projectile: Option<&'static str>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct CrossbowPredictions {
     slots: [Option<Prediction>; protocol::HOTBAR_SLOT_COUNT as usize],
 }

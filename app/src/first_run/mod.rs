@@ -181,7 +181,7 @@ mod tests {
     }
 
     pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
-        InstallLayout::resolve(
+        let mut layout = InstallLayout::resolve(
             Platform::Linux,
             &InstallEnvironment {
                 executable: PathBuf::from(executable),
@@ -192,8 +192,12 @@ mod tests {
                 xdg_runtime_dir: None,
             },
         )
-        .unwrap()
-        .with_prepared_assets()
+        .unwrap();
+        // Linux layout fixtures also run on Windows, where native scratch paths are not XDG
+        // absolute paths. Keep their filesystem writes out of the shared Linux home fallback.
+        layout.user_config_root = data.path().join("cfg/cinnabar");
+        layout.user_data_root = data.path().join("data/cinnabar");
+        layout.with_prepared_assets()
     }
 
     #[test]

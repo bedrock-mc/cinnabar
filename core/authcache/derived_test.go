@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -39,52 +38,10 @@ import (
 
 const cachedRelyingParty = "http://xboxlive.com"
 
-// derivedTestDir mirrors the production entry point's trusted top-level alias
-// resolution. Low-level private reads and lease checks require canonical paths;
-// t.TempDir may otherwise retain the macOS /var alias. Nested links are not
-// resolved, so unsafe-path fixtures still exercise the fail-closed checks.
+// derivedTestDir returns the account cache directory for one test.
 func derivedTestDir(t *testing.T) string {
 	t.Helper()
-	dir, err := canonicalizeCachePath(filepath.Clean(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
-func TestPersistentSourceRetainsCanonicalCachePath(t *testing.T) {
-	raw := filepath.Join(t.TempDir(), "alias", "derived")
-	canonical := filepath.Join(t.TempDir(), "canonical", "derived")
-	var input string
-	deps := derivedDeps{canonicalize: func(path string) (string, error) {
-		input = path
-		return canonical, nil
-	}}
-	source := persistentSource(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
-	persistent, ok := source.(*Account)
-	if !ok {
-		t.Fatal("persistent source was not constructed")
-	}
-	wantInput, err := filepath.Abs(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if input != filepath.Clean(wantInput) {
-		t.Fatalf("canonicalization input = %q, want absolute clean path %q", input, filepath.Clean(wantInput))
-	}
-	if persistent.path != canonical {
-		t.Fatalf("persistent path = %q, want canonical path %q", persistent.path, canonical)
-	}
-}
-
-func TestPersistentSourceRejectsUntrustedCanonicalization(t *testing.T) {
-	oauth := oauth2.StaticTokenSource(testOAuthToken("account-a"))
-	deps := derivedDeps{canonicalize: func(string) (string, error) {
-		return "", errors.New("untrusted alias")
-	}}
-	if got := persistentSource(context.Background(), filepath.Join(t.TempDir(), "derived"), oauth, nil, deps).(*Account); got.path != "" {
-		t.Fatal("persistent source retained an untrusted cache path")
-	}
+	return t.TempDir()
 }
 
 func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testing.T) {
@@ -602,9 +559,6 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
-	if err := prepareLeasePath(path + ".lock"); err != nil {
-		t.Fatal(err)
-	}
 	lease, err := lockfile.Acquire(path+".lock", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -647,103 +601,14 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 	}
 }
 
-func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T) {
-	path := filepath.Join(derivedTestDir(t), "derived.lock")
-	start := make(chan struct{})
-	errs := make(chan error, 8)
-	for range cap(errs) {
-		go func() {
-			<-start
-			errs <- prepareLeasePath(path)
-		}()
-	}
-	close(start)
-	for range cap(errs) {
-		if err := <-errs; err != nil {
-			t.Fatal(err)
-		}
-	}
-	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := lockfile.Acquire(path, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, err := createPrivateOnce(path, []byte("replacement\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created {
-		t.Fatal("existing active lease file was replaced")
-	}
-	after, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !os.SameFile(before, after) {
-		t.Fatal("lease file identity changed while held")
-	}
-	if second, err := lockfile.Acquire(path, 0); !errors.Is(err, lockfile.ErrBusy) {
-		if second != nil {
-			_ = second.Close()
-		}
-		t.Fatalf("second acquisition error = %v, want busy", err)
-	}
-	if err := lease.Close(); err != nil {
-		t.Fatal(err)
-	}
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(contents) != "join-auth-lease\n" {
-		t.Fatalf("lease contents = %q, want original marker", contents)
-	}
-}
-
-func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
-	dir := derivedTestDir(t)
-	target := filepath.Join(dir, "target")
-	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	linked := filepath.Join(dir, "derived.lock")
-	if err := os.Symlink(target, linked); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-	if err := validateLeasePath(linked); err == nil {
-		t.Fatal("linked lease target accepted")
-	}
-}
-
-func TestValidateLeasePathRejectsMissingTarget(t *testing.T) {
-	path := filepath.Join(derivedTestDir(t), "missing.lock")
-	if err := validateLeasePath(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("error = %v, want missing", err)
-	}
-	if lease, err := lockfile.AcquireExisting(path, 0); !errors.Is(err, fs.ErrNotExist) {
-		if lease != nil {
-			_ = lease.Close()
-		}
-		t.Fatalf("AcquireExisting error = %v, want missing", err)
-	}
-	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("missing lease was unexpectedly created: %v", err)
-	}
-}
-
 func TestSavePrivateFailurePreservesOldCache(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	if err := savePrivate(path, []byte("old\n")); err != nil {
 		t.Fatal(err)
 	}
-	err := savePrivateWithHooks(path, []byte("new\n"), saveHooks{afterTokenSync: func(string) error {
-		return errors.New("injected failure")
-	}})
+	err := savePrivate(path, bytes.Repeat([]byte("x"), maxCacheSize+1))
 	if err == nil {
-		t.Fatal("save succeeded, want injected failure")
+		t.Fatal("save succeeded, want oversized cache rejection")
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -865,9 +730,9 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	}
 	// A stale bundle written without the eviction must not resurrect it on reload.
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
-	source.mu.Lock()
+	source.gate <- struct{}{}
 	source.reloadLocked()
-	source.mu.Unlock()
+	source.unlock()
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("reload resurrected the rejected token")
 	}

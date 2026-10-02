@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -168,9 +167,6 @@ func TestInterruptedTempIgnoredAndRemovedOnRestart(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := secureCreatedPath(root, true); err != nil {
-		t.Fatal(err)
-	}
 	temp := filepath.Join(root, tempPrefix+"interrupted")
 	if err := os.WriteFile(temp, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
@@ -259,53 +255,6 @@ func TestImpossibleAdmissionAndContextCancellation(t *testing.T) {
 	cancel()
 	if err := c.Store(ctx, key, pack); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Store error = %v", err)
-	}
-}
-
-func TestLinkedParentAndInsecurePermissionsRejected(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix permission and symlink test")
-	}
-	base := secureTempDir(t)
-	realParent := filepath.Join(base, "real")
-	if err := os.Mkdir(realParent, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	linked := filepath.Join(base, "linked")
-	if err := os.Symlink(realParent, linked); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(filepath.Join(linked, "objects")); err == nil {
-		t.Fatal("linked parent accepted")
-	}
-	insecure := filepath.Join(base, "insecure")
-	if err := os.Mkdir(insecure, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(filepath.Join(insecure, "objects")); err == nil {
-		t.Fatal("insecure parent accepted")
-	}
-	root := filepath.Join(base, "root")
-	if err := os.Mkdir(root, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(root); err == nil {
-		t.Fatal("insecure root accepted")
-	}
-	c := newTestCache(t, 1<<20)
-	pack, key, _ := testPack(t, uuid.New(), "1.0.0", "permissions")
-	if err := c.Store(context.Background(), key, pack); err != nil {
-		t.Fatal(err)
-	}
-	name, _ := objectName(key)
-	if err := os.Chmod(filepath.Join(c.root, name), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := c.Load(context.Background(), key); err != nil || got != nil {
-		t.Fatalf("insecure object Load = %v, %v; want miss", got, err)
 	}
 }
 
@@ -480,9 +429,6 @@ func TestStartupCleansAllPrivateTempsBeforeEntryLimit(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := secureCreatedPath(root, true); err != nil {
-		t.Fatal(err)
-	}
 	for i := 0; i <= maxIndexEntries; i++ {
 		name := filepath.Join(root, fmt.Sprintf("%s%06d", tempPrefix, i))
 		if err := os.WriteFile(name, nil, 0o600); err != nil {
@@ -555,9 +501,6 @@ func newTestCache(t *testing.T, quota uint64) *Cache {
 func secureTempDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := secureCreatedPath(dir, true); err != nil {
-		t.Fatal(err)
-	}
 	return dir
 }
 
@@ -596,4 +539,24 @@ func csvVersion(version string) string {
 	var a, b, c int
 	fmt.Sscanf(version, "%d.%d.%d", &a, &b, &c)
 	return fmt.Sprintf("%d,%d,%d", a, b, c)
+}
+
+// TestCacheAcceptsExistingDirectory keeps the cache usable without auditing its parent permissions.
+func TestCacheAcceptsExistingDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "existing")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	pack, key, _ := testPack(t, uuid.New(), "1.0.0", "shared-parent")
+	if err := cache.Store(context.Background(), key, pack); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cache.Load(context.Background(), key); err != nil || got == nil {
+		t.Fatalf("Load = %v, %v", got, err)
+	}
 }

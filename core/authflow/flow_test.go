@@ -186,3 +186,30 @@ func errString(err error) string {
 	}
 	return err.Error()
 }
+
+func TestDeviceFlowNeverPollsAnUnsafeOrUnpublishedPrompt(t *testing.T) {
+	for _, unsafe := range []bool{false, true} {
+		flow := DeviceFlow{
+			Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+				response := &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test", UserCode: "SAFE"}
+				if unsafe {
+					response.UserCode = "bad\ncode"
+				}
+				return response, nil
+			},
+			Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+				t.Fatal("polled before a valid prompt was published")
+				return nil, nil
+			},
+		}
+		_, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error {
+			if unsafe {
+				t.Fatal("published an unsafe prompt")
+			}
+			return errors.New("writer failed with secret provider data")
+		})
+		if !errors.Is(err, errDeviceAuthorization) || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("device flow error = %v", err)
+		}
+	}
+}

@@ -98,12 +98,7 @@ fn core_guard_escalates_only_after_the_graceful_deadline() {
     let outcome = guard.stop_with_deadline(Duration::from_millis(50));
     let elapsed = started.elapsed();
 
-    let escalated = if cfg!(unix) {
-        CoreStopOutcome::TerminatedAfterGracefulTimeout
-    } else {
-        CoreStopOutcome::KilledAfterGracefulTimeout
-    };
-    assert_eq!(outcome, escalated);
+    assert_eq!(outcome, CoreStopOutcome::TerminatedAfterGracefulTimeout);
     assert!(elapsed >= Duration::from_millis(50));
     remove_directory(&directory);
 }

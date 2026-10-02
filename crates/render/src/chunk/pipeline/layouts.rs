@@ -172,7 +172,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         } else {
             TextureFormat::bevy_default()
         };
-        if key.enhanced {
+        if crate::ENHANCED_RENDERING_ENABLED && key.enhanced {
             descriptor
                 .layout
                 .push(crate::enhanced::enhanced_view_layout());
@@ -393,7 +393,7 @@ mod enhanced_tests {
                         ChunkPipelineKey {
                             msaa,
                             hdr,
-                            enhanced: false,
+                            enhanced: true,
                         },
                         &mut after,
                     )

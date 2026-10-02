@@ -111,3 +111,19 @@ fn grade_stage_follows_camera_opt_in_without_a_separate_marker() {
     world.entity_mut(camera).remove::<EnhancedRendering>();
     assert!(!query.get(&world, camera).unwrap());
 }
+
+/// Registering the disabled plugin never installs GPU resources or camera extraction.
+#[test]
+fn disabled_enhanced_plugin_leaves_the_render_app_untouched() {
+    let mut app = App::new();
+    app.insert_sub_app(RenderApp, bevy::app::SubApp::new());
+    app.add_plugins(EnhancedRenderPlugin);
+    app.finish();
+    assert!(!app.is_plugin_added::<ExtractComponentPlugin<EnhancedRendering>>());
+    assert!(!app.world().contains_resource::<Assets<Shader>>());
+    let world = app.sub_app(RenderApp).world();
+    assert!(!world.contains_resource::<EnhancedViews>());
+    assert!(!world.contains_resource::<EnhancedGpu>());
+    assert!(!world.contains_resource::<EnhancedPostPipelines>());
+    assert!(!world.contains_resource::<EnhancedShadowPipelines>());
+}

@@ -5,6 +5,8 @@ import (
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 )
 
 // upstreamRelayDisconnect records which connection produced a disconnect. A
@@ -32,7 +34,7 @@ func attributeRelayError(err error, fromUpstream bool) error {
 	if errors.As(err, &disconnect) && disconnect != nil {
 		return &upstreamRelayDisconnect{cause: err, value: *disconnect.Packet()}
 	}
-	if isOrdinaryClose(err) {
+	if streamnet.IsClosed(err) {
 		return &upstreamRelayClose{error: err}
 	}
 	return err
@@ -47,14 +49,14 @@ type packetDisconnecter interface {
 func relayPreLoginDisconnect(downstream packetDisconnecter, err error) {
 	var disconnect *minecraft.DisconnectPacketError
 	if errors.As(err, &disconnect) && disconnect != nil {
-		_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(*disconnect.Packet()) })
+		_ = callSafely("delivering pre-login disconnect", func() error { return downstream.DisconnectPacket(*disconnect.Packet()) })
 		return
 	}
 	var cancelled *preparationCancellationError
 	if err == nil || errors.As(err, &cancelled) {
 		return
 	}
-	_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)}) })
+	_ = callSafely("delivering pre-login disconnect", func() error { return downstream.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)}) })
 }
 
 func joinFailureKey(err error) string {

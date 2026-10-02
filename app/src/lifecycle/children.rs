@@ -91,8 +91,9 @@ impl Children {
         live.entries.retain(|entry| running(&mut lock(entry)));
     }
 
-    #[cfg(test)]
-    pub(crate) fn tracked(&self) -> usize {
+    /// Counts the children still registered by the Unix process-lifecycle tests.
+    #[cfg(all(test, unix))]
+    fn tracked(&self) -> usize {
         lock(&self.live).entries.len()
     }
 }

@@ -222,7 +222,7 @@ mod equipment_report;
 #[cfg(test)]
 mod render_report;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod lobby_bench;
 
 #[cfg(test)]

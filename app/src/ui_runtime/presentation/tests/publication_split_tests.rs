@@ -12,13 +12,15 @@ fn inventory_state(runtime: &UiRuntime) -> (String, String, bool, Option<[f32; 2
 
 #[test]
 fn captured_inventory_keeps_pre_send_pixels_and_restores_post_send_authority() {
-    let mut immediate =
-        engine_hud_tests::engine_presentation().expect("JSON-UI carrier for publication parity");
-    let mut deferred =
-        engine_hud_tests::engine_presentation().expect("JSON-UI carrier for publication parity");
+    let mut immediate = super::super::forms::tests::mini_engine_presentation();
+    let mut deferred = super::super::forms::tests::mini_engine_presentation();
     let mut runtime = super::super::forms::pack_harness::action_form("before send", &["keep"]);
     let dpi = DpiScale::new(1.0).unwrap();
     let expected = immediate.build(&runtime, 100, [800, 600], dpi).unwrap();
+    assert!(
+        !expected.vertices.is_empty(),
+        "fixture must render before capture"
+    );
     let captured = runtime.capture_presentation_inventory();
     runtime.server_forms_mut().clear();
     runtime.inventory_open = true;
@@ -61,14 +63,16 @@ fn inventory_authority_is_restored_on_render_error_and_unwind() {
 
 #[test]
 fn deferred_and_immediate_ui_match_across_retained_frames() {
-    let mut immediate =
-        engine_hud_tests::engine_presentation().expect("JSON-UI carrier for publication parity");
-    let mut deferred =
-        engine_hud_tests::engine_presentation().expect("JSON-UI carrier for publication parity");
-    let mut runtime = UiRuntime::new(1);
+    let mut immediate = super::super::forms::tests::mini_engine_presentation();
+    let mut deferred = super::super::forms::tests::mini_engine_presentation();
+    let mut runtime = super::super::forms::pack_harness::action_form("retained", &["one", "two"]);
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 16, 50, 100, 1_000] {
         let expected = immediate.build(&runtime, now, [800, 600], dpi).unwrap();
+        assert!(
+            !expected.vertices.is_empty(),
+            "fixture must render retained frames"
+        );
         let captured = runtime.capture_presentation_inventory();
         let actual = runtime.with_presentation_inventory(captured, |runtime| {
             deferred.build(runtime, now, [800, 600], dpi).unwrap()

@@ -10,7 +10,7 @@ pub use ui_textures::{
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
 
-use render::EnhancedRendering;
+use render::{ENHANCED_RENDERING_ENABLED, EnhancedRendering};
 use std::sync::Arc;
 
 use bevy::{

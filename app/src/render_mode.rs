@@ -16,7 +16,7 @@ use bevy::{
     prelude::*,
     render::{render_resource::TextureUsages, view::Hdr},
 };
-use render::{EnhancedRenderPlugin, EnhancedRendering};
+use render::{ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering};
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 
@@ -69,6 +69,9 @@ pub(crate) fn startup_render_mode(
     saved: Option<RenderMode>,
     attributable: bool,
 ) -> RenderMode {
+    if !ENHANCED_RENDERING_ENABLED {
+        return RenderMode::Vanilla;
+    }
     if let Some(mode) = cli {
         return mode;
     }
@@ -140,6 +143,11 @@ fn seed_render_mode(
 
 /// Update the shared settings authority only when the choice changes.
 fn set_render_mode(settings: &mut RuntimeSettings, mode: RenderMode) {
+    let mode = if ENHANCED_RENDERING_ENABLED {
+        mode
+    } else {
+        RenderMode::Vanilla
+    };
     let (_, current) = settings.user_settings_update();
     if current.video.render_mode != mode {
         let mut next = current.clone();
@@ -186,7 +194,8 @@ fn apply_render_mode_to_cameras(
     settings: Res<RuntimeSettings>,
     mut cameras: Query<RenderModeCameraQuery, With<FlyCamera>>,
 ) {
-    let enhanced = settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
+    let enhanced = ENHANCED_RENDERING_ENABLED
+        && settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
     for (entity, mut camera, has_enhanced, vanilla_depth) in &mut cameras {
         if enhanced != has_enhanced {
             if enhanced {
@@ -218,10 +227,11 @@ fn sync_enhanced_bloom(
     cameras: Query<(Entity, &EnhancedRendering, Has<Bloom>), With<FlyCamera>>,
 ) {
     for (entity, enhanced, has_bloom) in &cameras {
-        if enhanced.bloom == has_bloom {
+        let bloom = ENHANCED_RENDERING_ENABLED && enhanced.bloom;
+        if bloom == has_bloom {
             continue;
         }
-        if enhanced.bloom {
+        if bloom {
             commands.entity(entity).insert(Bloom {
                 intensity: 0.12,
                 ..default()
@@ -236,42 +246,25 @@ fn sync_enhanced_bloom(
 mod tests {
     use super::*;
 
+    /// Every startup source is forced to Vanilla while Enhanced is disabled.
     #[test]
-    fn cli_overrides_env_and_saved_mode_and_evidence_runs_stay_vanilla() {
-        let enhanced = Some(OsStr::new("enhanced"));
-        assert_eq!(
-            startup_render_mode(None, None, None, false),
-            RenderMode::Vanilla
-        );
-        assert_eq!(
-            startup_render_mode(None, None, Some(RenderMode::Enhanced), false),
-            RenderMode::Enhanced
-        );
-        assert_eq!(
-            startup_render_mode(
+    fn disabled_enhanced_ignores_cli_environment_and_saved_settings() {
+        for cli in [None, Some(RenderMode::Vanilla), Some(RenderMode::Enhanced)] {
+            for env in [
                 None,
+                Some(OsStr::new("enhanced")),
                 Some(OsStr::new("vanilla")),
-                Some(RenderMode::Enhanced),
-                false
-            ),
-            RenderMode::Vanilla
-        );
-        assert_eq!(
-            startup_render_mode(Some(RenderMode::Vanilla), enhanced, None, false),
-            RenderMode::Vanilla
-        );
-        assert_eq!(
-            startup_render_mode(None, enhanced, Some(RenderMode::Enhanced), true),
-            RenderMode::Vanilla
-        );
-        assert_eq!(
-            startup_render_mode(Some(RenderMode::Enhanced), None, None, true),
-            RenderMode::Enhanced
-        );
-        assert_eq!(
-            startup_render_mode(None, Some(OsStr::new("bogus")), None, false),
-            RenderMode::Vanilla
-        );
+            ] {
+                for saved in [None, Some(RenderMode::Vanilla), Some(RenderMode::Enhanced)] {
+                    for attributable in [false, true] {
+                        assert_eq!(
+                            startup_render_mode(cli, env, saved, attributable),
+                            RenderMode::Vanilla,
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -294,61 +287,43 @@ mod tests {
         let _ = fs::remove_dir_all(directory);
     }
 
+    /// Stale settings and camera components cannot enable the disabled renderer.
     #[test]
-    fn toggling_the_setting_adds_and_removes_the_camera_opt_in() {
+    fn disabled_enhanced_clears_camera_effects_and_rejects_runtime_requests() {
         let mut app = App::new();
-        app.init_resource::<RuntimeSettings>()
-            .insert_resource(RenderModeConfig {
-                cli: None,
-                attributable: false,
-                path: None,
-            })
-            .add_systems(
-                Update,
-                (apply_render_mode_to_cameras, sync_enhanced_bloom).chain(),
-            );
+        app.init_resource::<RuntimeSettings>().add_systems(
+            Update,
+            (apply_render_mode_to_cameras, sync_enhanced_bloom).chain(),
+        );
+        let original = Camera3d::default().depth_texture_usages;
         let camera = app
             .world_mut()
-            .spawn((Camera3d::default(), FlyCamera::default()))
+            .spawn((
+                Camera3d {
+                    depth_texture_usages: (TextureUsages::from(original)
+                        | TextureUsages::TEXTURE_BINDING
+                        | TextureUsages::COPY_SRC)
+                        .into(),
+                    ..default()
+                },
+                FlyCamera::default(),
+                EnhancedRendering::default(),
+                Hdr,
+                Bloom::default(),
+                VanillaDepthUsage(original),
+            ))
             .id();
-        app.update();
-        assert!(app.world().get::<EnhancedRendering>(camera).is_none());
-
-        set_render_mode(
-            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
-            RenderMode::Enhanced,
-        );
-        app.update();
-        assert!(app.world().get::<EnhancedRendering>(camera).is_some());
-        assert!(app.world().get::<Hdr>(camera).is_some());
-        assert!(app.world().get::<Bloom>(camera).is_some());
+        // Bypass the normal setting setter to simulate stale in-memory state.
+        let mut stale = ui::UserSettings::default();
+        stale.video.render_mode = RenderMode::Enhanced;
         app.world_mut()
-            .get_mut::<EnhancedRendering>(camera)
-            .unwrap()
-            .bloom = false;
-        app.update();
-        assert!(app.world().get::<Bloom>(camera).is_none());
-        app.world_mut()
-            .get_mut::<EnhancedRendering>(camera)
-            .unwrap()
-            .bloom = true;
-        app.update();
-        assert!(app.world().get::<Bloom>(camera).is_some());
-        let usage = TextureUsages::from(
-            app.world()
-                .get::<Camera3d>(camera)
-                .unwrap()
-                .depth_texture_usages,
-        );
-        assert!(usage.contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC));
-        set_render_mode(
-            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
-            RenderMode::Vanilla,
-        );
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(stale);
         app.update();
         assert!(app.world().get::<EnhancedRendering>(camera).is_none());
         assert!(app.world().get::<Hdr>(camera).is_none());
         assert!(app.world().get::<Bloom>(camera).is_none());
+        assert!(app.world().get::<VanillaDepthUsage>(camera).is_none());
         assert_eq!(
             TextureUsages::from(
                 app.world()
@@ -356,7 +331,24 @@ mod tests {
                     .unwrap()
                     .depth_texture_usages
             ),
-            TextureUsages::from(Camera3d::default().depth_texture_usages),
+            TextureUsages::from(original),
         );
+        set_render_mode(
+            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
+            RenderMode::Enhanced,
+        );
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<RuntimeSettings>()
+                .user_settings_update()
+                .1
+                .video
+                .render_mode,
+            RenderMode::Vanilla
+        );
+        assert!(app.world().get::<EnhancedRendering>(camera).is_none());
+        assert!(app.world().get::<Hdr>(camera).is_none());
+        assert!(app.world().get::<Bloom>(camera).is_none());
     }
 }

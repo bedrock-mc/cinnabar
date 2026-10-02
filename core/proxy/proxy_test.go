@@ -44,7 +44,6 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 		true,
 	)
 	if !optedIn.EnableClientCache {
@@ -54,21 +53,6 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
 	if dialer.EnableClientCache {
 		t.Fatal("EnableClientCache = true before downstream ClientCacheStatus is available")
-	}
-	observed := new(cacheBoundaryTelemetry)
-	witness := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		observed,
-	)
-	payload := []byte{0}
-	witness.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
-	if payload[0] != 0 {
-		t.Fatalf("default dialer rewrote outbound ClientCacheStatus byte to %d", payload[0])
-	}
-	snapshot := observed.snapshot()
-	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
-		t.Fatalf("default dialer snapshot = %#v, want seen enabled=false", snapshot)
 	}
 }
 
@@ -124,36 +108,11 @@ func TestProtocol2193RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *tes
 	}
 }
 
-func TestCacheBoundaryObserverRecordsUpstreamStatusWithoutRetainingOrMutatingPayload(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
-	dialer := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		telemetry,
-	)
-	if dialer.PacketFunc == nil {
-		t.Fatal("upstream dialer has no cache boundary observer")
-	}
-
-	payload := []byte{1}
-	dialer.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
-	if payload[0] != 1 {
-		t.Fatalf("PacketFunc mutated ClientCacheStatus payload to %d", payload[0])
-	}
-	payload[0] = 0
-
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
-		t.Fatalf("cache status snapshot = %#v, want seen enabled=true", snapshot)
-	}
-}
-
 // TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus is the
 // scripted-network ratchet for the default: without the opt-in, the fake
 // upstream server observes Enabled=false exactly as before this option
 // existed.
 func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
 	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
 		decoder := packet.NewDecoder(conn)
 		encoder := packet.NewEncoder(conn)
@@ -199,10 +158,9 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 		}
 		return nil
 	})
-	dialer := newUpstreamDialerWithCacheTelemetry(
+	dialer := newUpstreamDialer(
 		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
-		telemetry,
 	)
 	dialer.FlushRate = -1
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -217,10 +175,6 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 	if scriptErr := <-network.done; scriptErr != nil {
 		t.Fatalf("scripted cache status server: %v (dial error: %v)", scriptErr, err)
 	}
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
-		t.Fatalf("actual upstream cache status snapshot = %#v, want seen enabled=false", snapshot)
-	}
 }
 
 // TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn drives the
@@ -228,7 +182,6 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 // upstream server to observe the enabled ClientCacheStatus byte on the wire,
 // plus honest effective-value telemetry.
 func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
 	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
 		decoder := packet.NewDecoder(conn)
 		encoder := packet.NewEncoder(conn)
@@ -277,7 +230,6 @@ func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testin
 	dialer := newUpstreamDialerForAdmission(
 		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
-		telemetry,
 		nil,
 		nil,
 		true,
@@ -294,44 +246,6 @@ func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testin
 	}
 	if scriptErr := <-network.done; scriptErr != nil {
 		t.Fatalf("scripted enabled cache status server: %v (dial error: %v)", scriptErr, err)
-	}
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
-		t.Fatalf("opt-in upstream cache status snapshot = %#v, want seen enabled=true", snapshot)
-	}
-}
-
-func TestCacheBoundarySummaryIsOneSecretSafeMarker(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
-	telemetry.observeUpstreamPacket(packet.Header{PacketID: packet.IDClientCacheStatus}, []byte{1}, nil, nil)
-	telemetry.observeRelayPacket(&packet.LevelChunk{CacheEnabled: true})
-	telemetry.observeRelayPacket(&packet.LevelChunk{CacheEnabled: false})
-	telemetry.observeRelayPacket(&packet.SubChunk{CacheEnabled: true})
-	telemetry.observeRelayPacket(&packet.SubChunk{CacheEnabled: false})
-	var output lockedBuffer
-
-	telemetry.report(slog.New(slog.NewTextHandler(&output, nil)))
-
-	got := output.String()
-	if strings.Count(got, "msg=PHASE2_CACHE_BOUNDARY") != 1 {
-		t.Fatalf("summary marker count in %q, want exactly one", got)
-	}
-	for _, want := range []string{
-		"upstream_status_seen=true",
-		"upstream_status_enabled=true",
-		"cached_level_chunks=1",
-		"ordinary_level_chunks=1",
-		"cached_sub_chunks=1",
-		"ordinary_sub_chunks=1",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("summary %q does not contain %q", got, want)
-		}
-	}
-	for _, forbidden := range []string{"hash", "payload", "auth", "address", "token", "credential"} {
-		if strings.Contains(strings.ToLower(got), forbidden) {
-			t.Fatalf("summary %q leaked forbidden term %q", got, forbidden)
-		}
 	}
 }
 
@@ -407,9 +321,9 @@ func TestRelayFIFO(t *testing.T) {
 	}
 	down.reads <- packetResult{err: io.EOF}
 
-	err := serveConnections(context.Background(), down, up)
+	err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up})
 	if err != nil {
-		t.Fatalf("serveConnections() error = %v", err)
+		t.Fatalf("servePreparedConnection() error = %v", err)
 	}
 	got := up.written()
 	if len(got) != len(want) {
@@ -469,72 +383,6 @@ func TestRelayNeverFiltersUpstreamLoadingScreens(t *testing.T) {
 	got := down.written()
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
-	}
-}
-
-func TestCacheBoundaryRelayObservationCountsRoutesWithoutMutatingPackets(t *testing.T) {
-	up := newFakeUpstream(nil)
-	down := newFakeDownstream(nil)
-	telemetry := new(cacheBoundaryTelemetry)
-	cachedLevel := &packet.LevelChunk{
-		Position:     protocol.ChunkPos{7, 9},
-		Dimension:    2,
-		CacheEnabled: true,
-		RawPayload:   []byte{1, 2, 3},
-	}
-	ordinaryLevel := &packet.LevelChunk{
-		Position:     protocol.ChunkPos{11, 13},
-		Dimension:    3,
-		CacheEnabled: false,
-		RawPayload:   []byte{4, 5, 6},
-	}
-	cachedSub := &packet.SubChunk{
-		CacheEnabled: true,
-		Dimension:    4,
-		Position:     protocol.SubChunkPos{17, 19, 23},
-	}
-	ordinarySub := &packet.SubChunk{
-		CacheEnabled: false,
-		Dimension:    5,
-		Position:     protocol.SubChunkPos{29, 31, 37},
-	}
-	want := []packet.Packet{cachedLevel, ordinaryLevel, cachedSub, ordinarySub}
-	for _, value := range want {
-		up.reads <- packetResult{packet: value}
-	}
-	up.reads <- packetResult{err: io.EOF}
-
-	if err := pumpPacketsWithCacheTelemetry(up, down, false, telemetry); !errors.Is(err, io.EOF) {
-		t.Fatalf("pumpPacketsWithCacheTelemetry() error = %v, want EOF", err)
-	}
-	got := down.written()
-	if len(got) != len(want) {
-		t.Fatalf("forwarded packets = %d, want %d", len(got), len(want))
-	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("forwarded packet %d identity changed", index)
-		}
-	}
-	if cachedLevel.Position != (protocol.ChunkPos{7, 9}) || cachedLevel.Dimension != 2 ||
-		!cachedLevel.CacheEnabled || !bytes.Equal(cachedLevel.RawPayload, []byte{1, 2, 3}) {
-		t.Fatalf("cached LevelChunk was mutated: %#v", cachedLevel)
-	}
-	if ordinaryLevel.Position != (protocol.ChunkPos{11, 13}) || ordinaryLevel.Dimension != 3 ||
-		ordinaryLevel.CacheEnabled || !bytes.Equal(ordinaryLevel.RawPayload, []byte{4, 5, 6}) {
-		t.Fatalf("ordinary LevelChunk was mutated: %#v", ordinaryLevel)
-	}
-	if cachedSub.Position != (protocol.SubChunkPos{17, 19, 23}) || cachedSub.Dimension != 4 || !cachedSub.CacheEnabled {
-		t.Fatalf("cached SubChunk was mutated: %#v", cachedSub)
-	}
-	if ordinarySub.Position != (protocol.SubChunkPos{29, 31, 37}) || ordinarySub.Dimension != 5 || ordinarySub.CacheEnabled {
-		t.Fatalf("ordinary SubChunk was mutated: %#v", ordinarySub)
-	}
-
-	snapshot := telemetry.snapshot()
-	if snapshot.cachedLevelChunks != 1 || snapshot.ordinaryLevelChunks != 1 ||
-		snapshot.cachedSubChunks != 1 || snapshot.ordinarySubChunks != 1 {
-		t.Fatalf("cache route snapshot = %#v, want one of each route", snapshot)
 	}
 }
 
@@ -669,8 +517,8 @@ func TestRelayDisconnectClosesBothSides(t *testing.T) {
 	up := newFakeUpstream(nil)
 	down.reads <- packetResult{err: io.EOF}
 
-	if err := serveConnections(context.Background(), down, up); err != nil {
-		t.Fatalf("serveConnections() error = %v", err)
+	if err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up}); err != nil {
+		t.Fatalf("servePreparedConnection() error = %v", err)
 	}
 	if !down.isClosed() || !up.isClosed() {
 		t.Fatalf("closed states = downstream:%v upstream:%v, want both true", down.isClosed(), up.isClosed())
@@ -683,20 +531,9 @@ func TestRelayClosePanicIsReturned(t *testing.T) {
 	down.closePanic = true
 	down.reads <- packetResult{err: io.EOF}
 
-	err := serveConnections(context.Background(), down, up)
+	err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up})
 	if err == nil || !strings.Contains(err.Error(), "panic while closing session") {
-		t.Fatalf("serveConnections() error = %v, want recovered close panic", err)
-	}
-}
-
-func TestDialFailureClosePanicIsReturned(t *testing.T) {
-	down := newFakeDownstream(nil)
-	down.closePanic = true
-	wantErr := errors.New("dial failed")
-
-	err := finishDialFailure(down, wantErr)
-	if !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "panic while closing session") {
-		t.Fatalf("finishDialFailure() error = %v, want dial error plus recovered close panic", err)
+		t.Fatalf("servePreparedConnection() error = %v, want recovered close panic", err)
 	}
 }
 
@@ -708,13 +545,13 @@ func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveConnections(ctx, down, up) }()
+	go func() { done <- servePreparedConnection(ctx, down, &preparedConnection{upstream: up}) }()
 	cancel()
 
 	select {
 	case err := <-done:
 		if err == nil || !strings.Contains(err.Error(), "panic while closing session") {
-			t.Fatalf("serveConnections() error = %v, want recovered close panic", err)
+			t.Fatalf("servePreparedConnection() error = %v, want recovered close panic", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancellation remained blocked by panicking Close")
@@ -727,10 +564,10 @@ func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
 }
 
 func TestIsOrdinaryCloseRequiresEveryJoinedLeaf(t *testing.T) {
-	if isOrdinaryClose(errors.Join(errors.New("decode failed"), net.ErrClosed)) {
+	if streamnet.IsClosed(errors.Join(errors.New("decode failed"), net.ErrClosed)) {
 		t.Fatal("mixed joined error classified as ordinary")
 	}
-	if !isOrdinaryClose(errors.Join(fmt.Errorf("wrapped: %w", io.EOF), context.Canceled, net.ErrClosed)) {
+	if !streamnet.IsClosed(errors.Join(fmt.Errorf("wrapped: %w", io.EOF), context.Canceled, net.ErrClosed)) {
 		t.Fatal("all-ordinary joined error classified as non-ordinary")
 	}
 }
@@ -738,10 +575,10 @@ func TestIsOrdinaryCloseRequiresEveryJoinedLeaf(t *testing.T) {
 func TestIsOrdinaryCloseRecognizesClassifiedTerminalTransportError(t *testing.T) {
 	framed := streamnet.NewFramedConn(&terminalWriteConn{err: io.ErrClosedPipe})
 	_, err := framed.Write([]byte{0xfe})
-	if !isOrdinaryClose(err) {
+	if !streamnet.IsClosed(err) {
 		t.Fatalf("classified terminal transport error considered non-ordinary: %v", err)
 	}
-	if isOrdinaryClose(errors.Join(errors.New("decode failed"), err)) {
+	if streamnet.IsClosed(errors.Join(errors.New("decode failed"), err)) {
 		t.Fatal("mixed application and classified terminal errors considered ordinary")
 	}
 }
@@ -926,34 +763,6 @@ func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout ti
 			t.Fatalf("goroutine stack %q presence = %v, want %v\n%s", substring, present, want, stacks.String())
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-func TestDialCancellationReturnsWithoutWaitingForDialer(t *testing.T) {
-	down := newFakeDownstream(nil)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	dial := func(context.Context) (upstreamSession, error) {
-		close(started)
-		<-release
-		return newFakeUpstream(nil), nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- dialAndServe(ctx, down, dial) }()
-	<-started
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("dialAndServe() error = %v, want context cancellation", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("dialAndServe waited for a dialer that ignored cancellation")
-	}
-	close(release)
-	if got := down.lifecycleEvents(); len(got) < 2 || got[0] != "abort" || got[1] != "close" {
-		t.Fatalf("downstream lifecycle = %v, want abort before close", got)
 	}
 }
 
@@ -1631,4 +1440,18 @@ func BenchmarkLocalLegCompression(b *testing.B) {
 			}
 		})
 	}
+}
+
+// newUpstreamDialer exercises the production constructor with default policy.
+func newUpstreamDialer(downstream dialerDownstream, tokens oauth2.TokenSource) minecraft.Dialer {
+	return newUpstreamDialerForAdmission(downstream, tokens, nil, nil, false)
+}
+
+// relayWithSessions provides the relay's close callback for packet-only test doubles.
+func relayWithSessions(ctx context.Context, downstream, upstream packetSession) (err error) {
+	var closeErr error
+	err = relayPackets(ctx, downstream, upstream, func() {
+		closeErr = errors.Join(shutdownSession(downstream), shutdownSession(upstream))
+	})
+	return errors.Join(err, closeErr)
 }

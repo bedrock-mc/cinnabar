@@ -6,6 +6,9 @@ use crate::menu::{MenuAction, MenuScreen, MenuView};
 
 /// Add one control using the existing JSON-UI option template.
 pub(super) fn install(catalog: &mut Catalog) {
+    if !render::ENHANCED_RENDERING_ENABLED {
+        return;
+    }
     catalog.overlay_text("ui/cinnabar_enhanced.json", OVERLAY);
 }
 
@@ -13,14 +16,20 @@ pub(super) fn install(catalog: &mut Catalog) {
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     data.set_global(
         "#cinnabar_enhanced",
-        Scalar::Bool(view.render_mode == ui::RenderMode::Enhanced),
+        Scalar::Bool(
+            render::ENHANCED_RENDERING_ENABLED && view.render_mode == ui::RenderMode::Enhanced,
+        ),
     );
-    data.set_global("#cinnabar_enhanced_enabled", Scalar::Bool(true));
+    data.set_global(
+        "#cinnabar_enhanced_enabled",
+        Scalar::Bool(render::ENHANCED_RENDERING_ENABLED),
+    );
 }
 
 /// Route only the extension control to its retained setting request.
 pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    (view.screen == MenuScreen::Settings
+    (render::ENHANCED_RENDERING_ENABLED
+        && view.screen == MenuScreen::Settings
         && region.control_name.as_deref() == Some("cinnabar_enhanced"))
     .then_some(MenuAction::ToggleRenderMode)
 }
@@ -47,8 +56,9 @@ const OVERLAY: &str = r##"{
 mod tests {
     use super::*;
 
+    /// The disabled extension leaves the vanilla video settings unchanged.
     #[test]
-    fn extension_overlay_adds_one_video_control() {
+    fn disabled_enhanced_adds_no_video_control() {
         let mut catalog = Catalog::default();
         catalog.overlay_text(
             "ui/general_section.json",
@@ -67,8 +77,15 @@ mod tests {
         );
         assert!(resolution.diagnostics.is_empty());
         let resolved = resolution.control.expect("video section");
-        assert_eq!(resolved.children.len(), 1);
-        assert_eq!(resolved.children[0].name, "cinnabar_enhanced");
-        assert_eq!(resolved.children[0].control_type.as_deref(), Some("toggle"));
+        assert!(resolved.children.is_empty());
+    }
+
+    /// A retained menu action cannot bypass the hidden toggle.
+    #[test]
+    fn disabled_enhanced_ignores_menu_toggle_requests() {
+        let mut menu = crate::menu::MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::ToggleRenderMode);
+        assert!(menu.take_render_mode_request().is_none());
+        assert_eq!(menu.view().render_mode, ui::RenderMode::Vanilla);
     }
 }

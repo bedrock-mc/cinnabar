@@ -1,22 +1,27 @@
 name: CI
 
+# Pull requests and main; dev pushes are gated locally first (AGENTS.md).
 on:
   push:
     branches:
       - main
-      - dev
-      - dev-ox-alpha
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Verification needs assertions, but not large debug-symbol artifacts.
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
 jobs:
   desktop-compile-readiness:
     name: Desktop compile readiness (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -36,9 +41,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
@@ -97,9 +102,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
       - name: Test Rust workspace on Windows
         run: cargo test --workspace --locked
       - name: Lint Rust workspace on Windows
@@ -131,9 +136,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('.github/workflows/ci.yml', 'rust-toolchain.toml', 'Cargo.toml') }}-
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x

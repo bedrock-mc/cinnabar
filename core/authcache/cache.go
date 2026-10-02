@@ -3,24 +3,32 @@ package authcache
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
-	"sync"
 
+	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
 
 const maxCacheSize = 64 * 1024
 
-// Config configures a checked Microsoft token cache.
+// errAccountChanged prevents an existing runtime from adopting a different sign-in.
+var errAccountChanged = errors.New("authentication: sign-in changed; reopen the account")
+
+// cachedToken adds a stable sign-in generation without changing the OAuth JSON fields.
+// Refreshes keep this value; an interactive sign-in starts a new generation.
+type cachedToken struct {
+	oauth2.Token
+	Generation string `json:"cinnabar_sign_in_generation,omitempty"`
+}
+
+// Config configures the Microsoft token cache and its authentication operations.
 type Config struct {
 	Path    string
 	Writer  io.Writer
@@ -28,19 +36,10 @@ type Config struct {
 	Refresh func(*oauth2.Token, io.Writer) oauth2.TokenSource
 }
 
-// Source loads or acquires a Microsoft token and returns a source that persists
-// each successfully refreshed token before returning it to the caller.
+// Source loads or acquires a Microsoft token. Every refresh reloads the latest
+// token under a process-wide file lock and persists any rotation before returning.
+// ctx governs the returned source's lifetime, including waits for another process.
 func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
-	return sourceWithQuarantine(ctx, config, quarantineCacheFile)
-}
-
-// sourceWithQuarantine builds a token source using the supplied quarantine
-// operation so fail-closed recovery behavior can be tested deterministically.
-func sourceWithQuarantine(
-	ctx context.Context,
-	config Config,
-	quarantine func(string) (string, error),
-) (oauth2.TokenSource, error) {
 	if config.Path == "" {
 		return nil, errors.New("auth cache path is empty")
 	}
@@ -48,119 +47,154 @@ func sourceWithQuarantine(
 	if err != nil {
 		return nil, errors.New("resolve auth cache path")
 	}
-	config.Path, err = canonicalizeCachePath(filepath.Clean(path))
-	if err != nil {
-		return nil, errors.New("resolve auth cache path")
+	if config.Writer == nil {
+		config.Writer = io.Discard
 	}
-	writer := config.Writer
-	if writer == nil {
-		writer = io.Discard
+	if config.Request == nil {
+		config.Request = auth.AndroidConfig.RequestLiveTokenContext
 	}
-	request := config.Request
-	if request == nil {
-		request = auth.AndroidConfig.RequestLiveTokenContext
-	}
-	refresh := config.Refresh
-	if refresh == nil {
-		refresh = auth.AndroidConfig.RefreshTokenSourceWriter
-	}
-
-	cached, err := load(config.Path)
-	switch {
-	case err == nil:
-	case errors.Is(err, fs.ErrNotExist):
-		return acquire(ctx, config.Path, writer, request, refresh)
-	case errors.Is(err, errUnsafePermissions):
-		if _, quarantineErr := quarantine(config.Path); quarantineErr != nil {
-			return nil, fmt.Errorf("quarantine Microsoft auth cache: %w", quarantineErr)
+	if config.Refresh == nil {
+		config.Refresh = func(token *oauth2.Token, _ io.Writer) oauth2.TokenSource {
+			return auth.AndroidConfig.TokenSource(ctx, token)
 		}
-		notifyQuarantinedCache(writer, config.Path, err)
-		return acquire(ctx, config.Path, writer, request, refresh)
-	default:
+	}
+	lease, err := lockfile.AcquireContext(ctx, path+cacheLockSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
+	}
+	defer lease.Close()
+
+	s := &persistingSource{gate: make(chan struct{}, 1), ctx: ctx, path: path, writer: config.Writer, refresh: config.Refresh}
+	cached, err := load(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
 	}
-
-	source := refresh(cached, writer)
-	if source == nil {
-		return acquire(ctx, config.Path, writer, request, refresh)
+	if err == nil {
+		s.generation, s.lastGeneration = cached.Generation, cached.Generation
+		if s.generation == "" {
+			s.generation = uuid.NewString()
+		}
+		s.source = s.refresh(&cached.Token, s.writer)
+		s.last = cloneToken(&cached.Token)
+		if s.source != nil {
+			current, refreshErr := s.source.Token()
+			if refreshErr == nil && validToken(current) {
+				if err := s.persist(current); err != nil {
+					return nil, err
+				}
+				return s, nil
+			}
+		}
 	}
-	current, err := source.Token()
-	if err != nil || !validToken(current) {
-		return acquire(ctx, config.Path, writer, request, refresh)
-	}
-	if err := save(config.Path, current); err != nil {
-		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
-	}
-	return &persistingSource{path: config.Path, source: source, last: cloneToken(current)}, nil
-}
-
-func acquire(
-	ctx context.Context,
-	path string,
-	writer io.Writer,
-	request func(context.Context, io.Writer) (*oauth2.Token, error),
-	refresh func(*oauth2.Token, io.Writer) oauth2.TokenSource,
-) (oauth2.TokenSource, error) {
-	parents, err := snapshotDirectoryChain(filepath.Dir(path))
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := parents.revalidate(); err != nil {
-		return nil, err
-	}
-	tok, err := request(ctx, writer)
+	current, err := config.Request(ctx, s.writer)
 	if err != nil {
 		return nil, fmt.Errorf("request Microsoft token: %w", err)
 	}
-	if err := parents.revalidate(); err != nil {
+	s.generation = uuid.NewString()
+	if err := s.persist(current); err != nil {
 		return nil, err
 	}
-	if !validToken(tok) {
-		return nil, errors.New("request Microsoft token: token has no refresh token")
-	}
-	if err := save(path, tok); err != nil {
-		return nil, fmt.Errorf("persist Microsoft token: %w", err)
-	}
-	source := refresh(tok, writer)
-	if source == nil {
+	s.source = s.refresh(current, s.writer)
+	if s.source == nil {
 		return nil, errors.New("create Microsoft refresh source: nil token source")
 	}
-	return &persistingSource{path: path, source: source, last: cloneToken(tok)}, nil
+	return s, nil
 }
 
+// persistingSource serializes local callers and holds a stable path.lock lease
+// across each refresh. Atomic token replacement never replaces the lock file.
 type persistingSource struct {
-	mu     sync.Mutex
-	path   string
-	source oauth2.TokenSource
-	last   *oauth2.Token
+	gate           chan struct{}
+	ctx            context.Context
+	path           string
+	writer         io.Writer
+	refresh        func(*oauth2.Token, io.Writer) oauth2.TokenSource
+	source         oauth2.TokenSource
+	last           *oauth2.Token
+	generation     string
+	lastGeneration string
+	changed        bool
 }
 
+// Token reloads another process's rotation before attempting its own refresh.
 func (s *persistingSource) Token() (*oauth2.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.token(s.ctx)
+}
 
-	tok, err := s.source.Token()
+// token lets each caller interrupt waits for local serialization or the file lease.
+func (s *persistingSource) token(ctx context.Context) (*oauth2.Token, error) {
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
+	wait, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(s.ctx, cancel)
+	defer stop()
+	defer cancel()
+	select {
+	case s.gate <- struct{}{}:
+		defer func() { <-s.gate }()
+	case <-wait.Done():
+		return nil, wait.Err()
+	}
+	if s.changed {
+		return nil, errAccountChanged
+	}
+	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
+	}
+	defer lease.Close()
+	cached, err := load(s.path)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && cached.Generation != s.generation) {
+		s.changed = true
+		return nil, errAccountChanged
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reload Microsoft auth cache: %w", err)
+	}
+	if !sameToken(s.last, &cached.Token) {
+		s.source = s.refresh(&cached.Token, s.writer)
+		s.last = cloneToken(&cached.Token)
+	}
+	if s.source == nil {
+		return nil, errors.New("create Microsoft refresh source: nil token source")
+	}
+	token, err := s.source.Token()
 	if err != nil {
 		return nil, err
 	}
-	if !validToken(tok) {
-		return nil, errors.New("refresh Microsoft token: token has no refresh token")
+	if err := s.persist(token); err != nil {
+		return nil, err
 	}
-	if sameToken(s.last, tok) {
-		return tok, nil
-	}
-	if err := save(s.path, tok); err != nil {
-		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
-	}
-	s.last = cloneToken(tok)
-	return tok, nil
+	return token, nil
 }
 
+// persist publishes a changed token while the caller holds the cache lease.
+func (s *persistingSource) persist(token *oauth2.Token) error {
+	if !validToken(token) {
+		return errors.New("Microsoft token has no refresh token")
+	}
+	if sameToken(s.last, token) && s.lastGeneration == s.generation {
+		return nil
+	}
+	if err := save(s.path, token, s.generation); err != nil {
+		return fmt.Errorf("persist Microsoft token: %w", err)
+	}
+	s.last = cloneToken(token)
+	s.lastGeneration = s.generation
+	return nil
+}
+
+// sameToken compares all persisted OAuth token fields.
 func sameToken(left, right *oauth2.Token) bool {
 	return left != nil && right != nil && left.AccessToken == right.AccessToken && left.TokenType == right.TokenType &&
 		left.RefreshToken == right.RefreshToken && left.Expiry.Equal(right.Expiry)
 }
 
+// cloneToken keeps the persisted snapshot independent of a mutable source token.
 func cloneToken(token *oauth2.Token) *oauth2.Token {
 	if token == nil {
 		return nil
@@ -169,14 +203,15 @@ func cloneToken(token *oauth2.Token) *oauth2.Token {
 	return &cloned
 }
 
-func load(path string) (*oauth2.Token, error) {
+// load decodes exactly one bounded OAuth token from a private regular file.
+func load(path string) (*cachedToken, error) {
 	contents, err := loadPrivate(path, maxCacheSize)
 	if err != nil {
 		return nil, err
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(contents))
-	var tok oauth2.Token
+	var tok cachedToken
 	if err := decoder.Decode(&tok); err != nil {
 		return nil, fmt.Errorf("decode auth cache: %w", err)
 	}
@@ -187,346 +222,23 @@ func load(path string) (*oauth2.Token, error) {
 		}
 		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
 	}
-	if !validToken(&tok) {
+	if !validToken(&tok.Token) {
 		return nil, errors.New("decode auth cache: token has no refresh token")
 	}
 	return &tok, nil
 }
 
-func loadPrivate(path string, limit int64) ([]byte, error) {
-	initialParents, err := snapshotDirectoryChain(filepath.Dir(path))
+// save atomically publishes the token after checking its serialized size.
+func save(path string, token *oauth2.Token, generation string) error {
+	serialized, err := serializeToken(token, generation)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	pathInfo, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkRegular(pathInfo); err != nil {
-		return nil, err
-	}
-	if err := checkCacheSecurityByPath(path, pathInfo); err != nil {
-		return nil, err
-	}
-	if pathInfo.Size() > limit {
-		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
-	}
-	parents, err := snapshotDirectoryChain(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	if !parents.complete {
-		return nil, errors.New("auth cache parent changed while opening")
-	}
-	if err := initialParents.revalidate(); err != nil {
-		return nil, err
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	openInfo, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if err := checkRegular(openInfo); err != nil {
-		return nil, err
-	}
-	if !os.SameFile(pathInfo, openInfo) {
-		return nil, errors.New("auth cache changed while opening")
-	}
-	if err := checkOpenedCacheFileSecurity(file, openInfo); err != nil {
-		return nil, err
-	}
-	if err := parents.revalidate(); err != nil {
-		return nil, err
-	}
-	if openInfo.Size() > limit {
-		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
-	}
-
-	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(contents)) > limit {
-		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
-	}
-	finalInfo, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if finalInfo.Size() > limit || finalInfo.Size() != int64(len(contents)) {
-		return nil, errors.New("auth cache changed while reading")
-	}
-	if err := parents.revalidate(); err != nil {
-		return nil, err
-	}
-
-	return contents, nil
+	return savePrivate(path, serialized)
 }
 
-func save(path string, tok *oauth2.Token) error {
-	return saveWithHooks(path, tok, saveHooks{})
-}
-
-type saveHooks struct {
-	afterTokenSync            func(tempPath string) error
-	protectTemp               func(*os.File) error
-	scrubTemp                 func(*os.File) error
-	afterCleanupIdentityCheck func(tempPath string)
-}
-
-func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr error) {
-	serialized, err := serializeToken(tok)
-	if err != nil {
-		return err
-	}
-	return savePrivateWithHooks(path, serialized, hooks)
-}
-
-func savePrivate(path string, serialized []byte) error {
-	return savePrivateWithHooks(path, serialized, saveHooks{})
-}
-
-// createPrivateOnce publishes path only if it does not already exist. Unlike
-// savePrivate, it never replaces an existing file identity, making it suitable
-// for stable lock files shared by concurrent processes.
-func createPrivateOnce(path string, contents []byte) (created bool, returnErr error) {
-	path, err := canonicalizeCachePath(filepath.Clean(path))
-	if err != nil {
-		return false, errors.New("resolve private file path")
-	}
-	if len(contents) == 0 || len(contents) > maxCacheSize {
-		return false, fmt.Errorf("private file exceeds %d bytes", maxCacheSize)
-	}
-	dir := filepath.Dir(path)
-	parents, err := snapshotDirectoryChain(dir)
-	if err != nil || !parents.complete {
-		return false, errors.New("private file parent is unavailable")
-	}
-	if err := parents.revalidate(); err != nil {
-		return false, err
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return false, errors.New("open private file parent")
-	}
-	defer root.Close()
-	rootInfo, err := root.Stat(".")
-	if err != nil || len(parents.directories) == 0 || !os.SameFile(parents.directories[len(parents.directories)-1].info, rootInfo) {
-		return false, errors.New("private file parent changed while opening")
-	}
-
-	name := filepath.Base(path)
-	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, errors.New("create private file")
-	}
-	identity, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return false, errors.New("inspect private file")
-	}
-	success := false
-	defer func() {
-		if success {
-			return
-		}
-		if err := cleanupTempIdentity(root, file, identity, saveHooks{}); err != nil {
-			returnErr = errors.New("secure private file cleanup failed")
-		}
-	}()
-	if err := protectOpenedCacheFile(file); err != nil {
-		return false, errors.New("protect private file")
-	}
-	if err := checkRegular(identity); err != nil {
-		return false, err
-	}
-	if err := parents.revalidate(); err != nil {
-		return false, err
-	}
-	if err := file.Chmod(0o600); err != nil {
-		return false, err
-	}
-	written, err := file.Write(contents)
-	if err != nil {
-		return false, err
-	}
-	if written != len(contents) {
-		return false, io.ErrShortWrite
-	}
-	if err := file.Sync(); err != nil {
-		return false, err
-	}
-	if err := parents.revalidate(); err != nil {
-		return false, err
-	}
-	if err := file.Close(); err != nil {
-		return false, err
-	}
-	success = true
-	return true, nil
-}
-
-func savePrivateWithHooks(path string, serialized []byte, hooks saveHooks) (returnErr error) {
-	path, err := canonicalizeCachePath(filepath.Clean(path))
-	if err != nil {
-		return errors.New("resolve auth cache path")
-	}
-	if len(serialized) == 0 || len(serialized) > maxCacheSize {
-		return fmt.Errorf("private cache exceeds %d bytes", maxCacheSize)
-	}
-	dir := filepath.Dir(path)
-	beforeCreate, err := snapshotDirectoryChain(dir)
-	if err != nil {
-		return err
-	}
-	if err := beforeCreate.revalidate(); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := beforeCreate.revalidate(); err != nil {
-		return err
-	}
-	parents, err := snapshotDirectoryChain(dir)
-	if err != nil {
-		return err
-	}
-	if !parents.complete {
-		return errors.New("auth cache parent was not created")
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return errors.New("open auth cache parent")
-	}
-	defer root.Close()
-	rootInfo, err := root.Stat(".")
-	if err != nil || len(parents.directories) == 0 || !os.SameFile(parents.directories[len(parents.directories)-1].info, rootInfo) {
-		return errors.New("auth cache parent changed while opening")
-	}
-
-	targetName := filepath.Base(path)
-	original, originalExists, err := publicationTargetAt(root, targetName)
-	if err != nil {
-		return err
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-	file, tempName, err := createRootTemp(root)
-	if err != nil {
-		return err
-	}
-	tempPath := filepath.Join(dir, tempName)
-	tempInfo, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		_ = root.Remove(tempName)
-		return errors.New("inspect temporary auth cache")
-	}
-	success := false
-	defer func() {
-		if success {
-			return
-		}
-		if err := cleanupTempIdentity(root, file, tempInfo, hooks); err != nil {
-			returnErr = errors.New("secure auth cache cleanup failed")
-		}
-	}()
-	// Restrict the temporary cache to trusted principals before any token
-	// bytes are written so the published file never inherits ambient grants.
-	protect := protectOpenedCacheFile
-	if hooks.protectTemp != nil {
-		protect = hooks.protectTemp
-	}
-	if err := protect(file); err != nil {
-		return errors.New("protect temporary auth cache")
-	}
-	if err := checkRegular(tempInfo); err != nil {
-		return err
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-
-	if err := file.Chmod(0o600); err != nil {
-		return err
-	}
-	written, err := file.Write(serialized)
-	if err != nil {
-		return err
-	}
-	if written != len(serialized) {
-		return io.ErrShortWrite
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if hooks.afterTokenSync != nil {
-		if err := hooks.afterTokenSync(tempPath); err != nil {
-			return errors.New("auth cache parent changed after writing")
-		}
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-	currentTempInfo, err := root.Lstat(tempName)
-	if err != nil {
-		return err
-	}
-	if err := checkRegular(currentTempInfo); err != nil {
-		return err
-	}
-	if !os.SameFile(tempInfo, currentTempInfo) {
-		return errors.New("temporary auth cache changed while writing")
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-
-	current, currentExists, err := publicationTargetAt(root, targetName)
-	if err != nil {
-		return err
-	}
-	if originalExists != currentExists || (originalExists && !os.SameFile(original, current)) {
-		return errors.New("auth cache changed before publication")
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-	if err := root.Rename(tempName, targetName); err != nil {
-		return err
-	}
-	if err := parents.revalidate(); err != nil {
-		return err
-	}
-	published, err := root.Lstat(targetName)
-	if err != nil {
-		return err
-	}
-	if err := checkRegular(published); err != nil {
-		return err
-	}
-	if !os.SameFile(tempInfo, published) {
-		return errors.New("auth cache changed during publication")
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	success = true
-	return nil
-}
-
-func serializeToken(tok *oauth2.Token) ([]byte, error) {
+// serializeToken bounds the credential before allocating its JSON representation.
+func serializeToken(tok *oauth2.Token, generation string) ([]byte, error) {
 	if !validToken(tok) {
 		return nil, errors.New("refusing to persist token without refresh token")
 	}
@@ -537,7 +249,7 @@ func serializeToken(tok *oauth2.Token) ([]byte, error) {
 		}
 		remaining -= len(field)
 	}
-	serialized, err := json.Marshal(tok)
+	serialized, err := json.Marshal(cachedToken{Token: *tok, Generation: generation})
 	if err != nil {
 		return nil, err
 	}
@@ -547,210 +259,7 @@ func serializeToken(tok *oauth2.Token) ([]byte, error) {
 	return append(serialized, '\n'), nil
 }
 
-func createRootTemp(root *os.Root) (*os.File, string, error) {
-	for range 100 {
-		var random [16]byte
-		if _, err := rand.Read(random[:]); err != nil {
-			return nil, "", errors.New("generate temporary auth cache name")
-		}
-		name := ".microsoft-token-" + hex.EncodeToString(random[:]) + ".tmp"
-		file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-		if errors.Is(err, fs.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return nil, "", errors.New("create temporary auth cache")
-		}
-		return file, name, nil
-	}
-	return nil, "", errors.New("create unique temporary auth cache")
-}
-
-func cleanupTempIdentity(root *os.Root, file *os.File, identity fs.FileInfo, hooks saveHooks) error {
-	scrub := scrubOpenTemp
-	if hooks.scrubTemp != nil {
-		scrub = hooks.scrubTemp
-	}
-	scrubErr := scrub(file)
-	closeErr := file.Close()
-	names, scanErr := identityNames(root, identity)
-	if scanErr == nil && hooks.afterCleanupIdentityCheck != nil && len(names) != 0 {
-		hooks.afterCleanupIdentityCheck(filepath.Join(root.Name(), names[0]))
-	}
-	names, rescanErr := identityNames(root, identity)
-	removeErr := removeTempIdentityNames(root, identity, names)
-	remaining, verifyErr := identityNames(root, identity)
-	if scrubErr != nil || closeErr != nil || scanErr != nil || rescanErr != nil || removeErr != nil || verifyErr != nil || len(remaining) != 0 {
-		return errors.New("temporary auth cache cleanup could not be verified")
-	}
-	return nil
-}
-
-// removeTempIdentityNames removes only directory entries that still name the
-// temporary file identity, leaving a foreign replacement untouched.
-func removeTempIdentityNames(root *os.Root, identity fs.FileInfo, names []string) error {
-	for _, name := range names {
-		info, err := root.Lstat(name)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if !os.SameFile(identity, info) {
-			continue
-		}
-		if err := checkRegular(info); err != nil {
-			return err
-		}
-		if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
-}
-
-func scrubOpenTemp(file *os.File) error {
-	var scrubErr error
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		scrubErr = err
-	}
-	if err := file.Truncate(0); err != nil {
-		scrubErr = err
-	}
-	if err := file.Sync(); err != nil {
-		scrubErr = err
-	}
-	return scrubErr
-}
-
-func identityNames(root *os.Root, identity fs.FileInfo) ([]string, error) {
-	dir, err := root.Open(".")
-	if err != nil {
-		return nil, err
-	}
-	entries, readErr := dir.ReadDir(-1)
-	closeErr := dir.Close()
-	if readErr != nil {
-		return nil, readErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	var names []string
-	for _, entry := range entries {
-		info, err := root.Lstat(entry.Name())
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !os.SameFile(identity, info) {
-			continue
-		}
-		if err := checkRegular(info); err != nil {
-			return nil, err
-		}
-		names = append(names, entry.Name())
-	}
-	return names, nil
-}
-
-type directoryIdentity struct {
-	path string
-	info fs.FileInfo
-}
-
-type directoryChain struct {
-	directories []directoryIdentity
-	complete    bool
-}
-
-func snapshotDirectoryChain(dir string) (directoryChain, error) {
-	if !filepath.IsAbs(dir) {
-		return directoryChain{}, errors.New("auth cache parent is not absolute")
-	}
-	paths := ancestorPaths(filepath.Clean(dir))
-	chain := directoryChain{directories: make([]directoryIdentity, 0, len(paths))}
-	for _, path := range paths {
-		info, err := os.Lstat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return chain, nil
-		}
-		if err != nil {
-			return directoryChain{}, errors.New("inspect auth cache parent")
-		}
-		if err := checkDirectory(info); err != nil {
-			return directoryChain{}, err
-		}
-		chain.directories = append(chain.directories, directoryIdentity{path: path, info: info})
-	}
-	chain.complete = true
-	return chain, nil
-}
-
-func ancestorPaths(path string) []string {
-	var reversed []string
-	for {
-		reversed = append(reversed, path)
-		parent := filepath.Dir(path)
-		if parent == path {
-			break
-		}
-		path = parent
-	}
-	paths := make([]string, len(reversed))
-	for i := range reversed {
-		paths[len(reversed)-1-i] = reversed[i]
-	}
-	return paths
-}
-
-func (chain directoryChain) revalidate() error {
-	for _, directory := range chain.directories {
-		info, err := os.Lstat(directory.path)
-		if err != nil {
-			return errors.New("auth cache parent changed")
-		}
-		if err := checkDirectory(info); err != nil {
-			return err
-		}
-		if !os.SameFile(directory.info, info) {
-			return errors.New("auth cache parent changed")
-		}
-	}
-	return nil
-}
-
-func checkDirectory(info fs.FileInfo) error {
-	if info.Mode()&os.ModeSymlink != 0 || isReparsePoint(info) || !info.IsDir() {
-		return errors.New("auth cache parent is not a real directory")
-	}
-	return nil
-}
-
-func publicationTargetAt(root *os.Root, name string) (fs.FileInfo, bool, error) {
-	info, err := root.Lstat(name)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	if err := checkRegular(info); err != nil {
-		return nil, false, err
-	}
-	return info, true, nil
-}
-
-func checkRegular(info fs.FileInfo) error {
-	if info.Mode()&os.ModeSymlink != 0 || isReparsePoint(info) || !info.Mode().IsRegular() {
-		return errors.New("auth cache is not a regular non-link file")
-	}
-	return nil
-}
-
-func validToken(tok *oauth2.Token) bool {
-	return tok != nil && tok.RefreshToken != ""
+// validToken requires the refresh token needed to keep the account signed in.
+func validToken(token *oauth2.Token) bool {
+	return token != nil && token.RefreshToken != ""
 }

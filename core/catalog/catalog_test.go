@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -80,7 +82,7 @@ func TestCacheArtworkAllowsCrossHostHTTPSRedirectChain(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("artwork")),
+			Body:       io.NopCloser(strings.NewReader("\x89PNG\r\n\x1a\nartwork")),
 			Request:    request,
 		}
 		switch request.URL.Host {
@@ -112,7 +114,7 @@ func TestCacheArtworkAllowsCrossHostHTTPSRedirectChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(contents) != "artwork" {
+	if string(contents) != "\x89PNG\r\n\x1a\nartwork" {
 		t.Fatalf("cached payload = %q", contents)
 	}
 	if want := []string{"origin.example", "edge.example", "cdn.example"}; !slices.Equal(hosts, want) {
@@ -207,4 +209,12 @@ func TestCacheArtworkHonorsCancelledContext(t *testing.T) {
 		t.Fatalf("cancelled download error = %v", err)
 	}
 	assertEmptyDirectory(t, directory)
+}
+
+// cacheArtworkFileWithTransport tests the catalog policy without reaching the public network.
+func cacheArtworkFileWithTransport(ctx context.Context, directory, rawURL string, transport http.RoundTripper) (string, error) {
+	cfg := artworkPolicy
+	cfg.Transport = transport
+	image, err := imagecache.New(directory, cfg).Fetch(ctx, rawURL)
+	return image.Path, err
 }

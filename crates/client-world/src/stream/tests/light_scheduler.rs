@@ -131,11 +131,20 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
     }
 }
 
-/// Advances bounded scheduler turns until all test lighting is current.
+/// Advances bounded scheduler turns until test lighting is current and its workers are idle.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
+            // Results arrive before worker guards release their scheduler slots.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while stream.running_light_jobs.load(Ordering::Acquire) != 0 {
+                assert!(
+                    Instant::now() < deadline,
+                    "completed light workers did not release their slots"
+                );
+                std::thread::yield_now();
+            }
             return;
         }
         // A finished scan round can defer ready work until the next turn.

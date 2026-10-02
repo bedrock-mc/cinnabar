@@ -5,13 +5,9 @@ package catalog
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,9 +17,9 @@ import (
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
-	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
@@ -84,7 +80,7 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		Friends:    []Friend{},
 	}
 
-	if values, err := fetchRealms(ctx, account); err != nil {
+	if values, err := Realms(ctx, account); err != nil {
 		result.Errors = append(result.Errors, "Realms: "+err.Error())
 	} else {
 		result.Realms = values
@@ -96,43 +92,23 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		result.Friends = values
 	}
 
-	discovery, err := service.Default(ctx)
-	if err != nil {
-		result.Errors = append(result.Errors, "Featured servers: discover services: "+err.Error(), "Gatherings: discover services: "+err.Error())
-		return result, nil
-	}
-	gatheringsClient, err := gatheringsClient(discovery, account)
-	if err != nil {
-		result.Errors = append(result.Errors, "Featured servers: "+err.Error(), "Gatherings: "+err.Error())
-		return result, nil
-	}
-	if values, err := gatheringsClient.FeaturedServers(ctx); err != nil {
+	if values, err := FeaturedServers(ctx, account); err != nil {
 		result.Errors = append(result.Errors, "Featured servers: "+err.Error())
 	} else {
 		for _, server := range values {
-			if server == nil || !server.Valid() {
-				continue
-			}
 			result.Featured = append(result.Featured, Server{
-				Name:     displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
-				Address:  server.Address(),
-				Caption:  firstGameCaption(server.AvailableGames, "Featured server"),
-				imageURL: artworkURL(server.Item, server.AvailableGames),
+				Name: server.Name, Address: server.Address, Caption: server.Caption,
+				imageURL: server.thumbnailURL,
 			})
 		}
 	}
-	if values, err := gatheringsClient.Experiences(ctx); err != nil {
+	if values, err := Gatherings(ctx, account); err != nil {
 		result.Errors = append(result.Errors, "Gatherings: "+err.Error())
 	} else {
 		for _, experience := range values {
-			if experience == nil || !experience.Valid() {
-				continue
-			}
 			result.Gatherings = append(result.Gatherings, Server{
-				Name:     displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-				Address:  GatheringTargetPrefix + experience.ID.String(),
-				Caption:  firstGameCaption(experience.AvailableGames, "Community gathering"),
-				imageURL: artworkURL(experience.Item, experience.AvailableGames),
+				Name: experience.Name, Address: GatheringTargetPrefix + experience.ID,
+				Caption: experience.Caption, imageURL: experience.Image.URL,
 			})
 		}
 	}
@@ -212,104 +188,38 @@ func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) stri
 	return ""
 }
 
-func validArtworkURL(raw string) bool {
-	parsed, err := url.Parse(raw)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != ""
-}
+// validArtworkURL accepts the shared HTTPS image URL policy.
+func validArtworkURL(raw string) bool { return imagecache.ValidURL(raw) }
 
 func cacheArtwork(ctx context.Context, directory string, result *File) {
 	if result == nil {
 		return
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return
-	}
+	cache := artworkCache(directory)
 	for _, servers := range [][]Server{result.Featured, result.Gatherings} {
 		for index := range servers {
-			path, err := cacheArtworkFile(ctx, directory, servers[index].imageURL)
+			image, err := cache.Fetch(ctx, servers[index].imageURL)
 			if err == nil {
-				servers[index].ImagePath = path
+				servers[index].ImagePath = image.Path
 			}
 		}
 	}
 }
 
-func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, error) {
-	return cacheArtworkFileWithTransport(ctx, directory, rawURL, http.DefaultTransport)
+// artworkCache configures the shared downloader for catalog and profile images.
+func artworkCache(directory string) *imagecache.Cache {
+	return imagecache.New(directory, artworkPolicy)
 }
 
-func cacheArtworkFileWithTransport(
-	ctx context.Context, directory, rawURL string, transport http.RoundTripper,
-) (string, error) {
-	if !validArtworkURL(rawURL) {
-		return "", errors.New("invalid artwork URL")
-	}
-	identity := sha256.Sum256([]byte(rawURL))
-	path := filepath.Join(directory, fmt.Sprintf("%x.img", identity))
-	if info, err := os.Stat(path); err == nil && info.Size() > 0 && info.Size() <= maxArtworkBytes {
-		now := time.Now()
-		_ = os.Chtimes(path, now, now) // marks it in use for mtime-based pruning
-		return path, nil
-	}
-	downloadContext, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(downloadContext, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "Cinnabar/1.0")
-	client := &http.Client{
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if !validArtworkURL(req.URL.String()) {
-				return errors.New("invalid artwork redirect URL")
-			}
-			if len(via) >= 10 {
-				return errors.New("stopped after 10 redirects")
-			}
-			return nil
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("artwork HTTP status %s", resp.Status)
-	}
-	bytes, err := io.ReadAll(io.LimitReader(resp.Body, maxArtworkBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if len(bytes) == 0 || len(bytes) > maxArtworkBytes {
-		return "", errors.New("artwork payload is empty or too large")
-	}
-	temporary, err := os.CreateTemp(directory, ".artwork-*.img")
-	if err != nil {
-		return "", err
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return "", err
-	}
-	if _, err := temporary.Write(bytes); err != nil {
-		_ = temporary.Close()
-		return "", err
-	}
-	if err := temporary.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(temporaryName, path); err != nil {
-		return "", err
-	}
-	return path, nil
+// artworkPolicy keeps catalog paths and download limits stable across both catalog entry points.
+var artworkPolicy = imagecache.Config{
+	MaxBytes: maxArtworkBytes, MaxFiles: maxCachedArtwork,
+	Timeout: 8 * time.Second, MaxRedirects: 9,
+	UserAgent: "Cinnabar/1.0", Extension: ".img",
 }
 
-// fetchRealms lists the Realms; the account supplies the Realms XSTS token from its shared cache.
-func fetchRealms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
+// Realms lists the Realms; the account supplies the Realms XSTS token from its shared cache.
+func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 	if account == nil {
 		return nil, errNoAccount
 	}
@@ -353,7 +263,8 @@ const GatheringTargetPrefix = "gathering/"
 // errNoAccount is returned when a call needs the signed-in account and there is none.
 var errNoAccount = errors.New("catalog: no signed-in account")
 
-func newXSAPIClient(ctx context.Context, account *authcache.Account) (*xsapi.Client, error) {
+// XboxClient signs in to Xbox Live with the account; the caller closes it.
+func XboxClient(ctx context.Context, account *authcache.Account) (*xsapi.Client, error) {
 	if account == nil {
 		return nil, errNoAccount
 	}

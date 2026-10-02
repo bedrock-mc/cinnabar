@@ -107,13 +107,6 @@ type emptyResultV1 struct {
 	SchemaVersion uint32 `json:"schema_version"`
 }
 
-type serviceResponse struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      uint64         `json:"id"`
-	Result  any            `json:"result,omitempty"`
-	Error   *responseError `json:"error,omitempty"`
-}
-
 func isServiceMethod(method string) bool {
 	switch method {
 	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents:
@@ -165,42 +158,38 @@ func (store *Store) Events() EventsV1 {
 }
 
 func (server *Server) serveService(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
-	fail := func(code int, message string) error {
-		return server.writeResponse(conn, serviceResponse{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: message}})
-	}
-	ok := func(result any) error {
-		return server.writeResponse(conn, serviceResponse{JSONRPC: "2.0", ID: id, Result: result})
-	}
+	reply := responseWriter{server: server, conn: conn, id: id}
+
 	switch method {
 	case methodAccountStatus, methodEvents:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if method == methodEvents {
-			return ok(server.store.Events())
+			return reply.ok(server.store.Events())
 		}
-		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
 	}
 	services := server.launcherServices()
 	if services == nil {
-		return fail(codeServicesDisabled, "Launcher services unavailable")
+		return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), serviceCallTimeout)
 	defer cancel()
 	failService := func(err error) error {
 		switch {
 		case errors.Is(err, ErrSignedOut):
-			return fail(codeSignedOut, "Not signed in")
+			return reply.fail(codeSignedOut, "Not signed in")
 		case errors.Is(err, ErrInvalidTarget):
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		server.logServiceFailure(method, err)
-		return fail(codeServiceFailed, "Service unavailable")
+		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
 	case methodRealmsList:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		realms, err := services.Realms(ctx)
 		if err != nil {
@@ -209,10 +198,10 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if realms == nil {
 			realms = []catalog.Realm{}
 		}
-		return ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
+		return reply.ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
 	case methodFriendsList:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		friends, err := services.Friends(ctx)
 		if err != nil {
@@ -221,49 +210,49 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if friends == nil {
 			friends = []catalog.Friend{}
 		}
-		return ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
+		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
 	case methodConnect:
 		var params struct {
 			Kind  *string `json:"kind"`
 			Value *string `json:"value"`
 		}
 		if !decodeParams(raw, &params) || params.Kind == nil || params.Value == nil {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if len(*params.Value) == 0 || len(*params.Value) > maxTargetValueLen {
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
 		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
 		default:
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		if err := services.Connect(ctx, *params.Kind, *params.Value); err != nil {
 			return failService(err)
 		}
-		return ok(emptyResultV1{SchemaVersion: 1})
+		return reply.ok(emptyResultV1{SchemaVersion: 1})
 	case methodSignOut:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if err := services.SignOut(); err != nil {
 			return failService(err)
 		}
-		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
 	}
 	if isScreenMethod(method) {
 		screens, supported := services.(ScreenServices)
 		if !supported {
-			return fail(codeServicesDisabled, "Launcher services unavailable")
+			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 		}
 		result, err := screenResult(ctx, screens, method, raw)
 		if errors.Is(err, errInvalidParams) {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if err != nil {
 			return failService(err)
 		}
-		return ok(result)
+		return reply.ok(result)
 	}
-	return fail(-32601, "Method not found")
+	return reply.fail(-32601, "Method not found")
 }

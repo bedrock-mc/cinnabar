@@ -131,17 +131,6 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 }
 
-func TestAdmitResourcePacksKeepsStackOrderLessExcluded(t *testing.T) {
-	first := testAdmissionPack(t).WithDownloadURL("https://example.invalid/first")
-	second := testAdmissionPack(t).WithDownloadURL("https://example.invalid/second")
-	third := testAdmissionPack(t).WithDownloadURL("https://example.invalid/third")
-
-	admitted := admitResourcePacks([]*resource.Pack{third, second, first}, func(pack *resource.Pack) bool { return pack == second }, resourcePackSize)
-	if got := []string{admitted[0].DownloadURL(), admitted[1].DownloadURL()}; len(admitted) != 2 || !slices.Equal(got, []string{"https://example.invalid/third", "https://example.invalid/first"}) {
-		t.Fatalf("admitted order = %v, want stack order less the excluded pack", got)
-	}
-}
-
 func TestSelectedStackCompatibilityDoesNotSubstituteOfferOrderOrCounts(t *testing.T) {
 	offered := newFakeUpstream(nil)
 	offered.packs = []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t), testAdmissionPack(t)}
@@ -186,62 +175,48 @@ func TestConfigureResourcePackOfferStripsIgnoredSelection(t *testing.T) {
 	}
 }
 
-func TestSelectedResourcePackStackSkipsUnavailableNilAndOverBudgetPacks(t *testing.T) {
+func TestSelectedResourcePackStackRequiresNegotiatedSnapshots(t *testing.T) {
 	if _, err := captureSelectedResourcePackStack(newFakeUpstream(nil), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing post-negotiation snapshot error = %v", err)
-	}
-	// A nil entry is skipped, not fatal.
-	if admitted := admitResourcePacks([]*resource.Pack{nil}, nil, resourcePackSize); len(admitted) != 0 {
-		t.Fatalf("nil selected pack count = %d, want 0", len(admitted))
-	}
-	// Count beyond the bound truncates to the first maxSelectedResourcePacks.
-	tooMany := make([]*resource.Pack, maxSelectedResourcePacks+1)
-	for index := range tooMany {
-		tooMany[index] = testAdmissionPack(t)
-	}
-	if admitted := admitResourcePacks(tooMany, nil, resourcePackSize); len(admitted) != maxSelectedResourcePacks {
-		t.Fatalf("count overflow kept %d packs, want %d", len(admitted), maxSelectedResourcePacks)
-	}
-	// A pack whose size would break the byte bound is skipped while later packs
-	// that still fit are kept.
-	first, second, third := testAdmissionPack(t), testAdmissionPack(t), testAdmissionPack(t)
-	index := 0
-	sizes := func(*resource.Pack) (uint64, bool) {
-		index++
-		switch index {
-		case 2:
-			return maxSelectedResourcePackTotalBytes + 1, true
-		default:
-			return 1, true
-		}
-	}
-	if admitted := admitResourcePacks([]*resource.Pack{first, second, third}, nil, sizes); len(admitted) != 2 {
-		t.Fatalf("byte overflow kept %d packs, want the 2 that fit", len(admitted))
 	}
 	if err := configureResourcePackOffer(new(offerTestDownstream), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("nil prepared stack policy error = %v", err)
 	}
 }
 
-func TestSelectedResourcePackStackReleasedForAbortRelayAndIdempotence(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		finish func(*preparedConnection) error
-	}{
-		{name: "abort", finish: (*preparedConnection).close},
-		{name: "relay", finish: (*preparedConnection).releaseAfterRelay},
-	} {
-		t.Run(test.name, func(t *testing.T) {
+func TestPreparedConnectionReleasesEveryResourceOnce(t *testing.T) {
+	for _, relay := range []bool{false, true} {
+		t.Run(fmt.Sprintf("relay=%t", relay), func(t *testing.T) {
+			down, up := newFakeDownstream(nil), newFakeUpstream(nil)
 			stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}}
-			prepared := &preparedConnection{upstream: newFakeUpstream(nil), packStack: stack}
-			if err := test.finish(prepared); err != nil {
-				t.Fatalf("finish error = %v", err)
+			releases := 0
+			prepared := &preparedConnection{
+				upstream: up, packStack: stack,
+				releaseTarget: func() error { releases++; return nil },
 			}
-			if stack.packs != nil {
-				t.Fatal("selected pack references survived prepared connection release")
+			if relay {
+				down.reads <- packetResult{err: io.EOF}
+				if err := servePreparedConnection(context.Background(), down, prepared); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err := prepared.close(); err != nil {
-				t.Fatalf("idempotent close error = %v", err)
+			for range 2 {
+				if err := prepared.close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if stack.packs != nil || releases != 1 {
+				t.Fatalf("released packs = %v, target releases = %d", stack.packs == nil, releases)
+			}
+			if got := up.lifecycleEvents(); !slices.Equal(got, []string{"abort", "close"}) {
+				t.Fatalf("upstream lifecycle = %v", got)
+			}
+			want := []string(nil)
+			if relay {
+				want = []string{"abort", "close"}
+			}
+			if got := down.lifecycleEvents(); !slices.Equal(got, want) {
+				t.Fatalf("downstream lifecycle = %v, want %v", got, want)
 			}
 		})
 	}
@@ -395,8 +370,6 @@ func TestListenerBoundaryLoggerPanicAfterTakeClosesTransferredOwnership(t *testi
 			targetCloses.Add(1)
 			return nil
 		},
-		telemetry: new(cacheBoundaryTelemetry),
-		logger:    logger,
 	}
 	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
 		return prepared, nil
@@ -442,11 +415,11 @@ func TestListenerBoundaryLoggerPanicAfterTakeClosesTransferredOwnership(t *testi
 	if lifecycle := prepared.upstream.(*fakeUpstream).lifecycleEvents(); !slices.Equal(lifecycle, []string{"abort", "close"}) {
 		t.Fatalf("upstream lifecycle = %v, want [abort close]", lifecycle)
 	}
-	if targetCloses.Load() != 1 || handler.count("PHASE2_CACHE_BOUNDARY") != 1 {
-		t.Fatalf("target closes=%d telemetry calls=%d, want 1 each", targetCloses.Load(), handler.count("PHASE2_CACHE_BOUNDARY"))
+	if targetCloses.Load() != 1 {
+		t.Fatalf("target closes=%d, want 1", targetCloses.Load())
 	}
 	_ = prepared.close()
-	if targetCloses.Load() != 1 || handler.count("PHASE2_CACHE_BOUNDARY") != 1 {
+	if targetCloses.Load() != 1 {
 		t.Fatal("second prepared close repeated target or telemetry cleanup")
 	}
 }
@@ -622,9 +595,6 @@ func TestListenerBoundaryContainsDialPanicBeforeLoginPackets(t *testing.T) {
 	if slices.Contains(gotPackets, packet.IDPlayStatus) || slices.Contains(gotPackets, packet.IDResourcePacksInfo) {
 		t.Fatalf("packets after dial panic = %v, must not include LoginSuccess or ResourcePacksInfo", gotPackets)
 	}
-	if got := strings.Count(output.String(), "msg=PHASE2_CACHE_BOUNDARY"); got != 1 {
-		t.Fatalf("telemetry report count = %d, want 1; output=%q", got, output.String())
-	}
 }
 
 func TestListenerBoundaryConnectedLogPanicCleansAllOwnershipBeforeLogin(t *testing.T) {
@@ -687,8 +657,8 @@ func TestListenerBoundaryConnectedLogPanicCleansAllOwnershipBeforeLogin(t *testi
 	if lifecycle := upstream.lifecycleEvents(); !slices.Equal(lifecycle, []string{"abort", "close"}) {
 		t.Fatalf("upstream lifecycle = %v, want [abort close]", lifecycle)
 	}
-	if targetCloses.Load() != 1 || handler.count("PHASE2_CACHE_BOUNDARY") != 1 {
-		t.Fatalf("target closes=%d telemetry calls=%d, want 1 each", targetCloses.Load(), handler.count("PHASE2_CACHE_BOUNDARY"))
+	if targetCloses.Load() != 1 {
+		t.Fatalf("target closes=%d, want 1", targetCloses.Load())
 	}
 	packetsMu.Lock()
 	gotPackets := slices.Clone(packetIDs)
@@ -1114,7 +1084,6 @@ func TestPreparedConnectionsShutdownJoinsCancellationCleanup(t *testing.T) {
 			<-allowTargetClose
 			return nil
 		},
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := connections.store(ctx, downstream, prepared); err != nil {
@@ -1202,9 +1171,6 @@ func TestPreparedConnectionDialPanicClosesTargetAndReportsTelemetry(t *testing.T
 	}
 	if got := targetCloses.Load(); got != 1 {
 		t.Fatalf("target close count = %d, want 1", got)
-	}
-	if got := strings.Count(output.String(), "msg=PHASE2_CACHE_BOUNDARY"); got != 1 {
-		t.Fatalf("telemetry report count = %d, want 1; output=%q", got, output.String())
 	}
 }
 
@@ -1351,8 +1317,6 @@ func TestSelectedStackPolicyPanicsReleaseOwnershipWithoutFormattingPayload(t *te
 					targetCloses.Add(1)
 					return nil
 				},
-				telemetry: new(cacheBoundaryTelemetry),
-				logger:    logger,
 			}
 			connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
 				return prepared, nil
@@ -1368,9 +1332,6 @@ func TestSelectedStackPolicyPanicsReleaseOwnershipWithoutFormattingPayload(t *te
 			if got := targetCloses.Load(); got != 1 {
 				t.Fatalf("target close count = %d, want 1", got)
 			}
-			if got := strings.Count(output.String(), "msg=PHASE2_CACHE_BOUNDARY"); got != 1 {
-				t.Fatalf("telemetry report count = %d, want 1", got)
-			}
 			if got := lifecycleEvents(upstream); !slices.Equal(got, []string{"abort", "close"}) {
 				t.Fatalf("upstream lifecycle = %v, want [abort close]", got)
 			}
@@ -1383,7 +1344,6 @@ func TestPreparedCleanupAttemptsEveryCallbackOnceWhenCallbacksPanic(t *testing.T
 	panicValue := sensitivePanic{stringCalls: stringCalls}
 	upstream := &cleanupPanicUpstream{fakeUpstream: newFakeUpstream(nil), panicValue: panicValue}
 	targetCalls := new(atomic.Int32)
-	telemetryCalls := new(atomic.Int32)
 	prepared := &preparedConnection{
 		upstream:  upstream,
 		packStack: &selectedResourcePackStack{},
@@ -1391,23 +1351,18 @@ func TestPreparedCleanupAttemptsEveryCallbackOnceWhenCallbacksPanic(t *testing.T
 			targetCalls.Add(1)
 			panic(panicValue)
 		},
-		telemetry: new(cacheBoundaryTelemetry),
-		logger: slog.New(panicSlogHandler{
-			calls:      telemetryCalls,
-			panicValue: panicValue,
-		}),
 	}
 
 	err := prepared.close()
 	if err == nil || strings.Contains(err.Error(), "sensitive panic payload") || stringCalls.Load() != 0 {
 		t.Fatalf("prepared close error = %q, String calls=%d", err, stringCalls.Load())
 	}
-	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 || telemetryCalls.Load() != 1 {
-		t.Fatalf("cleanup calls abort=%d close=%d target=%d telemetry=%d, want all 1",
-			upstream.abortCalls.Load(), upstream.closeCalls.Load(), targetCalls.Load(), telemetryCalls.Load())
+	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 {
+		t.Fatalf("cleanup calls abort=%d close=%d target=%d, want all 1",
+			upstream.abortCalls.Load(), upstream.closeCalls.Load(), targetCalls.Load())
 	}
 	_ = prepared.close()
-	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 || telemetryCalls.Load() != 1 {
+	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 {
 		t.Fatal("second close repeated a cleanup callback")
 	}
 }
@@ -1441,9 +1396,9 @@ func TestConnectFailureAttemptsEveryCleanupCallbackWhenCallbacksPanic(t *testing
 	if prepared != nil || !errors.Is(err, dialErr) || strings.Contains(err.Error(), "sensitive panic payload") || stringCalls.Load() != 0 {
 		t.Fatalf("connect = (%v, %q), String calls=%d", prepared, err, stringCalls.Load())
 	}
-	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 || telemetryCalls.Load() != 1 {
-		t.Fatalf("cleanup calls abort=%d close=%d target=%d telemetry=%d, want all 1",
-			upstream.abortCalls.Load(), upstream.closeCalls.Load(), targetCalls.Load(), telemetryCalls.Load())
+	if upstream.abortCalls.Load() != 1 || upstream.closeCalls.Load() != 1 || targetCalls.Load() != 1 {
+		t.Fatalf("cleanup calls abort=%d close=%d target=%d, want all 1",
+			upstream.abortCalls.Load(), upstream.closeCalls.Load(), targetCalls.Load())
 	}
 }
 
@@ -1643,7 +1598,6 @@ func newTrackedPreparedConnection() (*preparedConnection, *trackedTargetClose) {
 		upstream:      newFakeUpstream(nil),
 		packStack:     &selectedResourcePackStack{},
 		releaseTarget: targetCloses.Close,
-		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, targetCloses
 }
 
@@ -1763,9 +1717,6 @@ func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(
 	grownPack, honestPack := admissionPackWithUUID(t, grown.String()), admissionPackWithUUID(t, honest.String())
 	if !budget.excludes(grownPack) || budget.excludes(honestPack) || !budget.excludes(admissionPackWithUUID(t, unadvertised.String())) || len(*causes) != 0 {
 		t.Fatalf("causes = %v, want only grown+unadvertised dropped and no cancel", *causes)
-	}
-	if admitted := admitResourcePacks([]*resource.Pack{grownPack, honestPack}, budget.excludes, resourcePackSize); len(admitted) != 1 || admitted[0] != honestPack {
-		t.Fatalf("admitted = %v, want only the honest pack", admitted)
 	}
 
 	over, overCauses := observedBudget(t, packInfos(mib))
@@ -1926,8 +1877,8 @@ func TestAcquisitionBudgetReportsVanillaPackProgress(t *testing.T) {
 	}
 }
 
-// A budgeted dialer downloads a required offer and hands its stack onward.
-func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
+// A budgeted dialer reuses a required cached offer and hands its stack onward.
+func TestBudgetedDialerAcquiresRequiredCachedOfferBeforeStartGame(t *testing.T) {
 	pack := testAdmissionPack(t)
 	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
 		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
@@ -1936,10 +1887,12 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 	defer cancel()
 	dialCtx, cancelDial := context.WithCancelCause(ctx)
 	defer cancelDial(nil)
+	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, cancelDial)
 	dialer := withResourcePackAcquisitionBudget(minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "Budgeted"},
-		Protocol:     minecraft.DefaultProtocol,
-	}, newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, cancelDial))
+		IdentityData:      login.IdentityData{DisplayName: "Budgeted"},
+		Protocol:          minecraft.DefaultProtocol,
+		ResourcePackCache: &scriptedResourcePackCache{loadPack: pack},
+	}, budget)
 	clientDone := make(chan admissionDialResult, 1)
 	go func() {
 		client, err := dialer.DialContextNetwork(dialCtx, network, "")
@@ -1959,7 +1912,10 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 		t.Fatalf("budgeted dial: %v", result.err)
 	}
 	defer result.conn.Close()
-	stack, err := captureSelectedResourcePackStack(result.conn, nil)
+	if budget.packs != 0 || budget.transferred != 0 {
+		t.Fatal("cached offer unexpectedly downloaded pack bytes")
+	}
+	stack, err := captureSelectedResourcePackStack(result.conn, budget.excludes)
 	if err != nil {
 		t.Fatalf("capture stack: %v", err)
 	}
@@ -2092,4 +2048,153 @@ func TestUnflushedDialerCompletesChunkPackDownload(t *testing.T) {
 	if len(prepared.packStack.packs) != 1 {
 		t.Fatalf("acquired %d packs, want the chunk-downloaded pack", len(prepared.packStack.packs))
 	}
+}
+
+func TestAcquisitionBudgetChecksActualArchiveIdentityAndSize(t *testing.T) {
+	pack := testAdmissionPack(t)
+	other := admissionPackWithUUID(t, "11223344-5566-7788-99aa-bbccddeeff00")
+	tests := []struct {
+		name     string
+		info     []protocol.TexturePackInfo
+		actual   *resource.Pack
+		source   minecraft.ResourcePackSource
+		excluded bool
+	}{
+		{name: "cached", source: minecraft.ResourcePackSourceCache},
+		{name: "URL", source: minecraft.ResourcePackSourceURL},
+		{name: "chunks", source: minecraft.ResourcePackSourceChunks},
+		{
+			name: "manifest UUID differs from transfer", actual: other,
+			source: minecraft.ResourcePackSourceChunks, excluded: true,
+		},
+		{
+			name:   "manifest version differs from transfer",
+			info:   []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: "different-version", Size: uint64(pack.Size())}},
+			source: minecraft.ResourcePackSourceChunks, excluded: true,
+		},
+		{
+			name:   "archive grew without a matching transfer event",
+			info:   []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size() - 1)}},
+			source: minecraft.ResourcePackSourceChunks, excluded: true,
+		},
+		{
+			name: "another version cannot enlarge the admitted cap",
+			info: []protocol.TexturePackInfo{
+				{UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size() - 1)},
+				{UUID: pack.UUID(), Version: "different-version", Size: uint64(pack.Size() + 1)},
+			},
+			source: minecraft.ResourcePackSourceChunks, excluded: true,
+		},
+		{
+			name:   "identity declined before download",
+			info:   []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: pack.Version(), Size: maxResourcePackArchiveBytes + 1}},
+			source: minecraft.ResourcePackSourceCache, excluded: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.info == nil {
+				test.info = []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size())}}
+			}
+			if test.actual == nil {
+				test.actual = pack
+			}
+			budget, _ := observedBudget(t, &packet.ResourcePacksInfo{TexturePacks: test.info})
+			kind := minecraft.ResourcePackStarted
+			if test.source == minecraft.ResourcePackSourceCache {
+				kind = minecraft.ResourcePackFinished
+			}
+			transfer := test.info[0]
+			budget.event(minecraft.ResourcePackEvent{
+				Kind: kind, Source: test.source, UUID: transfer.UUID, Version: transfer.Version, Size: transfer.Size,
+			})
+			if got := budget.excludes(test.actual); got != test.excluded {
+				t.Fatalf("actual archive excluded = %t, want %t", got, test.excluded)
+			}
+		})
+	}
+}
+
+func TestSelectedStackPreservesRepeatedEntriesAndOrder(t *testing.T) {
+	first := testAdmissionPack(t)
+	second := admissionPackWithUUID(t, "11223344-5566-7788-99aa-bbccddeeff00")
+	repeated := make([]*resource.Pack, maxSelectedResourcePacks+1)
+	for i := range repeated {
+		repeated[i] = second
+	}
+	repeated = append(repeated, first)
+	for _, required := range []bool{false, true} {
+		t.Run(fmt.Sprintf("required=%t", required), func(t *testing.T) {
+			conn := negotiatedAdmissionPacks(t, []*resource.Pack{first, second}, required)
+			selected := negotiatedAdmissionPacks(t, repeated, required)
+			snapshot, _ := selected.ResourcePackStack()
+			info := &packet.ResourcePacksInfo{}
+			for _, pack := range []*resource.Pack{first, second} {
+				info.TexturePacks = append(info.TexturePacks, protocol.TexturePackInfo{
+					UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size()),
+				})
+			}
+			budget, _ := observedBudget(t, info)
+			source := selectedOfferSource{Conn: conn, selection: snapshot}
+			captured, err := captureSelectedResourcePackStack(source, budget.excludes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(captured.packs) != 2 || captured.packs[0].UUID() != first.UUID() || captured.packs[1].UUID() != second.UUID() {
+				t.Fatal("captured archives lost offer order")
+			}
+			entries, original := captured.snapshot.Entries(), snapshot.Entries()
+			if len(snapshot.Packs()) != len(repeated) || len(entries) != len(original) {
+				t.Fatalf("captured %d stack entries, want %d including built-ins", len(entries), len(original))
+			}
+			for i, entry := range entries {
+				if entry.UUID() != original[i].UUID() || entry.Version() != original[i].Version() || entry.SubPackName() != original[i].SubPackName() {
+					t.Fatalf("stack entry %d lost server ordering", i)
+				}
+			}
+			// Excluding one acquired identity must retain the required-pack rule.
+			budget.admitOffer(&packet.ResourcePacksInfo{TexturePacks: info.TexturePacks[:1]}, true)
+			filtered, err := captureSelectedResourcePackStack(source, budget.excludes)
+			var admission *PackAdmissionError
+			if required {
+				if !errors.As(err, &admission) {
+					t.Fatalf("missing required identity error = %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			} else if kept := filtered.snapshot.Packs(); len(kept) != 1 || kept[0].UUID() != first.UUID() || len(filtered.snapshot.Entries()) != len(original)-len(repeated)+1 {
+				t.Fatal("optional projection did not retain the surviving archive and built-ins")
+			}
+		})
+	}
+}
+
+// negotiatedAdmissionPacks obtains real offer and stack snapshots, including repeated entries.
+func negotiatedAdmissionPacks(t *testing.T, packs []*resource.Pack, required bool) *minecraft.Conn {
+	t.Helper()
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer(packs, required)
+	})
+	done := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			err = conn.(*minecraft.Conn).WritePacketImmediate(&packet.StartGame{EntityRuntimeID: 9})
+		}
+		done <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := (minecraft.Dialer{
+		RelayStartup: true,
+		IdentityData: login.IdentityData{DisplayName: "Selection"},
+	}).DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	return conn
 }

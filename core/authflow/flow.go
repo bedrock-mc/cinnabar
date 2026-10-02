@@ -53,36 +53,20 @@ func Run(ctx context.Context, config Config) error {
 	if err := emit(writer, event{Version: 1, Kind: "checking_cache"}); err != nil {
 		return err
 	}
-	deviceAuth := config.DeviceAuth
-	if deviceAuth == nil {
-		deviceAuth = auth.AndroidConfig.DeviceAuth
-	}
-	deviceToken := config.DeviceToken
-	if deviceToken == nil {
-		deviceToken = auth.AndroidConfig.DeviceAccessToken
-	}
 	refresh := config.Refresh
 	if refresh == nil {
 		refresh = auth.AndroidConfig.RefreshTokenSourceWriter
 	}
 	acquired := false
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
-		response, err := deviceAuth(ctx)
+		token, err := (DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken}).Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
+			return emit(writer, event{
+				Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
+				UserCode: response.UserCode,
+			})
+		})
 		if err != nil {
-			return nil, fmt.Errorf("%w: start", errDeviceAuthorization)
-		}
-		if err := validatePrompt(response); err != nil {
-			return nil, fmt.Errorf("%w: invalid prompt", errDeviceAuthorization)
-		}
-		if err := emit(writer, event{
-			Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
-			UserCode: response.UserCode,
-		}); err != nil {
-			return nil, fmt.Errorf("%w: publish prompt", errDeviceAuthorization)
-		}
-		token, err := deviceToken(ctx, response)
-		if err != nil {
-			return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
+			return nil, err
 		}
 		acquired = true
 		return token, nil

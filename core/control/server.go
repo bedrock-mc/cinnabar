@@ -38,7 +38,7 @@ type request struct {
 type response struct {
 	JSONRPC string         `json:"jsonrpc"`
 	ID      any            `json:"id"`
-	Result  *StatusV1      `json:"result,omitempty"`
+	Result  any            `json:"result,omitempty"`
 	Error   *responseError `json:"error,omitempty"`
 }
 
