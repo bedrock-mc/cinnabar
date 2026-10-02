@@ -84,6 +84,7 @@ impl ActorStore {
             rider_to_ridden: HashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
+            unlisted_players: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
@@ -225,6 +226,7 @@ impl ActorStore {
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
         self.players.clear();
+        self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
@@ -251,6 +253,7 @@ impl ActorStore {
         if let Some(uuid) = self.synthetic_local_uuid.take() {
             self.players.remove(&uuid);
         }
+        self.prune_unlisted_players();
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
@@ -410,7 +413,10 @@ impl ActorStore {
                                 capacity_rejected = true;
                                 continue;
                             }
-                            let previous = self.players.get(uuid);
+                            let previous = self
+                                .players
+                                .get(uuid)
+                                .or_else(|| self.unlisted_players.get(uuid));
                             let previous_skin_bytes =
                                 previous.map_or(0, |profile| retained_skin_bytes(&profile.skin));
                             let retained_without_previous = self
@@ -443,6 +449,7 @@ impl ActorStore {
                                     |total| (skin.clone(), total),
                                 );
                             self.retained_player_skin_bytes = retained_player_skin_bytes;
+                            self.unlisted_players.remove(uuid);
                             self.players.insert(
                                 *uuid,
                                 PlayerProfile {
@@ -454,11 +461,7 @@ impl ActorStore {
                             );
                         }
                         PlayerListEntry::Remove { uuid } => {
-                            if let Some(profile) = self.players.remove(uuid) {
-                                self.retained_player_skin_bytes = self
-                                    .retained_player_skin_bytes
-                                    .saturating_sub(retained_skin_bytes(&profile.skin));
-                            }
+                            self.unlist_player(uuid);
                         }
                     }
                 }
@@ -569,6 +572,7 @@ impl ActorStore {
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
@@ -600,6 +604,7 @@ impl ActorStore {
         }
         self.remove_links_for(unique_id);
         self.animation.remove_runtime(runtime_id);
+        self.prune_unlisted_players();
         ActorApplyResult::Removed
     }
 

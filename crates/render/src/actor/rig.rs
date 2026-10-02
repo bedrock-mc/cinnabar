@@ -477,7 +477,9 @@ impl ActorRigFrameBuilder {
                 .rotate_left(5)
                 .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
         }
-        self.catalog.append(geometries, revision.max(1))
+        self.catalog.append(geometries, revision.max(1))?;
+        self.matrices = PoseMatrixCache::default();
+        Ok(())
     }
 
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
@@ -511,6 +513,7 @@ impl ActorRigFrameBuilder {
                 .map(|geometry| (geometry.id, geometry)),
         );
         self.catalog = GeometryCatalog::layout(by_id)?;
+        self.matrices = PoseMatrixCache::default();
         Ok(())
     }
 

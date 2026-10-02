@@ -560,6 +560,8 @@ pub(crate) struct ActorStore {
     rider_to_ridden: HashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
+    /// Appearances of spawned players removed from the roster, retained until despawn.
+    unlisted_players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,
@@ -638,6 +640,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 
 #[cfg(test)]
 mod local_tests;
+mod player_appearance;
 #[cfg(test)]
 mod riding_tests;
 mod skin_update;

@@ -273,6 +273,7 @@ fn lobby_player_report() {
     world
         .resource_mut::<Time<Real>>()
         .update_with_instant(clock);
+    world.run_system_cached(prepare_actor_render_frame).unwrap();
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let mut seen = BTreeMap::new();
     let mut records = Vec::new();
@@ -291,6 +292,7 @@ fn lobby_player_report() {
             world
                 .resource_mut::<Time<Real>>()
                 .update_with_instant(clock);
+            world.run_system_cached(prepare_actor_render_frame).unwrap();
             world.run_system_cached(publish_actor_render_frame).unwrap();
         }
         report_states(&world, &labels, &mut seen, &mut records, index, &out);

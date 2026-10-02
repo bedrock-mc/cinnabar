@@ -4185,3 +4185,13 @@ Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
+
+### Zeqa regression follow-up (incomplete visual/performance acceptance)
+
+Nametag phase traversal, omitted catalog plane backs, active player appearance
+lifetime, and matrices cached across rig replacement have focused corrections.
+The supplied offline witnesses do not close the live form layout/FPS, missing
+hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gates.
+The player-body report omits equipment and GPU execution. See
+`docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
+references, PNG evidence and the limitations of the capture.

@@ -27,6 +27,8 @@ mod oreui;
 pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
+#[cfg(test)]
+mod regression_snapshots;
 pub(crate) use panorama::{built_in_faces, launcher_view};
 mod enhanced_setting;
 #[cfg(test)]

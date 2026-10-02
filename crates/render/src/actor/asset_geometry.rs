@@ -102,12 +102,6 @@ pub(super) fn geometry_from_geometry_index(
             }
         }
     }
-    // The neutral catalog profile draws a plane's textured face from either side.
-    for vertex in &mut vertices {
-        if vertex.back_uv == super::geometry::ONE_SIDED_BACK_UV {
-            vertex.back_uv = vertex.uv;
-        }
-    }
     material::apply_native_arrow_material(assets, geometry_index, &mut vertices);
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
@@ -348,7 +342,7 @@ mod tests {
     use super::overlay_geometry_bone;
 
     #[test]
-    fn catalog_arrow_planes_keep_their_front_texture_on_the_back() {
+    fn catalog_planes_preserve_untextured_back_faces() {
         let temporary = tempfile::tempdir().unwrap();
         for family in [
             "entity",
@@ -376,7 +370,7 @@ mod tests {
             geometry
                 .vertices
                 .iter()
-                .all(|vertex| vertex.back_uv == vertex.uv)
+                .all(|vertex| vertex.back_uv == super::super::geometry::ONE_SIDED_BACK_UV)
         );
     }
 

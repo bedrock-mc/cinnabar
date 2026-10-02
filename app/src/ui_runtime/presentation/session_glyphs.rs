@@ -141,6 +141,7 @@ pub(super) fn observe(
             Arc::new(default.with_named_fonts(named))
         },
     );
+    runtime.nametag_atlas.reset();
     let pages = prepared
         .map(|atlas| atlas.pages.clone())
         .unwrap_or_default();

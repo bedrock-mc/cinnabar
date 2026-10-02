@@ -264,3 +264,6 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod capture_tests;

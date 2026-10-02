@@ -73,6 +73,11 @@ fn record_batches(records: &[NametagRecord], see_through: usize) -> Vec<NametagB
     batches
 }
 
+/// A material batch consumes one Bevy phase entry, irrespective of its glyph count.
+fn phase_batch_range(index: usize) -> Range<u32> {
+    index as u32..index as u32 + 1
+}
+
 pub(crate) fn install_nametag_render(app: &mut App) {
     app.init_resource::<NametagScene>()
         .add_plugins(ExtractResourcePlugin::<NametagScene>::default());
@@ -413,7 +418,8 @@ fn queue_nametags(
                 pipeline: pipeline_id,
                 draw_function: functions.id::<DrawNametags>(),
                 distance: 1.0e9 + index as f32 * 128.0,
-                batch_range: batch.records.clone(),
+                // One phase entry per material batch; its records live in NametagGpu.
+                batch_range: phase_batch_range(index),
                 extra_index: PhaseItemExtraIndex::None,
                 indexed: false,
             });
@@ -448,7 +454,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNametagBindGroup<I> {
 struct DrawNametagRange;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawNametagRange {
-    type Param = ();
+    type Param = SRes<NametagGpu>;
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -456,10 +462,17 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNametagRange {
         item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        _gpu: SystemParamItem<'w, '_, Self::Param>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let records = item.batch_range();
+        let Some(batch) = gpu
+            .into_inner()
+            .batches
+            .get(item.batch_range().start as usize)
+        else {
+            return RenderCommandResult::Skip;
+        };
+        let records = &batch.records;
         pass.draw(records.start * 6..records.end * 6, 0..1);
         RenderCommandResult::Success
     }
@@ -514,6 +527,25 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn multiline_material_batches_visit_every_record_once_in_the_sorted_phase() {
+        let plate = NametagRecord::default();
+        let glyph = NametagRecord { text: 1, ..plate };
+        let records = [
+            plate, glyph, glyph, plate, glyph, plate, glyph, glyph, glyph,
+        ];
+        let batches = record_batches(&records, 5);
+        let mut phase_index = 0;
+        let mut visited = Vec::new();
+        while phase_index < batches.len() {
+            let phase = phase_batch_range(phase_index);
+            visited.extend(batches[phase.start as usize].records.clone());
+            // SortedRenderPhase::render_range advances by the phase batch length.
+            phase_index += phase.len();
+        }
+        assert_eq!(visited, (0..records.len() as u32).collect::<Vec<_>>());
     }
 
     #[test]

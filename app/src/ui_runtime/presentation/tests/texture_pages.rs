@@ -462,6 +462,15 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
 fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     assert!(presentation.font.glyph('\u{e005}').is_none());
+    presentation.set_nametag_anchors(vec![super::super::nametags::NametagAnchor {
+        runtime_id: 1,
+        position: bevy::math::Vec3::new(0.0, 2.0, 0.0),
+        lines: vec![Arc::from("\u{e005}")],
+        depth_tested: false,
+        text_alpha: 1.0,
+        distance: 5.0,
+    }]);
+    let before = presentation.nametag_scene();
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
     for y in 0..8usize {
         for x in 0..8usize {
@@ -480,6 +489,12 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         }),
     });
     session_glyphs::observe(&mut presentation, Some(&sheets));
+    let changed = presentation.nametag_scene();
+    assert!(!Arc::ptr_eq(
+        &before.atlas[0].rgba8,
+        &changed.atlas[0].rgba8
+    ));
+    assert_ne!(before.records[1].rect, changed.records[1].rect);
     let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");
     let dynamic_start = presentation.textures.dynamic_start();
     assert_eq!(usize::from(glyph.page), dynamic_start + 10);
@@ -495,6 +510,9 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
 
     session_glyphs::observe(&mut presentation, None);
     assert!(presentation.font.glyph('\u{e005}').is_none());
+    let restored = presentation.nametag_scene();
+    assert_eq!(restored.records[1].rect, before.records[1].rect);
+    assert_eq!(restored.atlas[0].rgba8, before.atlas[0].rgba8);
     assert_eq!(
         presentation.textures.pages().len(),
         dynamic_start + render::MAX_UI_DYNAMIC_PAGES + render::MAX_UI_ART_PAGES

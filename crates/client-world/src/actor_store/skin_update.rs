@@ -7,7 +7,11 @@ impl ActorStore {
         uuid: [u8; 16],
         skin: PlayerSkin,
     ) -> ActorApplyResult {
-        let Some(profile) = self.players.get_mut(&uuid) else {
+        let Some(profile) = self
+            .players
+            .get_mut(&uuid)
+            .or_else(|| self.unlisted_players.get_mut(&uuid))
+        else {
             return ActorApplyResult::MissingActor;
         };
         if matches!(skin, PlayerSkin::Unavailable(_)) {

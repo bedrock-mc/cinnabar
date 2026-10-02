@@ -16,6 +16,7 @@ impl ActorStore {
         };
         self.players
             .get(uuid)
+            .or_else(|| self.unlisted_players.get(uuid))
             .filter(|profile| profile.unique_id == actor.unique_id)
     }
 

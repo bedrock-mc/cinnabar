@@ -58,9 +58,6 @@ pub(crate) fn publish_ui_runtime(
         menu.profile_icon = icon;
     }
     publish_item_viewmodels(&mut presentation, prepared.item_icons);
-    if let Some(mut scene) = nametag_scene {
-        *scene = presentation.nametag_scene();
-    }
     let input = match runtime.with_presentation_inventory(prepared.inventory, |runtime| {
         presentation.build(
             runtime,
@@ -76,6 +73,9 @@ pub(crate) fn publish_ui_runtime(
             return;
         }
     };
+    if let Some(mut scene) = nametag_scene {
+        *scene = presentation.nametag_scene();
+    }
     if !hand_rig.is_active() {
         hand.bind_cpu_fallback(
             &input,
