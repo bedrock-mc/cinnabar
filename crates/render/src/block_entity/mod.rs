@@ -22,6 +22,7 @@ mod mob;
 mod portal;
 mod pot;
 mod scene;
+mod selection;
 mod shulker;
 mod sign;
 mod skull;
@@ -51,6 +52,7 @@ pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
 };
+pub use selection::{BlockSelectionFrame, BlockSelectionTarget};
 pub use shulker::{ShulkerModel, shulker_color_from_block_name};
 pub use sign::{SignFace, SignModel, SignMount};
 pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees};

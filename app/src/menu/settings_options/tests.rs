@@ -450,3 +450,13 @@ fn settings_handoff_preserves_native_window_and_viewport_preferences() {
     assert!(!saved.values.contains_key("gui_scale"));
     assert!(!saved.values.contains_key("full_screen"));
 }
+
+#[test]
+fn outline_selection_reaches_render_settings_after_persistence() {
+    let mut settings = SettingsOptions::default();
+    for enabled in [true, false] {
+        settings.set(index("classic_box_selection"), i32::from(enabled));
+        let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restored.user_settings().video.outline_selection, enabled);
+    }
+}

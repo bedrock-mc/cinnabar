@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "network_latency_bench.rs"]
+mod network_latency_bench;
+
 struct PendingSendSession {
     started: Option<oneshot::Sender<()>>,
     complete: Option<oneshot::Receiver<()>>,

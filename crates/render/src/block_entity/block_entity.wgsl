@@ -39,6 +39,7 @@ fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn block_entity_overlay(input: VertexOutput) -> @location(0) vec4<f32> {
+    if (input.uv.x < 0.0) { return input.color; }
     let texel = textureSample(atlas, atlas_sampler, input.uv);
     let alpha = texel.a * input.color.a;
     if (alpha < 0.02) {
@@ -49,6 +50,7 @@ fn block_entity_overlay(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
+    if (input.uv.x < 0.0) { return input.color; }
     let texel = textureSample(atlas, atlas_sampler, input.uv);
     if (texel.a < 0.02) {
         discard;

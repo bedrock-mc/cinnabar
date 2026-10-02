@@ -370,6 +370,30 @@ fn unchanged_skin_layers_reuse_one_packed_payload() {
     assert_eq!(pack.rebuilds(), 2);
 }
 
+/// Pointer reuse must preserve byte equality, order and changes to independently owned skins.
+#[test]
+fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
+    let mut pack = SkinLayerPack::default();
+    let one: Arc<[u8]> = vec![1; STANDARD_SKIN_BYTES].into();
+    let two: Arc<[u8]> = vec![2; STANDARD_SKIN_BYTES].into();
+    let first = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
+    let shared = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
+    let copies = pack.pack(vec![one.to_vec().into(), two.to_vec().into()]);
+    assert!(Arc::ptr_eq(&first, &shared));
+    assert!(Arc::ptr_eq(&first, &copies));
+    assert_eq!(pack.rebuilds(), 1);
+    let reordered = pack.pack(vec![Arc::clone(&two), Arc::clone(&one)]);
+    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], two.as_ref());
+    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], one.as_ref());
+    let mut expected = one.to_vec();
+    expected[STANDARD_SKIN_BYTES - 1] = 3;
+    let changed = pack.pack(vec![two, expected.clone().into()]);
+    assert_eq!(&changed[STANDARD_SKIN_BYTES..], expected.as_slice());
+    assert_eq!(pack.rebuilds(), 3);
+    assert!(pack.pack(Vec::new()).is_empty());
+    assert_eq!(pack.rebuilds(), 4);
+}
+
 #[test]
 fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
     let mut local = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)

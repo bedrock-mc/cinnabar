@@ -71,6 +71,10 @@ codec, whose normalized source stays hash-locked). The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
 
+The shared codec inlines its per-item capacity check and keeps rare capacity
+growth out of line. Collection storage still grows fallibly, with the same
+allocation limits and errors; generated codecs are unchanged.
+
 Jolyne's StartGame handoff also retains the first decoded `ItemRegistry` and its
 shield ID. This matches the one-time initialization guard in the native
 1.26.50 `ItemRegistry::matchServerItemIds` at RVA `0x03984630`; later empty or

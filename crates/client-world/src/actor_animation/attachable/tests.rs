@@ -1030,3 +1030,62 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
         "pack offhand blocking keyframes must be selected"
     );
 }
+
+#[test]
+fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
+    let owner = AttachableAnimationInput {
+        first_person: true,
+        use_elapsed_ticks: Some(10),
+        max_use_ticks: 100,
+        animation_frame: 3,
+        hand_charged: true,
+        frame_alpha: 0.5,
+        owner_main_hand: Some("minecraft:bow"),
+        owner_off_hand: Some("minecraft:shield"),
+        ..Default::default()
+    };
+    let off = owner.for_hand(true);
+    assert_eq!(off.use_elapsed_ticks, owner.use_elapsed_ticks);
+    assert_eq!(off.max_use_ticks, owner.max_use_ticks);
+    assert_eq!(off.owner_main_hand, owner.owner_main_hand);
+    assert!(off.off_hand);
+    assert!(!off.hand_charged);
+    assert_eq!(off.animation_frame, 0);
+}
+
+/// Runs the pinned shield's bow-retraction script and authored keyframes offline.
+#[test]
+#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
+fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
+    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let mut runtime = AttachablesRuntime::new(assets);
+    let mut owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    owner.kind = ActorKind::Player {
+        uuid: [0; 16],
+        username: "diagnostic".into(),
+    };
+    let mut sample = |using: bool| {
+        runtime.clear();
+        let input = AttachableAnimationInput {
+            first_person: true,
+            use_elapsed_ticks: using.then_some(5),
+            max_use_ticks: 100,
+            owner_main_hand: Some("minecraft:bow"),
+            owner_off_hand: Some("minecraft:shield"),
+            ..Default::default()
+        }
+        .for_hand(true);
+        let snapshot = runtime
+            .evaluate("minecraft:shield", &owner, &owner_rig(), input)
+            .unwrap();
+        let bone = snapshot
+            .bone_names
+            .iter()
+            .position(|name| name.as_ref() == "shield")
+            .unwrap();
+        snapshot.pose[bone].translation_scale[2]
+    };
+    // resource_pack/attachables/shield.entity.json:36-45; animations/shield.animation.json:17.
+    assert!((sample(true) - sample(false) + 30.1).abs() < 0.001);
+}

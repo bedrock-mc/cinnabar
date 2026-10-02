@@ -217,11 +217,10 @@ impl PaletteWorld<'_> {
             f64::from(block[2]),
         );
         for runtime_id in self.runtime_ids_at(block)? {
-            let physics = self
+            let pickable = self
                 .registry
-                .physics(runtime_id)
+                .selection_shapes(runtime_id)
                 .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-            let pickable = physics.pick_shapes.as_deref().unwrap_or(&physics.shapes);
             for (shape_index, shape) in pickable.iter().copied().enumerate() {
                 if shape.min.x == shape.max.x
                     || shape.min.y == shape.max.y

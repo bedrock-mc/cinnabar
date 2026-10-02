@@ -22,6 +22,8 @@ use crate::runtime::network::{
     HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
 };
 
+mod gpu_replay;
+mod join_setup;
 mod player_report;
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
@@ -150,7 +152,7 @@ impl Replay {
             self.sequence += 1;
             // The stream admits a bounded backlog; the frame loop's poll applies it.
             if self.sequence.is_multiple_of(32) {
-                drain(stream, self.local_position);
+                drain_through(stream, self.local_position, self.sequence - 1);
             }
             if let Err(error) = stream.submit(self.sequence, event) {
                 self.reject(id, format!("{error:?}"));
@@ -174,6 +176,22 @@ fn drain(stream: &mut WorldStream, camera: [f32; 3]) {
     let _ = stream.take_committed_camera();
     let _ = stream.take_actor_status_notices();
     let _ = stream.take_equipment_notices();
+}
+
+/// Finishes the fixture's submitted FIFO work before advancing its synthetic frame clock.
+fn drain_through(stream: &mut WorldStream, camera: [f32; 3], sequence: u64) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        drain(stream, camera);
+        let committed = stream
+            .inventory_committed_through()
+            .expect("captured replay must retain a valid commit frontier");
+        if committed >= sequence {
+            return;
+        }
+        assert!(Instant::now() < deadline, "captured replay commit stalled");
+        std::thread::yield_now();
+    }
 }
 
 struct Population {
@@ -294,7 +312,7 @@ fn build_world(
     for (id, body) in &capture.packets[..split] {
         replay.apply(&mut stream, *id, body);
     }
-    drain(&mut stream, replay.local_position);
+    drain_through(&mut stream, replay.local_position, replay.sequence);
     // The camera stands at the local player's eye facing the NPCs, or directly away.
     let eye = Vec3::from_array(replay.local_position) + Vec3::Y * 1.62;
     let target = entity_centroid(&stream).unwrap_or(eye + Vec3::NEG_Z);
@@ -493,7 +511,7 @@ fn lobby_frame_bench() {
                 replay.apply(stream, *id, body);
                 next_packet += 1;
             }
-            drain(stream, replay.local_position);
+            drain_through(stream, replay.local_position, replay.sequence);
         }
         clock += FRAME;
         world

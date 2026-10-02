@@ -14,6 +14,34 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+// Successful flushes and downstream failures must not allocate an upstream error inspection target.
+func TestRelayErrorPassthroughDoesNotAllocate(t *testing.T) {
+	downstream := errors.New("downstream write failed")
+	for _, test := range []struct {
+		name     string
+		err      error
+		upstream bool
+	}{
+		{"upstream success", nil, true},
+		{"downstream success", nil, false},
+		{"downstream failure", downstream, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := attributeRelayError(test.err, test.upstream); got != test.err {
+				t.Fatalf("error = %v, want original %v", got, test.err)
+			}
+			allocations := testing.AllocsPerRun(100, func() {
+				if attributeRelayError(test.err, test.upstream) != test.err {
+					panic("relay error changed")
+				}
+			})
+			if allocations != 0 {
+				t.Fatalf("passthrough allocations = %v, want zero", allocations)
+			}
+		})
+	}
+}
+
 func TestRelayPreservesUpstreamDisconnectBeforeClosing(t *testing.T) {
 	for _, hidden := range []bool{false, true} {
 		t.Run(fmt.Sprintf("hidden=%t", hidden), func(t *testing.T) {

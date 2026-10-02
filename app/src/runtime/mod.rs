@@ -1,5 +1,6 @@
 pub(crate) mod audio;
 pub(crate) mod endpoint;
+pub(crate) mod frame_profile;
 pub(crate) mod network;
 pub(crate) mod phase2_evidence;
 pub(crate) mod phase3_evidence;

@@ -277,8 +277,14 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
-    visibility_diagnostics: Option<Res<VisibilityDiagnosticsInput>>,
+    (visibility_diagnostics, profiler): (
+        Option<Res<VisibilityDiagnosticsInput>>,
+        Option<Res<RuntimeStageProfiler>>,
+    ),
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::WorldPoll));
     let AppWorldState {
         mut client_world,
         mut clock,

@@ -113,6 +113,7 @@ impl MenuRuntime {
             local_world_requested: None,
             local_ui: Default::default(),
             control_auth: None,
+            sign_in_page_code: None,
             sign_out_requested: false,
             store_actions: Vec::new(),
             global_resource_actions: Vec::new(),

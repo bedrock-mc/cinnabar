@@ -12,7 +12,7 @@ bytes.workspace = true
 futures.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true

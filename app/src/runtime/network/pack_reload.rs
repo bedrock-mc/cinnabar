@@ -252,7 +252,11 @@ pub(crate) fn reload_resource_packs(
     mut chunks: Query<&mut render::ChunkRenderInstance>,
     mut render_queue: Option<ResMut<render::ChunkRenderQueue>>,
     mut biome_tints: Option<ResMut<render::ChunkBiomeTints>>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::PackReload));
     let result = reload
         .ready
         .take()

@@ -47,7 +47,7 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
         ),
         (
             include_str!("../src/atmosphere.wgsl"),
-            "1bc2f8de37b6ac1fb6428586bca7f967b9884e1a175e138d99eb04024dae5feb",
+            "432068b10e34141461042d1daca907e9327159f5ed9cb8781f4e75e8af3aee7e",
         ),
         (
             include_str!("../src/material.wgsl"),

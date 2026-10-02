@@ -202,3 +202,56 @@ fn add_server_edit_boxes_report_their_text_box_names() {
         ["#ip_text_box", "#name_text_box", "#port_text_box"].map(|n| Some(n.to_owned()))
     );
 }
+
+/// Finds a visible control's authored geometry, including offscreen descendants.
+fn visible_rect(tree: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
+    if !tree.visible {
+        return None;
+    }
+    if tree.control.name == name {
+        return Some(tree.rect);
+    }
+    tree.children
+        .iter()
+        .find_map(|child| visible_rect(child, name))
+}
+
+// The real pack chooses a compact +/- expander; its grid must follow the controller state.
+#[test]
+fn vanilla_video_graphics_expander_uses_pack_geometry_and_reveals_options() {
+    let catalog = catalog().expect("the pinned vanilla UI pack is installed");
+    let context = Context::desktop();
+    let control = json_ui::resolve(&catalog, "general_section.video_section", &context)
+        .control
+        .unwrap();
+    let library = json_ui::CatalogLibrary {
+        catalog: &catalog,
+        context: &context,
+    };
+    for expanded in [false, true] {
+        let mut data = DataSource::new();
+        data.set_strict(true);
+        for (name, value) in [
+            ("#advanced_graphics_options_button_visible", true),
+            ("#advanced_graphics_options_grid_visible", expanded),
+            ("#max_framerate_slider_visible", true),
+            ("#graphics_mode_dropdown_enabled", true),
+        ] {
+            data.set_global(name, Scalar::Bool(value));
+        }
+        data.set_global(
+            "#graphics_mode_toggle_label",
+            Scalar::Text("Simple Graphics Options".into()),
+        );
+        let bound = json_ui::bind(&control, &data, &library);
+        let layout = json_ui::layout(&bound, [480.0, 270.0], &env());
+        let button = visible_rect(&layout, "advanced_graphics_options_button").unwrap();
+        assert_eq!(button.h, 20.0);
+        assert_eq!(visible_rect(&layout, "plus_panel").is_some(), !expanded);
+        assert_eq!(visible_rect(&layout, "minus_panel").is_some(), expanded);
+        assert_eq!(
+            visible_rect(&layout, "advanced_graphics_options_section").is_some(),
+            expanded
+        );
+    }
+}

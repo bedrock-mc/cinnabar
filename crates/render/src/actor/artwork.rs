@@ -49,6 +49,15 @@ fn push_page(
     u8::try_from(pages.len()).ok()
 }
 
+/// Copies ordered texture layers into one allocation without a per-byte iterator.
+fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity(layers.clone().map(<[u8]>::len).sum());
+    for layer in layers {
+        pixels.extend_from_slice(layer);
+    }
+    pixels
+}
+
 fn player_page_bytes() -> usize {
     MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES
 }
@@ -255,10 +264,8 @@ impl ActorArtworkPages {
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels: Vec<u8> = indices
-                    .iter()
-                    .flat_map(|index| rasters[*index].rgba8.iter().copied())
-                    .collect();
+                let pixels =
+                    concatenate_layers(indices.iter().map(|index| rasters[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update(&pixels);
@@ -313,10 +320,8 @@ impl ActorArtworkPages {
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels: Vec<u8> = indices
-                    .iter()
-                    .flat_map(|index| textures[*index].rgba8.iter().copied())
-                    .collect();
+                let pixels =
+                    concatenate_layers(indices.iter().map(|index| textures[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update(&pixels);
@@ -513,6 +518,34 @@ mod tests {
         drop(applied);
         assert!(pixels.upgrade().is_none());
         assert_eq!(base.route(EntityRigId(0)), Some(route));
+    }
+
+    #[test]
+    /// Different pixel and alpha values stay in their assigned texture layers.
+    fn packed_artwork_preserves_layer_pixels_and_equipment_locations() {
+        let first: Arc<[u8]> = Arc::from([1, 2, 3, 4]);
+        let second: Arc<[u8]> = Arc::from([5, 6, 7, 8]);
+        let textures = [first.clone(), second.clone()].map(|rgba8| assets::ActorTexture {
+            source: 0,
+            width: 1,
+            height: 1,
+            pixel_sha256: [0; 32],
+            rgba8,
+        });
+        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+        assert_eq!(pages.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(pages.pages()[0].layers(), 2);
+        let rasters = [first, second].map(|rgba8| EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8,
+        });
+        let (equipment, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
+        assert_eq!(equipment.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(locations[0].unwrap().layer(), 0);
+        assert_eq!(locations[1].unwrap().layer(), 1);
+        assert_eq!(locations[0].unwrap().page(), locations[1].unwrap().page());
+        assert_eq!(pages.identity(), equipment.identity());
     }
 
     // A pack with a texture size per page past the old 32-page cap places every texture.

@@ -55,3 +55,19 @@ fn server_draft_joins_the_separate_port_box() {
     menu.port.clear();
     assert_eq!(menu.draft_endpoint(), "play.example");
 }
+
+// A new device code opens the pre-filled sign-in page once; repeats of that code do not.
+#[test]
+fn sign_in_page_opens_once_per_device_code() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    let awaiting = |code: &str| super::AuthState::AwaitingCode {
+        uri: "https://www.microsoft.com/link".to_owned(),
+        code: code.to_owned(),
+    };
+    menu.control_auth = Some(awaiting("JS6SVMLR"));
+    menu.open_sign_in_page();
+    assert_eq!(menu.sign_in_page_code.as_deref(), Some("JS6SVMLR"));
+    menu.control_auth = Some(awaiting("NEWCODE1"));
+    menu.open_sign_in_page();
+    assert_eq!(menu.sign_in_page_code.as_deref(), Some("NEWCODE1"));
+}

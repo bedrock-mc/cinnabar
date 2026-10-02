@@ -178,3 +178,53 @@ fn initial_revision_matches_contiguous_content() {
     }
     assert_eq!(catalog.revision, hash.max(1));
 }
+
+/// Empty ranges retain GPU page identity, while clearing populated ranges still removes them.
+#[test]
+fn empty_pack_ranges_preserve_pages_and_populated_ranges_are_removed() {
+    let mut builder = crate::ActorRigFrameBuilder::new([geometry(1, 3)]).unwrap();
+    let before = builder.catalog.vertices.clone();
+    let spans = builder.catalog.published_spans.clone();
+    let revision = builder.catalog.revision;
+    builder.replace_pack_geometries(Vec::new()).unwrap();
+    builder
+        .replace_pack_equipment_geometries(Vec::new())
+        .unwrap();
+    assert_eq!(builder.catalog.vertices.epoch, before.epoch);
+    assert!(Arc::ptr_eq(&builder.catalog.published_spans, &spans));
+    assert_eq!(builder.catalog.revision, revision);
+    for (old, new) in before
+        .segments
+        .iter()
+        .zip(builder.catalog.vertices.segments.iter())
+    {
+        assert!(Arc::ptr_eq(old, new));
+    }
+
+    let pack = crate::pack_rig_id(0);
+    let equipment = crate::pack_equipment_rig_id(0);
+    builder
+        .replace_pack_geometries(vec![geometry(pack.0, 6)])
+        .unwrap();
+    let with_pack = builder.catalog.vertices.clone();
+    builder
+        .replace_pack_equipment_geometries(Vec::new())
+        .unwrap();
+    assert_eq!(builder.catalog.vertices.epoch, with_pack.epoch);
+    assert_spans(&builder.catalog);
+
+    builder
+        .replace_pack_equipment_geometries(vec![geometry(equipment.0, 9)])
+        .unwrap();
+    assert!(builder.contains_geometry(equipment));
+    builder
+        .replace_pack_equipment_geometries(Vec::new())
+        .unwrap();
+    assert!(!builder.contains_geometry(equipment));
+    assert!(builder.contains_geometry(pack));
+    builder.replace_pack_geometries(Vec::new()).unwrap();
+    assert!(!builder.contains_geometry(pack));
+    assert!(builder.contains_geometry(EntityRigId(1)));
+    assert_spans(&builder.catalog);
+    assert_eq!(builder.catalog.revision, revision);
+}

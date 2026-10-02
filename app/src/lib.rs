@@ -3,6 +3,7 @@ pub mod asset_startup;
 mod audio;
 mod block_cracks;
 mod block_entities;
+mod block_selection;
 mod block_use;
 pub mod camera;
 mod environment;

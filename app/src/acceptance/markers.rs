@@ -47,6 +47,7 @@ pub(crate) const TELEPORT_GLOBAL_STAGE_DIAGNOSTIC: &str =
     "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC";
 pub(crate) const TELEPORT_SETTLED: &str = "RUST_MCBE_TELEPORT_SETTLED";
 pub(crate) const STAGE_PROFILE: &str = "RUST_MCBE_STAGE_PROFILE";
+pub(crate) const STAGE_PROFILE_FRAMES: &str = "RUST_MCBE_STAGE_PROFILE_FRAMES";
 pub(crate) const TRANSPARENT_SORT_COMMITTED: &str = "RUST_MCBE_TRANSPARENT_SORT_COMMITTED";
 pub(crate) const TRANSPARENT_WITNESS_COMPLETE: &str = "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE";
 pub(crate) const TRANSPARENT_WITNESS_INCOMPLETE: &str = "RUST_MCBE_TRANSPARENT_WITNESS_INCOMPLETE";
@@ -116,6 +117,14 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     ),
     (TELEPORT_SETTLED, MarkerContract::ParsedEvidence),
     (STAGE_PROFILE, MarkerContract::EnvironmentVariable),
+    (STAGE_PROFILE_FRAMES, MarkerContract::EnvironmentVariable),
+    (BUILD_COMMIT, MarkerContract::EnvironmentVariable),
+    (SOURCE_DIRTY, MarkerContract::EnvironmentVariable),
+    (PHASE3_RUN_ID, MarkerContract::EnvironmentVariable),
+    (PHASE3_ENDPOINT, MarkerContract::EnvironmentVariable),
+    (PHASE3_CORE_SHA256, MarkerContract::EnvironmentVariable),
+    (PHASE3_CORE_PROCESS_ID, MarkerContract::EnvironmentVariable),
+    (PHASE3_BRIDGE_ENDPOINT, MarkerContract::EnvironmentVariable),
     (TRANSPARENT_SORT_COMMITTED, MarkerContract::ParsedEvidence),
     (TRANSPARENT_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (
@@ -250,16 +259,24 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
+    /// Every declared marker has exactly one expectation, including environment inputs.
     fn expectation_table_is_unique_and_covers_every_owned_marker() {
         let names = EXPECTATIONS
             .iter()
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 40);
+        let protocol_prefix = concat!("RUST_", "MCBE_");
+        let declarations = include_str!("markers.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap()
+            .split('"')
+            .filter(|value| value.starts_with(protocol_prefix))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(names, declarations);
         assert!(EXPECTATIONS.contains(&(CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable)));
         assert!(EXPECTATIONS.contains(&(FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable)));
-        let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }
 }

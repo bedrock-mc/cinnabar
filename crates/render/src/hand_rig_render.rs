@@ -165,11 +165,22 @@ fn install(app: &mut App) {
     install_graph(render_app.world_mut());
 }
 
+/// The rig pass Enhanced views run after Bloom and grading.
+pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
+    ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, true>(node::HandRigViewNode),
+        world,
+    )
+}
+
 fn install_graph(world: &mut World) {
     if !world.contains_resource::<Installed>() {
         return;
     }
-    let runner = ViewNodeRunner::<node::HandRigViewNode>::new(node::HandRigViewNode, world);
+    let runner = ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, false>(node::HandRigViewNode),
+        world,
+    );
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };

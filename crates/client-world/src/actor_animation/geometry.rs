@@ -1,7 +1,5 @@
 use super::{evaluation::Evaluator, *};
-use assets::{
-    EntityControllerAnimationTarget, EntityGeometryBone, validate_entity_geometry_inheritance,
-};
+use assets::{EntityControllerAnimationTarget, EntityGeometryBone};
 
 pub(super) fn resolve_binding(
     assets: &RuntimeEntityAssets,
@@ -166,7 +164,7 @@ pub(super) fn resolve_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Option<(Vec<RuntimeBone>, Vec<Box<str>>)> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries()).ok()?;
+    let parents = assets.geometry_parents();
     let mut chain = Vec::new();
     let mut current = geometry_index;
     for _ in 0..=parents.len() {

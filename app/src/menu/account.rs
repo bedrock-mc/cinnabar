@@ -22,6 +22,10 @@ pub(super) fn validated_auth_cache(
     matches!(state, Some(AuthState::Authenticated)).then(|| layout.auth_cache())
 }
 
+/// Live's remote-connect page; `otc` pre-fills the device code.
+#[cfg_attr(test, allow(dead_code))]
+const SIGN_IN_PAGE: &str = "https://login.live.com/oauth20_remoteconnect.srf?otc=";
+
 impl MenuRuntime {
     fn start_catalog(&mut self) {
         if self.catalog_started || !self.visible || self.connecting {
@@ -78,6 +82,7 @@ impl MenuRuntime {
     /// process (which would overwrite them with other join addresses) stays off.
     pub(super) fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        self.open_sign_in_page();
         if core_feeds {
             self.stop_catalog();
             return;
@@ -157,6 +162,31 @@ impl MenuRuntime {
                 self.message = Some("Sign-in could not start.".to_owned());
             }
         }
+    }
+
+    /// Opens Microsoft's remote-connect page with the device code filled in, once per code.
+    pub(super) fn open_sign_in_page(&mut self) {
+        let awaiting = |state: &AuthState| match state {
+            AuthState::AwaitingCode { code, .. } if !code.is_empty() => Some(code.clone()),
+            _ => None,
+        };
+        let code = self
+            .auth_process
+            .as_ref()
+            .and_then(|process| awaiting(process.state()))
+            .or_else(|| self.control_auth.as_ref().and_then(awaiting));
+        let Some(code) = code else {
+            return;
+        };
+        if self.sign_in_page_code.as_deref() == Some(code.as_str()) {
+            return;
+        }
+        // Device codes are validated alphanumeric by the auth supervisor before reaching here.
+        #[cfg(not(test))]
+        if code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            crate::local_worlds::open_url(&format!("{SIGN_IN_PAGE}{code}"));
+        }
+        self.sign_in_page_code = Some(code);
     }
 
     fn poll_sign_in(&mut self) {

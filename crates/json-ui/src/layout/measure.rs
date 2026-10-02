@@ -138,6 +138,8 @@ thread_local! {
     /// [`placed_children`]: child indices and rects relative to the parent's
     /// origin, by parent address and size.
     static PLACED: RefCell<PlaceMemo> = RefCell::new(PlaceMemo::default());
+    /// Bound placement properties by control address.
+    static STYLES: RefCell<Memo<usize, super::style::Style>> = RefCell::new(Memo::default());
     /// Widget state masks by control address and ancestor lock state.
     static TARGETS: RefCell<TargetMemo> = RefCell::new(TargetMemo::default());
     /// Scroll bar panels hidden while their content fits, by address.
@@ -153,6 +155,7 @@ pub(super) fn reset() {
     FLAGS.with(|memo| memo.borrow_mut().clear());
     PLACED.with(|memo| memo.borrow_mut().clear());
     TARGETS.with(|memo| memo.borrow_mut().clear());
+    STYLES.with(|memo| memo.borrow_mut().clear());
     SUPPRESSED.with(|set| set.borrow_mut().clear());
     super::scroll::reset();
 }
@@ -195,6 +198,7 @@ pub struct MeasureCache {
     flags: Memo<usize, size::Flags>,
     placed: PlaceMemo,
     targets: TargetMemo,
+    styles: Memo<usize, super::style::Style>,
     suppressed: HashSet<usize>,
     roles: super::scroll::RoleMemo,
     /// The root's address last layout; a moved root's entries go stale.
@@ -221,6 +225,7 @@ impl MeasureCache {
         self.flags.retain(|key, _| !dirty.contains(key));
         self.placed.retain(|key, _| !dirty.contains(&key.0));
         self.targets.retain(|key, _| !dirty.contains(&key.0));
+        self.styles.retain(|key, _| !dirty.contains(key));
         self.roles.clear();
     }
 
@@ -232,6 +237,7 @@ impl MeasureCache {
         FLAGS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.flags));
         PLACED.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.placed));
         TARGETS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.targets));
+        STYLES.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.styles));
         SUPPRESSED.with(|set| std::mem::swap(&mut *set.borrow_mut(), &mut self.suppressed));
         super::scroll::swap(&mut self.roles);
     }
@@ -249,6 +255,9 @@ impl MeasureCache {
             FLAGS.with(|memo| memo.borrow_mut().retain(|key, _| *key != stale));
             PLACED.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             TARGETS.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
+            STYLES.with(|memo| {
+                memo.borrow_mut().remove(&stale);
+            });
             SUPPRESSED.with(|set| {
                 set.borrow_mut().remove(&stale);
             });
@@ -261,6 +270,17 @@ impl MeasureCache {
     pub(super) fn leave(&mut self) {
         self.swap();
     }
+}
+
+/// Reuse typed bound properties until an update changes this control or its allocation.
+pub(super) fn style(control: &ResolvedControl) -> super::style::Style {
+    let address = std::ptr::from_ref(control).addr();
+    STYLES.with(|memo| {
+        *memo
+            .borrow_mut()
+            .entry(address)
+            .or_insert_with(|| super::style::Style::read(control))
+    })
 }
 
 /// Resolve a widget's masks once per bound tree and ancestor lock state.

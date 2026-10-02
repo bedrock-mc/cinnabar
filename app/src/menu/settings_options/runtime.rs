@@ -27,6 +27,7 @@ impl SettingsOptions {
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
+        settings.video.outline_selection = self.value("classic_box_selection") != 0;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =
             (self.value("keyboard_mouse_sensitivity") as f32 / 50.0).max(0.01);

@@ -300,7 +300,7 @@ pub struct EntityAssetSummary {
 
 impl CompiledEntityAssets {
     pub fn validate(&self) -> Result<(), AssetError> {
-        validate_compiled(self)
+        validate_compiled(self).map(|_| ())
     }
 }
 

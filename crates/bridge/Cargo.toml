@@ -17,9 +17,9 @@ tokio-util = { workspace = true, features = ["codec"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["process"] }
-sha2 = "0.10"
+sha2.workspace = true
 
 [dev-dependencies]
-sha2 = "0.10"
+sha2.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

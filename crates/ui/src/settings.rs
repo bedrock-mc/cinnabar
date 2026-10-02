@@ -1,6 +1,7 @@
 use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
+pub const DEFAULT_OUTLINE_SELECTION: bool = false;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserSettings {
@@ -38,6 +39,7 @@ pub struct VideoSettings {
     pub view_bobbing: bool,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
+    pub outline_selection: bool,
     pub damage_bob: f32,
 }
 
@@ -57,6 +59,7 @@ impl Default for VideoSettings {
             view_bobbing: true,
             cinematic_camera: false,
             camera_shake: true,
+            outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
         }
     }

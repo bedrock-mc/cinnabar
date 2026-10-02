@@ -11,6 +11,13 @@ use bevy::prelude::{Res, ResMut, Resource};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum RuntimeStage {
+    ActorSessionSetup,
+    PackReload,
+    WorldPoll,
+    SurfacePreparation,
+    ActorGeometrySetup,
+    ActorArtworkSetup,
+    ActorEquipmentSetup,
     NetworkIngestion,
     WorldStream,
     CaveVisibility,
@@ -41,7 +48,14 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 30] = [
+        Self::ActorSessionSetup,
+        Self::PackReload,
+        Self::WorldPoll,
+        Self::SurfacePreparation,
+        Self::ActorGeometrySetup,
+        Self::ActorArtworkSetup,
+        Self::ActorEquipmentSetup,
         Self::NetworkIngestion,
         Self::WorldStream,
         Self::CaveVisibility,
@@ -70,6 +84,13 @@ impl RuntimeStage {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::ActorSessionSetup => "actor_session_setup",
+            Self::PackReload => "pack_reload",
+            Self::WorldPoll => "world_poll",
+            Self::SurfacePreparation => "surface_preparation",
+            Self::ActorGeometrySetup => "actor_geometry_setup",
+            Self::ActorArtworkSetup => "actor_artwork_setup",
+            Self::ActorEquipmentSetup => "actor_equipment_setup",
             Self::NetworkIngestion => "network_ingestion",
             Self::WorldStream => "world_stream",
             Self::CaveVisibility => "cave_visibility",
@@ -138,6 +159,7 @@ impl StageSampleAccumulator {
 #[derive(Debug)]
 struct RuntimeStageProfileState {
     enabled: bool,
+    trace: Option<crate::runtime_profile_trace::FrameTrace>,
     started: Instant,
     last_snapshot_nanos: AtomicU64,
     stages: [StageSampleAccumulator; RuntimeStage::ALL.len()],
@@ -157,10 +179,19 @@ impl Default for RuntimeStageProfiler {
 impl RuntimeStageProfiler {
     #[must_use]
     pub fn new(enabled: bool) -> Self {
+        Self::with_trace(enabled, None)
+    }
+
+    /// Enables bounded frame spans saved at shutdown when a trace path is supplied.
+    pub fn with_trace(enabled: bool, path: Option<std::path::PathBuf>) -> Self {
+        let started = Instant::now();
         Self {
             state: Arc::new(RuntimeStageProfileState {
                 enabled,
-                started: Instant::now(),
+                trace: path
+                    .filter(|_| enabled)
+                    .map(|path| crate::runtime_profile_trace::FrameTrace::new(path, started)),
+                started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
             }),
@@ -174,11 +205,23 @@ impl RuntimeStageProfiler {
 
     pub fn time(&self, stage: RuntimeStage) -> RuntimeStageTimer<'_> {
         RuntimeStageTimer {
-            sample: self
-                .state
-                .enabled
-                .then_some(&self.state.stages[stage as usize]),
+            state: self.state.enabled.then_some(&*self.state),
+            stage,
             started: self.state.enabled.then(Instant::now),
+        }
+    }
+
+    /// Marks the main update boundary and its current window focus.
+    pub fn trace_frame(&self, focused: bool, occluded: bool) {
+        if let Some(trace) = &self.state.trace {
+            trace.frame(focused, occluded);
+        }
+    }
+
+    /// Saves the optional frame trace after the update loop has stopped.
+    pub fn flush_trace(&self) {
+        if let Some(trace) = &self.state.trace {
+            trace.flush();
         }
     }
 
@@ -228,21 +271,31 @@ pub fn end_stage_span<const S: usize>(
         (profiler, spans.and_then(|mut spans| spans.0[S].take()))
         && profiler.enabled()
     {
-        profiler.state.stages[S].record(started.elapsed());
+        record_stage(&profiler.state, RuntimeStage::ALL[S], started);
     }
 }
 
 #[must_use]
 pub struct RuntimeStageTimer<'a> {
-    sample: Option<&'a StageSampleAccumulator>,
+    state: Option<&'a RuntimeStageProfileState>,
+    stage: RuntimeStage,
     started: Option<Instant>,
 }
 
 impl Drop for RuntimeStageTimer<'_> {
     fn drop(&mut self) {
-        if let (Some(sample), Some(started)) = (self.sample, self.started) {
-            sample.record(started.elapsed());
+        if let (Some(state), Some(started)) = (self.state, self.started) {
+            record_stage(state, self.stage, started);
         }
+    }
+}
+
+/// Records aggregate timing and an optional timestamped span together.
+fn record_stage(state: &RuntimeStageProfileState, stage: RuntimeStage, started: Instant) {
+    let elapsed = started.elapsed();
+    state.stages[stage as usize].record(elapsed);
+    if let Some(trace) = &state.trace {
+        trace.record(stage, started, elapsed);
     }
 }
 

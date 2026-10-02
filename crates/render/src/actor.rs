@@ -294,6 +294,27 @@ impl ActorRenderScene {
         Ok(())
     }
 
+    /// Publishes both session ranges once, keeping each range's existing failure behavior.
+    pub fn replace_session_pack_geometries(
+        &mut self,
+        assets: Option<&assets::RuntimeEntityAssets>,
+        equipment: Vec<ActorRigGeometry>,
+    ) -> (
+        Result<(), ActorRigGeometryError>,
+        Result<(), ActorRigGeometryError>,
+    ) {
+        let geometries = assets
+            .map(asset_geometry::pack_geometries)
+            .unwrap_or_default();
+        let results = self
+            .rig_builder
+            .replace_session_pack_geometries(geometries, equipment);
+        if results.0.is_ok() {
+            self.frame = ActorRenderFrame::default();
+        }
+        results
+    }
+
     pub fn reset(&mut self) {
         self.frame.instance_pages = Arc::from([]);
         if !self.frame.instances.is_empty() {
@@ -537,7 +558,9 @@ impl ActorRenderScene {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(compatibility_instances);
         }
-        if self.frame.skins_rgba8 != skins_rgba8 {
+        if !Arc::ptr_eq(&self.frame.skins_rgba8, &skins_rgba8)
+            && self.frame.skins_rgba8 != skins_rgba8
+        {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = skins_rgba8;
         }

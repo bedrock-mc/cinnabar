@@ -8,4 +8,4 @@ publish = false
 [dependencies]
 assets = { path = "../assets" }
 semantic-input = { path = "../input" }
-sha2 = "0.10"
+sha2.workspace = true

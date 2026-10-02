@@ -98,7 +98,20 @@ fn drive(
                     super::unix_seconds(),
                     now_ms,
                 ) {
-                    Ok(true) => persist_trust(&mut service, &mut extension.session),
+                    Ok(true) => {
+                        if std::env::var(server_experience::policy::DEVELOPER_ENV).as_deref()
+                            != Ok("1")
+                            || !std::env::current_exe().is_ok_and(|client| {
+                                mod_host::helper::developer_runtime_available(&client)
+                            })
+                        {
+                            extension.session.disable();
+                            extension.session.notice = Some("Cinnabar: experience helper unavailable; using server fallback. F9: dismiss".into());
+                            network.set_experience_enabled(false);
+                        } else {
+                            persist_trust(&mut service, &mut extension.session);
+                        }
+                    }
                     Ok(false) => {}
                     Err(error) => {
                         extension.session.disable();
@@ -257,11 +270,7 @@ fn advance_runtime(
         .and_then(|download| download.poll())
     {
         service.download = None;
-        let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-            "mod-host.exe"
-        } else {
-            "mod-host"
-        });
+        let executable = mod_host::helper::developer_executable(&std::env::current_exe()?);
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,

@@ -26,6 +26,8 @@ use world::UiWorldNode;
 pub(crate) struct UiOverlayLabel;
 #[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
 pub(crate) struct UiWorldLabel;
+#[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
+pub(crate) struct UiOverlayPostLabel;
 /// Per-frame draw encoding coverage, not queue completion or presentation.
 /// The optional producer must independently require its prior completion gate.
 #[derive(Default, Resource)]
@@ -111,8 +113,34 @@ pub(crate) fn retained_batch_ranges(
         [Some(batch.first_index..end), None]
     }
 }
+/// Runs `N` only on views whose Enhanced opt-in equals `POST`, so one pass draws.
+pub(crate) struct GradeStage<N, const POST: bool>(pub(crate) N);
+
+impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
+    type ViewQuery = (Has<crate::EnhancedRendering>, N::ViewQuery);
+
+    fn update(&mut self, world: &mut World) {
+        self.0.update(world);
+    }
+
+    fn run<'w>(
+        &self,
+        graph: &mut RenderGraphContext,
+        render_context: &mut RenderContext<'w>,
+        (after_grade, view): QueryItem<'w, '_, Self::ViewQuery>,
+        world: &'w World,
+    ) -> Result<(), NodeRunError> {
+        if after_grade != POST {
+            return Ok(());
+        }
+        self.0.run(graph, render_context, view, world)
+    }
+}
+
 pub(crate) fn install_overlay_graph(world: &mut World) {
-    let runner = ViewNodeRunner::<UiOverlayNode>::new(UiOverlayNode, world);
+    let runner = ViewNodeRunner::new(GradeStage::<_, false>(UiOverlayNode), world);
+    // Graded views' HUD pass; the Enhanced graph orders it after Bloom and grading.
+    let post_runner = ViewNodeRunner::new(GradeStage::<_, true>(UiOverlayNode), world);
     let world_runner = ViewNodeRunner::<UiWorldNode>::new(UiWorldNode, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
@@ -125,6 +153,9 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
     }
     if graph.get_node_state(UiWorldLabel).is_err() {
         graph.add_node(UiWorldLabel, world_runner);
+    }
+    if graph.get_node_state(UiOverlayPostLabel).is_err() {
+        graph.add_node(UiOverlayPostLabel, post_runner);
     }
     graph.add_node_edges((
         Node3d::MainTransparentPass,

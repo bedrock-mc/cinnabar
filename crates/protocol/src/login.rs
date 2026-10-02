@@ -816,6 +816,7 @@ fn decode_world_raw_with(
             | McpePacketName::CameraShakePacket
             | McpePacketName::CameraInstructionPacket
             | McpePacketName::CameraPresetsPacket
+            | McpePacketName::ScriptMessagePacket
     ) {
         return Ok(None);
     }
@@ -951,6 +952,8 @@ fn decode_empty_mob_equipment(
 
 #[cfg(test)]
 mod block_event_tests;
+#[cfg(test)]
+mod experience_ingress_tests;
 #[cfg(test)]
 mod generic_event_tests;
 #[cfg(test)]

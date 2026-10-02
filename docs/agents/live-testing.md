@@ -74,3 +74,13 @@ scene, BDS state, duration, release profile, and present mode. Treat overlapping
 worker and main-thread stages as attribution rather than additive wall time, and
 run the final performance gate again without the variable because profiling
 changes the measured workload.
+
+For frame-level attribution, also set `RUST_MCBE_STAGE_PROFILE_FRAMES` to a
+scratch JSON path. The profiler keeps a bounded, preallocated trace in memory
+and writes Chrome trace events on the exit frame. It includes window focus and
+OS occlusion at each main-frame boundary, executing threads, session geometry,
+artwork and equipment setup, pack reload, world polling, and render surface
+preparation. No trace file is written during normal updates. A full recording
+drops subsequent events and sets `truncated`; inspect this flag before choosing
+a measurement window. Surface preparation includes schedule overhead and is an
+upper bound on drawable acquisition, not proof that macOS caused a stall.

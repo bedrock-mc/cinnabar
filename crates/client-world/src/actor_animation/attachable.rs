@@ -11,7 +11,7 @@ pub struct AttachableAnimationInput<'a> {
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub animation_frame: u32,
-    /// Elapsed whole use ticks; `None` means the item is not being used.
+    /// Owner's elapsed main-hand use ticks, also visible to offhand attachables.
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
     pub hand_charged: bool,
@@ -20,6 +20,22 @@ pub struct AttachableAnimationInput<'a> {
     pub owner_off_hand: Option<&'a str>,
     /// Additional owner variables copied before the item's scripts run.
     pub owner_variables: &'a [(&'a str, f32)],
+}
+
+impl AttachableAnimationInput<'_> {
+    /// Selects the rendered hand from the owner's first-person use frame.
+    pub fn for_hand(self, off_hand: bool) -> Self {
+        if off_hand {
+            Self {
+                off_hand,
+                animation_frame: 0,
+                hand_charged: false,
+                ..self
+            }
+        } else {
+            self
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

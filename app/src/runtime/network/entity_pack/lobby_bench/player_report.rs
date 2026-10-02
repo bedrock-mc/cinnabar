@@ -281,7 +281,11 @@ fn lobby_player_report() {
         {
             let mut client = world.resource_mut::<ClientWorld>();
             replay.apply(client.stream.as_mut().unwrap(), *id, body);
-            drain(client.stream.as_mut().unwrap(), replay.local_position);
+            drain_through(
+                client.stream.as_mut().unwrap(),
+                replay.local_position,
+                replay.sequence,
+            );
         }
         if ![12, 39, 63, 93].contains(id) {
             continue;

@@ -17,7 +17,8 @@ use bevy::{
 use client_world::{LocalItemUse, LocalPlayerFeed, WorldStream};
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
+    RuntimeStageProfiler,
 };
 
 use super::{
@@ -69,19 +70,20 @@ fn apply_session_pack(
     session_icons: Option<StagedSessionIcons>,
     effective: &mut Option<render::ActorArtworkPages>,
     equipment: Option<&mut EquipmentRuntime>,
+    profiler: Option<&RuntimeStageProfiler>,
 ) -> (
     Option<StagedSessionIcons>,
     Vec<Option<render::ActorArtworkLocation>>,
 ) {
-    if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
-        bevy::log::warn!(?error, "server pack entity geometry was not applied");
-    }
+    let artwork_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
     let mut pages = match pack {
         Some(pack) => base
             .clone()
             .with_pack_artwork(&pack.textures, &pack.bindings),
         None => base.clone(),
     };
+    drop(artwork_timer);
+    let equipment_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorEquipmentSetup));
     let mut layer = None;
     let mut geometries = Vec::new();
     if let Some(pack) = pack
@@ -93,9 +95,6 @@ fn apply_session_pack(
         geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
         layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
     }
-    if let Err(error) = scene.replace_pack_equipment(geometries) {
-        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
-    }
     if let Some(equipment) = equipment {
         equipment.set_pack_layer(layer);
     }
@@ -105,6 +104,17 @@ fn apply_session_pack(
         pages = extended;
         icon_locations = locations;
     }
+    drop(equipment_timer);
+    let geometry_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorGeometrySetup));
+    let (entities, equipment) =
+        scene.replace_session_pack_geometries(pack.map(|pack| &*pack.assets), geometries);
+    if let Err(error) = entities {
+        bevy::log::warn!(?error, "server pack entity geometry was not applied");
+    }
+    if let Err(error) = equipment {
+        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
+    }
+    drop(geometry_timer);
     scene.configure_artwork(pages.clone());
     *effective = (pack.is_some() || session_icons.is_some()).then_some(pages);
     (session_icons, icon_locations)
@@ -224,6 +234,9 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         items.as_ref().map(|items| Arc::as_ptr(items).cast()),
     );
     if new_session || pack_changed || items_changed || artwork.is_changed() {
+        let _setup = profiler
+            .as_deref()
+            .map(|profiler| profiler.time(render::RuntimeStage::ActorSessionSetup));
         *published_pack = pack.clone();
         *published_items = items.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
@@ -235,6 +248,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
             staged,
             &mut session_artwork,
             equipment.as_deref_mut(),
+            profiler.as_deref(),
         );
         if let Some(equipment) = equipment.as_deref_mut() {
             equipment.set_session_items(items.as_deref(), staged, locations);
@@ -484,8 +498,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                         .as_deref()
                         .zip(ui.as_deref())
                         .and_then(|(use_runtime, ui)| {
-                            let render_input = if index == 0 {
-                                use_runtime.render_input(
+                            let render_input = use_runtime
+                                .render_input(
                                     stream,
                                     ui,
                                     movement_tick
@@ -493,14 +507,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                                         .map_or(0, |ticks| ticks.completed_tick()),
                                     step.partial_tick,
                                 )
-                            } else {
-                                client_world::AttachableAnimationInput {
-                                    first_person: true,
-                                    off_hand: true,
-                                    frame_alpha: step.partial_tick,
-                                    ..Default::default()
-                                }
-                            };
+                                .for_hand(index == 1);
                             let render_input = input.attachable_input(render_input);
                             equipment.first_person_attachable(
                                 &presentation.submission,

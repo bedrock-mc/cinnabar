@@ -1,5 +1,9 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
+passes a populated graph and 120-frame lobby actor replay, but the reported
+post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
+
 2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
 persisted default. This work never closes a vanilla parity gate. T0 adds the
 setting, camera marker and pipeline key isolation. Visual acceptance and all
@@ -340,6 +344,14 @@ session now has a controlled grass-on-grass witness: the predicted block is visi
 PNG written 226 ms after right-click and persists in the post-reply frame. The selected
 grass item's hand, hotbar and open-inventory visuals also render. This is live functional
 acceptance of the reported bugs, not complete native placement parity.
+
+2026-10-02 block selection: gameplay picks now publish the native black wire box
+when Outline Selection is enabled and a brightened model overlay when it is off.
+This omission also exists at 199e0856; it is not a regression in the first-parent
+history since that commit. Offline GPU regressions cover both depth-tested passes
+and clearing a lost target. Native visual parity remains incomplete: the existing
+pick-shape coverage excludes non-colliding plants, and cutout texture masks are not
+yet carried into the highlight overlay. No live visual gate is closed here.
 
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
 authorities; Creative repeats while held), stateless full-cube placements and

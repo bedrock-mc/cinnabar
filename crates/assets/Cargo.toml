@@ -10,7 +10,7 @@ bitflags = "2"
 lewton = "0.10.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

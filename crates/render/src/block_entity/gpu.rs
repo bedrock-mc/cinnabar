@@ -43,6 +43,7 @@ use bevy::{
 use super::{
     mesh::{BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex},
     scene::{BlockEntityFrame, BlockEntityScene},
+    selection::BlockSelectionFrame,
 };
 
 const SHADER_HANDLE: Handle<Shader> = uuid_handle!("6f0c1c1e-3b6d-4a7e-9b1e-2f4f8a1d5c33");
@@ -67,6 +68,7 @@ struct BlockEntityRenderInstalled;
 
 fn install(app: &mut App) {
     app.init_resource::<BlockEntityFrame>()
+        .init_resource::<BlockSelectionFrame>()
         .init_resource::<BlockEntityScene>()
         .init_resource::<super::items::StaticItemPlacements>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
@@ -79,6 +81,7 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<BlockEntityFrame>::default());
+    app.add_plugins(ExtractResourcePlugin::<BlockSelectionFrame>::default());
     load_internal_asset!(app, SHADER_HANDLE, "block_entity.wgsl", Shader::from_wgsl);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -162,6 +165,7 @@ struct BlockEntityGpu {
     sampler: Sampler,
     view_buffer_id: Option<BufferId>,
     frame_revision: u64,
+    selection_revision: u64,
 }
 
 fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -187,22 +191,21 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         }),
         view_buffer_id: None,
         frame_revision: u64::MAX,
+        selection_revision: u64::MAX,
     });
 }
 
 fn prepare_resources(
     frame: Res<BlockEntityFrame>,
+    selection: Res<BlockSelectionFrame>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<BlockEntityGpu>,
 ) {
-    let Some(atlas) = frame.atlas.as_ref() else {
-        gpu.solid.count = 0;
-        gpu.overlay.count = 0;
-        gpu.crack.count = 0;
-        gpu.additive.count = 0;
-        return;
-    };
+    let atlas = frame
+        .atlas
+        .as_ref()
+        .unwrap_or_else(|| super::selection::fallback_atlas());
     if gpu.atlas_identity != atlas.identity || gpu.texture.is_none() {
         let texture = render_device.create_texture(&TextureDescriptor {
             label: Some("block-entity atlas"),
@@ -259,25 +262,40 @@ fn prepare_resources(
             &render_queue,
             "block-entity solid vertices",
         );
-        gpu.overlay.upload(
-            &frame.overlay,
-            &render_device,
-            &render_queue,
-            "block-entity overlay vertices",
-        );
-        gpu.crack.upload(
-            &frame.crack,
-            &render_device,
-            &render_queue,
-            "block-entity crack vertices",
-        );
         gpu.additive.upload(
             &frame.additive,
             &render_device,
             &render_queue,
             "block-entity additive vertices",
         );
+    }
+    if gpu.frame_revision != frame.revision || gpu.selection_revision != selection.revision {
+        let overlay = frame
+            .overlay
+            .iter()
+            .chain(selection.outline.iter())
+            .copied()
+            .collect::<Vec<_>>();
+        gpu.overlay.upload(
+            &overlay,
+            &render_device,
+            &render_queue,
+            "block-entity overlay vertices",
+        );
+        let crack = frame
+            .crack
+            .iter()
+            .chain(selection.highlight.iter())
+            .copied()
+            .collect::<Vec<_>>();
+        gpu.crack.upload(
+            &crack,
+            &render_device,
+            &render_queue,
+            "block-entity crack vertices",
+        );
         gpu.frame_revision = frame.revision;
+        gpu.selection_revision = selection.revision;
     }
 }
 

@@ -279,6 +279,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// The device code whose sign-in page was last opened, so each code opens once.
+    sign_in_page_code: Option<String>,
     sign_out_requested: bool,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,

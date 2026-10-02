@@ -358,6 +358,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/app.rs"
 
 [[markers]]
+literal = "RUST_MCBE_STAGE_PROFILE_FRAMES"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/app.rs"
+
+[[markers]]
 literal = "RUST_MCBE_MOVEMENT_TRACE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"

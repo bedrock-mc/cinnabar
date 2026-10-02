@@ -188,3 +188,89 @@ fn open_graphics_mode_rows_select_their_own_choice() {
         assert_eq!(presentation.hit_test_menu(centre), Some(action));
     }
 }
+
+#[test]
+fn settings_video_graphics_options_pack_before() {
+    let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+    view.screen = MenuScreen::Settings;
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    simple_graphics(&mut view);
+    view.settings_advanced_graphics = true;
+    super::play_flow_snapshots::snapshot_vanilla(&view, "settings-video-pack-before");
+}
+
+#[test]
+fn settings_video_graphics_options_expanded() {
+    section_with("video_forced_index", "settings-video-expanded", |view| {
+        simple_graphics(view);
+        view.settings_advanced_graphics = true;
+    });
+}
+
+/// Selects the registry's Simple graphics choice for the requested screenshot state.
+fn simple_graphics(view: &mut crate::menu::MenuView) {
+    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "graphics_mode")
+        .unwrap();
+    std::sync::Arc::make_mut(&mut view.settings_options).set(index, 0);
+}
+
+// A complete section-button hit target expands and collapses the original option grid.
+#[test]
+fn graphics_options_expander_uses_full_settings_button_height() {
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let files = carrier.ui_files();
+    let mut catalog =
+        json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
+    super::graphics_expander::install(&mut catalog);
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    menu.activate(crate::menu::MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(crate::menu::MenuAction::SettingsSection(
+        super::menu_screens::SETTINGS_SECTIONS
+            .iter()
+            .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+            .unwrap(),
+    ));
+    for expanded in [false, true, false] {
+        if menu.view().settings_advanced_graphics != expanded {
+            menu.activate(crate::menu::MenuAction::SettingsAdvancedGraphics);
+        }
+        let view = menu.view();
+        let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+        let rendered = json_ui::render_screen(
+            screen.reference,
+            &catalog,
+            &screen.context,
+            &screen.data,
+            [640.0, 360.0],
+            &json_ui::LayoutEnv {
+                text: &Metrics,
+                textures: &Metrics,
+            },
+            &json_ui::ViewState::default(),
+        )
+        .unwrap();
+        let hit = rendered
+            .hits
+            .iter()
+            .find(|hit| hit.pressed.as_deref() == Some("button.expand_advanced_graphics"))
+            .unwrap();
+        assert_eq!(hit.rect.h, 30.0);
+        assert_eq!(
+            super::settings_controls::action(&view, hit),
+            Some(crate::menu::MenuAction::SettingsAdvancedGraphics)
+        );
+        let texture = if expanded {
+            "textures/ui/arrowDown"
+        } else {
+            "textures/ui/arrowRight"
+        };
+        assert!(rendered.nodes.iter().any(|node| matches!(&node.draw, json_ui::Draw::Sprite { texture: found, .. } if found == texture)));
+    }
+}

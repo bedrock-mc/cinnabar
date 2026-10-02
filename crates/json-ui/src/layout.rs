@@ -27,6 +27,7 @@ mod refresh;
 mod scroll;
 mod size;
 mod stack;
+mod style;
 
 pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
@@ -321,22 +322,26 @@ fn place_subtree<'a>(
         .rev()
         .find(|(target, _, _)| *target == std::ptr::from_ref(control).addr())
         .map(|(_, shown, mask)| (*shown, *mask));
-    let own_visible = forced.map_or(visible(control), |(shown, _)| shown);
-    let clips = clip_children(control);
+    let style = measure::style(control);
+    let own_visible = forced.map_or(
+        style.visible && !measure::suppressed(control),
+        |(shown, _)| shown,
+    );
+    let clips = style.clips;
     let child_clip = if clips {
-        inset_clip(rect, clip_offset(control), parent_clip)
+        inset_clip(rect, style.clip_offset, parent_clip)
     } else {
         parent_clip
     };
     // `allow_clipping` defaults to the parent's; opting out frees only the
     // control's own drawing, not its children's.
-    let allows = widgets::bound_bool(control, "allow_clipping").unwrap_or(parent_allows);
+    let allows = style.allows.unwrap_or(parent_allows);
     let own_clip = match (allows, clips) {
         (false, _) => ctx.screen,
         (true, true) => child_clip,
         (true, false) => parent_clip,
     };
-    let enabled = ctx.disabled == 0 && widgets::enabled(control);
+    let enabled = ctx.disabled == 0 && style.enabled;
     if !enabled {
         ctx.disabled += 1;
     }
@@ -346,10 +351,10 @@ fn place_subtree<'a>(
         .map_or(parent_clip, |(_, parent, _)| *parent);
     let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
     let (own_alpha, anim, inherit) =
-        inherited.apply(control, alpha(control), own_anims, clips, |node| {
+        inherited.apply(control, style.alpha, own_anims, clips, |node| {
             place::sprite_rest(control, node)
         });
-    let absolute_layer = parent_layer.saturating_add(layer(control));
+    let absolute_layer = parent_layer.saturating_add(style.layer);
     let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     // A bar panel hidden or shown again frees or takes back its space: solve again.
     if let Some(frame) = &scroll
@@ -560,15 +565,6 @@ fn inset_clip(rect: Rect, offset: [f64; 2], parent: Rect) -> Rect {
     Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-/// `clip_offset`, `[0, 0]` unless a numeric pair.
-fn clip_offset(control: &ResolvedControl) -> [f64; 2] {
-    let Some(Value::Array(pair)) = control.properties.get("clip_offset") else {
-        return [0.0; 2];
-    };
-    let number = |index: usize| pair.get(index).and_then(Value::as_f64).unwrap_or(0.0);
-    [number(0), number(1)]
-}
-
 /// Whether `rect` lies wholly outside `clip`, compared in whole pixels; touching
 /// edges and a zero-area clip count as visible.
 fn clipped_out(rect: Rect, clip: Rect) -> bool {
@@ -637,43 +633,9 @@ fn stack_axis(control: &ResolvedControl) -> Option<Axis> {
     stack::main_axis(control)
 }
 
-fn clip_children(control: &ResolvedControl) -> bool {
-    ["clips_children", "clip_children"]
-        .iter()
-        .any(|key| matches!(control.properties.get(*key), Some(Value::Bool(true))))
-}
-
-fn layer(control: &ResolvedControl) -> i32 {
-    control
-        .properties
-        .get("layer")
-        .and_then(Value::as_i64)
-        .map(|value| value as i32)
-        .unwrap_or(0)
-}
-
-fn alpha(control: &ResolvedControl) -> f32 {
-    control
-        .properties
-        .get("alpha")
-        .and_then(Value::as_f64)
-        .map(|value| value as f32)
-        .unwrap_or(1.0)
-}
-
-/// `visible` honours a literal bool or `"true"`/`"false"`; an undecidable binding
-/// stays visible, matching the lenient-remote-data rule.
-fn own_visible(control: &ResolvedControl) -> bool {
-    match control.properties.get("visible") {
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::String(text)) => text != "false",
-        _ => true,
-    }
-}
-
 /// Own visibility, less a scroll bar panel hidden while its content fits.
 fn visible(control: &ResolvedControl) -> bool {
-    own_visible(control) && !measure::suppressed(control)
+    measure::style(control).visible && !measure::suppressed(control)
 }
 
 // --- axis helpers -----------------------------------------------------------

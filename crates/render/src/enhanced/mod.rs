@@ -14,6 +14,10 @@ mod shadows;
 mod snapshot;
 use snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode};
 #[cfg(test)]
+mod graph_tests;
+#[cfg(test)]
+mod populated_tests;
+#[cfg(test)]
 mod validation;
 pub(crate) use frame::CascadeBounds;
 use shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines};
@@ -25,7 +29,7 @@ use bevy::{
     render::{
         Render, RenderApp, RenderSystems,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_graph::{RenderGraph, ViewNodeRunner},
+        render_graph::{Node, RenderGraph, RenderLabel, ViewNodeRunner},
     },
     shader::Shader,
 };
@@ -140,11 +144,13 @@ impl Plugin for EnhancedRenderPlugin {
     }
 }
 
-/// Orders the world grade before the hand and UI.
+/// Orders world, Bloom and grade before the hand and UI on Enhanced views.
 fn install_graph(world: &mut World) {
     let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
+    let hand = crate::viewmodel_render::enhanced_post_node(world);
+    let rig = crate::hand_rig_render::enhanced_post_node(world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -160,15 +166,55 @@ fn install_graph(world: &mut World) {
     graph.add_node(EnhancedShadowLabel, shadow);
     graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);
-    // Bloom stays in Bevy's post-processing stage: moving it before EndMainPass closes a cycle
-    // through MotionBlur/Taa (StartMainPassPostProcessing -> MotionBlur -> Bloom) and hangs the graph.
+    // World -> Bloom -> grade -> hand and UI; Bloom stays in post-processing, where moving it
+    // before EndMainPass would close a cycle through MotionBlur/Taa.
     graph.add_node_edges((
-        Node3d::MainTransparentPass,
+        Node3d::StartMainPassPostProcessing,
         EnhancedPostLabel,
-        Node3d::EndMainPass,
+        Node3d::Tonemapping,
     ));
-    // Hand and UI draw after the composite so neither is graded or bloomed.
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::viewmodel_render::HandLabel);
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::hand_rig_render::HandRigLabel);
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::ui_render::UiOverlayLabel);
+    let _ = graph.try_add_node_edge(Node3d::Bloom, EnhancedPostLabel);
+    let hand = add_post_node(
+        graph,
+        crate::viewmodel_render::HandLabel,
+        EnhancedHandLabel,
+        hand,
+    );
+    let rig = add_post_node(
+        graph,
+        crate::hand_rig_render::HandRigLabel,
+        EnhancedHandRigLabel,
+        rig,
+    );
+    let overlay = crate::ui_render::overlay::UiOverlayPostLabel.intern();
+    if graph.get_node_state(overlay).is_ok() {
+        graph.add_node_edges((EnhancedPostLabel, overlay, Node3d::Tonemapping));
+        if hand {
+            graph.add_node_edge(EnhancedHandLabel, overlay);
+        }
+        if rig {
+            graph.add_node_edge(EnhancedHandRigLabel, overlay);
+        }
+    }
 }
+
+/// Adds the post-grade twin of an installed main-pass node; `false` when that pass is absent.
+fn add_post_node(
+    graph: &mut RenderGraph,
+    main: impl RenderLabel,
+    post: impl RenderLabel + Clone,
+    node: impl Node,
+) -> bool {
+    if graph.get_node_state(main).is_err() {
+        return false;
+    }
+    graph.add_node(post.clone(), node);
+    graph.add_node_edges((EnhancedPostLabel, post, Node3d::Tonemapping));
+    true
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct EnhancedHandLabel;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct EnhancedHandRigLabel;

@@ -23,6 +23,34 @@ const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 const MAX_DISPATCH_IPC: usize = MAX_PAYLOAD_BYTES * 4 + MAX_HOST_OUTPUT;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
+/// Locates the helper beside the profile-selected client executable.
+pub fn developer_executable(client: &Path) -> std::path::PathBuf {
+    client.with_file_name(if cfg!(windows) {
+        "mod-host.exe"
+    } else {
+        "mod-host"
+    })
+}
+
+/// Checks the developer launcher before offering component execution.
+pub fn developer_runtime_available(client: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(developer_executable(client)) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Start {
@@ -228,3 +256,26 @@ pub(crate) fn write_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn developer_launch_requires_an_executable_sibling() {
+        let directory = tempfile::tempdir().unwrap();
+        let client = directory.path().join("bedrock-client");
+        let helper = developer_executable(&client);
+        assert_eq!(helper.parent(), client.parent());
+        assert!(!developer_runtime_available(&client));
+        std::fs::write(&helper, []).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(!developer_runtime_available(&client));
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(developer_runtime_available(&client));
+    }
+}

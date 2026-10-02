@@ -1,8 +1,13 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
 
+#[path = "support/frame_stats.rs"]
+mod frame_stats;
 #[path = "support/java_pack.rs"]
 mod java_pack;
 mod support;
+
+#[global_allocator]
+static ALLOCATOR: frame_stats::CountedAllocator = frame_stats::CountedAllocator;
 
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 
@@ -149,6 +154,8 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let mut layout_time = std::time::Duration::ZERO;
     let incremental = std::env::var_os("CINNABAR_BENCH_INCREMENTAL").is_some();
     let mut incremental_time = std::time::Duration::ZERO;
+    let stateful_only = std::env::var_os("CINNABAR_BENCH_STATEFUL_ONLY").is_some();
+    let mut stats = frame_stats::FrameStats::default();
     let mut measures = json_ui::MeasureCache::default();
     let mut previous: Option<json_ui::FormRender> = None;
     let frames: u32 = std::env::var("CINNABAR_BENCH_FRAMES")
@@ -163,6 +170,24 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
             born: f64::from(frame),
         });
         let data = hud_data_source(&model);
+        if stateful_only {
+            stats.measure(|| {
+                let mut updated = bind_stateful(&tree, &data, &library, &mut state).0;
+                if let Some(old) = previous.take() {
+                    let mut retained = old.bound;
+                    measures.update_tree(&mut retained, updated);
+                    updated = retained;
+                }
+                previous = Some(black_box(render_bound_cached(
+                    updated,
+                    [480.0, 270.0],
+                    &env,
+                    &ViewState::default(),
+                    &mut measures,
+                )));
+            });
+            continue;
+        }
         let started = Instant::now();
         let bound = bind_shared(&tree, &data, &library);
         let bind_elapsed = started.elapsed();
@@ -201,6 +226,10 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
             stateful_time += stateful_elapsed;
             layout_time += layout_elapsed;
         }
+    }
+    if stateful_only {
+        stats.report(name);
+        return;
     }
     eprintln!(
         "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",

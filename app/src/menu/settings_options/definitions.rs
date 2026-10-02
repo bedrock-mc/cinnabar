@@ -228,7 +228,7 @@ pub(crate) const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle(
         "classic_box_selection",
         "options.classic_box_selection",
-        false,
+        ui::DEFAULT_OUTLINE_SELECTION,
     ),
     toggle("ingame_player_names", "options.ingamePlayerNames", true),
     toggle("view_bobbing", "options.viewBobbing", true),

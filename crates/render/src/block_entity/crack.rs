@@ -12,7 +12,7 @@ use super::{
 };
 
 /// Outward push that keeps the overlay in front of the block's own faces.
-const FACE_OFFSET: f32 = 0.002;
+pub(super) const FACE_OFFSET: f32 = 0.002;
 /// Model-quad UVs are in 1/4096 of a texture tile.
 const UV_TILE: f32 = 4096.0;
 /// Model-quad positions are in 1/256 block.

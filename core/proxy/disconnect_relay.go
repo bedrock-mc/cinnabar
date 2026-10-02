@@ -23,12 +23,16 @@ type upstreamRelayClose struct{ error }
 // Unwrap preserves the transport's close classification.
 func (e *upstreamRelayClose) Unwrap() error { return e.error }
 
+// attributeRelayError tags upstream failures while leaving successful and downstream results unchanged.
 func attributeRelayError(err error, fromUpstream bool) error {
+	if err == nil || !fromUpstream {
+		return err
+	}
 	var disconnect *minecraft.DisconnectPacketError
-	if fromUpstream && errors.As(err, &disconnect) && disconnect != nil {
+	if errors.As(err, &disconnect) && disconnect != nil {
 		return &upstreamRelayDisconnect{cause: err, value: *disconnect.Packet()}
 	}
-	if fromUpstream && isOrdinaryClose(err) {
+	if isOrdinaryClose(err) {
 		return &upstreamRelayClose{error: err}
 	}
 	return err

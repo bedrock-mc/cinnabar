@@ -35,7 +35,12 @@ struct VertexOutput {
 fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     if (vertex_index >= 3u) {
         let star = stars[vertex_index - 3u];
-        var clip = view.clip_from_world * vec4(star.xyz + view.world_position, 1.0);
+        let angle = atmosphere.sky_extra.y * 6.283185307;
+        let cosine = cos(angle);
+        let sine = sin(angle);
+        // R:l/LevelRendererCamera.cpp:6765 rotates the star mesh around +Z.
+        let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
+        var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
         return VertexOutput(clip, star.w);
     }

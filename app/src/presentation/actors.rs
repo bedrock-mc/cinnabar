@@ -45,8 +45,14 @@ pub(crate) struct SkinLayerPack {
 }
 
 impl SkinLayerPack {
+    /// Reuse shared or byte-identical layers, including independently decoded copies.
     pub(crate) fn pack(&mut self, layers: Vec<Arc<[u8]>>) -> Arc<[u8]> {
-        if layers != self.layers {
+        let unchanged = layers.len() == self.layers.len()
+            && layers
+                .iter()
+                .zip(&self.layers)
+                .all(|(next, previous)| Arc::ptr_eq(next, previous) || next == previous);
+        if !unchanged {
             self.packed = layers.concat().into();
             self.layers = layers;
             self.rebuilds += 1;

@@ -38,10 +38,18 @@ impl PaletteWorld<'_> {
         &self,
         position: [i32; 3],
         physics: &'a BlockPhysics,
+        query: Aabb,
     ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
         let Some(door) = &physics.door else {
             return Ok(Cow::Borrowed(&physics.shapes));
         };
+        let offset = Vec3::new(position[0] as f64, position[1] as f64, position[2] as f64);
+        if !Aabb::new(Vec3::ZERO, Vec3::ONE)
+            .translated(offset)
+            .intersects(query)
+        {
+            return Ok(Cow::Borrowed(&[]));
+        }
         let mut neighbor = position;
         neighbor[1] = neighbor[1]
             .checked_add(if door.upper { -1 } else { 1 })

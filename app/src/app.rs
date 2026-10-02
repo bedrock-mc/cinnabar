@@ -901,13 +901,29 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ));
     if stage_profile_enabled {
         const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
-        app.insert_resource(RuntimeStageProfiler::new(true))
-            .init_resource::<render::RuntimeStageSpans>()
-            .add_systems(First, render::begin_stage_span::<MAIN_FRAME>)
-            .add_systems(
-                Last,
-                render::end_stage_span::<MAIN_FRAME>.after(arm_shutdown_watchdog),
-            );
+        app.insert_resource(RuntimeStageProfiler::with_trace(
+            true,
+            std::env::var_os(crate::acceptance::markers::STAGE_PROFILE_FRAMES)
+                .map(std::path::PathBuf::from),
+        ))
+        .init_resource::<render::RuntimeStageSpans>()
+        .add_systems(
+            First,
+            (
+                crate::runtime::frame_profile::trace_frame_focus,
+                render::begin_stage_span::<MAIN_FRAME>,
+            )
+                .chain(),
+        )
+        .add_systems(
+            Last,
+            (
+                render::end_stage_span::<MAIN_FRAME>,
+                crate::runtime::frame_profile::flush_trace_on_exit,
+            )
+                .chain()
+                .after(arm_shutdown_watchdog),
+        );
     }
     app.add_plugins((
         ActorRenderPlugin,
@@ -938,6 +954,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
+    crate::block_selection::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);

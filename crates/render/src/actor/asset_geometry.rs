@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv,
-    RuntimeEntityAssets, validate_entity_geometry_inheritance,
+    RuntimeEntityAssets,
 };
 
 use crate::{BlockEntityAtlas, SkullKind};
@@ -249,8 +249,7 @@ pub(super) fn resolve_geometry_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries())
-        .map_err(|_| ActorRigGeometryError::InvalidAssetGeometry)?;
+    let parents = assets.geometry_parents();
     let mut chain = Vec::new();
     let mut current = geometry_index;
     for _ in 0..=parents.len() {

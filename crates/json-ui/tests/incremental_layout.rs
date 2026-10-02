@@ -134,3 +134,49 @@ fn changed_widget_targets_match_fresh_gated_layouts() {
         assert_eq!(rendered.hits, cold.hits);
     }
 }
+
+/// Changed bound styles and replacement children must not retain old placement values.
+#[test]
+fn changing_placement_properties_match_fresh_draws_and_input() {
+    let text = Text::default();
+    let env = LayoutEnv {
+        text: &text,
+        textures: &Textures,
+    };
+    let state = ViewState::default();
+    let mut next = tree("label", 3);
+    next.properties.insert("size".into(), json!([80, 40]));
+    next.properties
+        .insert("clip_state_change_event".into(), json!("clip.changed"));
+    next.children[0].control_type = Some("button".into());
+    let mut cache = MeasureCache::default();
+    let mut rendered = render_bound_cached(next.clone(), [480.0, 270.0], &env, &state, &mut cache);
+    for (key, value) in [
+        ("visible", json!(false)),
+        ("visible", json!("false")),
+        ("visible", json!("true")),
+        ("alpha", json!(0.25)),
+        ("layer", json!(7)),
+        ("clips_children", json!(true)),
+        ("clip_offset", json!([3, 5])),
+        ("allow_clipping", json!(false)),
+        ("allow_clipping", json!(true)),
+        ("enabled", json!("false")),
+        ("#enabled", json!(true)),
+        ("propagate_alpha", json!(true)),
+    ] {
+        next.properties.insert(key.into(), value);
+        next.children[0]
+            .properties
+            .insert("alpha".into(), json!(0.5));
+        cache.update_tree(&mut rendered.bound, next.clone());
+        rendered = render_bound_cached(rendered.bound, [480.0, 270.0], &env, &state, &mut cache);
+        let cold = render_bound(next.clone(), [480.0, 270.0], &env, &state);
+        assert_eq!(rendered.nodes, cold.nodes, "draws after {key}");
+        assert_eq!(rendered.hits, cold.hits, "input after {key}");
+        assert_eq!(
+            rendered.report, cold.report,
+            "scroll/clip feedback after {key}"
+        );
+    }
+}

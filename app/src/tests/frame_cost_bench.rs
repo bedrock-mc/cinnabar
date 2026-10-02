@@ -186,3 +186,37 @@ fn frame_cost_bench_skin_packing_128_players() {
     });
     report("skin_packing_128_players", old, new);
 }
+
+/// Isolate warm production packing without the benchmark's own full-payload comparison.
+#[test]
+#[ignore = "benchmark"]
+fn frame_cost_bench_skin_packing_shared_layers() {
+    let skins: Vec<std::sync::Arc<[u8]>> = (0..render::MAX_RENDERED_PLAYERS)
+        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
+        .collect();
+    let mut pack = crate::presentation::actors::SkinLayerPack::default();
+    let started = Instant::now();
+    let packed = pack.pack(skins.clone());
+    let cold = started.elapsed();
+    let mut times = Vec::with_capacity(FRAMES as usize);
+    let mut allocations = Vec::with_capacity(FRAMES as usize);
+    for _ in 0..FRAMES {
+        let before = super::alloc_count::thread_allocations();
+        let started = Instant::now();
+        let next = std::hint::black_box(pack.pack(std::hint::black_box(skins.clone())));
+        let elapsed = started.elapsed();
+        allocations.push(super::alloc_count::thread_allocations() - before);
+        times.push(elapsed);
+        assert!(std::sync::Arc::ptr_eq(&packed, &next));
+    }
+    times.sort_unstable();
+    allocations.sort_unstable();
+    eprintln!(
+        "SKIN_PACK_SHARED bytes={} cold_ms={:.3} median_ms={:.3} p99_ms={:.3} allocs={}",
+        packed.len(),
+        cold.as_secs_f64() * 1e3,
+        times[times.len() / 2].as_secs_f64() * 1e3,
+        times[times.len() * 99 / 100].as_secs_f64() * 1e3,
+        allocations[allocations.len() / 2],
+    );
+}
