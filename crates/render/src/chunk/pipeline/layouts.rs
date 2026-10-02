@@ -1,8 +1,22 @@
 use crate::chunk::*;
 
-const MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8;
-const MODEL_VERTEX_STORAGE_BINDINGS: u32 = 8;
-const _: () = assert!(MODEL_VERTEX_STORAGE_BINDINGS <= MODEL_TEMPLATE_BINDING_BUDGET);
+/// Minimum vertex storage slots required by the shared world layout.
+pub fn required_vertex_storage_buffers() -> u32 {
+    chunk_bind_group_layout()
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.visibility.contains(ShaderStages::VERTEX)
+                && matches!(
+                    entry.ty,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Storage { .. },
+                        ..
+                    }
+                )
+        })
+        .count() as u32
+}
 
 pub(in crate::chunk) struct ChunkPipelineSpecializer;
 
@@ -389,5 +403,31 @@ mod enhanced_tests {
                 assert!(after.fragment.unwrap().shader_defs.is_empty());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_storage_budget_covers_the_actual_layout() {
+        let count = chunk_bind_group_layout()
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.visibility.contains(ShaderStages::VERTEX)
+                    && matches!(
+                        entry.ty,
+                        BindingType::Buffer {
+                            ty: BufferBindingType::Storage { .. },
+                            ..
+                        }
+                    )
+            })
+            .count() as u32;
+        assert!(
+            count <= required_vertex_storage_buffers(),
+            "layout needs {count} vertex storage slots"
+        );
     }
 }

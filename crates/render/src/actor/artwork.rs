@@ -268,6 +268,8 @@ impl ActorArtworkPages {
                     concatenate_layers(indices.iter().map(|index| rasters[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
+                hasher.update((indices.len() as u32).to_le_bytes());
+                hasher.update((pixels.len() as u64).to_le_bytes());
                 hasher.update(&pixels);
                 let page = ActorTexturePage {
                     width,
@@ -324,6 +326,8 @@ impl ActorArtworkPages {
                     concatenate_layers(indices.iter().map(|index| textures[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
+                hasher.update((indices.len() as u32).to_le_bytes());
+                hasher.update((pixels.len() as u64).to_le_bytes());
                 hasher.update(&pixels);
                 let page = ActorTexturePage {
                     width,
@@ -705,5 +709,31 @@ mod tests {
         assert!(pages.valid(equipment_rig, first));
         let unknown = ActorArtworkLocation { layer: 9, ..first };
         assert!(!pages.valid(equipment_rig, unknown));
+    }
+    #[test]
+    fn review_render_artwork_identity_distinguishes_page_boundaries() {
+        let marker = EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([2, 0, 1, 0]),
+        };
+        let pair = EquipmentRaster {
+            width: 2,
+            height: 1,
+            rgba8: Arc::from([9; 8]),
+        };
+        let pixel = EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([9; 4]),
+        };
+        let (a, _) = ActorArtworkPages::default().with_equipment_rasters(&[marker.clone(), pair]);
+        let (b, _) = ActorArtworkPages::default().with_equipment_rasters(&[
+            marker.clone(),
+            marker,
+            pixel.clone(),
+            pixel,
+        ]);
+        assert_ne!(a.identity(), b.identity());
     }
 }

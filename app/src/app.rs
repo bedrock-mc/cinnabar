@@ -422,6 +422,10 @@ fn bind_direct_session_directory(
 
 fn render_plugin() -> RenderPlugin {
     let mut settings = WgpuSettings::default();
+    settings.limits.max_storage_buffers_per_shader_stage = settings
+        .limits
+        .max_storage_buffers_per_shader_stage
+        .max(render::required_vertex_storage_buffers());
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
         settings.backends = Some(backends);
     }

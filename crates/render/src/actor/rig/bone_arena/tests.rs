@@ -262,3 +262,17 @@ fn frame_cost_bench_actor_bone_arena_50x64() {
         samples[1][5].as_secs_f64() * 1e3,
     );
 }
+
+#[test]
+fn review_render_pose_cache_accounts_for_changed_bone_pivots() {
+    let pose: Arc<[RenderBoneTransform]> = Arc::from([bone(0)]);
+    let mut cache = PoseMatrixCache::default();
+    let mut old = Vec::new();
+    assert!(cache.append(&mut old, &pose, EntityRigId(3), &[[0.0; 3]]));
+    let pivots = [[1.0, 2.0, 3.0]];
+    let expected = reference_matrices(&pose, &pivots).unwrap();
+    let mut actual = Vec::new();
+    assert!(cache.append(&mut actual, &pose, EntityRigId(3), &pivots));
+    assert_eq!(actual, expected);
+    assert_ne!(actual, old);
+}

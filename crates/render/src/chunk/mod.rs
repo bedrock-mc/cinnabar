@@ -84,6 +84,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod pipeline;
+pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
 mod presentation;
 #[cfg(feature = "publication-test-support")]

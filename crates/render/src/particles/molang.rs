@@ -212,6 +212,8 @@ pub struct Program {
 
 const MAX_TEMPS: usize = 8;
 const MAX_DEPTH: u32 = 48;
+// Bounds flat AST chains too, including recursive evaluation and destruction.
+const MAX_TOKENS: usize = 256;
 
 impl Program {
     #[must_use]
@@ -226,6 +228,9 @@ impl Program {
     #[must_use]
     pub fn parse(source: &str, interner: &mut Interner) -> Option<Self> {
         let tokens = lex(source)?;
+        if tokens.len() > MAX_TOKENS {
+            return None;
+        }
         let mut parser = Parser {
             tokens,
             at: 0,
@@ -755,7 +760,19 @@ impl Parser<'_> {
         )
     }
 
+    /// Counts unary prefixes against the same nesting budget as subexpressions.
     fn unary(&mut self) -> Option<Expr> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return None;
+        }
+        let result = self.unary_inner();
+        self.depth -= 1;
+        result
+    }
+
+    /// Parses one unary operator or primary within the guarded recursion.
+    fn unary_inner(&mut self) -> Option<Expr> {
         if self.eat(&Token::Minus) {
             return Some(match self.unary()? {
                 Expr::Num(value) => Expr::Num(-value),
@@ -959,3 +976,7 @@ mod tests {
         assert!(Program::parse("@", &mut interner).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "molang_limits_tests.rs"]
+mod limits_tests;

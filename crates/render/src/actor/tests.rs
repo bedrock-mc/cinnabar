@@ -363,3 +363,32 @@ fn batched_geometries_rebuild_the_catalog_once() {
     assert!(builder.insert_geometries(duplicate).is_err());
     assert!(!builder.contains_geometry(super::skin_rig_id(9)));
 }
+
+#[test]
+fn review_render_geometry_replacement_keeps_configured_artwork() {
+    let (pages, _) =
+        super::ActorArtworkPages::default().with_equipment_rasters(&[super::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        }]);
+    let mut scene = ActorRenderScene::default();
+    scene.configure_artwork(pages);
+    let before = Arc::clone(&scene.frame.artwork);
+    scene.replace_pack_entities(None).unwrap();
+    assert!(Arc::ptr_eq(&before, &scene.frame.artwork));
+}
+
+#[test]
+fn review_render_teleport_samples_the_destination_for_local_and_remote_actors() {
+    let mut scene = ActorRenderScene::default();
+    let mut actor = tick_source(7, 0.0, 100.0, 0.0, 90.0);
+    actor.teleported = true;
+    for alpha in [0.0, 0.5, 1.0] {
+        let frame = scene.update(alpha, None, [actor.clone()]);
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - 90.0_f32.to_radians()).abs() < 1e-5);
+        let frame = scene.update_with_local(alpha, None, [], Some(actor.clone()));
+        assert_eq!(frame.instances[0].position[0], 100.0);
+    }
+}

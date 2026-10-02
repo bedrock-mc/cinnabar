@@ -41,7 +41,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     release_completed_transparent_retirements(&mut arena, retirement_fence.completed_epoch());
     let active_tint_identity = biome_tints.table_identity();
     let tint_identity_changed = fairness.last_tint_identity != Some(active_tint_identity);
-    let candidates = if tint_identity_changed {
+    let candidates = if tint_identity_changed || fairness.recover_untracked {
         instances
             .queries
             .p0()

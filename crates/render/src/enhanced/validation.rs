@@ -246,3 +246,22 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
     assert_eq!(values[0], 1.0, "direct-light gate at full sky");
     assert_eq!(values[1], 0.0, "no sky exposure");
 }
+
+#[test]
+fn enhanced_cameras_enforce_single_sample_depth_before_extraction() {
+    use bevy::prelude::*;
+    let mut app = App::new();
+    app.init_resource::<Assets<bevy::shader::Shader>>();
+    app.add_plugins(super::EnhancedRenderPlugin);
+    let enhanced = app
+        .world_mut()
+        .spawn((super::EnhancedRendering::default(), Msaa::Sample4))
+        .id();
+    let vanilla = app.world_mut().spawn(Msaa::Sample4).id();
+    app.update();
+    assert_eq!(*app.world().get::<Msaa>(enhanced).unwrap(), Msaa::Off);
+    assert_eq!(*app.world().get::<Msaa>(vanilla).unwrap(), Msaa::Sample4);
+    *app.world_mut().get_mut::<Msaa>(enhanced).unwrap() = Msaa::Sample8;
+    app.update();
+    assert_eq!(*app.world().get::<Msaa>(enhanced).unwrap(), Msaa::Off);
+}

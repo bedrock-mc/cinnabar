@@ -103,8 +103,11 @@ pub(super) struct GeometryCatalog {
 impl GeometryCatalog {
     /// Places immutable geometry pages consecutively without copying their vertices.
     pub(super) fn layout(
-        geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
+        mut geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
     ) -> Result<Self, ActorRigGeometryError> {
+        for geometry in geometries.values_mut() {
+            geometry.revalidate()?;
+        }
         let mut indices = BTreeMap::new();
         let mut segments = Vec::with_capacity(geometries.len());
         let mut offsets = Vec::with_capacity(geometries.len());
@@ -143,9 +146,12 @@ impl GeometryCatalog {
     /// Admission is transactional and uses live vertices, as with the former full repack.
     pub(super) fn append(
         &mut self,
-        added: Vec<ActorRigGeometry>,
+        mut added: Vec<ActorRigGeometry>,
         revision: u64,
     ) -> Result<(), ActorRigGeometryError> {
+        for geometry in &mut added {
+            geometry.revalidate()?;
+        }
         let mut geometries = self.geometries.clone();
         geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
         if geometries

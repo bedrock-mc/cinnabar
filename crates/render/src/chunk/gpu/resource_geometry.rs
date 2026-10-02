@@ -82,7 +82,26 @@ impl PreparedResourceGeometry {
         commands: &mut Commands,
         instances: &Query<(Entity, &ChunkRenderInstance)>,
         active: &mut ChunkGpuArena,
-    ) {
+    ) -> bool {
+        let keys: HashMap<_, _> = instances
+            .iter()
+            .map(|(entity, instance)| (instance.key, entity))
+            .collect();
+        if self
+            .arena
+            .allocations
+            .values()
+            .any(|allocation| !keys.contains_key(&allocation.gpu.key))
+            || self.models.committed.as_ref().is_some_and(|committed| {
+                committed
+                    .address
+                    .allocations
+                    .iter()
+                    .any(|allocation| !keys.contains_key(&allocation.key))
+            })
+        {
+            return false;
+        }
         let mut by_key: HashMap<_, _> = self
             .arena
             .allocations
@@ -98,10 +117,6 @@ impl PreparedResourceGeometry {
             }
         }
         if let Some(committed) = self.models.committed.as_mut() {
-            let keys: HashMap<_, _> = instances
-                .iter()
-                .map(|(entity, instance)| (instance.key, entity))
-                .collect();
             let mut allocations = committed.address.allocations.to_vec();
             for allocation in &mut allocations {
                 allocation.entity = keys[&allocation.key];
@@ -112,6 +127,7 @@ impl PreparedResourceGeometry {
         commands.insert_resource(self.liquids);
         commands.insert_resource(self.models);
         commands.insert_resource(GpuUpdateFairness::default());
+        true
     }
 }
 

@@ -52,7 +52,7 @@ impl TextureRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockEntityAtlas {
     size: [u32; 2],
     static_height: u32,
@@ -135,6 +135,7 @@ impl BlockEntityAtlas {
     /// Shelf-packs `textures` into new static rows below the packed ones, moving the dynamic
     /// strips down; textures wider than the atlas or already present are skipped.
     pub fn append_textures(&mut self, textures: &[MobTexture]) {
+        let previous_count = self.placements.len();
         let width = self.size[0];
         let mut pixels = self.static_rgba8.to_vec();
         let (mut x, mut y, mut shelf) = (0u32, self.static_height, 0u32);
@@ -180,6 +181,22 @@ impl BlockEntityAtlas {
         self.static_height = height;
         self.size[1] = height + DYNAMIC_STRIP_HEIGHT;
         self.static_rgba8 = Arc::from(pixels);
+        if self.placements.len() != previous_count {
+            use sha2::{Digest, Sha256};
+            let mut hash = Sha256::new();
+            hash.update(self.identity);
+            hash.update(width.to_le_bytes());
+            hash.update(height.to_le_bytes());
+            hash.update(&self.static_rgba8);
+            for (name, rect) in &self.placements {
+                hash.update((name.len() as u64).to_le_bytes());
+                hash.update(name.as_bytes());
+                for value in [rect.x, rect.y, rect.width, rect.height] {
+                    hash.update(value.to_bits().to_le_bytes());
+                }
+            }
+            self.identity = hash.finalize().into();
+        }
     }
 
     /// One RGBA8 texel of a packed texture, in the texture's own pixel coordinates.

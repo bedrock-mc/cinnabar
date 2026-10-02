@@ -78,14 +78,9 @@ impl EquipmentRuntime {
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
             *rig
         } else {
-            if self.next_mesh as usize >= MAX_ITEM_MESHES {
-                return None;
-            }
-            let rig = item_mesh_rig_id(self.next_mesh);
-            let geometry =
-                render::attachable_geometry(&assets, geometry_index as usize, rig, texture).ok()?;
-            self.next_mesh += 1;
-            self.pending.push(geometry);
+            let rig = self.build_item_mesh(|rig| {
+                render::attachable_geometry(&assets, geometry_index as usize, rig, texture).ok()
+            })?;
             self.attachable_meshes.insert(key, rig);
             rig
         };

@@ -86,3 +86,31 @@ fn every_shader_parses_and_validates() {
     assert!(validated >= 10, "shader sources were not found");
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+#[test]
+fn review_render_world_actor_fragments_read_shared_fog() {
+    for raw in [
+        include_str!("../src/actor.wgsl"),
+        include_str!("../src/dropped_item.wgsl"),
+    ] {
+        let module = naga::front::wgsl::parse_str(&standalone(raw)).unwrap();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+        let fog = module
+            .global_variables
+            .iter()
+            .find(|(_, global)| global.name.as_deref() == Some("world_atmosphere"))
+            .expect("world fragments need the shared atmosphere uniform")
+            .0;
+        let fragment = module
+            .entry_points
+            .iter()
+            .position(|entry| entry.stage == naga::ShaderStage::Fragment)
+            .unwrap();
+        assert!(!info.get_entry_point(fragment)[fog].is_empty());
+    }
+}

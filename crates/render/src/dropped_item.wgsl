@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour}
+#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
@@ -28,6 +28,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) levels: vec2<u32>,
     @location(4) color: vec4<f32>,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
+    @location(6) world_position: vec3<f32>,
 }
 
 // Provisional directional shade: full on top faces, half on bottom faces.
@@ -50,6 +51,7 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     ));
     var out: VertexOutput;
     out.position = view.clip_from_world * world;
+    out.world_position = world.xyz;
     out.uv = input.uv;
     out.layer = input.layer;
     out.color = input.color;
@@ -69,5 +71,5 @@ fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
         color.rgb * input.shade,
         light_colour(input.levels.x | (input.levels.y << 4u)),
     );
-    return vec4(mix(lit, input.overlay.rgb, input.overlay.a), color.a);
+    return vec4(world_distance_fog(mix(lit, input.overlay.rgb, input.overlay.a), input.world_position, view.world_position), color.a);
 }

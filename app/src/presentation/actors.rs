@@ -23,6 +23,8 @@ pub(crate) struct ActorRigPresentation {
     pub(crate) model_scale: f32,
     /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
     pub(crate) authored_scale: f32,
+    /// Body yaw used by the world transform, before axis scaling and death tilt.
+    pub(crate) world_yaw_degrees: f32,
     /// Head yaw minus the rendered body yaw, in degrees.
     pub(crate) head_over_body: f32,
 }
@@ -296,6 +298,7 @@ fn actor_rig_presentation_inner(
         artwork: None,
         model_scale: scale,
         authored_scale: rig.scale,
+        world_yaw_degrees: yaw,
         head_over_body: wrap_degrees(
             lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw,
         ),
@@ -369,6 +372,7 @@ pub(crate) fn local_diagnostic_presentation(
         artwork: None,
         model_scale: 1.0,
         authored_scale: 1.0,
+        world_yaw_degrees: yaw_degrees,
         head_over_body: 0.0,
     })
 }
@@ -392,11 +396,16 @@ pub(crate) fn local_actor_presentation_for_visibility(
         {
             // The body lags the view yaw as the rig's head does, so the head faces the view.
             let feet = diagnostic.submission.world_from_actor.map(|row| row[3]);
-            canonical.submission.world_from_actor = rig_world_from_actor(
-                feet,
-                yaw_degrees - canonical.head_over_body,
-                canonical.model_scale,
-            );
+            let yaw = yaw_degrees - canonical.head_over_body;
+            let (sine, cosine) = (yaw - canonical.world_yaw_degrees).to_radians().sin_cos();
+            let old = canonical.submission.world_from_actor;
+            let rows = &mut canonical.submission.world_from_actor;
+            for axis in 0..3 {
+                rows[0][axis] = cosine * old[0][axis] - sine * old[2][axis];
+                rows[2][axis] = sine * old[0][axis] + cosine * old[2][axis];
+                rows[axis][3] = feet[axis];
+            }
+            canonical.world_yaw_degrees = yaw;
             Some(canonical)
         }
         Some(_) => None,
@@ -717,7 +726,7 @@ fn player_route_and_skin(
 
 #[cfg(test)]
 mod death_tests {
-    use super::death_tilted;
+    use super::*;
 
     const IDENTITY: [[f32; 4]; 3] = [
         [1.0, 0.0, 0.0, 5.0],
@@ -732,5 +741,34 @@ mod death_tests {
         // The local up axis now points along world +/-X while the feet pivot stays fixed.
         assert!(lying[0][1].abs() > 0.999 && lying[1][1].abs() < 1e-6);
         assert_eq!([lying[0][3], lying[1][3], lying[2][3]], [5.0, 6.0, 7.0]);
+    }
+    #[test]
+    fn review_render_local_placement_keeps_axis_scaling_and_death_tilt() {
+        let old_feet = [1.0, 2.0, 3.0];
+        let new_feet = [4.0, 64.0, 2.0];
+        let axes = [2.0, 3.0, 4.0];
+        let mut canonical = local_diagnostic_presentation(7, 0, 7, 5, old_feet, 30.0, 0.0).unwrap();
+        canonical.head_over_body = 10.0;
+        canonical.submission.world_from_actor = death_tilted(
+            scaled_axes(canonical.submission.world_from_actor, axes),
+            Some(0.4),
+        );
+        let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, new_feet, 90.0, 0.0).unwrap();
+        let local =
+            local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic), 90.0)
+                .unwrap();
+        let expected = death_tilted(
+            scaled_axes(rig_world_from_actor(new_feet, 80.0, 1.0), axes),
+            Some(0.4),
+        );
+        for (actual, expected) in local
+            .submission
+            .world_from_actor
+            .into_iter()
+            .flatten()
+            .zip(expected.into_iter().flatten())
+        {
+            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
     }
 }

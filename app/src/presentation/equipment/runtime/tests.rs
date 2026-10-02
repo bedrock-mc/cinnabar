@@ -305,3 +305,48 @@ fn third_person_block_retains_the_existing_grip_on_the_avatar_bone() {
     assert_eq!(&*third.submission.input.current_bones, &[expected]);
     assert_eq!(third.submission.world_from_actor, body.world_from_actor);
 }
+
+#[test]
+fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_ids() {
+    let (mut runtime, _, _) = block_fixture();
+    runtime.next_mesh = MAX_ITEM_MESHES as u32;
+    for index in 0..MAX_ITEM_MESHES as u32 - 1 {
+        runtime
+            .meshes
+            .insert(MeshKey::Block(index), Some(item_mesh_rig_id(index)));
+    }
+    let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
+    let placement = runtime.placements[0].unwrap();
+    for _ in 0..8 {
+        runtime
+            .attachable_meshes
+            .insert((true, 0, "pack_texture".into()), retired);
+        runtime.set_pack_layer(None);
+        assert_eq!(
+            runtime.build_mesh(MeshKey::Block(7), 0, placement),
+            Some(retired)
+        );
+        assert_eq!(
+            runtime.meshes[&MeshKey::Block(0)],
+            Some(item_mesh_rig_id(0))
+        );
+    }
+}
+
+#[test]
+fn review_render_pack_replacement_invalidates_only_pack_armor_maps() {
+    let (mut runtime, _, _) = block_fixture();
+    runtime
+        .armor_maps
+        .insert((1, "vanilla".into()), Arc::from([Some(0)]));
+    runtime.armor_maps.insert(
+        (
+            1,
+            format!("{}geometry.armor", pack::ARMOR_CACHE_PREFIX).into(),
+        ),
+        Arc::from([Some(1)]),
+    );
+    runtime.set_pack_layer(None);
+    assert_eq!(runtime.armor_maps.len(), 1);
+    assert!(runtime.armor_maps.contains_key(&(1, "vanilla".into())));
+}

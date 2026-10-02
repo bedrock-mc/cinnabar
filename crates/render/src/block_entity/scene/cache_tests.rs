@@ -298,3 +298,76 @@ fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
         new_scene.static_rebuilds,
     );
 }
+
+#[test]
+fn review_render_appended_atlas_pixels_change_identity() {
+    let mut atlas = BlockEntityAtlas::from_assets(&assets_with_chest_offset(0));
+    let original = atlas.identity();
+    let texture = super::super::mob::MobTexture {
+        name: "test/mob".into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([7; 4]),
+    };
+    atlas.append_textures(std::slice::from_ref(&texture));
+    assert_ne!(atlas.identity(), original);
+    let appended = atlas.identity();
+    atlas.append_textures(&[texture]);
+    assert_eq!(atlas.identity(), appended);
+}
+
+#[test]
+fn review_render_static_gateway_reuses_geometry_across_ticks() {
+    let mut scene = scene();
+    let gateway = BlockEntitySubmission {
+        block: [0; 3],
+        light: 1.0,
+        kind: BlockEntityKind::EndGateway,
+    };
+    scene.update(
+        SceneClock { ticks: 1.0 },
+        &[],
+        std::slice::from_ref(&gateway),
+    );
+    let revision = scene.frame.revision;
+    scene.update(SceneClock { ticks: 2.0 }, &[], &[gateway]);
+    assert_eq!(scene.frame.revision, revision);
+}
+
+#[test]
+fn review_render_atlas_snapshot_does_not_block_mob_installation() {
+    let temporary = tempfile::tempdir().unwrap();
+    for family in [
+        "entity",
+        "models/entity",
+        "animations",
+        "animation_controllers",
+        "render_controllers",
+        "textures/entity",
+    ] {
+        std::fs::create_dir_all(temporary.path().join(family)).unwrap();
+    }
+    std::fs::write(temporary.path().join("models/entity/test.geo.json"), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#).unwrap();
+    let compiled = asset_compiler::compile_entity_assets(
+        temporary.path(),
+        include_bytes!("../../../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    let bytes = assets::encode_entity_blob(&compiled).unwrap();
+    let entities = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+    let catalog = assets::RuntimeActorCatalog::decode(
+        &assets::encode_actor_catalog(&bytes, &[], &[]).unwrap(),
+        &bytes,
+    )
+    .unwrap();
+    let mut scene = scene();
+    scene.update(SceneClock::default(), &[], &[chest(0, 1.0)]);
+    assert!(scene.reusable.is_some());
+    let snapshot = Arc::clone(scene.atlas().unwrap());
+    scene.install_mob_assets(&entities, &catalog);
+    assert!(
+        scene.reusable.is_none(),
+        "installation must invalidate cached models even with a retained atlas"
+    );
+    assert!(!Arc::ptr_eq(&snapshot, scene.atlas().unwrap()));
+}

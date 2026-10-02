@@ -274,34 +274,28 @@ pub(super) fn cuboid_vertices(
 ) -> Vec<ActorRigVertex> {
     let corners = cuboid_corners(min, max);
     let faces = [
-        [0, 2, 1, 0, 3, 2],
-        [5, 6, 4, 4, 6, 7],
-        [4, 3, 0, 4, 7, 3],
-        [1, 2, 5, 5, 2, 6],
-        [3, 7, 2, 2, 7, 6],
-        [4, 0, 5, 5, 0, 1],
+        [0, 1, 2, 3],
+        [5, 4, 7, 6],
+        [4, 0, 3, 7],
+        [1, 5, 6, 2],
+        [3, 2, 6, 7],
+        [4, 5, 1, 0],
     ];
-    let uv = [
-        [0.0, 0.0],
-        [1.0, 1.0],
-        [1.0, 0.0],
-        [0.0, 0.0],
-        [0.0, 1.0],
-        [1.0, 1.0],
-    ];
+    let uv = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
     faces
         .into_iter()
         .flat_map(|face| {
-            let normal = triangle_normal(corners[face[0]], corners[face[1]], corners[face[2]]);
-            face.into_iter()
-                .zip(uv)
-                .map(move |(corner, uv)| ActorRigVertex {
-                    position: corners[corner],
+            let normal = triangle_normal(corners[face[0]], corners[face[2]], corners[face[1]]);
+            [0, 2, 1, 0, 3, 2].into_iter().map(move |index| {
+                let uv = uv[index];
+                ActorRigVertex {
+                    position: corners[face[index]],
                     normal,
                     uv,
                     back_uv: uv,
                     bone_index,
-                })
+                }
+            })
         })
         .collect()
 }
@@ -564,5 +558,17 @@ mod tests {
         assert_eq!(build(&cube)[0].normal, front.map(|value| -value));
         cube.uv = faces(None, None);
         assert!(build(&cube).is_empty());
+    }
+    #[test]
+    fn review_render_cuboid_uvs_agree_at_shared_triangle_vertices() {
+        for face in cuboid_vertices([0.0; 3], [1.0; 3], 0).chunks_exact(6) {
+            for a in face {
+                for b in face {
+                    if a.position == b.position {
+                        assert_eq!(a.uv, b.uv);
+                    }
+                }
+            }
+        }
     }
 }

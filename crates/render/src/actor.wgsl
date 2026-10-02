@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour}
+#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -36,6 +36,7 @@ struct VertexOutput {
     @location(6) @interpolate(flat) overlay: vec4<f32>,
     @location(7) @interpolate(flat) uv_wrap: u32,
     @location(8) @interpolate(flat) light: u32,
+    @location(9) world_position: vec3<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -143,6 +144,7 @@ fn actor_vertex(
         1.0,
     );
     out.position = view.clip_from_world * world;
+    out.world_position = world.xyz;
     out.world_normal = normalize(vec3(
         dot(instance_row(instance_base, 0u).xyz, posed_normal),
         dot(instance_row(instance_base, 1u).xyz, posed_normal),
@@ -184,5 +186,5 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         );
     }
     // The hurt/death overlay blends after the dye and light.
-    return vec4(mix(color.rgb, input.overlay.rgb, input.overlay.a), color.a);
+    return vec4(world_distance_fog(mix(color.rgb, input.overlay.rgb, input.overlay.a), input.world_position, view.world_position), color.a);
 }

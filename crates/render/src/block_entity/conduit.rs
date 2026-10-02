@@ -24,11 +24,12 @@ const WIND_TICKS_PER_FRAME: f64 = 2.0;
 /// The rect of wind frame `frame` in a strip placed at `strip`; `frame` wraps.
 #[must_use]
 pub fn wind_frame_rect(strip: AtlasRect, frame: u32) -> AtlasRect {
+    let height = strip.height / WIND_FRAMES as f32;
     AtlasRect {
         x: strip.x,
-        y: strip.y + WIND_FRAME_ROWS * (frame % WIND_FRAMES) as f32,
+        y: strip.y + height * (frame % WIND_FRAMES) as f32,
         width: strip.width,
-        height: WIND_FRAME_ROWS,
+        height,
     }
 }
 
@@ -139,5 +140,18 @@ mod tests {
             wind_frame_rect(strip, 0)
         );
         assert_eq!(wind_frame_rect(strip, 1).height, 32.0);
+    }
+    #[test]
+    fn review_render_wind_uses_replacement_frame_height() {
+        let strip = AtlasRect {
+            x: 5.0,
+            y: 7.0,
+            width: 128.0,
+            height: WIND_FRAMES as f32 * 64.0,
+        };
+        let frame = wind_frame_rect(strip, 3);
+        assert_eq!(frame.y, 7.0 + 3.0 * 64.0);
+        assert_eq!(frame.height, 64.0);
+        assert_eq!(wind_frame_rect(strip, WIND_FRAMES + 3), frame);
     }
 }

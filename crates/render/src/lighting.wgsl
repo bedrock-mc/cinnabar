@@ -24,3 +24,19 @@ fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
     if abs(normal.z) > 0.5 { return select(0.8, 0.95, emitting); }
     return 1.0;
 }
+
+struct WorldAtmosphere {
+    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
+    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
+    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
+    sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
+}
+@group(1) @binding(1) var<uniform> world_atmosphere: WorldAtmosphere;
+
+// Uses the same distance fade as the terrain passes after lighting and overlays.
+fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
+    let start = world_atmosphere.fog_color_start.w;
+    let end = world_atmosphere.fog_end_time.x;
+    let fog = clamp((distance(position, camera) - start) / max(end - start, 0.0001), 0.0, 1.0);
+    return mix(colour, world_atmosphere.fog_color_start.rgb, fog);
+}

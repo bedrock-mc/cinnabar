@@ -118,6 +118,8 @@ pub(crate) struct EquipmentRuntime {
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
     next_mesh: u32,
+    /// Retired pack slots, reused only after replacement geometry is queued.
+    free_meshes: Vec<EntityRigId>,
     /// The session's server-pack attachables, consulted before `catalog`.
     pack: Option<PackEquipment>,
     /// `(identifier, reason)` pairs already logged as drawing no layer.
@@ -255,6 +257,7 @@ impl EquipmentRuntime {
             item_use,
             session: session::SessionLayer::default(),
             next_mesh: 0,
+            free_meshes: Vec::new(),
             catalog,
             pending,
             skulls,
@@ -542,6 +545,22 @@ impl EquipmentRuntime {
         entry
     }
 
+    /// Queues valid geometry before consuming a new or retired item mesh slot.
+    fn build_item_mesh(
+        &mut self,
+        make: impl FnOnce(EntityRigId) -> Option<ActorRigGeometry>,
+    ) -> Option<EntityRigId> {
+        let id = self.free_meshes.last().copied().or_else(|| {
+            (self.next_mesh < MAX_ITEM_MESHES as u32).then(|| item_mesh_rig_id(self.next_mesh))
+        })?;
+        let geometry = make(id)?;
+        if self.free_meshes.pop().is_none() {
+            self.next_mesh += 1;
+        }
+        self.pending.push(geometry);
+        Some(id)
+    }
+
     fn build_mesh(
         &mut self,
         key: MeshKey,
@@ -565,18 +584,14 @@ impl EquipmentRuntime {
             )?,
             (_, None) => return None,
         };
-        let id = if let MeshKey::Session(index) = key {
-            session::session_mesh_id(index)?
+        if let MeshKey::Session(index) = key {
+            let id = session::session_mesh_id(index)?;
+            let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
+            self.pending.push(geometry);
+            Some(id)
         } else {
-            if self.next_mesh as usize >= MAX_ITEM_MESHES {
-                return None;
-            }
-            self.next_mesh += 1;
-            item_mesh_rig_id(self.next_mesh - 1)
-        };
-        let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
-        self.pending.push(geometry);
-        Some(id)
+            self.build_item_mesh(|id| ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok())
+        }
     }
 }
 

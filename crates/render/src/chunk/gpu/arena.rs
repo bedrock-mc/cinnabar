@@ -251,6 +251,7 @@ pub(in crate::chunk) struct GpuUpdateFairness {
     pub(in crate::chunk) wait_ages: HashMap<Entity, u32>,
     pub(in crate::chunk) urgent_waiters: HashSet<Entity>,
     pub(in crate::chunk) limit: usize,
+    pub(in crate::chunk) recover_untracked: bool,
     pub(in crate::chunk) last_tint_identity: Option<ChunkBiomeTintIdentity>,
 }
 
@@ -266,6 +267,7 @@ impl GpuUpdateFairness {
             wait_ages: HashMap::new(),
             urgent_waiters: HashSet::new(),
             last_tint_identity: None,
+            recover_untracked: false,
             limit,
         }
     }
@@ -294,11 +296,14 @@ impl GpuUpdateFairness {
             self.wait_ages.remove(&entity);
             self.urgent_waiters.remove(&entity);
         }
+        self.recover_untracked = false;
         for &entity in active.iter().filter(|entity| !successful.contains(entity)) {
             if let Some(age) = self.wait_ages.get_mut(&entity) {
                 *age = age.saturating_add(1);
             } else if self.wait_ages.len() < self.limit {
                 self.wait_ages.insert(entity, 1);
+            } else {
+                self.recover_untracked = true;
             }
         }
         for &entity in urgent.iter().filter(|entity| !successful.contains(entity)) {
@@ -313,6 +318,7 @@ impl GpuUpdateFairness {
         self.wait_ages.clear();
         self.urgent_waiters.clear();
         self.last_tint_identity = None;
+        self.recover_untracked = false;
     }
 
     #[cfg(test)]

@@ -63,7 +63,8 @@ impl CapeState {
 /// coordinates are normalised, so any cape size maps onto the layer exactly.
 pub(crate) fn cape_layer(width: u32, height: u32, rgba8: &[u8]) -> Option<Arc<[u8]>> {
     let (width, height) = (width as usize, height as usize);
-    if width == 0 || height == 0 || rgba8.len() != width * height * 4 {
+    let expected = width.checked_mul(height)?.checked_mul(4)?;
+    if width == 0 || height == 0 || rgba8.len() != expected {
         return None;
     }
     let side = STANDARD_SKIN_SIDE;
@@ -200,5 +201,10 @@ mod tests {
         assert_eq!(multiply(turn, [0.0, 0.0, 0.0, 1.0]), turn);
         let twice = multiply(turn, turn);
         assert_eq!(twice, [0.0, 0.0, 0.0, -1.0]);
+    }
+    #[test]
+    fn review_render_cape_rejects_overflowing_dimensions() {
+        assert!(cape_layer(1 << 31, 1 << 31, &[]).is_none());
+        assert!(cape_layer(u32::MAX, u32::MAX, &[]).is_none());
     }
 }

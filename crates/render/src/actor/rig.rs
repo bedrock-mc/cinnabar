@@ -275,6 +275,16 @@ impl ActorRigGeometry {
         })
     }
 
+    /// Rechecks public vertex data and its bone requirement before catalog admission.
+    fn revalidate(&mut self) -> Result<(), ActorRigGeometryError> {
+        *self = Self::new(
+            self.id,
+            Arc::clone(&self.vertices),
+            Arc::clone(&self.bone_pivots),
+        )?;
+        Ok(())
+    }
+
     pub fn synthetic_cuboid(
         id: EntityRigId,
         min: [f32; 3],

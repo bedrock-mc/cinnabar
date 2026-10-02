@@ -67,7 +67,6 @@ impl BlockEntityKind {
                 | Self::Beacon(_)
                 | Self::Spawner(_)
                 | Self::EndPortal
-                | Self::EndGateway
         )
     }
 }
@@ -192,7 +191,7 @@ impl BlockEntityScene {
         catalog: &assets::RuntimeActorCatalog,
     ) {
         let mobs = MobModels::from_assets(entities, catalog);
-        let Some(atlas) = self.atlas.as_mut().and_then(Arc::get_mut) else {
+        let Some(atlas) = self.atlas.as_mut().map(Arc::make_mut) else {
             return;
         };
         atlas.append_textures(mobs.textures());

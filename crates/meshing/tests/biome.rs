@@ -344,3 +344,21 @@ fn boundary_inside_a_chunk_has_the_same_gradient_as_a_chunk_edge() {
         );
     }
 }
+
+#[test]
+fn review_render_uniform_sentinel_tint_keeps_a_valid_blending_record() {
+    let storage = DecodedBiomeColumn::decode(-4, 1, &[1, 0], &BIOMES)
+        .storage(-4)
+        .unwrap();
+    let halo = std::array::from_fn(|_| Some(Arc::clone(&storage)));
+    let record = PackedBiomeRecord::from_neighbourhood(&halo, |_| u32::MAX);
+    let samples = record.blend_samples([8, 8, 8]).unwrap();
+    let total: f32 = samples.iter().map(|sample| sample.weight).sum();
+    assert!((total - 1.0).abs() < 1e-5);
+    assert!(
+        samples
+            .iter()
+            .filter(|sample| sample.weight > 0.0)
+            .all(|sample| sample.tint_index == u32::MAX)
+    );
+}

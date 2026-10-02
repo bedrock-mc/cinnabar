@@ -40,7 +40,7 @@ pub fn publication_noop_render_plugin() -> RenderPlugin {
     let adapter_info = adapter.get_info();
     let device_descriptor = wgpu::DeviceDescriptor {
         required_limits: wgpu::Limits {
-            max_storage_buffers_per_shader_stage: 10,
+            max_storage_buffers_per_shader_stage: super::required_vertex_storage_buffers(),
             ..Default::default()
         },
         ..Default::default()

@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Separates armor mappings sourced from a replaceable pack.
+pub(super) const ARMOR_CACHE_PREFIX: &str = "\u{1}pack:";
+
 /// A server pack's entity catalog, attachable catalog and artwork locations.
 pub(crate) type PackEquipmentLayer = (
     Arc<RuntimeEntityAssets>,
@@ -61,8 +64,16 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub(crate) fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
-        self.attachable_meshes
-            .retain(|(from_pack, _, _), _| !from_pack);
+        self.attachable_meshes.retain(|(from_pack, _, _), rig| {
+            if *from_pack {
+                self.free_meshes.push(*rig);
+            }
+            !from_pack
+        });
+        self.pending
+            .retain(|geometry| !self.free_meshes.contains(&geometry.id));
+        self.armor_maps
+            .retain(|(_, geometry), _| !geometry.starts_with(ARMOR_CACHE_PREFIX));
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             texture_locations: catalog

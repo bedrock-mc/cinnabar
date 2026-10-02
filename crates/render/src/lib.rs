@@ -121,6 +121,7 @@ pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
     sun_direction, sunrise_band,
 };
+pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,

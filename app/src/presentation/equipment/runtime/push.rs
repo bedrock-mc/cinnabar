@@ -262,7 +262,12 @@ impl EquipmentRuntime {
                 .entry((
                     body_geometry,
                     if from_pack {
-                        format!("\u{1}pack:{}", binding.geometry.identifier).into()
+                        format!(
+                            "{}{}",
+                            pack::ARMOR_CACHE_PREFIX,
+                            binding.geometry.identifier
+                        )
+                        .into()
                     } else {
                         binding.geometry.identifier.clone()
                     },

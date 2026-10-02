@@ -178,6 +178,14 @@ struct Pose {
 
 impl Pose {
     fn sample(source: &ActorRenderSource, alpha: f32) -> Self {
+        if source.teleported {
+            return Self {
+                position: source.position,
+                pitch_degrees: source.pitch_degrees,
+                yaw_degrees: source.yaw_degrees,
+                head_yaw_degrees: source.head_yaw_degrees,
+            };
+        }
         Self {
             position: std::array::from_fn(|axis| {
                 source.previous_position[axis]
@@ -266,7 +274,10 @@ impl ActorRenderScene {
     ) -> Result<(), ActorRigGeometryError> {
         let replacement = ActorRigFrameBuilder::from_runtime_assets(assets)?;
         self.rig_builder = replacement;
-        self.frame = ActorRenderFrame::default();
+        self.frame = ActorRenderFrame {
+            artwork: Arc::clone(&self.frame.artwork),
+            ..ActorRenderFrame::default()
+        };
         Ok(())
     }
 
@@ -290,7 +301,10 @@ impl ActorRenderScene {
             .map(asset_geometry::pack_geometries)
             .unwrap_or_default();
         self.rig_builder.replace_pack_geometries(geometries)?;
-        self.frame = ActorRenderFrame::default();
+        self.frame = ActorRenderFrame {
+            artwork: Arc::clone(&self.frame.artwork),
+            ..ActorRenderFrame::default()
+        };
         Ok(())
     }
 
@@ -486,15 +500,34 @@ impl ActorRenderScene {
         skins_rgba8: Arc<[u8]>,
         assignments: &std::collections::HashMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
-        let rig = self
+        let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
+        let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
+        let artwork = &self.frame.artwork;
+        let mut invalid_references = 0u64;
+        let submissions = submissions.into_iter().filter(|submission| {
+            let valid = submission.route == ActorRigRoute::NoDraw
+                || if let Some(location) = assignments.get(&submission.input.identity) {
+                    artwork.valid(submission.input.rig, *location)
+                        && submission.texture_layer == location.layer
+                } else {
+                    (submission.texture_layer as usize) < skin_layer_count
+                };
+            if !valid {
+                invalid_references = invalid_references.saturating_add(1);
+            }
+            valid
+        });
+        let mut rig = self
             .rig_builder
             .build_paged(partial_tick, view, submissions, |identity| {
                 assignments
                     .get(identity)
                     .map_or(0, |location| location.page)
             });
-        let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
-        let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
+        rig.rejects.invalid_geometry = rig
+            .rejects
+            .invalid_geometry
+            .saturating_add(invalid_references);
         let instance_pages: Vec<_> = rig
             .manifest
             .iter()
@@ -504,20 +537,7 @@ impl ActorRenderScene {
                     .map_or(0, |location| location.page)
             })
             .collect();
-        let invalid_skin_layer =
-            rig.instances
-                .iter()
-                .zip(rig.manifest.iter())
-                .any(|(instance, entry)| {
-                    if let Some(location) = assignments.get(&entry.identity) {
-                        !self.frame.artwork.valid(entry.rig, *location)
-                            || instance.texture_layer != location.layer
-                    } else {
-                        instance.texture_layer as usize >= skin_layer_count
-                    }
-                });
-        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS || invalid_skin_layer
-        {
+        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
                 geometry_revision: rig.geometry_revision,

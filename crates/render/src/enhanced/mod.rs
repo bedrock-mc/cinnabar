@@ -47,8 +47,10 @@ const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
 const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("9b7e2c15-3f4a-4d8b-a6e2-7c1d0f5b3a84");
 
-/// Per-camera opt-in for the Enhanced render mode and its quality knobs.
+/// Per-camera opt-in for Enhanced rendering. The plugin enforces [`Msaa::Off`]
+/// before extraction because its depth copies and sampling require single-sample textures.
 #[derive(Component, ExtractComponent, Clone, Copy, Debug, PartialEq)]
+#[require(Msaa::Off)]
 pub struct EnhancedRendering {
     pub shadows: bool,
     pub shadow_resolution: u32,
@@ -121,6 +123,7 @@ impl Plugin for EnhancedRenderPlugin {
             Shader::from_wgsl
         );
         app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
+        app.add_systems(Last, enforce_single_sample_depth);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -141,6 +144,15 @@ impl Plugin for EnhancedRenderPlugin {
             .init_resource::<EnhancedPostPipelines>()
             .init_resource::<EnhancedShadowPipelines>();
         install_graph(render_app.world_mut());
+    }
+}
+
+/// Keeps runtime MSAA changes from reaching the single-sample depth passes.
+fn enforce_single_sample_depth(mut cameras: Query<&mut Msaa, With<EnhancedRendering>>) {
+    for mut msaa in &mut cameras {
+        if *msaa != Msaa::Off {
+            *msaa = Msaa::Off;
+        }
     }
 }
 

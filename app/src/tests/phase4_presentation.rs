@@ -172,6 +172,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         artwork: None,
         model_scale: 1.0,
         authored_scale: 1.0,
+        world_yaw_degrees: 0.0,
         head_over_body: 0.0,
     }
 }
@@ -593,6 +594,8 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
 fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
     let mut canonical = render_owned(7, 31);
     canonical.head_over_body = 30.0;
+    canonical.submission.world_from_actor =
+        crate::presentation::actors::rig_world_from_actor([0.0; 3], 0.0, 1.0);
     let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [4.0, 64.0, 2.0], 90.0, 0.0)
         .expect("finite local carrier converts");
     let local =
