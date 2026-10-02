@@ -847,6 +847,24 @@ fn settings_authority_rejects_stale_and_invalid_fov_updates_atomically() {
 }
 
 #[test]
+fn review_unrelated_settings_keep_the_hotkey_perspective() {
+    let mut authority = CameraSettingsAuthority::default();
+    let mut settings = UserSettings::default();
+    authority.replace(1, &settings).unwrap();
+    authority.cycle_perspective();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonBack);
+    settings.video.horizontal_fov_degrees = 82.0;
+    authority.replace(2, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonBack);
+    settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonFront;
+    authority.replace(3, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonFront);
+    authority.reset_perspective();
+    authority.replace(4, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::FirstPerson);
+}
+
+#[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);

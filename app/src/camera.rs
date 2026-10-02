@@ -97,6 +97,7 @@ pub struct CameraSettingsAuthority {
     generation: u64,
     horizontal_fov_degrees: f32,
     perspective: PerspectiveMode,
+    configured_perspective: PerspectiveMode,
     feel: CameraFeelSettings,
 }
 
@@ -154,6 +155,7 @@ impl Default for CameraSettingsAuthority {
             generation: 0,
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
             perspective: settings.gameplay.default_perspective,
+            configured_perspective: settings.gameplay.default_perspective,
             feel: CameraFeelSettings::from_settings(&settings),
         }
     }
@@ -180,7 +182,10 @@ impl CameraSettingsAuthority {
         }
         self.generation = generation;
         self.horizontal_fov_degrees = fov;
-        self.perspective = settings.gameplay.default_perspective;
+        if self.configured_perspective != settings.gameplay.default_perspective {
+            self.configured_perspective = settings.gameplay.default_perspective;
+            self.perspective = self.configured_perspective;
+        }
         self.feel = CameraFeelSettings::from_settings(settings);
         Ok(())
     }
