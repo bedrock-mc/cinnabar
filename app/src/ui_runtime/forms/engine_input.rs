@@ -25,6 +25,9 @@ const MAX_END_EVENTS: usize = 64;
 /// The input button a primary pointer press is.
 const SELECT: &str = "button.menu_select";
 
+#[cfg(test)]
+mod tests;
+
 /// The primary pointer button's edges this frame and whether it is down.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct PointerButtons {
@@ -269,6 +272,22 @@ fn keyboard(
     let consumed = down.consumed;
     let mut events = down.events;
     events.extend(button(runtime, frame, id, false, None, now).events);
+    // Content subtrees omit the screen's global cancel mapping.
+    if !consumed && key == KeyCode::Escape
+        && let Some(target) = &frame.cancel_target
+        && !events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == *target && button.down && button.interacted))
+    {
+        events.push(ScreenEvent::Button(ButtonEvent {
+            id: target.clone(),
+            from: id.to_owned(),
+            key: String::new(),
+            collection_index: None,
+            collection: None,
+            down: true,
+            interacted: true,
+            scope: json_ui::MappingScope::Global,
+        }));
+    }
     // An unconsumed direction moves focus.
     if !consumed && let Some(direction) = engine_focus::direction_of(key) {
         engine_focus::step(runtime, frame, direction);
